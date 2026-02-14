@@ -367,12 +367,12 @@ func partition(arr, predicate) {
 }
 
 let numbers = [1, 2, 3, 4, 5, 6];
-let [evens, odds] = partition(numbers, func(n) {
+let result = partition(numbers, func(n) {
     return n % 2 == 0;
 });
 
-print(evens);  // [2, 4, 6]
-print(odds);   // [1, 3, 5]
+print(result[0]);  // [2, 4, 6]
+print(result[1]);   // [1, 3, 5]
 ```
 
 ### Array Intersection

@@ -107,6 +107,188 @@ func __stdlib_init__() {
         }
     }
 
+    global Array = {
+        unique: func(arr) {
+            let result = [];
+            for (item in arr) {
+                let found = false;
+                for (existing in result) {
+                    if (existing == item) {
+                        found = true;
+                    }
+                }
+                if (!found) {
+                    result.push(item);
+                }
+            }
+            return result;
+        },
+        flatten: func(arr) {
+            let result = [];
+            for (item in arr) {
+                if (isArray(item)) {
+                    let flat = Array.flatten(item);
+                    result = result.concat(flat);
+                } else {
+                    result.push(item);
+                }
+            }
+            return result;
+        },
+        chunk: func(arr, size) {
+            let result = [];
+            for (let i = 0; i < arr.length(); i = i + size) {
+                let end = i + size;
+                if (end > arr.length()) {
+                    end = arr.length();
+                }
+                result.push(arr.slice(i, end));
+            }
+            return result;
+        },
+        findMax: func(arr) {
+            if (arr.length() == 0) return null;
+            
+            let max = arr[0];
+            for (let i = 1; i < arr.length(); i++) {
+                if (arr[i] > max) {
+                    max = arr[i];
+                }
+            }
+            return max;
+        },
+        sum: func(arr: number[]) {
+            let total = 0;
+            for (num in arr) {
+                total += num;
+            }
+            return total;
+        },
+        partition: func(arr, predicate) {
+            let pass = [];
+            let fail = [];
+            
+            for (item in arr) {
+                if (predicate(item)) {
+                    pass.push(item);
+                } else {
+                    fail.push(item);
+                }
+            }
+            
+            return [pass, fail];
+        },
+        intersection: func(arr1, arr2) {
+            let result = [];
+            for (item in arr1) {
+                let inArr2 = false;
+                for (other in arr2) {
+                    if (other == item) {
+                        inArr2 = true;
+                    }
+                }
+                let inResult = false;
+                for (existing in result) {
+                    if (existing == item) {
+                        inResult = true;
+                    }
+                }
+                if (inArr2 && !inResult) {
+                    result.push(item);
+                }
+            }
+            return result;
+        }
+    }
+
+    global Object = {
+        deepClone: func(obj) {
+            if (isArray(obj)) {
+                let result = [];
+                for (item in obj) {
+                    result.push(Object.deepClone(item));
+                }
+                return result;
+            }
+            
+            if (!isObject(obj)) {
+                return obj;  // Primitive value
+            }
+            
+            let result = {};
+            for (key in obj.keys()) {
+                result[key] = Object.deepClone(obj[key]);
+            }
+            return result;
+        },
+        equals: func(obj1, obj2) {
+            if (!isObject(obj1) || !isObject(obj2)) {
+                return obj1 == obj2;
+            }
+            
+            let keys1 = obj1.keys();
+            let keys2 = obj2.keys();
+            
+            if (keys1.length() != keys2.length()) {
+                return false;
+            }
+            
+            for (key in keys1) {
+                if (!obj2.hasKey(key)) {
+                    return false;
+                }
+                if (!Object.equals(obj1[key], obj2[key])) {
+                    return false;
+                }
+            }
+            
+            return true;
+        },
+        pick: func(obj, selectedKeys) {
+            let result = {};
+            for (key in selectedKeys) {
+                if (obj.hasKey(key)) {
+                    result[key] = obj[key];
+                }
+            }
+            return result;
+        },
+        omit: func(obj, excludedKeys) {
+            let result = {};
+            let objKeys = obj.keys();
+            
+            for (key in objKeys) {
+                let excluded = false;
+                for (exKey in excludedKeys) {
+                    if (exKey == key) {
+                        excluded = true;
+                    }
+                }
+                if (!excluded) {
+                    result[key] = obj[key];
+                }
+            }
+            
+            return result;
+        },
+        groupBy: func(arr, keyFn) {
+            let result = {};
+            
+            for (item in arr) {
+                let key = keyFn(item);
+                
+                if (!result.hasKey(key)) {
+                    result[key] = [];
+                }
+                
+                result[key].push(item);
+            }
+            
+            return result;
+        }
+
+    }
+
     global fs = {
         readFile: func(path) {
             return __fs_readFile(path);

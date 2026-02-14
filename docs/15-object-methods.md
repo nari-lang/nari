@@ -311,16 +311,16 @@ print(settings);
 
 ```nari
 func deepClone(obj) {
-    if (!isObject(obj)) {
-        return obj;  // Primitive value
-    }
-    
     if (isArray(obj)) {
         let result = [];
         for (item in obj) {
             result.push(deepClone(item));
         }
         return result;
+    }
+
+    if (!isObject(obj)) {
+        return obj;  // Primitive value
     }
     
     let result = {};
