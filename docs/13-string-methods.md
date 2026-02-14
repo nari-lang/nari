@@ -247,9 +247,6 @@ Get string length as a `number`.
 
 ### Using += Operator
 
-> [!WARNING]
-> This is deprecated, and will eventually be removed. You *should* always use @ or String Interpolation.
-
 ```nari
 let str = "Hello";
 str += " World";                  // "Hello World"

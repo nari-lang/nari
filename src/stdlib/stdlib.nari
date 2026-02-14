@@ -11,7 +11,7 @@ enum Option<T> {
 }
 
 func __stdlib_init__() {
-    global stdlib_version = "0.0.1";
+    global stdlib_version = "0.0.2";
 
     // Result helpers
     global Ok = func(value) {
@@ -81,6 +81,31 @@ func __stdlib_init__() {
             filter: func(pred) { return None(); }
         };
     };
+
+    global String = {
+        capitalize: func(str) {
+            if (str.length() == 0) { return str }
+            
+            let first = str.charAt(0).toUpper();
+            let rest = str.substr(1);
+            return first + rest;
+        },
+        countWords: func(text) {
+            let trimmed = text.trim();
+            if (trimmed.length() == 0) { return 0 }
+            
+            let words = trimmed.split(" ");
+            return words.length();
+        },
+        truncate: func(str, maxLength) {
+            if (!maxLength) maxLength = 20;
+
+            if (str.length() <= maxLength) {
+                return str;
+            }
+            return str.substr(0, maxLength - 3) + "...";
+        }
+    }
 
     global fs = {
         readFile: func(path) {
