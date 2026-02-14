@@ -1,0 +1,172 @@
+// Test basic class system with public/private members and methods
+
+// Simple class with fields and constructor
+class Person {
+    public name: string;
+    private age: number;
+    public email: string;
+
+    public init(n: string, a: number) {
+        this.name = n;
+        this.age = a;
+        this.email = "";
+    }
+
+    public greet() -> string {
+        return "Hello, I'm " @ this.name;
+    }
+
+    public getAge() -> number {
+        return this.age;
+    }
+
+    public setEmail(e: string) {
+        this.email = e;
+    }
+
+    private incrementAge() {
+        this.age = this.age + 1;
+    }
+
+    public birthday() {
+        this.incrementAge();
+        print(this.name @ " is now " @ toString(this.age));
+    }
+}
+
+// Create instances
+let alice = new Person("Alice", 25);
+let bob = new Person("Bob", 30);
+
+// Test public field access
+print(alice.name);  // Alice
+print(bob.name);    // Bob
+
+// Test public method calls
+print(alice.greet());  // Hello, I'm Alice
+print(bob.greet());    // Hello, I'm Bob
+
+// Test methods that access private fields
+print(alice.getAge());  // 25
+print(bob.getAge());    // 30
+
+// Test setter methods
+alice.setEmail("alice@example.com");
+bob.setEmail("bob@example.com");
+
+print(alice.email);  // alice@example.com
+print(bob.email);    // bob@example.com
+
+// Test private method called from public method
+alice.birthday();  // Alice is now 26
+bob.birthday();    // Bob is now 31
+
+// Verify state changes
+print(alice.getAge());  // 26
+print(bob.getAge());    // 31
+
+// Test typeof
+print(typeof(alice));  // Person
+print(typeof(bob));    // Person
+
+// Test class with default field values
+class Counter {
+    public count: number = 0;
+
+    public increment() {
+        this.count = this.count + 1;
+    }
+
+    public decrement() {
+        this.count = this.count - 1;
+    }
+
+    public getValue() -> number {
+        return this.count;
+    }
+}
+
+let counter = new Counter();
+print(counter.getValue());  // 0
+
+counter.increment();
+counter.increment();
+counter.increment();
+print(counter.getValue());  // 3
+
+counter.decrement();
+print(counter.getValue());  // 2
+
+print(counter.count);  // 2 (public field)
+
+// Test class with no constructor
+class Point {
+    public x: number = 0;
+    public y: number = 0;
+
+    public move(dx: number, dy: number) {
+        this.x = this.x + dx;
+        this.y = this.y + dy;
+    }
+
+    public distance() -> number {
+        return (this.x ** 2 + this.y ** 2) ** 0.5;
+    }
+}
+
+let p = new Point();
+print(p.x);  // 0
+print(p.y);  // 0
+
+p.x = 3;
+p.y = 4;
+print(p.distance());  // 5.0
+
+p.move(1, 1);
+print(p.x);  // 4
+print(p.y);  // 5
+
+// Test class with multiple methods
+class Calculator {
+    private result: number = 0;
+
+    public add(n: number) {
+        this.result = this.result + n;
+        return this.result;
+    }
+
+    public subtract(n: number) {
+        this.result = this.result - n;
+        return this.result;
+    }
+
+    public multiply(n: number) {
+        this.result = this.result * n;
+        return this.result;
+    }
+
+    public divide(n: number) {
+        this.result = this.result / n;
+        return this.result;
+    }
+
+    public getResult() -> number {
+        return this.result;
+    }
+
+    public reset() {
+        this.result = 0;
+    }
+}
+
+let calc = new Calculator();
+print(calc.add(10));      // 10
+print(calc.multiply(5));  // 50
+print(calc.subtract(20)); // 30
+print(calc.divide(3));    // 10
+print(calc.getResult());  // 10
+
+calc.reset();
+print(calc.getResult());  // 0
+
+print("All class tests passed!");

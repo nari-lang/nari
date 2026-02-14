@@ -1,0 +1,46 @@
+// Test GC builtin functions
+
+// get initial stats
+let stats = __gc_stats();
+system.print("Initial GC stats:");
+system.print("  Tracked: " @ stats.tracked);
+system.print("  Allocation count: " @ stats.allocationCount);
+system.print("  Total collections: " @ stats.totalCollections);
+system.print("  Threshold: " @ stats.threshold);
+system.print("  Enabled: " @ stats.enabled);
+
+// create some allocations
+let objects = [];
+for (let i = 0; i < 500; i = i + 1) {
+    let obj = { value: i, data: [1, 2, 3, 4, 5] };
+    objects.push(obj);
+}
+
+// force a collection
+let collectResult = __gc_collect();
+system.print("\nAfter forced collection:");
+system.print("  Collected objects: " @ collectResult.collected);
+system.print("  Tracked: " @ collectResult.tracked);
+system.print("  Total collections: " @ collectResult.totalCollections);
+
+// test enabling/disabling
+let enableResult = __gc_enable(false);
+system.print("\nDisabled GC: " @ enableResult);
+
+let statsAfterDisable = __gc_stats();
+system.print("GC enabled status: " @ statsAfterDisable.enabled);
+
+enableResult = __gc_enable(true);
+system.print("Re-enabled GC: " @ enableResult);
+
+// test threshold setting
+let thresholdResult = __gc_set_threshold(2000);
+system.print("\nSet threshold to 2000: " @ thresholdResult);
+
+let statsAfterThreshold = __gc_stats();
+system.print("New threshold: " @ statsAfterThreshold.threshold);
+
+// reset threshold
+__gc_set_threshold(1000);
+
+system.print("\nGC builtins test passed!");

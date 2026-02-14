@@ -1,0 +1,45 @@
+func boom() {
+    throw "fail";
+}
+
+func start() {
+    print("try/catch/finally");
+    try {
+        print("in try");
+        throw "boom";
+        print("after");
+    } catch (e) {
+        print("caught " @ e);
+    } finally {
+        print("finally");
+    }
+
+    let x = 0;
+    try {
+        x = 1;
+    } finally {
+        x = x + 1;
+    }
+    print("x = " @ toString(x));
+
+    try {
+        print("no throw");
+    } catch (e) {
+        print("should not");
+    } finally {
+        print("finally2");
+    }
+
+    try {
+        boom();
+        print("after boom");
+    } catch (e) {
+        print("caught " @ e);
+    }
+
+    try {
+        throw 5;
+    } catch (e) {
+        print("num " @ toString(e));
+    }
+}

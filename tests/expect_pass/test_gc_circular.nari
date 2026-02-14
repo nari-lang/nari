@@ -1,0 +1,67 @@
+// Test garbage collection with circular references
+// This creates objects that reference each other in a cycle
+// Without GC, this would leak memory. With GC, memory should be freed.
+
+// Test 1: Simple circular object references
+let i = 0;
+while (i < 1000) {
+    let obj1 = {};
+    let obj2 = {};
+    
+    // Create circular reference
+    obj1["ref"] = obj2;
+    obj2["ref"] = obj1;
+    
+    // obj1 and obj2 will go out of scope and should be collected
+    i = i + 1;
+}
+print("Created 1000 circular object reference pairs");
+
+// Test 2: Nested array cycles
+let j = 0;
+while (j < 500) {
+    let arr1 = [];
+    let arr2 = [];
+    
+    arr1.push(arr2);
+    arr2.push(arr1);
+    
+    // Circular reference between arrays
+    j = j + 1;
+}
+print("Created 500 array circular reference pairs");
+
+// Test 3: Mixed array/object cycles
+let k = 0;
+while (k < 500) {
+    let obj = {};
+    let arr = [];
+    
+    obj["arr"] = arr;
+    arr.push(obj);
+    
+    // Mixed cycle
+    k = k + 1;
+}
+print("Created 500 mixed circular reference pairs");
+
+// Test 4: Deep nested cycles
+let m = 0;
+while (m < 200) {
+    let root = {};
+    let child1 = {};
+    let child2 = {};
+    let grandchild = {};
+    
+    root["child1"] = child1;
+    root["child2"] = child2;
+    child1["grandchild"] = grandchild;
+    child2["grandchild"] = grandchild;
+    grandchild["root"] = root;
+    
+    m = m + 1;
+}
+print("Created 200 deep nested circular structures");
+
+print("\nAll GC tests completed!");
+print("If the program didn't crash or run out of memory, GC is working!");

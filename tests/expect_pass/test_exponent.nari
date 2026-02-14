@@ -1,0 +1,22 @@
+print("2 ** 3 =", 2 ** 3);
+print("5 ** 2 =", 5 ** 2);
+print("10 ** 0 =", 10 ** 0);
+print("2 ** 10 =", 2 ** 10);
+print("3 ** 4 =", 3 ** 4);
+
+// Test with variables
+let base = 2;
+let exp = 8;
+print("base =", base, "exp =", exp);
+print("base ** exp =", base ** exp);
+
+// Test precedence: should be 2 + (3 ** 2) = 2 + 9 = 11
+print("2 + 3 ** 2 =", 2 + 3 ** 2);
+
+// Test: (2 + 3) ** 2 = 5 ** 2 = 25
+print("(2 + 3) ** 2 =", (2 + 3) ** 2);
+
+// Test chained exponentiation (left-associative): (2 ** 3) ** 2 = 8 ** 2 = 64
+print("2 ** 3 ** 2 =", 2 ** 3 ** 2);
+
+print("All exponentiation tests passed!");

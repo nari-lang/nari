@@ -1,0 +1,56 @@
+[binaries]
+c = 'emcc'
+cpp = 'em++'
+ar = 'emar'
+strip = 'emstrip'
+ranlib = 'emranlib'
+
+[host_machine]
+system = 'emscripten'
+cpu_family = 'wasm32'
+cpu = 'wasm32'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = false
+skip_sanity_check = true
+
+[built-in options]
+c_args = [
+    '-fdiagnostics-absolute-paths',
+    '-fexceptions',
+    '-Wno-unused-command-line-argument',
+    '-DNO_FFI',
+    '-DNO_OPENSSL']
+
+cpp_args = [
+    '-fdiagnostics-absolute-paths',
+    '-fexceptions',
+    '-Wno-unused-variable',
+    '-Wno-unused-lambda-capture',
+    '-Wno-unused-command-line-argument',
+    '-DNO_FFI',
+    '-DNO_OPENSSL']
+
+c_link_args = [
+    '-sALLOW_MEMORY_GROWTH=1',
+    '-fexceptions',
+    '-sEXPORTED_RUNTIME_METHODS=["FS","callMain"]',
+    '-sEXPORTED_FUNCTIONS=["_main"]',
+    '-sNO_EXIT_RUNTIME=1',
+    '-sMODULARIZE=1',
+    '-sEXPORT_NAME="createModule"',
+    '-sINVOKE_RUN=0',
+    '-o', 'interpreter.html']
+
+cpp_link_args = [
+    '-sALLOW_MEMORY_GROWTH=1',
+    '-fexceptions',
+    '-sEXPORTED_RUNTIME_METHODS=["FS","callMain"]',
+    '-sEXPORTED_FUNCTIONS=["_main"]',
+    '-sNO_EXIT_RUNTIME=1',
+    '-sMODULARIZE=1',
+    '-sEXPORT_NAME="createModule"',
+    '-sINVOKE_RUN=0',
+    '-o', 'interpreter.html']
+

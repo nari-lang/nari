@@ -1,0 +1,15 @@
+func start() {
+    print("For-each loop");
+    let arr = [1, 2, 3, 4];
+    let total = 0;
+    for (item in arr) {
+        total = total + item;
+    }
+    print("sum = " @ toString(total));
+
+    let out = "";
+    for (ch in ["a", "b", "c"]) {
+        out = out @ ch;
+    }
+    print("out = " @ out);
+}

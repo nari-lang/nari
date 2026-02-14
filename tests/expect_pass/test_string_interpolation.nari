@@ -1,0 +1,52 @@
+// basic interpolation
+let name = "Alice";
+let age = 30;
+system.print(`Hello, my name is {name} and I am {age} years old.`);
+
+// expressions in interpolation
+let x = 5;
+let y = 10;
+system.print(`{x} + {y} = {x + y}`);
+
+// nested expressions
+let score = 85;
+system.print(`Grade: {score >= 90 ? "A" : score >= 80 ? "B" : "C"}`);
+
+// multiple interpolations
+system.print(`The result of {x} * {y} is {x * y}`);
+
+// empty string parts
+let value = 42;
+system.print(`{value}`);
+
+// no interpolation (just regular string parts)
+system.print(`This is a plain backtick string`);
+
+// with escaped characters
+system.print(`Line 1\nLine 2\tTabbed`);
+
+// escaping braces
+system.print(`Not an expression: \{escaped\}`);
+
+// object member interpolation
+let person = {name: "Bob", age: 25};
+system.print(`Person: {person.name}, Age: {person["age"]}`);
+
+// array element interpolation
+let numbers = [1, 2, 3];
+system.print(`First: {numbers[0]}, Second: {numbers[1]}, Third: {numbers[2]}`);
+
+// function call in interpolation
+func double(n) {
+    return n * 2;
+}
+system.print(`Double of 7 is {double(7)}`);
+
+// complex nested expression
+let a = 3;
+let b = 4;
+let hyp = (a ** 2 + b ** 2) ** 0.5;
+system.print(`Hypotenuse of {a} and {b} is approximately {hyp}`);
+// null coalescing in interpolation
+let missing;
+system.print(`Value: {missing ?? "default"}`);

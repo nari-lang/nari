@@ -1,0 +1,38 @@
+func greet(name = "Unknown", greeting = "Hello") {
+    print(greeting @ " " @ name @ "!");
+}
+
+func call_twice(fn) {
+    fn();
+    fn();
+}
+
+func collect(...vals) {
+    return vals;
+}
+
+func sum(base, ...nums) {
+    let total = base;
+    for (let i = 0; i < nums.length(); i = i + 1) {
+        total = total + nums[i];
+    }
+    return total;
+}
+
+func start() {
+    print("Default params");
+    greet("Alice");
+    greet("Bob", "Yo");
+
+    print("First-class functions");
+    let g = greet;
+    g("Zed");
+    call_twice(g);
+    let arr = [greet, g];
+    arr[0]("Nina");
+
+    print("Rest params");
+    let vals = collect(1, 2, 3, 4);
+    print("length(vals) = " @ toString(vals.length()));
+    print("sum(10, 1, 2, 3) = " @ toString(sum(10, 1, 2, 3)));
+}

@@ -1,0 +1,151 @@
+// Comprehensive class example: Library management system
+
+class Book {
+    public title: string;
+    public author: string;
+    private isbn: string;
+    private available: bool = true;
+
+    public init(t: string, a: string, i: string) {
+        this.title = t;
+        this.author = a;
+        this.isbn = i;
+    }
+
+    public checkout() -> bool {
+        if (this.available) {
+            this.available = false;
+            return true;
+        }
+        return false;
+    }
+
+    public returnBook() {
+        this.available = true;
+    }
+
+    public isAvailable() -> bool {
+        return this.available;
+    }
+
+    public getInfo() -> string {
+        let status = "Available";
+        if (!this.available) {
+            status = "Checked Out";
+        }
+        return this.title @ " by " @ this.author @ " [" @ status @ "]";
+    }
+}
+
+class Library {
+    public name: string;
+    private books: object[];
+    private bookCount: number = 0;
+
+    public init(libraryName: string) {
+        this.name = libraryName;
+        this.books = [];
+    }
+
+    public addBook(book: object) {
+        this.books.push(book);
+        this.bookCount = this.bookCount + 1;
+        print("Added book to library: " @ book.title);
+    }
+
+    public listBooks() {
+        print("\n" @ this.name @ " Library");
+        print("Total Books: " @ toString(this.bookCount));
+        print("\nBook Collection:");
+        
+        for (book in this.books) {
+            print("  - " @ book.getInfo());
+        }
+    }
+
+    public findBook(title: string) -> object {
+        for (book in this.books) {
+            if (book.title == title) {
+                return book;
+            }
+        }
+        return null;
+    }
+
+    public checkoutBook(title: string) -> bool {
+        let book = this.findBook(title);
+        if (book != null) {
+            if (book.checkout()) {
+                print("Checked out: " @ title);
+                return true;
+            } else {
+                print("Book already checked out: " @ title);
+                return false;
+            }
+        }
+        print("Book not found: " @ title);
+        return false;
+    }
+
+    public returnBook(title: string) -> bool {
+        let book = this.findBook(title);
+        if (book != null) {
+            book.returnBook();
+            print("Returned: " @ title);
+            return true;
+        }
+        print("Book not found: " @ title);
+        return false;
+    }
+
+    public getStats() {
+        let available = 0;
+        let checkedOut = 0;
+        
+        for (book in this.books) {
+            if (book.isAvailable()) {
+                available = available + 1;
+            } else {
+                checkedOut = checkedOut + 1;
+            }
+        }
+        
+        print("\nLibrary Statistics");
+        print("Total Books: " @ toString(this.bookCount));
+        print("Available: " @ toString(available));
+        print("Checked Out: " @ toString(checkedOut));
+    }
+}
+
+// Create library
+let cityLibrary = new Library("City Central");
+
+// Create books
+let book1 = new Book("Fahrenheit 451", "Ray Bradbury", "978-1451673319");
+let book2 = new Book("To Kill a Mockingbird", "Harper Lee", "978-0061120084");
+let book3 = new Book("1984", "George Orwell", "978-0451524935");
+let book4 = new Book("Pride and Prejudice", "Jane Austen", "978-0141439518");
+
+// Add books to library
+cityLibrary.addBook(book1);
+cityLibrary.addBook(book2);
+cityLibrary.addBook(book3);
+cityLibrary.addBook(book4);
+
+// List all books
+cityLibrary.listBooks();
+
+// Checkout some books
+print("\nCheckout Process");
+cityLibrary.checkoutBook("1984");
+cityLibrary.checkoutBook("Fahrenheit 451");
+cityLibrary.checkoutBook("1984");  // Try to checkout again (should fail)
+
+cityLibrary.listBooks();
+cityLibrary.getStats();
+
+print("\nReturn Process");
+cityLibrary.returnBook("1984");
+
+cityLibrary.listBooks();
+cityLibrary.getStats();

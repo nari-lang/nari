@@ -1,0 +1,165 @@
+func load_raylib() {
+    if (platform.os == "windows") {
+        import lib from "raylib.dll"
+        return lib;
+    } else {
+        import lib from "libraylib.so"
+        return lib;
+    }
+}
+
+type Rectangle {
+    x: f32;
+    y: f32;
+    width: f32;
+    height: f32;
+}
+
+type Vector2 {
+    x: f32;
+    y: f32;
+}
+
+global raylib = load_raylib();
+if (!raylib) {
+    throw "Failed to load raylib shared library!";
+}
+
+global KEY_ENTER = 257;
+global MOUSE_LEFT_BUTTON = 0;
+
+// NOTE: little-endian only
+func make_color(r: number, g: number, b: number, a: number) {
+    return (a << 24) | (b << 16) | (g << 8) | r
+}
+
+global RAYWHITE = make_color(245, 245, 245, 255)
+global BLACK = make_color(0, 0, 0, 255)
+global DARKGRAY = make_color(80, 80, 80, 255)
+global RED = make_color(230, 41, 55, 255)
+global MAROON = make_color(190, 33, 55, 255)
+global ORANGE = make_color(255, 161, 0, 255)
+global GOLD = make_color(255, 203, 0, 255)
+global LIME = make_color(0, 228, 48, 255)
+global GREEN = make_color(0, 158, 47, 255)
+global SKYBLUE = make_color(102, 191, 255, 255)
+global BLUE = make_color(0, 121, 241, 255)
+
+global Raylib = {
+    InitWindow: func (width: number, height: number, title: string) {
+        let sig = { returns: "void", params: ["int", "int", "string"] }
+        return __ffi_call(raylib, "InitWindow", sig, [width, height, title])
+    },
+    SetTargetFPS: func (fps: number) {
+        let sig = { returns: "void", params: ["int"] }
+        return __ffi_call(raylib, "SetTargetFPS", sig, [fps])
+    },
+    SetWindowMonitor: func (monitor: number) {
+        let sig = { returns: "void", params: ["int"] }
+        return __ffi_call(raylib, "SetWindowMonitor", sig, [monitor])
+    },
+    GetScreenWidth: func () {
+        let sig = { returns: "int", params: [] }
+        return __ffi_call(raylib, "GetScreenWidth", sig, [])
+    },
+    GetScreenHeight: func () {
+        let sig = { returns: "int", params: [] }
+        return __ffi_call(raylib, "GetScreenHeight", sig, [])
+    },
+    WindowShouldClose: func () {
+        let sig = { returns: "bool", params: [] }
+        return __ffi_call(raylib, "WindowShouldClose", sig, [])
+    },
+    IsKeyPressed: func (key: number) {
+        let sig = { returns: "bool", params: ["int"] }
+        return __ffi_call(raylib, "IsKeyPressed", sig, [key]);
+    },
+    CloseWindow: func () {
+        let sig = { returns: "void", params: [] }
+        return __ffi_call(raylib, "CloseWindow", sig, [])
+    },
+    BeginDrawing: func () {
+        let sig = { returns: "void", params: [] }
+        return __ffi_call(raylib, "BeginDrawing", sig, [])
+    },
+    EndDrawing: func () {
+        let sig = { returns: "void", params: [] }
+        return __ffi_call(raylib, "EndDrawing", sig, [])
+    },
+    GetFrameTime: func () {
+        let sig = { returns: "float", params: [] }
+        return __ffi_call(raylib, "GetFrameTime", sig, [])
+    },
+    ClearBackground: func (color: number) {
+        let sig = { returns: "void", params: ["int"] }
+        return __ffi_call(raylib, "ClearBackground", sig, [color])
+    },
+    MeasureText: func (text: string, fontSize: number) {
+        let sig = { returns: "int", params: ["string", "int"] }
+        return __ffi_call(raylib, "MeasureText", sig, [text, fontSize])
+    },
+    DrawText: func (text: string, posX: number, posY: number, fontSize: number, color: number) {
+        let sig = { returns: "void", params: ["string", "int", "int", "int", "int"] }
+        return __ffi_call(raylib, "DrawText", sig, [text, posX, posY, fontSize, color])
+    },
+    DrawCircle: func (centerX: number, centerY: number, radius: float, color: number) {
+        let sig = { returns: "void", params: ["int", "int", "float", "int"] }
+        return __ffi_call(raylib, "DrawCircle", sig, [centerX, centerY, radius, color])
+    },
+    DrawCircleLines: func (centerX: number, centerY: number, radius: float, color: number) {
+        let sig = { returns: "void", params: ["int", "int", "float", "int"] }
+        return __ffi_call(raylib, "DrawCircleLines", sig, [centerX, centerY, radius, color])
+    },
+    DrawRectangleRec: func (rect: Rectangle, color: number) {
+        let sig = { 
+            returns: "void", 
+            params: [
+                __ffi_membersof(Rectangle),
+                "int"
+            ]
+        }
+        return __ffi_call(raylib, "DrawRectangleRec", sig, [rect, color])
+    },
+    DrawFPS: func (posX: number, posY: number) {
+        let sig = { returns: "void", params: ["int", "int"] }
+        return __ffi_call(raylib, "DrawFPS", sig, [posX, posY])
+    },
+    TextFormat: func(format: string, args: array) {
+        let sig = {
+            returns: "pointer",
+            params: ["pointer"],
+            variadic: 1
+        }
+        let argList = [format]
+        if (args != null) {
+            let len = args.length()
+            for (let i = 0; i < len; i = i + 1) {
+                argList.push(args[i])
+            }
+        }
+        return __ffi_call(raylib, "TextFormat", sig, argList)
+    },
+    GetMouseX: func () {
+        let sig = { returns: "int", params: [] }
+        return __ffi_call(raylib, "GetMouseX", sig, [])
+    },
+    GetMouseY: func () {
+        let sig = { returns: "int", params: [] }
+        return __ffi_call(raylib, "GetMouseY", sig, [])
+    },
+    GetMousePosition: func () {
+        let sig = { 
+            returns: __ffi_membersof(Vector2),
+            params: []
+        }
+        return __ffi_call(raylib, "GetMousePosition", sig, [])
+    },
+    IsMouseButtonPressed: func (button: number) {
+        let sig = { returns: "bool", params: ["int"] }
+        return __ffi_call(raylib, "IsMouseButtonPressed", sig, [button])
+    },
+    IsMouseButtonReleased: func (button: number) {
+        let sig = { returns: "bool", params: ["int"] }
+        return __ffi_call(raylib, "IsMouseButtonReleased", sig, [button])
+    },
+}

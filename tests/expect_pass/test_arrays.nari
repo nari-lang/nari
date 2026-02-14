@@ -1,0 +1,57 @@
+// Test array and object features
+
+// Test array literals
+let arr = [1, 2, 3, 4, 5];
+print("Array:", arr);
+
+// Test array indexing
+print("arr[0]:", arr[0]);
+print("arr[2]:", arr[2]);
+
+// Test array assignment
+arr[1] = 99;
+print("After arr[1] = 99:", arr);
+
+// Test nested arrays
+let nested = [[1, 2], [3, 4], [5, 6]];
+print("Nested array:", nested);
+print("nested[1]:", nested[1]);
+print("nested[1][0]:", nested[1][0]);
+
+// Test object literals
+let person = {name: "Alice", age: 30, city: "NYC"};
+print("Object:", person);
+
+// Test member access
+print("person.name:", person.name);
+print("person.age:", person.age);
+
+// Test member assignment
+person.age = 31;
+print("After person.age = 31:", person);
+
+// Test bracket access on objects
+print("person[\"city\"]:", person["city"]);
+
+// Test object with array values
+let data = {numbers: [10, 20, 30], label: "Test"};
+print("data:", data);
+print("data.numbers:", data.numbers);
+print("data.numbers[1]:", data.numbers[1]);
+
+// Test array of objects
+let people = [
+    {name: "Bob", score: 85},
+    {name: "Carol", score: 92},
+    {name: "Dave", score: 78}
+];
+print("People:", people);
+print("people[0]:", people[0]);
+print("people[1].name:", people[1].name);
+print("people[2].score:", people[2].score);
+
+// Test modifying nested structures
+people[0].score = 90;
+print("After people[0].score = 90:", people[0]);
+
+print("All tests passed!");

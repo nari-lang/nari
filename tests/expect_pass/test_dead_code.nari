@@ -1,0 +1,5 @@
+func start() {
+    print("Dead code elimination");
+    return;
+    print("should not print");
+}

@@ -1,0 +1,95 @@
+// length() - already tested with arrays, but let's test with strings
+let text = "Hello World";
+system.print("Length of '" @ text @ "': " @ text.length());
+
+// substr(str, start, length?)
+let message = "The quick brown fox";
+system.print(`substr('" @ message @ "', 4, 5)   -> {message.substr(4, 5)}`);
+system.print(`substr('" @ message @ "', 10)     -> {message.substr(10)}`);
+
+// indexOf(str, search)
+let sentence = "Nari is fun!";
+system.print(`indexOf("{sentence}", 'is')     ->  {sentence.indexOf("is")}`);
+system.print(`indexOf("{sentence}", 'fun')    ->  {sentence.indexOf("fun")}`);
+system.print(`indexOf("{sentence}", 'not')    -> {sentence.indexOf("not")}`);
+
+// split(str, delimiter)
+let fruits = "apple,banana,cherry";
+system.print(`split("{fruits}", ',') -> {fruits.split(",")}`);
+
+let words = "Hello World".split(" ");
+system.print("split('Hello World', ' ')         -> " @ words);
+if (words.length() != 2 || words[0] != "Hello" || words[1] != "World") {
+    throw "Error in split function! Expected ['Hello', 'World'].";
+}
+
+// replace(str, find, replacement)
+let original = "I like dogs";
+let replaced = original.replace("dogs", "cats");
+system.print(`replace("{original}", "dogs", "cats")          -> {replaced}`);
+
+// replaceAll(str, find, replacement)
+let duplicates = "foo bar foo baz foo";
+let allReplaced = duplicates.replaceAll("foo", "qux");
+system.print(`replaceAll("{duplicates}", "foo", "qux") -> {allReplaced}`);
+
+// trim(str)
+let padded = "   spaces   ";
+system.print(`trim("{padded}")                            -> "{padded.trim()}"`);
+
+// toUpper(str) and toLower(str)
+let mixed = "Hello World";
+system.print(`toUpper("{mixed}") -> {mixed.toUpper()}`);
+system.print(`toLower("{mixed}") -> {mixed.toLower()}`);
+if (mixed.toUpper() != "HELLO WORLD" || mixed.toLower() != "hello world") {
+    throw "Error in toUpper or toLower functions. Expected 'HELLO WORLD' and 'hello world'.";
+}
+
+// startsWith(str, prefix) and endsWith(str, suffix)
+let filename = "document.txt";
+system.print(`startsWith("{filename}", "doc")  -> {filename.startsWith("doc")}`);
+system.print(`startsWith("{filename}", "file") -> {filename.startsWith("file")}`);
+system.print(`endsWith("{filename}", ".txt")   -> {filename.endsWith(".txt")}`);
+system.print(`endsWith("{filename}", ".pdf")   -> {filename.endsWith(".pdf")}`);
+
+if (!filename.startsWith("doc") || filename.endsWith(".pdf")) {
+    throw "Error in startsWith or endsWith functions. Expected true, false, true, false.";
+}
+
+// charAt(str, index)
+let alphabet = "ABCDEFG";
+system.print(`charAt("{alphabet}", 0) -> {alphabet.charAt(0)}`);
+system.print(`charAt("{alphabet}", 3) -> {alphabet.charAt(3)}`);
+system.print(`charAt("{alphabet}", 6) -> {alphabet.charAt(6)}`);
+
+if (alphabet.charAt(0) != "A" || alphabet.charAt(3) != "D" || alphabet.charAt(6) != "G") {
+    throw "Error in charAt function! Expected 'A, D, G'.";
+}
+
+// join(array, delimiter)
+let items = ["apple", "banana", "cherry"];
+system.print(`join(['apple', 'banana', 'cherry'], ', ')  -> {items.join(", ")}`);
+if (items.join(", ") != "apple, banana, cherry") {
+    throw "Error in join function. Expected 'apple, banana, cherry'.";
+}
+
+let numbers = [1, 2, 3, 4, 5];
+system.print(`join([1, 2, 3, 4, 5], '-')                 -> {numbers.join("-")}`);
+
+if (numbers.join("-") != "1-2-3-4-5") {
+    throw "Error in join function. Expected '1-2-3-4-5'.";
+}
+
+let messy = "  HELLO  ";
+let clean = messy.trim().toLower();
+system.print(`toLower(trim("  HELLO  "))                 -> "{clean}"`);
+if (clean != "hello") {
+    throw "Error in combined trim and toLower functions. Expected 'hello'.";
+}
+
+let name = "Alice";
+let greeting = `Hello, {name.toUpper()}!`;
+system.print(`toUpper("Alice")                           -> "{greeting}"`);
+if (greeting != "Hello, ALICE!") {
+    throw "Error in string interpolation with toUpper. Expected 'Hello, ALICE!'.";
+}

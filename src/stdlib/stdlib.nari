@@ -1,0 +1,317 @@
+// STL for Nari.
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E)
+}
+
+enum Option<T> {
+    Some(T),
+    None
+}
+
+func __stdlib_init__() {
+    global stdlib_version = "0.0.1";
+
+    // Result helpers
+    global Ok = func(value) {
+        return {
+            __variant: "Ok",
+            __data: value,
+            is_ok: func() { return true; },
+            is_err: func() { return false; },
+            unwrap: func() { return value; },
+            unwrap_or: func(default_val) { return value; },
+            unwrap_err: func() { throw "Called unwrap_err on Ok value"; },
+            map: func(f) { return Ok(f(value)); },
+            map_err: func(f) { return Ok(value); },
+            and_then: func(f) { return f(value); },
+            or_else: func(f) { return Ok(value); }
+        };
+    };
+
+    global Err = func(error) {
+        return {
+            __variant: "Err",
+            __data: error,
+            is_ok: func() { return false; },
+            is_err: func() { return true; },
+            unwrap: func() { throw error; },
+            unwrap_or: func(default_val) { return default_val; },
+            unwrap_err: func() { return error; },
+            map: func(f) { return Err(error); },
+            map_err: func(f) { return Err(f(error)); },
+            and_then: func(f) { return Err(error); },
+            or_else: func(f) { return f(error); }
+        };
+    };
+
+    // Option helpers
+    global Some = func(value) {
+        return {
+            __variant: "Some",
+            __data: value,
+            is_some: func() { return true; },
+            is_none: func() { return false; },
+            unwrap: func() { return value; },
+            unwrap_or: func(default_val) { return value; },
+            map: func(f) { return Some(f(value)); },
+            and_then: func(f) { return f(value); },
+            or_else: func(f) { return Some(value); },
+            filter: func(pred) {
+                if (pred(value)) {
+                    return Some(value);
+                } else {
+                    return None();
+                }
+            }
+        };
+    };
+
+    global None = func() {
+        return {
+            __variant: "None",
+            is_some: func() { return false; },
+            is_none: func() { return true; },
+            unwrap: func() { throw "Called unwrap on None value"; },
+            unwrap_or: func(default_val) { return default_val; },
+            map: func(f) { return None(); },
+            and_then: func(f) { return None(); },
+            or_else: func(f) { return f(); },
+            filter: func(pred) { return None(); }
+        };
+    };
+
+    global io = {
+        readFile: func(path) {
+            return __fs_readFile(path);
+        },
+        writeFile: func(path, content) {
+            return __fs_writeFile(path, content);
+        },
+        appendFile: func(path, content) {
+            return __fs_appendFile(path, content);
+        },
+        fileExists: func(path) {
+            return __fs_fileExists(path);
+        },
+        isDirectory: func(path) {
+            return __fs_isDirectory(path);
+        },
+        deleteFile: func(path) {
+            return __fs_deleteFile(path);
+        },
+        listDir: func(path) {
+            return __fs_listDir(path);
+        },
+        stdin: {
+            read: readAll,
+            readLine: readLine
+        }
+    };
+
+    global platform = {
+        arch: __platform_arch(),
+        os: __platform_os(),
+        endianness: __platform_endianness(),
+        hostname: __platform_hostname(),
+        getenv: func(var) {
+            return __platform_getenv(var);
+        },
+    }
+
+    global math = {
+        pow: func(base, exponent) {
+            return base ** exponent;
+        },
+        square: func(n) {
+            return n * n;
+        },
+        sqrt: __math_sqrt,
+        abs: func(n) {
+            return n < 0 ? -n : n;
+        },
+        min: func(a, b) {
+            return a < b ? a : b;
+        },
+        max: func(a, b) {
+            return a > b ? a : b;
+        },
+        rand: func() {
+            return __math_rand();
+        },
+    };
+
+    global net = {
+        createServer: func(port, onConnection) {
+            __net_createServer(port, onConnection);
+
+            while (!__shutdown_requested()) {
+                __yield();
+            }
+        }
+    };
+
+    if (platform.os == "emscripten") {
+        global http = {
+            get: func(url) {
+                throw "HTTP requests not supported in Emscripten environment!";
+            },
+            request: func(options) {
+                throw "HTTP requests not supported in Emscripten environment!";
+            }
+        };
+    } else {
+        global http = {
+            get: func(url) {
+                return __http_get(url);
+            },
+            request: func(options) {
+                return __http_request(options);
+            }
+        };
+    }
+
+
+    global system = {
+        version: stdlib_version,
+        print: print,
+        math: math,
+        io: io,
+        net: net,
+        http: http,
+        platform: platform,
+        exec: func(command) {
+            return __system_exec(command);
+        }
+    };
+
+    global yield = func() {
+        __yield();
+    };
+
+    global Spawn = {
+        await: func(handle) {
+            return handle.value;
+        },
+
+        // race: Returns the fastest completing handle
+        race: func(handles) {
+            let i = 0;
+            let len = handles.length();
+            while (i < len) {
+                let dummy = handles[i].value;
+                i = i + 1;
+            }
+
+            let fastest_index = 0;
+            let fastest_duration = handles[0].duration;
+
+            i = 1;
+            while (i < len) {
+                let duration = handles[i].duration;
+                if (duration < fastest_duration) {
+                    fastest_index = i;
+                    fastest_duration = duration;
+                }
+                i = i + 1;
+            }
+
+            let result = {};
+            result.index = fastest_index;
+            result.handle = handles[fastest_index];
+            result.value = handles[fastest_index].value;
+            result.duration = handles[fastest_index].duration;
+            return result;
+        },
+
+        // all: Wait for all handles to complete, return array of results
+        all: func(handles) {
+            let results = [];
+            let i = 0;
+            let len = handles.length();
+            while (i < len) {
+                let val = handles[i].value;
+                results = results.concat([val]);
+                i = i + 1;
+            }
+            return results;
+        },
+
+        // allSettled: Wait for all handles, return results including failures
+        // Returns array of { status, value?, error?, duration }
+        allSettled: func(handles) {
+            let results = [];
+            let i = 0;
+            let len = handles.length();
+            while (i < len) {
+                let dummy = handles[i].value;
+                let result = {};
+                result.index = i;
+                result.duration = handles[i].duration;
+
+                if (handles[i].failed) {
+                    result.status = "rejected";
+                    result.error = handles[i].error;
+                } else {
+                    result.status = "fulfilled";
+                    result.value = handles[i].value;
+                }
+
+                results = results.concat([result]);
+                i = i + 1;
+            }
+            return results;
+        },
+
+        // any: Return first successful handle (by completion time)
+        // Note: Returns fastest successful, not necessarily first to succeed
+        any: func(handles) {
+            let i = 0;
+            let len = handles.length();
+
+            while (i < len) {
+                let dummy = handles[i].value;
+                i = i + 1;
+            }
+
+            let best_index = -1;
+            let best_duration = 999999;
+
+            i = 0;
+            while (i < len) {
+                if (!handles[i].failed) {
+                    if (best_index < 0 || handles[i].duration < best_duration) {
+                        best_index = i;
+                        best_duration = handles[i].duration;
+                    }
+                }
+                i = i + 1;
+            }
+
+            if (best_index < 0) {
+                throw "All handles failed";
+            }
+
+            let result = {};
+            result.index = best_index;
+            result.value = handles[best_index].value;
+            result.duration = handles[best_index].duration;
+            return result;
+        },
+
+        // map: Apply async operation to array of items
+        // Usage: Spawn.map(urls, func(url) { return http.get(url); })
+        map: func(items, fn) {
+            let results = [];
+            let i = 0;
+            let len = items.length();
+            while (i < len) {
+                let handle = fn(items[i]);
+                results = results.concat([handle]);
+                i = i + 1;
+            }
+            return results;
+        }
+    };
+}

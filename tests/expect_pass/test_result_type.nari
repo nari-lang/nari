@@ -1,0 +1,89 @@
+// Test Result<T, E> enum and pattern matching
+
+// Function that returns a Result
+func divide(a, b) {
+    if (b == 0) {
+        let err = Err("Division by zero");
+        return err;
+    }
+    let ok = Ok(a / b);
+    return ok;
+}
+
+// Test match with Result
+func test_result_match() {
+    let result = divide(10, 2);
+    
+    let output = match result {
+        Ok(value) => "Success: " @ toString(value),
+        Err(error) => "Error: " @ error
+    };
+    
+    print(output);  // Should print "Success: 5"
+}
+
+// Test match with error case
+func test_error_match() {
+    let result = divide(10, 0);
+    
+    let output = match result {
+        Ok(value) => "Success: " @ toString(value),
+        Err(error) => "Error: " @ error
+    };
+    
+    print(output);  // Should print "Error: Division by zero"
+}
+
+// Test Option type
+func test_option() {
+    let some_val = Some(42);
+    let none_val = None();
+    
+    let output1 = match some_val {
+        Some(x) => "Got value: " @ toString(x),
+        None => "No value"
+    };
+    
+    let output2 = match none_val {
+        Some(x) => "Got value: " @ toString(x),
+        None => "No value"
+    };
+    
+    print(output1);  // Should print "Got value: 42"
+    print(output2);  // Should print "No value"
+}
+
+// Test pattern with literals
+func classify(x) {
+    return match x {
+        0 => "zero",
+        1 => "one",
+        _ => "other"
+    };
+}
+
+func test_literal_patterns() {
+    print(classify(0));  // "zero"
+    print(classify(1));  // "one"
+    print(classify(5));  // "other"
+}
+
+// Test binding patterns
+func test_binding() {
+    let value = 42;
+    
+    let result = match value {
+        x => "The value is: " @ toString(x)
+    };
+    
+    print(result);  // "The value is: 42"
+}
+
+// Run all tests
+test_result_match();
+test_error_match();
+test_option();
+test_literal_patterns();
+test_binding();
+
+print("All tests passed!");

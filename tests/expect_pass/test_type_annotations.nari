@@ -1,0 +1,75 @@
+// Basic parameter types
+func add(x: number, y: number) {
+    return x + y;
+}
+
+// Return type annotation
+func greet(name: string) -> string {
+    return "Hello, " @ name;
+}
+
+// Mixed typed and untyped parameters
+func process(data, multiplier: number) {
+    return data * multiplier;
+}
+
+// Default values with types
+func multiply(x: number, y: number = 2) -> number {
+    return x * y;
+}
+
+// Array type annotation
+func sum_array(nums: number[]) -> number {
+    let total = 0;
+    for (n in nums) {
+        total = total + n;
+    }
+    return total;
+}
+
+// Rest parameter with array type
+func sum_all(...values: number[]) -> number {
+    let total = 0;
+    for (v in values) {
+        total = total + v;
+    }
+    return total;
+}
+
+// Function without return type
+func log(msg: string) {
+    print("LOG: " @ msg);
+}
+
+// Lambda with type annotations
+func make_adder(x: number) -> function {
+    return func(y: number) -> number {
+        return x + y;
+    };
+}
+
+func start() {
+    print("Basic type annotations");
+    print(add(5, 10));
+    print(greet("World"));
+    
+    print("Mixed parameters");
+    print(process(7, 3));
+    
+    print("Default values with types");
+    print(multiply(4));
+    print(multiply(4, 5));
+    
+    print("Array types");
+    print(sum_array([1, 2, 3, 4, 5]));
+    
+    print("Rest with array type");
+    print(sum_all(10, 20, 30));
+    
+    print("No return type");
+    log("Testing");
+    
+    print("--- Lambda with types");
+    let add5 = make_adder(5);
+    print(add5(3));
+}

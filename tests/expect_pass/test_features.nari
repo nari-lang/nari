@@ -1,0 +1,102 @@
+// Test all new features: return, modulo, increment/decrement, && and ||
+
+// Test function returns
+func add(a, b) {
+    return a + b
+}
+
+func multiply(x, y) {
+    return x * y
+}
+
+func factorial(n) {
+    if (n <= 1) {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+// Test modulo operator
+print("Modulo Test")
+print("10 % 3 = " + (10 % 3))
+print("7 % 2 = " + (7 % 2))
+print("15 % 4 = " + (15 % 4))
+
+// Test increment/decrement
+print("\nIncrement/Decrement Test")
+let counter = 0
+print("Initial counter: " + counter)
+counter++
+print("After counter++: " + counter)
+++counter
+print("After ++counter: " + counter)
+counter--
+print("After counter--: " + counter)
+--counter
+print("After --counter: " + counter)
+
+print("\nCounting 1 to 5:")
+for (let i = 1; i <= 5; i++) {
+    print(i)
+}
+
+print("\nLogical Operators Test")
+let a = true
+let b = false
+
+if (a && b) {
+    print("Both true")
+} else {
+    print("Not both true (correct!)")
+}
+
+if (a || b) {
+    print("At least one true (correct!)")
+} else {
+    print("Both false")
+}
+
+print("Testing short-circuit &&...")
+if (false && true) {
+    print("ERROR: This shouldn't execute")
+} else {
+    print("Short-circuit && works!")
+}
+
+print("Testing short-circuit ||...")
+if (true || false) {
+    print("Short-circuit || works!")
+} else {
+    print("ERROR: This shouldn't happen")
+}
+
+print("\nFunction Return Test")
+let sum = add(5, 3)
+print("add(5, 3) = " + sum)
+
+let product = multiply(4, 7)
+print("multiply(4, 7) = " + product)
+
+let fact = factorial(5)
+print("factorial(5) = " + fact)
+
+
+print("\n=== Combined Test ===")
+func is_even(n) {
+    return (n % 2) == 0
+}
+
+func count_evens(max) {
+    let count = 0
+    for (let i = 0; i <= max; i++) {
+        if (is_even(i)) {
+            count++
+        }
+    }
+    return count
+}
+
+let evens = count_evens(10)
+print("Even numbers from 0 to 10 (inclusive): " + evens)
+
+print("\n=== All tests complete! ===")

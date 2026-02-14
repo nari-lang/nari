@@ -1,0 +1,233 @@
+// Generics, Enums, and Pattern Matching in Nari
+// Comprehensive example showing Result<T, E> and Option<T> types
+
+// Safe division that returns Result<number, string>
+func safeDivide(a, b) {
+    if (b == 0) {
+        let err = Err("Cannot divide by zero");
+        return err;
+    }
+    let result = Ok(a / b);
+    return result;
+}
+
+// Parse a string to number, returns Result<number, string>
+func parseNumber(str) {
+    // Check if string contains only digits (and optionally a decimal point)
+    let isValid = true;
+    let len = length(str);
+
+    if (len == 0) {
+        isValid = false;
+    }
+
+    // Simple validation: check first character is digit or minus
+    if (isValid) {
+        let firstChar = charAt(str, 0);
+        if (firstChar != "0" && firstChar != "1" && firstChar != "2" &&
+            firstChar != "3" && firstChar != "4" && firstChar != "5" &&
+            firstChar != "6" && firstChar != "7" && firstChar != "8" &&
+            firstChar != "9" && firstChar != "-") {
+            isValid = false;
+        }
+    }
+
+    if (isValid) {
+        let num = toNumber(str);
+        let ok = Ok(num);
+        return ok;
+    }
+
+    let err = Err("Invalid number format");
+    return err;
+}
+
+// Find element in array, returns Option<T>
+func find(arr, predicate) {
+    for (item in arr) {
+        if (predicate(item)) {
+            let some = Some(item);
+            return some;
+        }
+    }
+    return None();
+}
+
+// Get value from object, returns Option<T>
+func getKey(obj, key) {
+    if (hasKey(obj, key)) {
+        let some = Some(obj[key]);
+        return some;
+    }
+    return None();
+}
+
+// Handle Result with match expression
+func handleDivision(a, b) {
+    let result = safeDivide(a, b);
+
+    let message = match result {
+        Ok(value) => "Result: " @ toString(value),
+        Err(error) => "Error: " @ error
+    };
+
+    return message;
+}
+
+// Handle Option with match expression
+func describeOption(opt) {
+    return match opt {
+        Some(value) => "Got value: " @ toString(value),
+        None => "No value found"
+    };
+}
+
+// Pattern matching with literals and wildcards
+func classifyNumber(n) {
+    return match n {
+        0 => "zero",
+        1 => "one",
+        2 => "two",
+        _ => "other"
+    };
+}
+
+// Map over Result (transform Ok value, preserve Err)
+func mapResult(result, transform) {
+    return match result {
+        Ok(value) => Ok(transform(value)),
+        Err(error) => Err(error)
+    };
+}
+
+// Calculate percentage with error handling
+func calculatePercentage(part, whole) {
+    let divisionResult = safeDivide(part, whole);
+
+    return match divisionResult {
+        Ok(ratio) => Ok(ratio * 100),
+        Err(error) => Err(error)
+    };
+}
+
+// Process user input with validation
+func processInput(input) {
+    let parseResult = parseNumber(input);
+
+    return match parseResult {
+        Ok(num) => validateNumber(num),
+        Err(error) => Err(error)
+    };
+}
+
+func validateNumber(num) {
+    if (num < 0) {
+        let err = Err("Number must be positive");
+        return err;
+    }
+    if (num > 100) {
+        let err = Err("Number must be <= 100");
+        return err;
+    }
+    let ok = Ok(num);
+    return ok;
+}
+
+print("Result<T, E> Examples");
+
+// division examples
+print(handleDivision(10, 2));    // "Result: 5"
+print(handleDivision(10, 0));    // "Error: Cannot divide by zero"
+
+// parsing examples
+let parseOk = parseNumber("42");
+let parseFail = parseNumber("abc");
+
+print(match parseOk {
+    Ok(n) => "Parsed: " @ toString(n),
+    Err(e) => "Parse error: " @ e
+});  // "Parsed: 42"
+
+print(match parseFail {
+    Ok(n) => "Parsed: " @ toString(n),
+    Err(e) => "Parse error: " @ e
+});  // "Parse error: Invalid number format"
+
+print("");
+print("Option<T> Examples");
+
+// find examples
+let numbers = [1, 2, 3, 4, 5];
+let found = find(numbers, func(x) { return x > 3; });
+let notFound = find(numbers, func(x) { return x > 10; });
+
+print(describeOption(found));      // "Got value: 4"
+print(describeOption(notFound));   // "No value found"
+
+// object lookup
+let user = { name: "Alice", age: 30 };
+let nameOpt = getKey(user, "name");
+let emailOpt = getKey(user, "email");
+
+print(describeOption(nameOpt));    // "Got value: Alice"
+print(describeOption(emailOpt));   // "No value found"
+
+print("");
+print("Pattern Matching");
+
+// literal patterns
+print(classifyNumber(0));   // "zero"
+print(classifyNumber(1));   // "one"
+print(classifyNumber(99));  // "other"
+
+// wildcard pattern
+let value = 42;
+let description = match value {
+    _ => "The value is " @ toString(value)
+};
+print(description);  // "The value is 42"
+
+print("");
+print("Result Chaining");
+
+// Map transformation
+let result1 = Ok(5);
+let doubled = result1.map(func(x) { return x * 2; });
+print(doubled.unwrap_or(0));  // 10
+
+let result2 = Err("failed");
+let attempted = result2.map(func(x) { return x * 2; });
+print(attempted.unwrap_or(-1));  // -1
+print("");
+print("Validation");
+
+let pct1 = calculatePercentage(25, 100);
+let pct2 = calculatePercentage(10, 0);
+
+match pct1 {
+    Ok(p) => print(`Percentage: {toString(p)}%`),
+    Err(e) => print(`Error: {e}`)
+};
+
+match pct2 {
+    Ok(p) => print(`Percentage: {toString(p)}%`),
+    Err(e) => print(`Error: {e}`)
+};
+
+func match_input(input) {
+    return match input {
+        Ok(n) => print(`Valid input: {toString(n)}`),
+        Err(e) => print(`Invalid input: {e}`)
+    };
+}
+
+// Input validation
+let input1 = processInput("50");
+let input2 = processInput("-5");
+let input3 = processInput("abc");
+
+match_input(input1);
+match_input(input2);
+match_input(input3);
+
+print("\nAll examples completed successfully!");

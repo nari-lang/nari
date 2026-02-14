@@ -1,0 +1,521 @@
+import "win32.nari";
+
+// Win32 API Showcase - demonstrates custom window creation with callbacks
+// This example shows how to:
+// - Create custom window procedures using __ffi_create_callback
+// - Register window classes with WNDCLASSEXW
+// - Handle Windows messages in Nari code
+// - Create child controls (buttons, text inputs, labels)
+// - Register and handle hotkeys
+// - Implement undo/redo functionality for text editing
+
+// keep in mind that im not very well versed in the win32 api, this may suck idk
+
+global BS_GROUPBOX = 0x00000007;
+global BS_DEFPUSHBUTTON = 0x00000001;
+global WS_TABSTOP = 0x00010000;
+global ES_AUTOHSCROLL = 0x0080;
+global WS_EX_CLIENTEDGE = 0x00000200;
+
+global BTN_ID_BRING_FRONT = 1001;
+global BTN_ID_RENAME_TITLE = 1002;
+global EDIT_ID_TITLE_INPUT = 1003;
+global HOTKEY_ID_CTRL_A = 2001;
+global HOTKEY_ID_CTRL_BACKSPACE = 2002;
+global HOTKEY_ID_CTRL_Z = 2003;
+global HOTKEY_ID_CTRL_SHIFT_Z = 2004;
+
+global MOD_CONTROL = 0x0002;
+global MOD_SHIFT = 0x0004;
+global VK_A = 0x41;
+global VK_BACK = 0x08;
+global VK_Z = 0x5A;
+
+global EM_GETSEL = 0x00B0;
+global EM_SETSEL = 0x00B1;
+global EN_CHANGE = 0x0300;
+
+global gTitleInput = 0;
+global gStatusLabel = 0;
+global gUndoStack = [];
+global gRedoStack = [];
+global gLastTitleText = "";
+global gSuppressHistory = false;
+
+func deleteWordBeforeCaret(text, caretPos) {
+    if (caretPos <= 0) {
+        return { text: text, caret: 0 };
+    }
+
+    let start = caretPos;
+
+    while (start > 0 && text.charAt(start - 1) == " ") {
+        start = start - 1;
+    }
+
+    while (start > 0 && text.charAt(start - 1) != " ") {
+        start = start - 1;
+    }
+
+    let newText = text.substr(0, start) + text.substr(caretPos, text.length() - caretPos);
+    return { text: newText, caret: start };
+}
+
+func demoWndProc(hwnd, msg, wParam, lParam) {
+    if (msg == WM_HOTKEY) {
+        let hotkeyId = wParam;
+        let focused = user32.GetFocus();
+        if (focused != gTitleInput || gTitleInput == 0) {
+            return 0;
+        }
+
+        if (hotkeyId == HOTKEY_ID_CTRL_A) {
+            user32.SendMessageW(gTitleInput, EM_SETSEL, 0, -1);
+            return 0;
+        }
+
+        if (hotkeyId == HOTKEY_ID_CTRL_BACKSPACE) {
+            let text = user32.GetWindowTextW(gTitleInput, 256);
+            let sel = user32.SendMessageW(gTitleInput, EM_GETSEL, 0, 0);
+            let selStart = sel & 0xFFFF;
+            let selEnd = (sel >> 16) & 0xFFFF;
+
+            if (selEnd < selStart) {
+                let tmp = selStart;
+                selStart = selEnd;
+                selEnd = tmp;
+            }
+
+            let newText = text;
+            let newCaret = selStart;
+
+            if (selEnd > selStart) {
+                newText = text.substr(0, selStart) + text.substr(selEnd, text.length() - selEnd);
+            } else {
+                let result = deleteWordBeforeCaret(text, selStart);
+                newText = result.text;
+                newCaret = result.caret;
+            }
+
+            if (newText != text) {
+                gUndoStack.push(text);
+                gRedoStack = [];
+                gSuppressHistory = true;
+            }
+            user32.SetWindowTextW(gTitleInput, newText);
+            user32.SendMessageW(gTitleInput, EM_SETSEL, newCaret, newCaret);
+            gSuppressHistory = false;
+            gLastTitleText = newText;
+            return 0;
+        }
+
+        if (hotkeyId == HOTKEY_ID_CTRL_Z) {
+            if (gUndoStack.length() > 0) {
+                let current = user32.GetWindowTextW(gTitleInput, 256);
+                let previous = gUndoStack.pop();
+                gRedoStack.push(current);
+
+                gSuppressHistory = true;
+                user32.SetWindowTextW(gTitleInput, previous);
+                user32.SendMessageW(gTitleInput, EM_SETSEL, previous.length(), previous.length());
+                gSuppressHistory = false;
+                gLastTitleText = previous;
+            }
+            return 0;
+        }
+
+        if (hotkeyId == HOTKEY_ID_CTRL_SHIFT_Z) {
+            if (gRedoStack.length() > 0) {
+                let current = user32.GetWindowTextW(gTitleInput, 256);
+                let next = gRedoStack.pop();
+                gUndoStack.push(current);
+
+                gSuppressHistory = true;
+                user32.SetWindowTextW(gTitleInput, next);
+                user32.SendMessageW(gTitleInput, EM_SETSEL, next.length(), next.length());
+                gSuppressHistory = false;
+                gLastTitleText = next;
+            }
+            return 0;
+        }
+
+        return 0;
+    }
+
+    if (msg == WM_COMMAND) {
+        let controlId = wParam & 0xFFFF;
+        let notifyCode = (wParam >> 16) & 0xFFFF;
+
+        if (controlId == EDIT_ID_TITLE_INPUT && notifyCode == EN_CHANGE) {
+            if (!gSuppressHistory && gTitleInput != 0) {
+                let currentText = user32.GetWindowTextW(gTitleInput, 256);
+                if (currentText != gLastTitleText) {
+                    gUndoStack.push(gLastTitleText);
+                    gRedoStack = [];
+                    gLastTitleText = currentText;
+                }
+            }
+            return 0;
+        }
+
+        if (controlId == BTN_ID_BRING_FRONT) {
+            user32.BringWindowToTop(hwnd);
+            user32.SetForegroundWindow(hwnd);
+            if (gStatusLabel != 0) {
+                user32.SetWindowTextW(gStatusLabel, "Status: brought window to front.");
+            }
+            return 0;
+        }
+
+        if (controlId == BTN_ID_RENAME_TITLE) {
+            let typedTitle = "";
+            if (gTitleInput != 0) {
+                typedTitle = user32.GetWindowTextW(gTitleInput, 256);
+            }
+
+            if (typedTitle == "") {
+                typedTitle = "Nari WinAPI Showcase - Native Controls Demo";
+            }
+
+            user32.SetWindowTextW(hwnd, typedTitle);
+            if (gStatusLabel != 0) {
+                user32.SetWindowTextW(gStatusLabel, "Status: title renamed from textbox.");
+            }
+            return 0;
+        }
+    }
+
+    if (msg == WM_CLOSE) {
+        user32.DestroyWindow(hwnd);
+        return 0;
+    }
+
+    if (msg == WM_DESTROY) {
+        user32.UnregisterHotKey(hwnd, HOTKEY_ID_CTRL_A);
+        user32.UnregisterHotKey(hwnd, HOTKEY_ID_CTRL_BACKSPACE);
+        user32.UnregisterHotKey(hwnd, HOTKEY_ID_CTRL_Z);
+        user32.UnregisterHotKey(hwnd, HOTKEY_ID_CTRL_SHIFT_Z);
+        user32.PostQuit(0);
+        return 0;
+    }
+
+    return user32.DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+print("Nari WinAPI showcase starting...");
+
+// Create callback for window procedure
+let wndProcPtr = __ffi_create_callback({
+    returns: "long",
+    params: ["pointer", "u32", "u64", "i64"]
+}, demoWndProc);
+
+if (wndProcPtr == 0) {
+    throw "Failed to create window procedure callback";
+}
+
+// Get module handle
+let hInstance = kernel32.GetModuleHandleW(null);
+
+// Create class name (as UTF-16 for the struct)
+let classNameW = __ffi_utf16("NariWindowClass");
+let classNameStr = "NariWindowClass";  // Keep string version for CreateWindowExW
+
+// Register window class using WNDCLASSEXW
+let wc = {
+    cbSize: __ffi_sizeof("WNDCLASSEXW"),
+    style: 0x0003,  // CS_HREDRAW | CS_VREDRAW
+    lpfnWndProc: wndProcPtr,
+    cbClsExtra: 0,
+    cbWndExtra: 0,
+    hInstance: hInstance,
+    hIcon: 0,
+    hCursor: 0,
+    hbrBackground: 0,
+    lpszMenuName: 0,
+    lpszClassName: classNameW,
+    hIconSm: 0
+};
+
+let atom = user32.RegisterClassExW(wc);
+if (atom == 0) {
+    let regErr = kernel32.GetLastError();
+    if (regErr != ERROR_CLASS_ALREADY_EXISTS) {
+        __ffi_free(classNameW);
+        __ffi_free_callback(wndProcPtr);
+        throw "RegisterClassExW failed. GetLastError=" @ toString(regErr);
+    }
+}
+
+let hwnd = user32.CreateWindowExW(
+    0,
+    classNameStr,  // Use string version - CreateWindowExW will convert it
+    "Nari WinAPI Showcase - Native Controls Demo",
+    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+    CW_USEDEFAULT,
+    CW_USEDEFAULT,
+    920,
+    620,
+    0,
+    0,
+    null,
+    0
+);
+
+if (hwnd == 0) {
+    let err = kernel32.GetLastError();
+    throw "CreateWindowExW failed. GetLastError=" @ toString(err);
+}
+
+print("Created HWND: " @ toString(hwnd));
+
+user32.ShowWindow(hwnd, SW_SHOW);
+user32.UpdateWindow(hwnd);
+
+// Header block
+let hHeader = user32.CreateWindowExW(
+    0,
+    "STATIC",
+    "Nari - Win32 Showcase",
+    WS_CHILD | WS_VISIBLE,
+    24,
+    20,
+    420,
+    28,
+    hwnd,
+    0,
+    null,
+    0
+);
+
+let hSubtitle = user32.CreateWindowExW(
+    0,
+    "STATIC",
+    "This window is built from Nari via Win32 FFI",
+    WS_CHILD | WS_VISIBLE,
+    24,
+    50,
+    500,
+    20,
+    hwnd,
+    0,
+    null,
+    0
+);
+
+// Main content group
+let hContentGroup = user32.CreateWindowExW(
+    0,
+    "BUTTON",
+    "what does this shit do",
+    WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+    20,
+    90,
+    560,
+    360,
+    hwnd,
+    0,
+    null,
+    0
+);
+
+let hBullet1 = user32.CreateWindowExW(
+    0,
+    "STATIC",
+    "- makes a native window class",
+    WS_CHILD | WS_VISIBLE,
+    40,
+    130,
+    500,
+    20,
+    hwnd,
+    0,
+    null,
+    0
+);
+
+let hBullet2 = user32.CreateWindowExW(
+    0,
+    "STATIC",
+    "- creates child controls yippee",
+    WS_CHILD | WS_VISIBLE,
+    40,
+    160,
+    500,
+    20,
+    hwnd,
+    0,
+    null,
+    0
+);
+
+let hBullet4 = user32.CreateWindowExW(
+    0,
+    "STATIC",
+    "- has a message loop",
+    WS_CHILD | WS_VISIBLE,
+    40,
+    190,
+    500,
+    20,
+    hwnd,
+    0,
+    null,
+    0
+);
+
+let hDescription = user32.CreateWindowExW(
+    0,
+    "STATIC",
+    "this took like 4 hours sob",
+    WS_CHILD | WS_VISIBLE,
+    40,
+    425,
+    520,
+    20,
+    hwnd,
+    0,
+    null,
+    0
+);
+
+// Right-side action panel
+let hActionGroup = user32.CreateWindowExW(
+    0,
+    "BUTTON",
+    "Window actions",
+    WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+    600,
+    90,
+    290,
+    220,
+    hwnd,
+    0,
+    null,
+    0
+);
+
+let hBtnFront = user32.CreateWindowExW(
+    0,
+    "BUTTON",
+    "Bring to Front",
+    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+    620,
+    130,
+    260,
+    34,
+    hwnd,
+    BTN_ID_BRING_FRONT,
+    null,
+    0
+);
+
+let hBtnRename = user32.CreateWindowExW(
+    0,
+    "BUTTON",
+    "Rename Title",
+    WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    620,
+    218,
+    260,
+    34,
+    hwnd,
+    BTN_ID_RENAME_TITLE,
+    null,
+    0
+);
+
+let hTitleInput = user32.CreateWindowExW(
+    WS_EX_CLIENTEDGE,
+    "EDIT",
+    "insert cool title here",
+    WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+    620,
+    176,
+    260,
+    30,
+    hwnd,
+    EDIT_ID_TITLE_INPUT,
+    null,
+    0
+);
+
+let hActionNote = user32.CreateWindowExW(
+    0,
+    "STATIC",
+    "click rename title for a fancy new window title",
+    WS_CHILD | WS_VISIBLE,
+    620,
+    262,
+    260,
+    40,
+    hwnd,
+    0,
+    null,
+    0
+);
+
+// Footer status bar style text
+let hFooter = user32.CreateWindowExW(
+    0,
+    "STATIC",
+    "Status: running. Waiting for user close...",
+    WS_CHILD | WS_VISIBLE,
+    20,
+    540,
+    860,
+    20,
+    hwnd,
+    0,
+    null,
+    0
+);
+
+if (hHeader == 0 || hSubtitle == 0 || hContentGroup == 0 || hActionGroup == 0 || hFooter == 0) {
+    let childErr = kernel32.GetLastError();
+    print("Warning: one or more child controls failed. GetLastError=" @ toString(childErr));
+}
+
+gTitleInput = hTitleInput;
+gStatusLabel = hFooter;
+gLastTitleText = user32.GetWindowTextW(gTitleInput, 256);
+gUndoStack = [];
+gRedoStack = [];
+
+let hkA = user32.RegisterHotKey(hwnd, HOTKEY_ID_CTRL_A, MOD_CONTROL, VK_A);
+let hkBack = user32.RegisterHotKey(hwnd, HOTKEY_ID_CTRL_BACKSPACE, MOD_CONTROL, VK_BACK);
+let hkUndo = user32.RegisterHotKey(hwnd, HOTKEY_ID_CTRL_Z, MOD_CONTROL, VK_Z);
+let hkRedo = user32.RegisterHotKey(hwnd, HOTKEY_ID_CTRL_SHIFT_Z, MOD_CONTROL | MOD_SHIFT, VK_Z);
+if (!hkA || !hkBack || !hkUndo || !hkRedo) {
+    print("Warning: failed to register one or more hotkeys. GetLastError=" @ toString(kernel32.GetLastError()));
+}
+
+kernel32.Sleep(300);
+
+let found = user32.FindWindowW(null, "Nari WinAPI Showcase - Native Controls Demo");
+print("FindWindowW result: " @ toString(found));
+
+let classNameRet = user32.GetClassNameW(hwnd);
+print("Window class name: " @ classNameRet);
+
+user32.SetWindowTextW(hwnd, "Nari WinAPI Showcase - Native Controls Demo (live title update)");
+
+user32.BringWindowToTop(hwnd);
+user32.SetForegroundWindow(hwnd);
+
+let visible = user32.IsWindowVisible(hwnd);
+print("IsWindowVisible: " @ toString(visible));
+
+let valid = user32.IsWindow(hwnd);
+print("IsWindow: " @ toString(valid));
+
+let exitCode = user32.MessageLoop();
+print("Message loop exited with code: " @ toString(exitCode));
+
+// Clean up resources
+user32.UnregisterClassW(classNameStr, hInstance);
+__ffi_free(classNameW);
+__ffi_free_callback(wndProcPtr);
+
+print("Nari WinAPI showcase finished.");
+

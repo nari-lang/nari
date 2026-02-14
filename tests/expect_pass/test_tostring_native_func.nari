@@ -1,0 +1,8 @@
+func some_func() {
+    print("generic function here")
+}
+
+// substr is now a method-only builtin, not accessible as identifier
+// Test toString with a global builtin function instead
+print(toString(print))
+print(toString(some_func))

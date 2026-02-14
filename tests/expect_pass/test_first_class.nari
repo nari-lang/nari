@@ -1,0 +1,26 @@
+func greet() {
+    print("Hello from greet!");
+}
+
+func run_fn(f) {
+    print("Running function passed as arg...");
+    f();
+}
+
+func start() {
+    print("Testing First-Class Functions");
+    
+    print("1. Assign function to variable and call");
+    let g = greet;
+    g();
+    
+    print("2. Pass function as argument");
+    run_fn(greet);
+    
+    print("3. Array of functions");
+    let arr = [greet, greet];
+    arr[0]();
+    arr[1]();
+    
+    print("done!");
+}

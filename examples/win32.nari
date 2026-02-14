@@ -1,0 +1,453 @@
+if (platform.os != "windows") {
+    throw "This example is only for Windows! Current OS: " @ platform.os;
+}
+
+import user32_lib from "user32.dll";
+import kernel32_lib from "kernel32.dll";
+
+// Win32-ish aliases for readability
+type HWND pointer;
+type HINSTANCE pointer;
+type HICON pointer;
+type HCURSOR pointer;
+type HBRUSH pointer;
+type HMODULE pointer;
+type HANDLE pointer;
+type HMENU pointer;
+type BOOL bool;
+type UINT u32;
+type WORD u16;
+type DWORD u32;
+type ATOM u16;
+type WPARAM u64;
+type LPARAM i64;
+type LRESULT i64;
+
+// MSG structure for message loop
+type MSG {
+    hwnd: pointer;
+    message: u32;
+    wParam: u64;
+    lParam: i64;
+    time: u32;
+    pt_x: i32;
+    pt_y: i32;
+}
+
+// WNDCLASSEXW structure for window class registration
+type WNDCLASSEXW {
+    cbSize: u32;
+    style: u32;
+    lpfnWndProc: pointer;
+    cbClsExtra: i32;
+    cbWndExtra: i32;
+    hInstance: pointer;
+    hIcon: pointer;
+    hCursor: pointer;
+    hbrBackground: pointer;
+    lpszMenuName: pointer;
+    lpszClassName: pointer;
+    hIconSm: pointer;
+}
+
+// Common MessageBox flags
+global MB_OK = 0x00000000;
+global MB_OKCANCEL = 0x00000001;
+global MB_YESNO = 0x00000004;
+global MB_ICONINFORMATION = 0x00000040;
+global MB_ICONWARNING = 0x00000030;
+global MB_ICONERROR = 0x00000010;
+
+// ShowWindow commands
+global SW_HIDE = 0;
+global SW_SHOWNORMAL = 1;
+global SW_SHOWMINIMIZED = 2;
+global SW_SHOWMAXIMIZED = 3;
+global SW_SHOWNOACTIVATE = 4;
+global SW_SHOW = 5;
+global SW_MINIMIZE = 6;
+global SW_SHOWMINNOACTIVE = 7;
+global SW_SHOWNA = 8;
+global SW_RESTORE = 9;
+
+// SetWindowPos flags
+global SWP_NOSIZE = 0x0001;
+global SWP_NOMOVE = 0x0002;
+global SWP_NOZORDER = 0x0004;
+global SWP_NOACTIVATE = 0x0010;
+
+// Window styles
+global WS_OVERLAPPED = 0x00000000;
+global WS_POPUP = 0x80000000;
+global WS_CHILD = 0x40000000;
+global WS_MINIMIZE = 0x20000000;
+global WS_VISIBLE = 0x10000000;
+global WS_DISABLED = 0x08000000;
+global WS_CLIPSIBLINGS = 0x04000000;
+global WS_CLIPCHILDREN = 0x02000000;
+global WS_MAXIMIZE = 0x01000000;
+global WS_CAPTION = 0x00C00000;
+global WS_BORDER = 0x00800000;
+global WS_DLGFRAME = 0x00400000;
+global WS_VSCROLL = 0x00200000;
+global WS_HSCROLL = 0x00100000;
+global WS_SYSMENU = 0x00080000;
+global WS_THICKFRAME = 0x00040000;
+global WS_MINIMIZEBOX = 0x00020000;
+global WS_MAXIMIZEBOX = 0x00010000;
+global WS_OVERLAPPEDWINDOW = 0x00CF0000;
+
+// Extended window styles
+global WS_EX_TOPMOST = 0x00000008;
+global WS_EX_TOOLWINDOW = 0x00000080;
+global WS_EX_APPWINDOW = 0x00040000;
+
+// CreateWindow defaults
+global CW_USEDEFAULT = -2147483648;
+
+global WM_CLOSE = 0x0010;
+global WM_DESTROY = 0x0002;
+global WM_QUIT = 0x0012;
+global WM_SETTEXT = 0x000C;
+global WM_COMMAND = 0x0111;
+global WM_HOTKEY = 0x0312;
+global WM_CHAR = 0x0102;
+global ERROR_CLASS_ALREADY_EXISTS = 1410;
+
+let SIG_MESSAGEBOX_A = { returns: "int", params: ["pointer", "pointer", "pointer", "u32"] };
+let SIG_MESSAGEBOX_W = { returns: "int", params: ["pointer", "pointer", "pointer", "u32"] };
+let SIG_FINDWINDOW_W = { returns: "pointer", params: ["pointer", "pointer"] };
+let SIG_FINDWINDOWEX_W = { returns: "pointer", params: ["pointer", "pointer", "pointer", "pointer"] };
+let SIG_SETWINDOWTEXT_W = { returns: "bool", params: ["pointer", "pointer"] };
+let SIG_GETWINDOWTEXT_W = { returns: "int", params: ["pointer", "pointer", "int"] };
+let SIG_GETCLASSNAME_A = { returns: "int", params: ["pointer", "pointer", "int"] };
+let SIG_GETCLASSNAME_W = { returns: "int", params: ["pointer", "pointer", "int"] };
+let SIG_SHOWWINDOW = { returns: "bool", params: ["pointer", "int"] };
+let SIG_ISWINDOW = { returns: "bool", params: ["pointer"] };
+let SIG_ISWINDOWVISIBLE = { returns: "bool", params: ["pointer"] };
+let SIG_SETACTIVEWINDOW = { returns: "pointer", params: ["pointer"] };
+let SIG_GETACTIVEWINDOW = { returns: "pointer", params: [] };
+let SIG_SETFOCUS = { returns: "pointer", params: ["pointer"] };
+let SIG_GETFOCUS = { returns: "pointer", params: [] };
+let SIG_SETFOREGROUNDWINDOW = { returns: "bool", params: ["pointer"] };
+let SIG_GETFOREGROUNDWINDOW = { returns: "pointer", params: [] };
+let SIG_GETDESKTOPWINDOW = { returns: "pointer", params: [] };
+let SIG_BRINGWINDOWTOTOP = { returns: "bool", params: ["pointer"] };
+let SIG_ENABLEWINDOW = { returns: "bool", params: ["pointer", "bool"] };
+let SIG_SETWINDOWPOS = { returns: "bool", params: ["pointer", "pointer", "int", "int", "int", "int", "u32"] };
+let SIG_POSTMESSAGE_W = { returns: "bool", params: ["pointer", "u32", "u64", "i64"] };
+let SIG_SENDMESSAGE_W = { returns: "long", params: ["pointer", "u32", "u64", "i64"] };
+let SIG_GETWINDOWTHREADPROCESSID = { returns: "u32", params: ["pointer", "pointer"] };
+let SIG_CREATEWINDOWEX_W = { returns: "pointer", params: ["u32", "pointer", "pointer", "u32", "i32", "i32", "i32", "i32", "pointer", "pointer", "pointer", "pointer"] };
+let SIG_REGISTERHOTKEY = { returns: "bool", params: ["pointer", "int", "u32", "u32"] };
+let SIG_UNREGISTERHOTKEY = { returns: "bool", params: ["pointer", "int"] };
+let SIG_DESTROYWINDOW = { returns: "bool", params: ["pointer"] };
+let SIG_UPDATEWINDOW = { returns: "bool", params: ["pointer"] };
+let SIG_REGISTERCLASS_W = { returns: "u16", params: ["pointer"] };
+let SIG_REGISTERCLASSEX_W = { returns: "u16", params: [__ffi_membersof("WNDCLASSEXW")] };
+let SIG_UNREGISTERCLASS_W = { returns: "bool", params: ["pointer", "pointer"] };
+let SIG_DEFWINDOWPROC_W = { returns: "long", params: ["pointer", "u32", "u64", "i64"] };
+
+let SIG_GETMODULEHANDLE_W = { returns: "pointer", params: ["pointer"] };
+let SIG_SLEEP = { returns: "void", params: ["u32"] };
+let SIG_GETLASTERROR = { returns: "u32", params: [] };
+let SIG_GETMESSAGE_W = { returns: "int", params: ["MSG*", "pointer", "u32", "u32"] };
+let SIG_TRANSLATEMESSAGE = { returns: "bool", params: ["MSG*"] };
+let SIG_DISPATCHMESSAGE_W = { returns: "long", params: ["MSG*"] };
+let SIG_POSTQUITMESSAGE = { returns: "void", params: ["int"] };
+
+global kernel32 = {
+    GetModuleHandleW: func(moduleNameOrNull) {
+        let moduleW = moduleNameOrNull == null ? 0 : __ffi_utf16(moduleNameOrNull);
+        let h = __ffi_call(kernel32_lib, "GetModuleHandleW", SIG_GETMODULEHANDLE_W, [moduleW]);
+        if (moduleW != 0) {
+            __ffi_free(moduleW);
+        }
+        return h;
+    },
+
+    Sleep: func(ms) {
+        return __ffi_call(kernel32_lib, "Sleep", SIG_SLEEP, [ms]);
+    },
+
+    GetLastError: func() {
+        return __ffi_call(kernel32_lib, "GetLastError", SIG_GETLASTERROR, []);
+    }
+};
+
+global user32 = {
+    MessageBoxA: func(hwnd, lpText, lpCaption, uType) {
+        return __ffi_call(user32_lib, "MessageBoxA", SIG_MESSAGEBOX_A, [hwnd, lpText, lpCaption, uType]);
+    },
+
+    MessageBoxExA: func(hwnd, lpText, lpCaption, uType, wLanguageId) {
+        return __ffi_call(user32_lib, "MessageBoxExA", { returns: "int", params: ["pointer", "pointer", "pointer", "u32", "u16"] }, [hwnd, lpText, lpCaption, uType, wLanguageId]);
+    },
+
+    MessageBoxW: func(hwnd, lpText, lpCaption, uType) {
+        let textW = __ffi_utf16(lpText);
+        let captionW = __ffi_utf16(lpCaption);
+
+        let result = __ffi_call(
+            user32_lib,
+            "MessageBoxW",
+            SIG_MESSAGEBOX_W,
+            [hwnd, textW, captionW, uType]
+        );
+
+        __ffi_free(textW);
+        __ffi_free(captionW);
+
+        return result;
+    },
+
+    FindWindowW: func(classNameOrNull, windowNameOrNull) {
+        let classW = classNameOrNull == null ? 0 : __ffi_utf16(classNameOrNull);
+        let nameW = windowNameOrNull == null ? 0 : __ffi_utf16(windowNameOrNull);
+
+        let hwnd = __ffi_call(user32_lib, "FindWindowW", SIG_FINDWINDOW_W, [classW, nameW]);
+
+        if (classW != 0) {
+            __ffi_free(classW);
+        }
+        if (nameW != 0) {
+            __ffi_free(nameW);
+        }
+
+        return hwnd;
+    },
+
+    FindWindowExW: func(parentHwnd, childAfterHwnd, classNameOrNull, windowNameOrNull) {
+        let classW = classNameOrNull == null ? 0 : __ffi_utf16(classNameOrNull);
+        let nameW = windowNameOrNull == null ? 0 : __ffi_utf16(windowNameOrNull);
+
+        let hwnd = __ffi_call(user32_lib, "FindWindowExW", SIG_FINDWINDOWEX_W, [parentHwnd, childAfterHwnd, classW, nameW]);
+
+        if (classW != 0) {
+            __ffi_free(classW);
+        }
+        if (nameW != 0) {
+            __ffi_free(nameW);
+        }
+
+        return hwnd;
+    },
+
+    SetWindowTextW: func(hwnd, text) {
+        let textW = __ffi_utf16(text);
+        let ok = __ffi_call(user32_lib, "SetWindowTextW", SIG_SETWINDOWTEXT_W, [hwnd, textW]);
+        __ffi_free(textW);
+        return ok;
+    },
+
+    GetWindowTextW: func(hwnd, maxCharsOrNull) {
+        let maxChars = maxCharsOrNull == null ? 256 : maxCharsOrNull;
+        if (maxChars <= 0) {
+            return "";
+        }
+
+        let bufBytes = maxChars * 2;
+        let buf = __ffi_alloc(bufBytes);
+        if (buf == 0) {
+            return "";
+        }
+
+        let charsWritten = __ffi_call(user32_lib, "GetWindowTextW", SIG_GETWINDOWTEXT_W, [hwnd, buf, maxChars]);
+        let out = "";
+        if (charsWritten > 0) {
+            out = __ffi_utf16_read(buf, charsWritten);
+        }
+
+        __ffi_free(buf);
+        return out;
+    },
+
+
+    GetClassNameA: func(hwnd, maxCharsOrNull) {
+        let maxChars = maxCharsOrNull == null ? 256 : maxCharsOrNull;
+        if (maxChars <= 0) {
+            return "";
+        }
+
+        let buf = __ffi_alloc(maxChars);
+        if (buf == 0) {
+            return "";
+        }
+
+        let charsWritten = __ffi_call(user32_lib, "GetClassNameA", SIG_GETCLASSNAME_A, [hwnd, buf, maxChars]);
+        let out = "";
+        if (charsWritten > 0) {
+            out = __ffi_utf16_read(buf, charsWritten);
+        }
+
+        __ffi_free(buf);
+        return out;
+    },
+
+    GetClassNameW: func(hwnd, maxCharsOrNull) {
+        let maxChars = maxCharsOrNull == null ? 256 : maxCharsOrNull;
+        if (maxChars <= 0) {
+            return "";
+        }
+
+        let bufBytes = maxChars * 2;
+        let buf = __ffi_alloc(bufBytes);
+        if (buf == 0) {
+            return "";
+        }
+
+        let charsWritten = __ffi_call(user32_lib, "GetClassNameW", SIG_GETCLASSNAME_W, [hwnd, buf, maxChars]);
+        let out = "";
+        if (charsWritten > 0) {
+            out = __ffi_utf16_read(buf, charsWritten);
+        }
+
+        __ffi_free(buf);
+        return out;
+    },
+
+    ShowWindow: func(hwnd, cmdShow) {
+        return __ffi_call(user32_lib, "ShowWindow", SIG_SHOWWINDOW, [hwnd, cmdShow]);
+    },
+
+    IsWindow: func(hwnd) {
+        return __ffi_call(user32_lib, "IsWindow", SIG_ISWINDOW, [hwnd]);
+    },
+
+    IsWindowVisible: func(hwnd) {
+        return __ffi_call(user32_lib, "IsWindowVisible", SIG_ISWINDOWVISIBLE, [hwnd]);
+    },
+
+    SetActiveWindow: func(hwnd) {
+        return __ffi_call(user32_lib, "SetActiveWindow", SIG_SETACTIVEWINDOW, [hwnd]);
+    },
+
+    GetActiveWindow: func() {
+        return __ffi_call(user32_lib, "GetActiveWindow", SIG_GETACTIVEWINDOW, []);
+    },
+
+    SetFocus: func(hwnd) {
+        return __ffi_call(user32_lib, "SetFocus", SIG_SETFOCUS, [hwnd]);
+    },
+
+    GetFocus: func() {
+        return __ffi_call(user32_lib, "GetFocus", SIG_GETFOCUS, []);
+    },
+
+    SetForegroundWindow: func(hwnd) {
+        return __ffi_call(user32_lib, "SetForegroundWindow", SIG_SETFOREGROUNDWINDOW, [hwnd]);
+    },
+
+    GetForegroundWindow: func() {
+        return __ffi_call(user32_lib, "GetForegroundWindow", SIG_GETFOREGROUNDWINDOW, []);
+    },
+
+    GetDesktopWindow: func() {
+        return __ffi_call(user32_lib, "GetDesktopWindow", SIG_GETDESKTOPWINDOW, []);
+    },
+
+    BringWindowToTop: func(hwnd) {
+        return __ffi_call(user32_lib, "BringWindowToTop", SIG_BRINGWINDOWTOTOP, [hwnd]);
+    },
+
+    EnableWindow: func(hwnd, enable) {
+        return __ffi_call(user32_lib, "EnableWindow", SIG_ENABLEWINDOW, [hwnd, enable]);
+    },
+
+    SetWindowPos: func(hwnd, hwndInsertAfter, x, y, cx, cy, flags) {
+        return __ffi_call(user32_lib, "SetWindowPos", SIG_SETWINDOWPOS, [hwnd, hwndInsertAfter, x, y, cx, cy, flags]);
+    },
+
+    PostMessageW: func(hwnd, msg, wParam, lParam) {
+        return __ffi_call(user32_lib, "PostMessageW", SIG_POSTMESSAGE_W, [hwnd, msg, wParam, lParam]);
+    },
+
+    SendMessageW: func(hwnd, msg, wParam, lParam) {
+        return __ffi_call(user32_lib, "SendMessageW", SIG_SENDMESSAGE_W, [hwnd, msg, wParam, lParam]);
+    },
+
+    GetWindowThreadProcessId: func(hwnd, processIdOutPtrOrNull) {
+        let outPtr = processIdOutPtrOrNull == null ? 0 : processIdOutPtrOrNull;
+        return __ffi_call(user32_lib, "GetWindowThreadProcessId", SIG_GETWINDOWTHREADPROCESSID, [hwnd, outPtr]);
+    },
+
+    CreateWindowExW: func(exStyle, className, windowName, style, x, y, width, height, parentHwnd, menuHandle, instanceHandleOrNull, paramOrNull) {
+        let classW = __ffi_utf16(className);
+        let nameW = __ffi_utf16(windowName);
+        let hinst = instanceHandleOrNull == null ? kernel32.GetModuleHandleW(null) : instanceHandleOrNull;
+        let parent = parentHwnd == null ? 0 : parentHwnd;
+        let menu = menuHandle == null ? 0 : menuHandle;
+        let lparam = paramOrNull == null ? 0 : paramOrNull;
+
+        let hwnd = __ffi_call(
+            user32_lib,
+            "CreateWindowExW",
+            SIG_CREATEWINDOWEX_W,
+            [exStyle, classW, nameW, style, x, y, width, height, parent, menu, hinst, lparam]
+        );
+
+        __ffi_free(classW);
+        __ffi_free(nameW);
+
+        return hwnd;
+    },
+
+    RegisterHotKey: func(hwndOrNull, hotkeyId, modifiers, vkey) {
+        let h = hwndOrNull == null ? 0 : hwndOrNull;
+        return __ffi_call(user32_lib, "RegisterHotKey", SIG_REGISTERHOTKEY, [h, hotkeyId, modifiers, vkey]);
+    },
+
+    UnregisterHotKey: func(hwndOrNull, hotkeyId) {
+        let h = hwndOrNull == null ? 0 : hwndOrNull;
+        return __ffi_call(user32_lib, "UnregisterHotKey", SIG_UNREGISTERHOTKEY, [h, hotkeyId]);
+    },
+
+    DestroyWindow: func(hwnd) {
+        return __ffi_call(user32_lib, "DestroyWindow", SIG_DESTROYWINDOW, [hwnd]);
+    },
+
+    UpdateWindow: func(hwnd) {
+        return __ffi_call(user32_lib, "UpdateWindow", SIG_UPDATEWINDOW, [hwnd]);
+    },
+
+    DefWindowProcW: func(hwnd, msg, wParam, lParam) {
+        return __ffi_call(user32_lib, "DefWindowProcW", SIG_DEFWINDOWPROC_W, [hwnd, msg, wParam, lParam]);
+    },
+    
+    RegisterClassExW: func(wndClass) {
+        return __ffi_call(user32_lib, "RegisterClassExW", SIG_REGISTERCLASSEX_W, [wndClass]);
+    },
+
+    UnregisterClassW: func(className, hInstance) {
+        let classW = __ffi_utf16(className);
+        let result = __ffi_call(user32_lib, "UnregisterClassW", SIG_UNREGISTERCLASS_W, [classW, hInstance]);
+        __ffi_free(classW);
+        return result;
+    },
+
+    MessageLoop: func() {
+        let msgBuf = __ffi_alloc_struct("MSG");
+        
+        while (true) {
+            let ret = __ffi_call(user32_lib, "GetMessageW", SIG_GETMESSAGE_W, [msgBuf, 0, 0, 0]);
+            
+            if (ret == -1) {
+                __ffi_free(msgBuf);
+                return -1;
+            }
+            
+            if (ret == 0) {
+                __ffi_free(msgBuf);
+                return 0;
+            }
+            
+            __ffi_call(user32_lib, "TranslateMessage", SIG_TRANSLATEMESSAGE, [msgBuf]);
+            __ffi_call(user32_lib, "DispatchMessageW", SIG_DISPATCHMESSAGE_W, [msgBuf]);
+        }
+    },
+
+    PostQuit: func(exitCodeOrNull) {
+        let code = exitCodeOrNull == null ? 0 : exitCodeOrNull;
+        return __ffi_call(user32_lib, "PostQuitMessage", SIG_POSTQUITMESSAGE, [code]);
+    },
+}

@@ -1,0 +1,268 @@
+func get_mime_type(path) {
+    let ext = "";
+    let i = 0;
+    let len = path.length();
+
+    while (i < len) {
+        if (path[i] == ".") {
+            ext = "";
+        } else if (ext != null) {
+            ext = ext + path[i];
+        }
+        i++;
+    }
+
+    if (ext == "html" || ext == "htm") {
+        return "text/html";
+    }
+    if (ext == "css") {
+        return "text/css";
+    }
+    if (ext == "js") {
+        return "application/javascript";
+    }
+    if (ext == "json") {
+        return "application/json";
+    }
+    if (ext == "png") {
+        return "image/png";
+    }
+    if (ext == "jpg" || ext == "jpeg") {
+        return "image/jpeg";
+    }
+    if (ext == "gif") {
+        return "image/gif";
+    }
+    if (ext == "svg") {
+        return "image/svg+xml";
+    }
+    if (ext == "txt") {
+        return "text/plain";
+    }
+    if (ext == "xml") {
+        return "application/xml";
+    }
+    if (ext == "pdf") {
+        return "application/pdf";
+    }
+    if (ext == "log") {
+        return "text/plain";
+    }
+    if (ext == "sh") {
+        return "text/x-shellscript";
+    }
+    if (ext == "md") {
+        return "text/markdown";
+    }
+    if (ext == "c" || ext == "cpp" || ext == "cc" || ext == "cxx" || ext == "h" || ext == "hpp" || ext == "hh") {
+        return "text/x-c";
+    }
+    if (ext == "nari") {
+        return "text/plain";
+    }
+
+    return "application/octet-stream";
+}
+
+func parse_request(request_text) {
+    let lines = request_text.split("\n");
+    if (lines.length() == 0) {
+        return null;
+    }
+
+    // parse "GET /path HTTP/1.1"
+    let first_line = lines[0];
+    let parts = first_line.split(" ");
+
+    if (parts.length() < 2) {
+        return null;
+    }
+
+    let request = {};
+    request.method = parts[0];
+    request.path = parts[1];
+    request.headers = {};
+
+    // parse headers
+    let i = 1;
+    let len = lines.length();
+    while (i < len) {
+        let line = lines[i];
+        if (line.length() <= 1) {
+            break; // empty line is end of headers
+        }
+        i++;
+    }
+
+    return request;
+}
+
+func sanitize_path(request_path) {
+    let path = request_path;
+    let i = 0;
+    let len = path.length();
+    while (i < len) {
+        if (path[i] == "?") {
+            path = path.substr(0, i);
+            break;
+        }
+        i++;
+    }
+
+    if (path == "/") {
+        return root_dir;
+    }
+
+    if (path.length() > 0 && path[0] == "/") {
+        path = path.substr(1, path.length());
+    }
+
+    return root_dir + path;
+}
+
+func build_response(status_code, status_text, content_type, body) {
+    let response = "HTTP/1.1 " + status_code + " " + status_text + "\r\n";
+    response = response + "Content-Type: " + content_type + "\r\n";
+    response = response + "Content-Length: " + toString(body.length()) + "\r\n";
+    response = response + "Connection: close\r\n";
+    response = response + "Server: Nari-HTTP/1.0\r\n";
+    response = response + "\r\n";
+    response = response + body;
+    return response;
+}
+
+// Generate directory listing HTML
+func generate_directory_listing(dir_path, request_path) {
+    let files_arr = Spawn.await(io.listDir(dir_path));
+
+    let base_path = request_path;
+    if (base_path.length() > 0 && base_path[base_path.length() - 1] != "/") {
+        base_path = base_path + "/";
+    }
+
+    let items = "";
+    for (let i = 0; i < files_arr.length(); i = i + 1) {
+        let current_file = files_arr[i];
+        // let trimmed = replace(replace(current_file, "\"", ""), "\"", "");
+        // if (trimmed.length() > 0) {
+        //     items = items + "<li><a href=\"" + base_path + trimmed + "\">" + trimmed + "</a></li>";
+        // }
+        let trimmed = current_file.trim();
+        if (trimmed.length() > 0) {
+            items = items + "<li><a href=\"" + base_path + trimmed + "\">" + trimmed + "</a></li>";
+        }
+    }
+
+    return "
+        <!DOCTYPE html>
+        <html>
+            <head><meta charset=\"UTF-8\"><title>Directory Listing</title><style>body{font-family:Arial,sans-serif;margin:40px}h1{color:#333}ul{list-style:none;padding:0}li{padding:8px;border-bottom:1px solid #eee}a{color:#06c;text-decoration:none}a:hover{text-decoration:underline}</style></head>
+            <body>
+                <h1>Directory Listing</h1>
+                <ul>" + items + "</ul>
+            </body>
+        </html>";
+}
+
+func handle_request(conn) {
+    print("Connection from " + conn.ip + ":" + conn.port);
+
+    conn.read(conn, func(err, data) {
+        if (err) {
+            print("Error reading request: " + err);
+            conn.close(conn);
+            return;
+        }
+
+        let request = parse_request(data);
+
+        print(request.method + " " + request.path);
+
+        if (request.method != "GET") {
+            let response = build_response("405", "Method Not Allowed", "text/plain", "Method Not Allowed");
+            conn.write(conn, response, func(write_err) {
+                if (write_err) {
+                    print("Write error!");
+                }
+            });
+            return;
+        }
+
+        // special handling for directory listing
+        if (request.path == "/") {
+            let index_path = root_dir + "index.html";
+            let index_exists = Spawn.await(io.fileExists(index_path));
+
+            if (!index_exists) {
+                let dir_html = generate_directory_listing(root_dir, request.path);
+                let dir_response = build_response("200", "OK", "text/html", dir_html);
+                print("  -> 200 OK (directory listing)");
+                conn.write(conn, dir_response, func(write_err) {});
+                return;
+            }
+        }
+
+        let file_path = sanitize_path(request.path);
+        let exists = Spawn.await(io.fileExists(file_path));
+        if (!exists) {
+            let body = "404 Not Found\n\nThe requested file '" + request.path + "' was not found.";
+            let response404 = build_response("404", "Not Found", "text/plain", body);
+            print("  -> 404 Not Found");
+            conn.write(conn, response404, func(write_err) {
+                if (write_err) {
+                    print("Write error!");
+                }
+            });
+            return;
+        }
+
+        let is_dir = io.isDirectory(file_path);
+        if (is_dir) {
+            // serve index.html if it exists
+            let index_path = file_path + "/index.html";
+            let index_exists = Spawn.await(io.fileExists(index_path));
+
+            if (index_exists) {
+                let content = Spawn.await(io.readFile(index_path));
+                let dir_response = build_response("200", "OK", "text/html", content);
+                print("  -> 200 OK (text/html)");
+                conn.write(conn, dir_response, func(write_err) {});
+            } else {
+                // else, generate directory listing
+                let dir_html = generate_directory_listing(file_path, request.path);
+                let dir_response = build_response("200", "OK", "text/html", dir_html);
+                print("  -> 200 OK (directory listing)");
+                conn.write(conn, dir_response, func(write_err) {});
+            }
+            return;
+        }
+
+        try {
+            let content = Spawn.await(io.readFile(file_path));
+            let mime_type = get_mime_type(file_path) ?? "application/octet-stream";
+            let response200 = build_response("200", "OK", mime_type, content);
+            print(`  -> 200 OK ({mime_type})`);
+            conn.write(conn, response200, func(write_err) {});
+        } catch (e) {
+            let body500 = "500 Internal Server Error\nError reading file: " + e;
+            let response500 = build_response("500", "Internal Server Error", "text/plain", body500);
+            print(`  -> 500 Error: {e}`);
+            conn.write(conn, response500, func(write_err) {});
+        }
+    });
+}
+
+global port = 8080;
+global root_dir = "./";
+
+print("\n========================================");
+print("Nari HTTP Server");
+print("========================================");
+print("Listening on http://localhost:" + port);
+print("Serving directory: " + root_dir);
+print("Press Ctrl+C to stop");
+print("========================================\n");
+
+net.createServer(port, handle_request);
+
+print("\nServer has stopped.");

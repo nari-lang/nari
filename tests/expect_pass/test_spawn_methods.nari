@@ -1,0 +1,56 @@
+print("Spawn Object Methods\n");
+
+let urls = [
+    "https://example.com/",
+    "https://wearr.dev/",
+    "http://httpbin.org/get"
+];
+
+// Spawn.map - Create handles from array
+print("Spawn.map - Creating handles from URLs...");
+let handles = Spawn.map(urls, func(url) {
+    return http.get(url);
+});
+print(`   Created {handles.length()} handles`);
+print("");
+
+// Spawn.race - Get fastest
+print("Spawn.race - Finding fastest...");
+let winner = Spawn.race(handles);
+print(`   Winner: URL {urls[winner.index]} ({winner.duration}ms)`);
+print("   Status:", winner.value.statusCode);
+print("");
+
+// Spawn.all - Get all results
+print("Spawn.all - Getting all results...");
+let handles2 = Spawn.map(urls, func(url) { return http.get(url); });
+let all_results = Spawn.all(handles2);
+print(`   Got {all_results.length()} results`);
+let i = 0;
+while (i < all_results.length()) {
+    print(`   Result {i} - Status: {all_results[i].statusCode}`);
+    i = i + 1;
+}
+print("");
+
+// Spawn.allSettled - Get results with status
+print("Spawn.allSettled - Getting detailed results...");
+let handles3 = Spawn.map(urls, func(url) { return http.get(url); });
+let settled = Spawn.allSettled(handles3);
+i = 0;
+while (i < settled.length()) {
+    let s = settled[i];
+    print(`   [{i}] {s.status} - {s.duration}ms`);
+    i = i + 1;
+}
+print("");
+
+// Spawn.any - Get first successful
+print("Spawn.any - Getting first successful...");
+let handles4 = Spawn.map(urls, func(url) { return http.get(url); });
+let any_result = Spawn.any(handles4);
+print(`   First successful: URL {urls[any_result.index]}`);
+print(`   Duration: {any_result.duration}ms`);
+print("");
+
+print("All methods returned successfully!");

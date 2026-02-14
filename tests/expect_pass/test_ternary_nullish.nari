@@ -1,0 +1,45 @@
+let x = 10;
+let result = x > 5 ? "big" : "small";
+print("x =", x, "result:", result);
+
+let y = 3;
+result = y > 5 ? "big" : "small";
+print("y =", y, "result:", result);
+
+// nested ternary
+let score = 85;
+let grade = score >= 90 ? "A" : score >= 80 ? "B" : score >= 70 ? "C" : "F";
+print("score:", score, "grade:", grade);
+
+// ternary with different types
+let isActive = true;
+let status = isActive ? 1 : 0;
+print("isActive:", isActive, "status:", status);
+
+// test null coalescing operator
+let name;  // Will be null since no initializer
+let displayName = name ?? "Guest";
+print("name is null, displayName:", displayName);
+
+let actualName = "Alice";
+displayName = actualName ?? "Guest";
+print("actualName:", actualName, "displayName:", displayName);
+
+// chained null coalescing
+let a;
+let b;
+let c = "Default";
+let value = a ?? b ?? c;
+print("a, b are null, c = 'Default', value:", value);
+
+// null coalescing with numbers
+let count;
+let finalCount = count ?? 0;
+print("count is null, finalCount:", finalCount);
+
+// ternary and null coalescing
+let user;
+let greeting = (user ?? "Guest") == "Guest" ? "Welcome, guest!" : "Welcome back!";
+print("user is null, greeting:", greeting);
+
+print("All ternary and null coalescing tests passed!");

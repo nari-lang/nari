@@ -1,0 +1,6 @@
+.cache
+*.so
+*.dll
+build
+thirdparty/openssl/
+thirdparty/libffi-3.5.2/

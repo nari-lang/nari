@@ -1,0 +1,56 @@
+// Test array and object built-in methods
+
+// Test length()
+let arr = [1, 2, 3, 4, 5];
+print("Array:", arr);
+print("arr.length:", arr.length());
+
+let str = "Hello";
+print("String:", str);
+print("length(str):", str.length());
+
+let obj = {a: 1, b: 2, c: 3};
+print("Object:", obj);
+print("length(obj):", obj.length());
+
+// Test push()
+arr.push(6);
+arr.push(7);
+print("After push(arr, 6) and push(arr, 7):", arr);
+print("New length:", arr.length());
+
+// Test pop()
+let last = arr.pop();
+print("pop(arr) returned:", last);
+print("Array after pop:", arr);
+
+// Test slice()
+let nums = [10, 20, 30, 40, 50];
+print("nums:", nums);
+print("slice(nums, 1, 4):", nums.slice(1, 4));
+print("slice(nums, 2):", nums.slice(2));
+print("slice(nums, 0, 3):", nums.slice(0, 3));
+
+// Test concat()
+let arr1 = [1, 2, 3];
+let arr2 = [4, 5, 6];
+let combined = arr1.concat(arr2);
+print("arr1:", arr1);
+print("arr2:", arr2);
+print("concat(arr1, arr2):", combined);
+
+// Test keys()
+let person = {name: "Alice", age: 30, city: "NYC"};
+print("person:", person);
+let personKeys = person.keys();
+print("keys(person):", personKeys);
+
+// Test values()
+let personVals = person.values();
+print("values(person):", personVals);
+
+// Test hasKey()
+print("hasKey(person, \"name\"):", person.hasKey("name"));
+print("hasKey(person, \"email\"):", person.hasKey("email"));
+
+print("All array/object method tests passed!");

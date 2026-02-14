@@ -1,0 +1,16 @@
+let plain = toString("hello");
+if (plain != "hello") {
+    throw("Expected plain string toString to be unquoted, got: " @ plain);
+}
+
+let obj = toString({msg: "hello"});
+if (obj != "{msg: \"hello\"}") {
+    throw("Expected object-context string value to be quoted, got: " @ obj);
+}
+
+let arr = toString(["x"]);
+if (arr != "[\"x\"]") {
+    throw("Expected array-context string value to be quoted, got: " @ arr);
+}
+
+print("string context toString test passed");

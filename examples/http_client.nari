@@ -1,0 +1,4 @@
+let req = http.get("https://example.com");
+
+let response = req.value;
+print(response.body);

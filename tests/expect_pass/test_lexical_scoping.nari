@@ -1,0 +1,74 @@
+// Basic closure test
+func make_counter(start) {
+    let count = start;
+    return func() {
+        count = count + 1;
+        return count;
+    };
+}
+
+system.print("=== Basic Closure Tests");
+let counter1 = make_counter(0);
+let counter2 = make_counter(10);
+
+system.print("counter1(): " @ counter1()); // Should be 1
+system.print("counter1(): " @ counter1()); // Should be 2
+system.print("counter2(): " @ counter2()); // Should be 11
+system.print("counter1(): " @ counter1()); // Should be 3
+
+// Nested closure test
+func make_multiplier_factory(factor) {
+    return func(multiplier) {
+        return func(x) {
+            return x * multiplier * factor;
+        };
+    };
+}
+
+system.print("Nested Closure Tests");
+let double_factory = make_multiplier_factory(2);
+let triple_factory = make_multiplier_factory(3);
+
+let make_double = double_factory(1);
+let make_quadruple = double_factory(2);
+let make_triple = triple_factory(1);
+
+system.print("make_double(5): " @ make_double(5));     // Should be 10 (5 * 1 * 2)
+system.print("make_quadruple(5): " @ make_quadruple(5)); // Should be 20 (5 * 2 * 2)
+system.print("make_triple(5): " @ make_triple(5));     // Should be 15 (5 * 1 * 3)
+
+// Multiple variable capture
+func create_calculator(initial_value) {
+    let value = initial_value;
+    let operations_count = 0;
+    
+    return {
+        add: func(n) {
+            value = value + n;
+            operations_count = operations_count + 1;
+            return value;
+        },
+        multiply: func(n) {
+            value = value * n;
+            operations_count = operations_count + 1;
+            return value;
+        },
+        get_value: func() {
+            return value;
+        },
+        get_operations_count: func() {
+            return operations_count;
+        }
+    };
+}
+
+system.print("Multiple Variable Capture Tests");
+let calc = create_calculator(10);
+
+system.print("Initial value: " @ calc.get_value());
+system.print("After add(5): " @ calc.add(5));
+system.print("After multiply(3): " @ calc.multiply(3));
+system.print("Current value: " @ calc.get_value());
+system.print("Operations performed: " @ calc.get_operations_count());
+
+system.print("lexical scoping pass!");

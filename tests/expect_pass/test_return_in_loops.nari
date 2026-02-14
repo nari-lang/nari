@@ -1,0 +1,72 @@
+// Test that return statements work correctly inside loops
+// This used to hang the interpreter before the runtime fix
+
+func testWhileReturn() {
+    print("Testing while loop with return...");
+    let count = 0;
+    while (true) {
+        count = count + 1;
+        if (count == 5) {
+            return count;
+        }
+    }
+    return -1; // Should never reach here
+}
+
+func testForReturn() {
+    print("Testing for loop with return...");
+    for (let i = 0; i < 100; i = i + 1) {
+        if (i == 7) {
+            return i;
+        }
+    }
+    return -1; // Should never reach here
+}
+
+func testForEachReturn() {
+    print("Testing foreach loop with return...");
+    let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    for (item in items) {
+        if (item == 6) {
+            return item;
+        }
+    }
+    return -1; // Should never reach here
+}
+
+func testNestedWhileReturn() {
+    print("Testing nested while loops with return...");
+    let outer = 0;
+    while (true) {
+        outer = outer + 1;
+        let inner = 0;
+        while (true) {
+            inner = inner + 1;
+            if (inner == 3 && outer == 2) {
+                return outer * 10 + inner;
+            }
+            if (inner >= 5) {
+                break;
+            }
+        }
+        if (outer >= 5) {
+            break;
+        }
+    }
+    return -1;
+}
+
+// Run all tests
+let result1 = testWhileReturn();
+print("while loop returned: " + result1);
+
+let result2 = testForReturn();
+print("for loop returned: " + result2);
+
+let result3 = testForEachReturn();
+print("foreach loop returned: " + result3);
+
+let result4 = testNestedWhileReturn();
+print("nested while loops returned: " + result4);
+
+print("Pass!");

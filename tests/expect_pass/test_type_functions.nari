@@ -1,0 +1,77 @@
+// Test type checking and conversion functions
+
+// type(val) - get type as string
+let n = 42;
+let s = "hello";
+let b = true;
+let a = [1, 2, 3];
+let o = {name: "Alice"};
+let null_val;
+
+system.print("typeof(42): " @ typeof(n));
+system.print("typeof('hello'): " @ typeof(s));
+system.print("typeof(true): " @ typeof(b));
+system.print("typeof([1,2,3]): " @ typeof(a));
+system.print("typeof({name:'Alice'}): " @ typeof(o));
+system.print("typeof(uninitialized): " @ typeof(null_val));
+
+// Type predicates
+system.print("\nType predicates:");
+system.print("isNumber(42): " @ isNumber(n));
+system.print("isNumber('42'): " @ isNumber(s));
+system.print("isString('hello'): " @ isString(s));
+system.print("isString(42): " @ isString(n));
+system.print("isBool(true): " @ isBool(b));
+system.print("isBool(1): " @ isBool(n));
+system.print("isArray([1,2,3]): " @ isArray(a));
+system.print("isArray('array'): " @ isArray(s));
+system.print("isObject({name:'Alice'}): " @ isObject(o));
+system.print("isObject([1,2,3]): " @ isObject(a));
+
+// Conversion functions
+system.print("\nConversions:");
+system.print("toNumber('123'): " @ toNumber("123"));
+system.print("toNumber('45.67'): " @ toNumber("45.67"));
+system.print("toNumber(true): " @ toNumber(true));
+system.print("toString(42): " @ toString(42));
+system.print("toString(true): " @ toString(true));
+system.print("toBool(1): " @ toBool(1));
+system.print("toBool(0): " @ toBool(0));
+system.print("toBool(''): " @ toBool(""));
+system.print("toBool('text'): " @ toBool("text"));
+system.print("toBool([]): " @ toBool([]));
+system.print("toBool({}): " @ toBool({}));
+
+// Practical usage: type-safe operations
+system.print("\nPractical usage:");
+
+process_value(42);
+process_value("hello");
+process_value([1, 2, 3]);
+process_value({x: 10});
+
+func process_value(val) {
+    if (isNumber(val)) {
+        system.print("Processing number: " @ (val * 2));
+    } else if (isString(val)) {
+        system.print("Processing string: " @ val.toUpper());
+    } else if (isArray(val)) {
+        system.print("Processing array of length: " @ val.length());
+    } else if (isObject(val)) {
+        system.print("Processing object with keys: " @ val.keys().join(", "));
+    } else {
+        system.print("Processing unknown type: " @ typeof(val));
+    }
+}
+
+// Safe conversion example
+let input = "100";
+if (isString(input)) {
+    let num = toNumber(input);
+    system.print("\nConverted '" @ input @ "' to number (+50): " @ (num + 50));
+}
+
+// Type checking with ternary
+let value = 123;
+let description = isNumber(value) ? "It's a number" : "It's not a number";
+system.print("\n" @ description);

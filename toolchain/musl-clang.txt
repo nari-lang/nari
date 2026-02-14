@@ -1,0 +1,21 @@
+[binaries]
+c = 'clang'
+cpp = 'clang++'
+ar = 'llvm-ar'
+strip = 'llvm-strip'
+pkg-config = 'pkg-config'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = false
+
+[built-in options]
+c_args = ['--target=x86_64-linux-musl', '-fdiagnostics-absolute-paths', '-Wno-unused-command-line-argument']
+cpp_args = ['--target=x86_64-linux-musl', '-stdlib=libc++', '-fdiagnostics-absolute-paths', '-Wno-unused-variable', '-Wno-unused-lambda-capture', '-Wno-unused-command-line-argument']
+c_link_args = ['--target=x86_64-linux-musl', '-fuse-ld=lld', '-static']
+cpp_link_args = ['--target=x86_64-linux-musl', '-stdlib=libc++', '-fuse-ld=lld', '-static', '-nostdlib++', '-lc++', '-lc++abi', '-Wl,--gc-sections']

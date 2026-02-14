@@ -1,0 +1,19 @@
+let h1 = 0x0;
+if (h1 != 0) { throw("hex 0x0 failed"); }
+
+let h2 = 0x2a;
+if (h2 != 42) { throw("hex 0x2a failed"); }
+
+let h3 = 0x2A;
+if (h3 != 42) { throw("hex 0x2A failed"); }
+
+let h4 = 0xDEAD;
+if (h4 != 57005) { throw("hex 0xDEAD failed"); }
+
+let h5 = -0x10;
+if (h5 != -16) { throw("negative hex failed"); }
+
+let mix = 0x10 + 5;
+if (mix != 21) { throw("hex arithmetic failed"); }
+
+print("hex literal tests passed");

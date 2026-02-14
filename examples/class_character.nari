@@ -1,0 +1,76 @@
+// Advanced class example: Building a simple game character system
+
+class Character {
+    public name: string;
+    private health: number = 100;
+    private maxHealth: number = 100;
+    private level: number = 1;
+    private experience: number = 0;
+
+    public init(characterName: string) {
+        this.name = characterName;
+    }
+
+    public takeDamage(damage: number) {
+        this.health = this.health - damage;
+        if (this.health < 0) {
+            this.health = 0;
+        }
+        print(this.name @ " took " @ toString(damage) @ " damage! Health: " @ toString(this.health));
+    }
+
+    public heal(amount: number) {
+        this.health = this.health + amount;
+        if (this.health > this.maxHealth) {
+            this.health = this.maxHealth;
+        }
+        print(this.name @ " healed " @ toString(amount) @ " HP! Health: " @ toString(this.health));
+    }
+
+    public gainExperience(xp: number) {
+        this.experience = this.experience + xp;
+        print(this.name @ " gained " @ toString(xp) @ " XP!");
+        
+        // Level up at 100 XP
+        if (this.experience >= 100) {
+            this.levelUp();
+        }
+    }
+
+    private levelUp() {
+        this.level = this.level + 1;
+        this.experience = this.experience - 100;
+        this.maxHealth = this.maxHealth + 20;
+        this.health = this.maxHealth;
+        print(this.name @ " leveled up to level " @ toString(this.level) @ "!");
+    }
+
+    public getStatus() -> string {
+        return this.name @ " [Lv " @ toString(this.level) @ "] HP: " @ 
+               toString(this.health) @ "/" @ toString(this.maxHealth) @ 
+               " XP: " @ toString(this.experience) @ "/100";
+    }
+
+    public isAlive() -> bool {
+        return this.health > 0;
+    }
+}
+
+// Create a character
+let hero = new Character("Aria");
+print(hero.getStatus());
+
+// Simulate a battle
+print("\n--- Battle Begins! ---");
+hero.takeDamage(30);
+hero.takeDamage(20);
+hero.heal(15);
+
+// Gain experience
+print("\n--- After Battle ---");
+hero.gainExperience(50);
+hero.gainExperience(60);  // This should trigger level up!
+
+print("\n--- Final Status ---");
+print(hero.getStatus());
+print("Alive: " @ toString(hero.isAlive()));

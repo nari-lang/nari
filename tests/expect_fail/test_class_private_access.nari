@@ -1,0 +1,19 @@
+// Test that private access control is enforced
+
+class SecretKeeper {
+    public publicInfo: string = "This is public";
+    private secretInfo: string = "This is secret";
+
+    public getSecret() -> string {
+        return this.secretInfo;  // OK - accessing from within class
+    }
+}
+
+let keeper = new SecretKeeper();
+
+// This should work
+print(keeper.publicInfo);
+print(keeper.getSecret());
+
+// This should cause a runtime error - trying to access private field
+print(keeper.secretInfo);

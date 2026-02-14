@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nari Interpreter</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        h1 {
+            color: #4ec9b0;
+            margin-bottom: 10px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .panel {
+            background: #252526;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        textarea, pre {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        #code-input {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border: 1px solid #3c3c3c;
+            padding: 10px;
+            min-height: 200px;
+            resize: vertical;
+            border-radius: 4px;
+        }
+        #output {
+            background: #1e1e1e;
+            color: #cccccc;
+            padding: 10px;
+            min-height: 300px;
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        button {
+            background: #0e639c;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #1177bb;
+        }
+        button:disabled {
+            background: #3c3c3c;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 8px 12px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+        .status.loading {
+            background: #1e3a5f;
+            color: #4ec9b0;
+        }
+        .status.ready {
+            background: #1e3a1e;
+            color: #4ec9b0;
+        }
+        .status.error {
+            background: #4a1e1e;
+            color: #f48771;
+        }
+        .error {
+            color: #f48771;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #4ec9b0;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Nari Interpreter</h1>
+        
+        <div id="status" class="status loading">Loading interpreter...</div>
+
+        <div class="panel">
+            <label for="code-input">Nari Code:</label>
+            <textarea id="code-input" placeholder='print("Hello from Nari in the browser!");'>print("Hello from Nari in the browser!");</textarea>
+            <div style="margin-top: 10px;">
+                <button id="run-btn" onclick="runCode()" disabled>Run Code</button>
+                <button onclick="clearOutput()">Clear Output</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <label>Output:</label>
+            <pre id="output">Waiting for interpreter to load...</pre>
+        </div>
+    </div>
+
+    <script>
+        let Module;
+        const outputElem = document.getElementById('output');
+        const statusElem = document.getElementById('status');
+        const runBtn = document.getElementById('run-btn');
+
+        function updateStatus(message, type) {
+            statusElem.textContent = message;
+            statusElem.className = 'status ' + type;
+        }
+
+        function appendOutput(text) {
+            outputElem.textContent += text;
+            outputElem.scrollTop = outputElem.scrollHeight;
+        }
+
+        function clearOutput() {
+            outputElem.textContent = '';
+        }
+
+        function runCode() {
+            const code = document.getElementById('code-input').value;
+            if (!code.trim()) {
+                appendOutput('No code to run.\n');
+                return;
+            }
+
+            clearOutput();
+            appendOutput('Running code...\n\n');
+
+            try {
+                const filename = '/tmp/code.nari';
+                Module.FS.writeFile(filename, code);
+                
+                // Run the interpreter with the file
+                const result = Module.callMain([filename]);
+                
+                if (result !== 0) {
+                    appendOutput('\nProcess exited with code: ' + result + '\n');
+                }
+            } catch (e) {
+                appendOutput('\nError: ' + e.message + '\n');
+                console.error(e);
+            }
+        }
+
+        // Emscripten module configuration
+        const moduleConfig = {
+            preRun: [],
+            postRun: [],
+            print: function(text) {
+                if (arguments.length > 1) {
+                    text = Array.prototype.slice.call(arguments).join(' ');
+                }
+                appendOutput(text + '\n');
+            },
+            printErr: function(text) {
+                if (arguments.length > 1) {
+                    text = Array.prototype.slice.call(arguments).join(' ');
+                }
+                appendOutput('Error: ' + text + '\n');
+            },
+            onRuntimeInitialized: function() {
+                Module = this;
+                
+                // Create tmp directory for code execution
+                try {
+                    Module.FS.mkdir('/tmp');
+                } catch (e) {
+                    // Directory might already exist
+                }
+                
+                updateStatus('Interpreter ready!', 'ready');
+                runBtn.disabled = false;
+                clearOutput();
+                appendOutput('Nari interpreter loaded successfully!\n');
+                appendOutput('Tests folder available at: /tests/\n\n');
+                appendOutput('Ready to run code.\n');
+            },
+            onAbort: function(what) {
+                updateStatus('Failed to load interpreter', 'error');
+                appendOutput('Failed to load: ' + what + '\n');
+            }
+        };
+
+        // Handle Enter key in textarea (Ctrl+Enter to run)
+        document.getElementById('code-input').addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                runCode();
+            }
+        });
+
+        // Initialize the module after the script loads
+        window.addEventListener('load', function() {
+            if (typeof createModule === 'function') {
+                createModule(moduleConfig).then(function(instance) {
+                    console.log('Module initialized successfully');
+                }).catch(function(err) {
+                    console.error('Failed to initialize module:', err);
+                    updateStatus('Failed to load interpreter', 'error');
+                    appendOutput('Initialization error: ' + err + '\n');
+                });
+            } else {
+                console.error('createModule function not found');
+                updateStatus('Failed to load interpreter', 'error');
+                appendOutput('createModule function not found\n');
+            }
+        });
+    </script>
+    
+    <!-- Load the compiled WebAssembly module -->
+    {{{ SCRIPT }}}
+</body>
+</html>

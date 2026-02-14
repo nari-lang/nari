@@ -1,0 +1,3 @@
+import "../dep/toplevel_global.nari"
+
+system.print(helloworld)

@@ -1,0 +1,45 @@
+system.io.writeFile("__test_temp__.txt", "test content").value
+let content = system.io.readFile("__test_temp__.txt").value
+
+if (content == "test content") {
+    system.print("Read/write successful")
+} else {
+    system.print("Read/write failed")
+    throw `Read/write failed: got {content}`
+}
+
+system.io.appendFile("__test_temp__.txt", " appended").value
+let appended = system.io.readFile("__test_temp__.txt").value
+
+if (appended == "test content appended") {
+    system.print("Append successful")
+} else {
+    system.print("Append failed: got " @ appended)
+    throw `Append failed: got {appended}`
+}
+
+let exists = system.io.fileExists("__test_temp__.txt").value
+if (exists) {
+    system.print("File exists check successful")
+} else {
+    system.print("File exists check failed");
+    throw "File should exist"
+}
+
+let files = system.io.listDir(".").value
+if (files.length() > 0) {
+    system.print("List directory successful")
+} else {
+    system.print("List directory failed")
+}
+
+system.io.deleteFile("__test_temp__.txt").value
+let stillExists = system.io.fileExists("__test_temp__.txt").value
+
+if (!stillExists) {
+    system.print("Delete successful")
+} else {
+    system.print("Delete failed")
+}
+
+system.print("All I/O tests passed!")

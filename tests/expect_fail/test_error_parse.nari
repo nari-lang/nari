@@ -1,0 +1,6 @@
+func start() {
+    print("oops");
+    if (true {
+        print("missing paren");
+    }
+}

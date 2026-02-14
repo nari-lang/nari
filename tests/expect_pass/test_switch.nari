@@ -1,0 +1,20 @@
+print("Switch statement tests");
+let x = 2;
+switch (x) {
+    case 1:
+        print("one");
+    case 2:
+        print("two");
+    default:
+        print("other");
+}
+
+let s = "c";
+switch (s) {
+    case "a":
+        print("A");
+    case "b":
+        print("B");
+    default:
+        print("unknown");
+}
