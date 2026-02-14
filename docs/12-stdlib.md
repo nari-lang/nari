@@ -28,12 +28,12 @@ Reference to the math module.
 let result = system.math.sqrt(16);
 ```
 
-### system.io
+### system.fs
 
-Reference to the io module.
+Reference to the file system module.
 
 ```nari
-let content = system.io.readFile("data.txt");
+let content = system.fs.readFile("data.txt");
 ```
 
 ## math Module
@@ -111,28 +111,28 @@ let dist = calculateDistance(0, 0, 3, 4);
 print("Distance: " @ dist);  // 5
 ```
 
-## io Module
+## fs Module
 
-File system and I/O operations.
+File system operations.
 
-### io.readFile
+### fs.readFile
 
 Read entire file contents.
 
 ```nari
-let content = io.readFile("data.txt");
+let content = fs.readFile("data.txt");
 print(content);
 ```
 
 **Parameters:** `path` - File path  
 **Returns:** String (file contents) or null on error
 
-### io.writeFile
+### fs.writeFile
 
 Write content to a file (overwrites existing).
 
 ```nari
-io.writeFile("output.txt", "Hello, World!");
+fs.writeFile("output.txt", "Hello, World!");
 ```
 
 **Parameters:**
@@ -141,12 +141,12 @@ io.writeFile("output.txt", "Hello, World!");
 
 **Returns:** None
 
-### io.appendFile
+### fs.appendFile
 
 Append content to a file.
 
 ```nari
-io.appendFile("log.txt", "New log entry\n");
+fs.appendFile("log.txt", "New log entry\n");
 ```
 
 **Parameters:**
@@ -155,13 +155,13 @@ io.appendFile("log.txt", "New log entry\n");
 
 **Returns:** None
 
-### io.fileExists
+### fs.fileExists
 
 Check if a file exists.
 
 ```nari
-if (io.fileExists("config.json")) {
-    let config = io.readFile("config.json");
+if (fs.fileExists("config.json")) {
+    let config = fs.readFile("config.json");
     print("Config loaded");
 }
 ```
@@ -169,12 +169,12 @@ if (io.fileExists("config.json")) {
 **Parameters:** `path`  
 **Returns:** Boolean
 
-### io.isDirectory
+### fs.isDirectory
 
 Check if a path is a directory.
 
 ```nari
-if (io.isDirectory("/home/user/")) {
+if (fs.isDirectory("/home/user/")) {
     print("It's a directory");
 }
 ```
@@ -182,23 +182,23 @@ if (io.isDirectory("/home/user/")) {
 **Parameters:** `path`  
 **Returns:** Boolean
 
-### io.deleteFile
+### fs.deleteFile
 
 Delete a file.
 
 ```nari
-io.deleteFile("temp.txt");
+fs.deleteFile("temp.txt");
 ```
 
 **Parameters:** `path`  
 **Returns:** None
 
-### io.listDir
+### fs.listDir
 
 List directory contents.
 
 ```nari
-let files = io.listDir("/home/user/docs");
+let files = fs.listDir("/home/user/docs");
 for (file in files) {
     print(file);
 }
@@ -206,6 +206,9 @@ for (file in files) {
 
 **Parameters:** `path` - Directory path  
 **Returns:** Array of filenames
+
+## IO Module
+### IO operations for reading from standard input (and soon other streams).
 
 ### io.stdin.read
 
@@ -234,19 +237,19 @@ print("Hello, " @ name @ "!");
 
 ```nari
 func processLogFile(filename) {
-    if (!io.fileExists(filename)) {
+    if (!fs.fileExists(filename)) {
         print("File not found");
         return;
     }
     
-    let content = io.readFile(filename);
+    let content = fs.readFile(filename);
     let lines = content.split("\n");
     
     print("Processing " @ lines.length() @ " lines");
     
     for (line in lines) {
         if (line.indexOf("ERROR") != -1) {
-            io.appendFile("errors.log", line @ "\n");
+            fs.appendFile("errors.log", line @ "\n");
         }
     }
 }

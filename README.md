@@ -164,7 +164,7 @@ The [examples/](examples/) directory contains sample programs demonstrating vari
 * `docs/`: Language documentation
 * `examples/`: Example programs
 * `tests/`: Test suite with passing and failing test cases
-* `stdlib/`: Standard library implementation
+* `src/stdlib/`: Standard library implementation
 * `thirdparty/`: External dependencies (httplib, libffi, OpenSSL)
 * `tools/`: Build utilities
 * `toolchain/`: Cross-compilation toolchain files
@@ -175,8 +175,8 @@ Nari is implemented in C++20 and includes:
 
 * Custom parser and abstract syntax tree representation
 * Bytecode interpreter with runtime type checking
-* Garbage collector for automatic memory management (see [GC_IMPLEMENTATION.md](GC_IMPLEMENTATION.md))
-* Class system with inheritance and encapsulation (see [CLASS_SYSTEM.md](CLASS_SYSTEM.md))
+* Garbage collector for automatic memory management
+* Class system with inheritance and encapsulation (see [Classes](docs/18-classes.md))
 * Integration with libffi for dynamic C function calls
 * Embedded standard library compiled into the interpreter binary
 
@@ -186,5 +186,5 @@ See [EDITOR_SUPPORT.md](EDITOR_SUPPORT.md) for information on syntax highlightin
 
 ## License
 
-This project is available for personal and educational use.
+This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.
 

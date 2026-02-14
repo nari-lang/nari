@@ -290,7 +290,7 @@ func processFile(filename) {
     let content = null;
     
     try {
-        content = io.readFile(filename);
+        content = fs.readFile(filename);
         if (!content) {
             throw "Could not read file";
         }

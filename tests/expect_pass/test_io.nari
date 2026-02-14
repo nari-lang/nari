@@ -1,5 +1,5 @@
-system.io.writeFile("__test_temp__.txt", "test content").value
-let content = system.io.readFile("__test_temp__.txt").value
+fs.writeFile("__test_temp__.txt", "test content").value
+let content = fs.readFile("__test_temp__.txt").value
 
 if (content == "test content") {
     system.print("Read/write successful")
@@ -8,8 +8,8 @@ if (content == "test content") {
     throw `Read/write failed: got {content}`
 }
 
-system.io.appendFile("__test_temp__.txt", " appended").value
-let appended = system.io.readFile("__test_temp__.txt").value
+fs.appendFile("__test_temp__.txt", " appended").value
+let appended = fs.readFile("__test_temp__.txt").value
 
 if (appended == "test content appended") {
     system.print("Append successful")
@@ -18,7 +18,7 @@ if (appended == "test content appended") {
     throw `Append failed: got {appended}`
 }
 
-let exists = system.io.fileExists("__test_temp__.txt").value
+let exists = fs.fileExists("__test_temp__.txt").value
 if (exists) {
     system.print("File exists check successful")
 } else {
@@ -26,15 +26,15 @@ if (exists) {
     throw "File should exist"
 }
 
-let files = system.io.listDir(".").value
+let files = fs.listDir(".").value
 if (files.length() > 0) {
     system.print("List directory successful")
 } else {
     system.print("List directory failed")
 }
 
-system.io.deleteFile("__test_temp__.txt").value
-let stillExists = system.io.fileExists("__test_temp__.txt").value
+fs.deleteFile("__test_temp__.txt").value
+let stillExists = fs.fileExists("__test_temp__.txt").value
 
 if (!stillExists) {
     system.print("Delete successful")

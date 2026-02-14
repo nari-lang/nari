@@ -82,7 +82,7 @@ func __stdlib_init__() {
         };
     };
 
-    global io = {
+    global fs = {
         readFile: func(path) {
             return __fs_readFile(path);
         },
@@ -104,11 +104,14 @@ func __stdlib_init__() {
         listDir: func(path) {
             return __fs_listDir(path);
         },
+    };
+
+    global io = {
         stdin: {
             read: readAll,
             readLine: readLine
         }
-    };
+    }
 
     global platform = {
         arch: __platform_arch(),
@@ -177,6 +180,7 @@ func __stdlib_init__() {
         version: stdlib_version,
         print: print,
         math: math,
+        fs: fs,
         io: io,
         net: net,
         http: http,

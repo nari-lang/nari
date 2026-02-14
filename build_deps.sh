@@ -1,133 +1,103 @@
 #!/bin/bash
 set -e
 
-# Detect target (default to linux)
+OPENSSL_VERSION="3.6.1"
+LIBFFI_VERSION="3.5.2"
+LIBFFI_DIR="thirdparty/libffi"
 TARGET=${TARGET:-linux}
-XWIN_CACHE="/home/wearr/.xwin-cache/splat/"
+XWIN_CACHE="$HOME/.xwin-cache/splat"
 
-cd thirdparty/openssl/
+# Create thirdparty directory if it doesn't exist
+mkdir -p thirdparty
+cd thirdparty
 
-if [ "$TARGET" = "windows" ]; then
-    echo "Building OpenSSL for Windows with clang..."
-    
-    # Set up environment for cross-compilation to Windows
-    export CC="clang-cl --target=x86_64-pc-windows-msvc"
-    export CXX="clang-cl --target=x86_64-pc-windows-msvc"
-    export AR="llvm-ar"
-    export RANLIB="llvm-ranlib"
-    export RC="llvm-rc"
-    
-    # Add Windows SDK include paths
-    export CFLAGS="-imsvc ${XWIN_CACHE}/crt/include -imsvc ${XWIN_CACHE}/sdk/include/ucrt -imsvc ${XWIN_CACHE}/sdk/include/um -imsvc ${XWIN_CACHE}/sdk/include/shared"
-    export CXXFLAGS="$CFLAGS"
-    
-    # Configure for Windows using mingw64 target (works for cross-compilation)
-    ./Configure mingw64 \
-      --prefix=$PWD/build-windows \
-      --openssldir=/etc/ssl \
-      no-shared \
-      no-dso \
-      no-engine \
-      no-comp \
-      no-tests \
-      no-apps \
-      no-docs \
-      no-asm \
-      no-blake2 \
-      no-camellia \
-      no-cast \
-      no-chacha \
-      no-cmac \
-      no-des \
-      no-dh \
-      no-dsa \
-      no-ec2m \
-      no-idea \
-      no-md2 \
-      no-md4 \
-      no-mdc2 \
-      no-poly1305 \
-      no-rc2 \
-      no-rc4 \
-      no-rc5 \
-      no-rmd160 \
-      no-scrypt \
-      no-seed \
-      no-siphash \
-      no-sm2 \
-      no-sm3 \
-      no-sm4 \
-      no-srp \
-      no-whirlpool \
-      no-aria \
-      no-bf \
-      no-gost \
-      no-ocsp \
-      no-cms \
-      no-ts \
-      no-srtp \
-      no-ssl3 \
-      no-tls1 \
-      no-tls1_1 \
-      no-dtls \
-      no-psk \
-      -Os
+
+
+# Download openssl if not already present
+if [ ! -d "openssl" ]; then
+    echo "Downloading OpenSSL ${OPENSSL_VERSION}..."
+    wget https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz
+    tar xzf openssl-${OPENSSL_VERSION}.tar.gz
+    rm openssl-${OPENSSL_VERSION}.tar.gz
+    mv openssl-${OPENSSL_VERSION} openssl
+fi;
+
+if [ ! -d "openssl/build-$TARGET" ]; then
+    cd ..
+    ./build_openssl.sh
+
+    cd thirdparty
 else
-    echo "Building OpenSSL for Linux..."
-    
-    ./config \
-      --prefix=$PWD/build \
-      --openssldir=/etc/ssl \
-      no-shared \
-      no-dso \
-      no-engine \
-      no-comp \
-      no-tests \
-      no-apps \
-      no-docs \
-      no-asm \
-      no-blake2 \
-      no-camellia \
-      no-cast \
-      no-chacha \
-      no-cmac \
-      no-des \
-      no-dh \
-      no-dsa \
-      no-ec2m \
-      no-idea \
-      no-md2 \
-      no-md4 \
-      no-mdc2 \
-      no-poly1305 \
-      no-rc2 \
-      no-rc4 \
-      no-rc5 \
-      no-rmd160 \
-      no-scrypt \
-      no-seed \
-      no-siphash \
-      no-sm2 \
-      no-sm3 \
-      no-sm4 \
-      no-srp \
-      no-whirlpool \
-      no-aria \
-      no-bf \
-      no-gost \
-      no-ocsp \
-      no-cms \
-      no-ts \
-      no-srtp \
-      no-ssl3 \
-      no-tls1 \
-      no-tls1_1 \
-      no-dtls \
-      no-psk \
-      -Os
+    echo "OpenSSL already built for $TARGET"
 fi
 
-make -j$(nproc)
-make install_sw
+# Download libffi if not already present
+if [ ! -d "libffi-${LIBFFI_VERSION}" ]; then
+    echo "Downloading libffi ${LIBFFI_VERSION}..."
+    wget https://github.com/libffi/libffi/releases/download/v${LIBFFI_VERSION}/libffi-${LIBFFI_VERSION}.tar.gz
+    tar xzf libffi-${LIBFFI_VERSION}.tar.gz
+    rm libffi-${LIBFFI_VERSION}.tar.gz
+fi
 
-echo "OpenSSL built successfully for $TARGET!"
+# Build static library
+cd libffi-${LIBFFI_VERSION}
+
+if [ "$TARGET" = "windows" ]; then
+    BUILD_DIR="build-windows"
+    echo "Building static libffi for Windows..."
+    
+    if [ ! -f "${BUILD_DIR}/lib/libffi.a" ]; then
+        # For libffi, we use MinGW target (autotools compatible)
+        # The resulting .a file is still usable with MSVC-targeted code
+        export CC="clang --target=x86_64-w64-mingw32"
+        export CXX="clang++ --target=x86_64-w64-mingw32"
+        export AR="llvm-ar"
+        export RANLIB="llvm-ranlib"
+        # MinGW target doesn't need xwin SDK paths - it uses MinGW headers
+        unset CFLAGS
+        unset CXXFLAGS
+        unset LDFLAGS
+        
+        # Configure for Windows cross-compilation
+        ./configure \
+            --prefix=$(pwd)/${BUILD_DIR} \
+            --host=x86_64-w64-mingw32 \
+            --enable-static \
+            --disable-shared \
+            --with-pic
+        
+        # Build
+        make -j$(nproc)
+        
+        # Install to build directory
+        make install
+        
+        echo "libffi built successfully for Windows!"
+    else
+        echo "libffi already built for Windows"
+    fi
+else
+    BUILD_DIR="build"
+    echo "Building static libffi for Linux..."
+    
+    if [ ! -f "${BUILD_DIR}/lib/libffi.a" ]; then
+        # Configure for static library
+        ./configure \
+            --prefix=$(pwd)/${BUILD_DIR} \
+            --enable-static \
+            --disable-shared \
+            --with-pic
+        
+        # Build
+        make -j$(nproc)
+        
+        # Install to build directory
+        make install
+        
+        echo "libffi built successfully for Linux!"
+    else
+        echo "libffi already built for Linux"
+    fi
+fi
+
+cd ../..

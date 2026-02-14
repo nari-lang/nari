@@ -35,7 +35,7 @@ cc = meson.get_compiler('cpp')
 # Detect target system for dependency paths
 is_windows = host_machine.system() == 'windows'
 is_emscripten = host_machine.system() == 'emscripten'
-dep_suffix = is_windows ? '-windows' : ''
+dep_suffix = is_windows ? '-windows' : '-linux'
 
 # Add Windows-specific stub for ___chkstk_ms
 if is_windows
@@ -47,7 +47,7 @@ all_deps = []
 
 # OpenSSL - not needed for emscripten
 if not is_emscripten
-  openssl_prefix = is_windows ? 'thirdparty/openssl/build-windows' : 'thirdparty/openssl/build'
+  openssl_prefix = is_windows ? 'thirdparty/openssl/build-windows' : 'thirdparty/openssl/build-linux'
   openssl_inc = include_directories(openssl_prefix / 'include')
 
   # Try lib64 first, then lib (Windows uses lib)

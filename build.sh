@@ -2,7 +2,7 @@ BUILD_TYPE=debug
 RECONFIGURE=false
 MUSL=false
 WINDOWS=false
-EMSCRIPTEN=true
+EMSCRIPTEN=false
 CROSS_FILE="glibc-clang.txt"
 
 for arg in "$@"; do
@@ -45,9 +45,8 @@ fi
 
 # Set environment variables for all build types
 if [ "$WINDOWS" = true ]; then
-    # Set MSVC-style environment variables for clang-cl
-    export INCLUDE="/home/wearr/.xwin-cache/splat/crt/include;/home/wearr/.xwin-cache/splat/sdk/include/ucrt;/home/wearr/.xwin-cache/splat/sdk/include/um;/home/wearr/.xwin-cache/splat/sdk/include/shared"
-    export LIB="/home/wearr/.xwin-cache/splat/crt/lib/x86_64;/home/wearr/.xwin-cache/splat/sdk/lib/um/x86_64;/home/wearr/.xwin-cache/splat/sdk/lib/ucrt/x86_64"
+    export INCLUDE="$HOME/.xwin-cache/splat/crt/include;$HOME/.xwin-cache/splat/sdk/include/ucrt;$HOME/.xwin-cache/splat/sdk/include/um;$HOME/.xwin-cache/splat/sdk/include/shared"
+    export LIB="$HOME/.xwin-cache/splat/crt/lib/x86_64;$HOME/.xwin-cache/splat/sdk/lib/um/x86_64;$HOME/.xwin-cache/splat/sdk/lib/ucrt/x86_64"
     export PKG_CONFIG_PATH=$PWD/thirdparty/openssl/build-windows/lib/pkgconfig:$PKG_CONFIG_PATH
 elif [ "$MUSL" = true ]; then
     export PKG_CONFIG_PATH=$PWD/thirdparty/openssl/build/lib/pkgconfig:$PKG_CONFIG_PATH

@@ -5,7 +5,7 @@ This project supports cross-compilation to Windows using clang-cl and xwin.
 ## Prerequisites
 
 1. Install LLVM/Clang with clang-cl support
-2. Install xwin and set up the Windows SDK cache at `/home/wearr/.xwin-cache/`
+2. Install xwin and set up the Windows SDK cache at `$HOME/.xwin-cache/` (default for xwin)
 
 ## Building Dependencies
 
