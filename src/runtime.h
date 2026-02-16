@@ -225,7 +225,10 @@ public:
   void exec_stmt(const Stmt *s);
   Value call_user_function(Function *f, const std::vector<Value> &args);
 
-  // Call a function Value (for FFI callbacks)
+  Value lookup_variable(const std::string &name, const std::string &filename, bool &found);
+  void store_variable(const std::string &name, const std::string &filename, const Value &value);
+
+  // call a function Value (for FFI callbacks)
   Value call_function_value(const Value &func_val,
                             const std::vector<Value> &args) {
     if (!func_val.is_function()) {
@@ -239,11 +242,11 @@ public:
     return Value::none();
   }
 
-  // Pattern matching helper
+  // pattern matching helper
   bool match_pattern(const Pattern *pattern, const Value &value,
                      Value &bindings);
 
-  // Garbage collection
+  // garbage collection
   void collect_garbage();
   std::vector<const Value *> collect_gc_roots() const;
 

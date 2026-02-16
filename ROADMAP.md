@@ -55,7 +55,6 @@ just a rough list of stuff that needs doing, in no particular order really
 
 ## runtime / internals
 
-- the `++`/`--` operator code in runtime.cpp is duplicated ~4 times with the same variable lookup logic.
 - the whole area around closure environment sync needs to be way less fragile
 - division by zero silently returns 0.0 instead of throwing or returning NaN or literally anything else. same with modulo
 - lambda names (`__lambda_0` etc) accumulate in the global functions map forever and never get cleaned up

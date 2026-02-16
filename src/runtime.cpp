@@ -463,6 +463,98 @@ std::vector<const Value *> ScriptRuntime::collect_gc_roots() const {
   return roots;
 }
 
+// lookup variable through scopes (block -> call -> module -> global)
+Value ScriptRuntime::lookup_variable(const std::string &name, const std::string &filename, bool &found) {
+  found = false;
+  
+  // check block scopes (innermost to outermost)
+  for (int i = block_scope_stack.size() - 1; i >= 0; i--) {
+    auto &block_scope = block_scope_stack[i];
+    auto it = block_scope.find(name);
+    if (it != block_scope.end()) {
+      found = true;
+      return it->second;
+    }
+  }
+  
+  // check function call stack (locals)
+  if (!call_stack.empty()) {
+    auto &locals = call_stack.back();
+    auto it = locals.find(name);
+    if (it != locals.end()) {
+      found = true;
+      return it->second;
+    }
+  }
+  
+  // check module-local vars (current module on stack)
+  if (!module_stack.empty()) {
+    auto it = module_local_vars.find(module_stack.back());
+    if (it != module_local_vars.end()) {
+      auto mlocal = it->second.find(name);
+      if (mlocal != it->second.end()) {
+        found = true;
+        return mlocal->second;
+      }
+    }
+  }
+  
+  // check globals
+  auto it = globals.find(name);
+  if (it != globals.end()) {
+    found = true;
+    return it->second;
+  }
+  
+  // not found
+  return Value::make_int(0);
+}
+
+// store variable through scopes (block -> call -> module -> global)
+void ScriptRuntime::store_variable(const std::string &name, const std::string &filename, const Value &value) {
+  // try block scopes first
+  for (int i = block_scope_stack.size() - 1; i >= 0; i--) {
+    auto &block_scope = block_scope_stack[i];
+    auto it = block_scope.find(name);
+    if (it != block_scope.end()) {
+      it->second = value;
+      return;
+    }
+  }
+  
+  // try call stack
+  if (!call_stack.empty()) {
+    auto &locals = call_stack.back();
+    if (locals.find(name) != locals.end()) {
+      locals[name] = value;
+      return;
+    }
+  }
+  
+  // try module-local vars (current module)
+  if (!module_stack.empty()) {
+    auto it = module_local_vars.find(module_stack.back());
+    if (it != module_local_vars.end() &&
+        it->second.find(name) != it->second.end()) {
+      it->second[name] = value;
+      return;
+    }
+  }
+  
+  // try module-local vars by filename
+  if (!filename.empty()) {
+    auto it = module_local_vars.find(filename);
+    if (it != module_local_vars.end() &&
+        it->second.find(name) != it->second.end()) {
+      it->second[name] = value;
+      return;
+    }
+  }
+  
+  // fall back to globals
+  globals[name] = value;
+}
+
 void ScriptRuntime::collect_garbage() {
   auto &gc = GarbageCollector::instance();
 
@@ -647,8 +739,6 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
     const std::string &op = unaryExpr->op;
 
     // Prefix ++ and --
-    // TODO: there is almost certainly a better way to do this, but i already
-    // spent like 2 hours on it and bleh
     if (op == "++" || op == "--") {
       if (!unaryExpr->operand) {
         runtime_fatal("Increment/decrement operand is null", unaryExpr);
@@ -669,45 +759,8 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         runtime_fatal(msg, unaryExpr);
       }
 
-      Value current;
       bool found = false;
-      for (int i = block_scope_stack.size() - 1; i >= 0; i--) {
-        auto &block_scope = block_scope_stack[i];
-        auto it = block_scope.find(ie->name);
-        if (it != block_scope.end()) {
-          current = it->second;
-          found = true;
-          break;
-        }
-      }
-      if (!found && !call_stack.empty()) {
-        auto &locals = call_stack.back();
-        auto it = locals.find(ie->name);
-        if (it != locals.end()) {
-          current = it->second;
-          found = true;
-        }
-      }
-      if (!found && !module_stack.empty()) {
-        auto it = module_local_vars.find(module_stack.back());
-        if (it != module_local_vars.end()) {
-          auto mlocal = it->second.find(ie->name);
-          if (mlocal != it->second.end()) {
-            current = mlocal->second;
-            found = true;
-          }
-        }
-      }
-      if (!found) {
-        auto it = globals.find(ie->name);
-        if (it != globals.end()) {
-          current = it->second;
-          found = true;
-        }
-      }
-      if (!found) {
-        current = Value::make_int(0);
-      }
+      Value current = lookup_variable(ie->name, ie->filename, found);
 
       Value newval;
       if (current.is_float()) {
@@ -721,48 +774,11 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         runtime_fatal("Increment/decrement requires int or float", unaryExpr);
       }
 
-      bool stored = false;
-      for (int i = block_scope_stack.size() - 1; i >= 0; i--) {
-        auto &block_scope = block_scope_stack[i];
-        auto it = block_scope.find(ie->name);
-        if (it != block_scope.end()) {
-          it->second = newval;
-          stored = true;
-          break;
-        }
-      }
-      if (!stored && !call_stack.empty()) {
-        auto &locals = call_stack.back();
-        if (locals.find(ie->name) != locals.end()) {
-          locals[ie->name] = newval;
-          stored = true;
-        }
-      }
-      if (!stored && !module_stack.empty()) {
-        auto it = module_local_vars.find(module_stack.back());
-        if (it != module_local_vars.end() &&
-            it->second.find(ie->name) != it->second.end()) {
-          it->second[ie->name] = newval;
-          stored = true;
-        }
-      }
-      if (!stored && !ie->filename.empty()) {
-        auto it = module_local_vars.find(ie->filename);
-        if (it != module_local_vars.end() &&
-            it->second.find(ie->name) != it->second.end()) {
-          it->second[ie->name] = newval;
-          stored = true;
-        }
-      }
-      if (!stored) {
-        globals[ie->name] = newval;
-      }
+      store_variable(ie->name, ie->filename, newval);
       return newval;
     }
 
     // this is postfix ++ and --
-    // TODO: there is almost certainly a better way to do this, but i already
-    // spent like 2 hours on it and bleh
     if (op == "post++" || op == "post--") {
       const IdentExpr *ie =
           unaryExpr->operand->kind == ExprKind::Ident
@@ -771,47 +787,11 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
       if (!ie) {
         runtime_fatal("Increment/decrement requires a variable", unaryExpr);
       }
-      Value current;
+      
       bool found = false;
-      for (int i = block_scope_stack.size() - 1; i >= 0; i--) {
-        auto &block_scope = block_scope_stack[i];
-        auto it = block_scope.find(ie->name);
-        if (it != block_scope.end()) {
-          current = it->second;
-          found = true;
-          break;
-        }
-      }
-      if (!found && !call_stack.empty()) {
-        auto &locals = call_stack.back();
-        auto it = locals.find(ie->name);
-        if (it != locals.end()) {
-          current = it->second;
-          found = true;
-        }
-      }
-      if (!found && !module_stack.empty()) {
-        auto mit = module_local_vars.find(module_stack.back());
-        if (mit != module_local_vars.end()) {
-          auto mlocal = mit->second.find(ie->name);
-          if (mlocal != mit->second.end()) {
-            current = mlocal->second;
-            found = true;
-          }
-        }
-      }
-      if (!found) {
-        auto it = globals.find(ie->name);
-        if (it != globals.end()) {
-          current = it->second;
-          found = true;
-        }
-      }
-      if (!found) {
-        current = Value::make_int(0);
-      }
-
+      Value current = lookup_variable(ie->name, ie->filename, found);
       Value oldval = current;
+
       Value newval;
       if (current.is_float()) {
         double val = current.get_float() + ((op == "post++") ? 1.0 : -1.0);
@@ -824,42 +804,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         runtime_fatal("Increment/decrement requires int or float", unaryExpr);
       }
 
-      bool stored = false;
-      for (int i = block_scope_stack.size() - 1; i >= 0; i--) {
-        auto &block_scope = block_scope_stack[i];
-        auto it = block_scope.find(ie->name);
-        if (it != block_scope.end()) {
-          it->second = newval;
-          stored = true;
-          break;
-        }
-      }
-      if (!stored && !call_stack.empty()) {
-        auto &locals = call_stack.back();
-        if (locals.find(ie->name) != locals.end()) {
-          locals[ie->name] = newval;
-          stored = true;
-        }
-      }
-      if (!stored && !module_stack.empty()) {
-        auto it = module_local_vars.find(module_stack.back());
-        if (it != module_local_vars.end() &&
-            it->second.find(ie->name) != it->second.end()) {
-          it->second[ie->name] = newval;
-          stored = true;
-        }
-      }
-      if (!stored && !ie->filename.empty()) {
-        auto it = module_local_vars.find(ie->filename);
-        if (it != module_local_vars.end() &&
-            it->second.find(ie->name) != it->second.end()) {
-          it->second[ie->name] = newval;
-          stored = true;
-        }
-      }
-      if (!stored) {
-        globals[ie->name] = newval;
-      }
+      store_variable(ie->name, ie->filename, newval);
       return oldval;
     }
 
