@@ -1,6 +1,19 @@
 project('interpreter', 'cpp', default_options: ['cpp_std=c++20'], version: '0.0.1')
 
-add_project_arguments([], language: 'cpp')
+# Get build options
+enable_ffi = get_option('enable_ffi')
+enable_http = get_option('enable_http')
+
+# Define preprocessor flags based on options
+cpp_args = []
+if enable_ffi
+  cpp_args += ['-DENABLE_FFI']
+endif
+if enable_http
+  cpp_args += ['-DENABLE_HTTP']
+endif
+
+add_project_arguments(cpp_args, language: 'cpp')
 
 python3 = find_program('python3', required: true)
 
@@ -22,11 +35,15 @@ sources = [
   'src/parser.cpp',
   'src/runtime.cpp',
   'src/builtins.cpp',
-  'src/ffi.cpp',
   'src/core_types.cpp',
   'src/gc.cpp',
   embed_target,
 ]
+
+# Conditionally add FFI source
+if enable_ffi
+  sources += ['src/ffi.cpp']
+endif
 
 inc_dirs = include_directories('thirdparty')
 
@@ -45,8 +62,8 @@ endif
 # Platform-specific dependencies
 all_deps = []
 
-# OpenSSL - not needed for emscripten
-if not is_emscripten
+# OpenSSL - not needed for emscripten or when HTTP is disabled
+if not is_emscripten and enable_http
   if is_windows
     openssl_prefix = is_windows ? 'thirdparty/openssl/build-windows' : 'thirdparty/openssl/build-linux'
     openssl_inc = include_directories(openssl_prefix / 'include')
@@ -101,8 +118,8 @@ if not is_emscripten
   all_deps += [openssl_dep]
 endif
 
-# libffi - not available for emscripten
-if not is_emscripten
+# libffi - not available for emscripten or when FFI is disabled
+if not is_emscripten and enable_ffi
   if is_windows
     ffi_build_dir = is_windows ? 'thirdparty/libffi-3.5.2/build-windows' : 'thirdparty/libffi-3.5.2/build'
     ffi_inc = include_directories(ffi_build_dir / 'include')

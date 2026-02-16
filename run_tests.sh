@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u pipefail
 
-INTERP="build/debug/interpreter"
+INTERP="build/minimal/interpreter"
 
 ./build.sh
 

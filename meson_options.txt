@@ -1,0 +1,5 @@
+option('enable_ffi', type: 'boolean', value: true,
+       description: 'Enable FFI (Foreign Function Interface) support')
+
+option('enable_http', type: 'boolean', value: true,
+       description: 'Enable HTTP/HTTPS networking support')

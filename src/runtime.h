@@ -50,15 +50,19 @@ void runtime_log(TraceLevel level, const std::string &msg);
 } // namespace Runtime
 
 // conditional builtin lists based on feature availability
-#ifndef NO_OPENSSL
+#ifdef ENABLE_HTTP
 #define BUILTIN_HTTP_LIST(X)                                                   \
+  X("__net_createServer", builtin_net_createServer)                            \
+  X("__net_conn_read", builtin_net_conn_read)                                  \
+  X("__net_conn_write", builtin_net_conn_write)                                \
+  X("__net_conn_close", builtin_net_conn_close)                                \
   X("__http_get", builtin_http_get)                                            \
   X("__http_request", builtin_http_request)
 #else
 #define BUILTIN_HTTP_LIST(X)
 #endif
 
-#ifndef NO_FFI
+#ifdef ENABLE_FFI
 #define BUILTIN_FFI_LIST(X)                                                    \
   X("__ffi_load_library", builtin_ffi_load_library)                            \
   X("__ffi_get_symbol", builtin_ffi_get_symbol)                                \
@@ -98,10 +102,6 @@ void runtime_log(TraceLevel level, const std::string &msg);
   X("__platform_getenv", builtin_platform_getenv)                              \
   X("setInterval", builtin_setInterval)                                        \
   X("clearInterval", builtin_clearInterval)                                    \
-  X("__net_createServer", builtin_net_createServer)                            \
-  X("__net_conn_read", builtin_net_conn_read)                                  \
-  X("__net_conn_write", builtin_net_conn_write)                                \
-  X("__net_conn_close", builtin_net_conn_close)                                \
   BUILTIN_HTTP_LIST(X)                                                         \
   X("__yield", builtin_yield)                                                  \
   X("__shutdown_requested", builtin_shutdown_requested)                        \
@@ -122,7 +122,9 @@ void runtime_log(TraceLevel level, const std::string &msg);
   X("__gc_collect", builtin_gc_collect)                                        \
   X("__gc_stats", builtin_gc_stats)                                            \
   X("__gc_enable", builtin_gc_enable)                                          \
-  X("__gc_set_threshold", builtin_gc_set_threshold)
+  X("__gc_set_threshold", builtin_gc_set_threshold)                            \
+  X("__gc_set_memory_limit", builtin_gc_set_memory_limit)                      \
+  X("__gc_get_memory_usage", builtin_gc_get_memory_usage)
 
 // methods that are only accessible via type.method() syntax
 #define string_methods(X)                                                      \
@@ -234,8 +236,15 @@ public:
     if (!func_val.is_function()) {
       return Value::none();
     }
-    std::string func_name = func_val.get_function().name;
-    auto it = functions.find(func_name);
+    const auto &fn = func_val.get_function();
+    
+    // Try direct pointer first (for lambdas)
+    if (fn.func_ptr) {
+      return call_user_function(fn.func_ptr.get(), args);
+    }
+    
+    // Fall back to global map lookup (for named functions)
+    auto it = functions.find(fn.name);
     if (it != functions.end()) {
       return call_user_function(it->second.get(), args);
     }
@@ -409,6 +418,8 @@ private:
   Value builtin_fs_deleteFile(const std::vector<Value> &argvals,
                               const CallExpr *);
   Value builtin_fs_listDir(const std::vector<Value> &argvals, const CallExpr *);
+
+#ifdef ENABLE_HTTP
   Value builtin_net_createServer(const std::vector<Value> &argvals,
                                  const CallExpr *);
   Value builtin_net_conn_read(const std::vector<Value> &argvals,
@@ -417,7 +428,6 @@ private:
                                const CallExpr *);
   Value builtin_net_conn_close(const std::vector<Value> &argvals,
                                const CallExpr *);
-#ifndef NO_OPENSSL
   Value builtin_http_get(const std::vector<Value> &argvals, const CallExpr *);
   Value builtin_http_request(const std::vector<Value> &argvals,
                              const CallExpr *);
@@ -461,7 +471,7 @@ private:
   Value builtin_readAll(const std::vector<Value> &, const CallExpr *);
   Value builtin_time(const std::vector<Value> &, const CallExpr *);
 
-#ifndef NO_FFI
+#ifdef ENABLE_FFI
   Value builtin_ffi_load_library(const std::vector<Value> &argvals,
                                  const CallExpr *);
   Value builtin_ffi_get_symbol(const std::vector<Value> &argvals,
@@ -500,4 +510,6 @@ private:
   Value builtin_gc_stats(const std::vector<Value> &, const CallExpr *);
   Value builtin_gc_enable(const std::vector<Value> &, const CallExpr *);
   Value builtin_gc_set_threshold(const std::vector<Value> &, const CallExpr *);
+  Value builtin_gc_set_memory_limit(const std::vector<Value> &, const CallExpr *);
+  Value builtin_gc_get_memory_usage(const std::vector<Value> &, const CallExpr *);
 };

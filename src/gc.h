@@ -50,15 +50,31 @@ public:
 
     allocation_count++;
     total_allocated++;
+    
+    // Estimate memory usage (rough approximation)
+    // Value is roughly 64 bytes (variant overhead + largest member)
+    // Each tracked object: ~40 bytes overhead + allocation size
+    constexpr size_t VALUE_SIZE_ESTIMATE = 64;
+    if constexpr (std::is_same_v<T, std::vector<Value>>) {
+      estimated_memory_usage += 40 + (ptr->capacity() * VALUE_SIZE_ESTIMATE);
+    } else if constexpr (std::is_same_v<T, std::unordered_map<std::string, Value>>) {
+      estimated_memory_usage += 56 + (ptr->size() * (32 + VALUE_SIZE_ESTIMATE + 24));
+    } else {
+      estimated_memory_usage += 40 + sizeof(T);
+    }
 
     // update peak tracking
     if (tracked_objects.size() > peak_tracked) {
       peak_tracked = tracked_objects.size();
     }
+    
+    // Check memory limit and force collection if exceeded
+    if (memory_limit > 0 && estimated_memory_usage > memory_limit) {
+      trigger_collection = true;
+    }
 
-    // prune expired entries
-    // this (hopefully!) prevents the tracking map itself from wasting memory
-    if (allocation_count % collection_threshold == 0) {
+    // prune expired entries more aggressively for low-memory targets
+    if (allocation_count % (collection_threshold / 2) == 0) {
       prune_expired_locked();
     }
 
@@ -127,6 +143,13 @@ public:
   void set_enabled(bool enabled) { this->enabled = enabled; }
 
   bool is_enabled() const { return this->enabled; }
+  
+  // Set memory limit in bytes (0 = unlimited)
+  void set_memory_limit(size_t limit) { this->memory_limit = limit; }
+  
+  size_t get_memory_limit() const { return memory_limit; }
+  
+  size_t get_estimated_memory_usage() const { return estimated_memory_usage; }
 
   // mark a raw ptr as reachable
   void mark_ptr(void *ptr);
@@ -152,7 +175,7 @@ private:
   std::unordered_set<void *> marked_objects;
 
   size_t allocation_count = 0;
-  size_t collection_threshold = 1000;
+  size_t collection_threshold = 100;  // Reduced from 1000 for lower memory footprint
   bool trigger_collection = false;
   bool enabled = true;
 
@@ -161,6 +184,10 @@ private:
   size_t total_allocated = 0;
   size_t peak_tracked = 0;
   size_t refcount_freed = 0;
+  
+  // Memory limit (0 = unlimited)
+  size_t memory_limit = 0;
+  size_t estimated_memory_usage = 0;
 
   // prune expired entries from the tracking map
   // you must have the mutex to call this or bad things will happen

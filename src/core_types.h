@@ -19,13 +19,6 @@ template <class... Ts> struct overloaded : Ts... {
 };
 template <class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
-struct IntervalData {
-  int64_t id;
-  std::string callback_name;
-  int64_t interval_ms;
-  chrono::steady_clock::time_point next_fire;
-};
-
 struct Value;
 struct Task;
 
@@ -38,8 +31,18 @@ using HandlePtr = std::shared_ptr<HandleData>;
 using Array = std::shared_ptr<std::vector<Value>>;
 using Object = std::shared_ptr<std::unordered_map<std::string, Value>>;
 
+namespace nari {
+struct Function;
+}
+
 struct ValueFunction {
   std::string name;
+  std::shared_ptr<nari::Function> func_ptr; // For lambdas - direct reference without global map
+  
+  ValueFunction() = default;
+  ValueFunction(std::string n) : name(std::move(n)), func_ptr(nullptr) {}
+  ValueFunction(std::string n, std::shared_ptr<nari::Function> ptr) 
+    : name(std::move(n)), func_ptr(std::move(ptr)) {}
 };
 
 // Class instance with reference to class name and field storage
@@ -93,7 +96,12 @@ struct Value {
 
   static Value make_function(std::string name) {
     Value val;
-    val.data = ValueFunction{std::move(name)};
+    val.data = ValueFunction(std::move(name));
+    return val;
+  }
+  static Value make_function(std::string name, std::shared_ptr<nari::Function> func_ptr) {
+    Value val;
+    val.data = ValueFunction(std::move(name), std::move(func_ptr));
     return val;
   }
   static Value make_handle(HandlePtr h);
@@ -255,6 +263,14 @@ struct Flags {
     return break_flag || continue_flag || return_flag || throw_flag ||
            shutdown_flag;
   };
+};
+
+// For setInterval - stores the callback Value to keep lambdas alive
+struct IntervalData {
+  int64_t id;
+  Value callback;
+  int64_t interval_ms;
+  chrono::steady_clock::time_point next_fire;
 };
 
 // async work in progress for spawn blocks

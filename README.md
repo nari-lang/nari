@@ -93,6 +93,14 @@ For a release build:
 ./build.sh --release
 ```
 
+### Minimal Build (Embedded Systems)
+
+For reduced binary size and memory usage, you can disable FFI and HTTP networking:
+
+```bash
+./build_minimal.sh
+```
+
 ### Windows Build
 
 ```bash
@@ -168,6 +176,7 @@ The [examples/](examples/) directory contains sample programs demonstrating vari
 * `thirdparty/`: External dependencies (httplib, libffi, OpenSSL)
 * `tools/`: Build utilities
 * `toolchain/`: Cross-compilation toolchain files
+* `workspace/`: Experimental features that won't be commited (gitignored, use this space for testing out new features or experimenting with running scripts.)
 
 ## Implementation Details
 

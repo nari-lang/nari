@@ -35,7 +35,7 @@ typedef SSIZE_T ssize_t;
 #include <unistd.h>
 #endif
 #include <cstring>
-#ifndef NO_OPENSSL
+#ifdef ENABLE_HTTP
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #include <httplib.h>
 #endif
@@ -55,6 +55,7 @@ struct IOOperation {
     FileExists,
     FileDelete,
     ListDir,
+#ifdef ENABLE_HTTP
     TcpListen,
     TcpAccept,
     TcpRead,
@@ -62,6 +63,7 @@ struct IOOperation {
     TcpClose,
     TcpConnect,
     HttpRequest
+#endif
   };
 
   Type type;
@@ -190,6 +192,7 @@ struct FileOperation : IOOperation {
   FileOperation(Type t) : IOOperation(t) {}
 };
 
+#ifdef ENABLE_HTTP
 struct TcpOperation : IOOperation {
   int socket_fd = -1;
   int port = 0;
@@ -218,6 +221,7 @@ struct HttpOperation : IOOperation {
 
   HttpOperation() : IOOperation(Type::HttpRequest) {}
 };
+#endif // ENABLE_HTTP
 
 using IOOperationPtr = std::shared_ptr<IOOperation>;
 
@@ -451,6 +455,7 @@ public:
               break;
             }
 
+#ifdef ENABLE_HTTP
             case IOOperation::Type::TcpListen: {
               auto tcp_op = std::static_pointer_cast<TcpOperation>(op);
               int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -735,6 +740,7 @@ public:
               }
               break;
             }
+#endif // ENABLE_HTTP
             }
 
             op->completed = true;

@@ -136,7 +136,9 @@ size_t GarbageCollector::sweep() {
   };
   std::vector<CycleMember> cycle_members;
 
+  constexpr size_t VALUE_SIZE_ESTIMATE = 64;
   size_t collected = 0;
+  size_t memory_freed = 0;
   auto it = tracked_objects.begin();
 
   while (it != tracked_objects.end()) {
@@ -152,10 +154,24 @@ size_t GarbageCollector::sweep() {
 
     // check if this object is marked as reachable
     if (!is_marked(ptr)) {
-      // object exists but is unreachable from roots as it's in a reference
-      // cycle. lock the weak_ptr so we can break the cycle.
+      // Estimate memory being freed
       auto locked = it->second.ptr.lock();
       if (locked) {
+        switch (it->second.type) {
+        case TrackedType::Array: {
+          auto arr = std::static_pointer_cast<std::vector<Value>>(locked);
+          memory_freed += 40 + (arr->capacity() * VALUE_SIZE_ESTIMATE);
+          break;
+        }
+        case TrackedType::Object: {
+          auto obj = std::static_pointer_cast<std::unordered_map<std::string, Value>>(locked);
+          memory_freed += 56 + (obj->size() * (32 + VALUE_SIZE_ESTIMATE + 24));
+          break;
+        }
+        default:
+          memory_freed += 40;
+          break;
+        }
         cycle_members.push_back({std::move(locked), it->second.type});
       }
       it = tracked_objects.erase(it);
@@ -163,6 +179,13 @@ size_t GarbageCollector::sweep() {
     } else {
       ++it;
     }
+  }
+  
+  // Update estimated memory usage
+  if (memory_freed <= estimated_memory_usage) {
+    estimated_memory_usage -= memory_freed;
+  } else {
+    estimated_memory_usage = 0;
   }
 
   // break reference cycles by clearing the internal contents of unreachable

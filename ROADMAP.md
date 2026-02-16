@@ -57,7 +57,6 @@ just a rough list of stuff that needs doing, in no particular order really
 
 - the whole area around closure environment sync needs to be way less fragile
 - division by zero silently returns 0.0 instead of throwing or returning NaN or literally anything else. same with modulo
-- lambda names (`__lambda_0` etc) accumulate in the global functions map forever and never get cleaned up
 - global mutable state in the parser makes it non reentrant, not a huge deal right now but would matter if we ever wanted parallel compilation or a language server
 
 ## GC

@@ -3,6 +3,7 @@
 #include "parser_api.h"
 #include "util.h"
 
+#include <cmath>
 #include <stdexcept>
 
 #ifdef _WIN32
@@ -277,10 +278,17 @@ void ScriptRuntime::run_event_loop() {
     auto now = std::chrono::steady_clock::now();
     for (auto &[id, interval] : active_intervals) {
       if (now >= interval.next_fire) {
-        if (!interval.callback_name.empty()) {
-          auto it = functions.find(interval.callback_name);
-          if (it != functions.end()) {
-            call_user_function(it->second.get(), {});
+        if (interval.callback.is_function()) {
+          const auto &fn = interval.callback.get_function();
+          // Try direct pointer first (lambdas)  
+          if (fn.func_ptr) {
+            call_user_function(fn.func_ptr.get(), {});
+          } else {
+            // Fall back to global map (named functions)
+            auto it = functions.find(fn.name);
+            if (it != functions.end()) {
+              call_user_function(it->second.get(), {});
+            }
           }
         }
         interval.next_fire =
@@ -1145,15 +1153,20 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 argvals.push_back(eval_expr(a.get()));
               }
 
-              std::string func_name = it->second.get_function().name;
+              const auto &func_val = it->second.get_function();
 
               // Check if it's a builtin function
-              if (is_builtin_name(func_name)) {
-                return call_builtin(func_name, argvals, callExpr);
+              if (is_builtin_name(func_val.name)) {
+                return call_builtin(func_val.name, argvals, callExpr);
               }
 
-              // Otherwise look it up as a user function
-              auto func_it = functions.find(func_name);
+              // Try direct pointer first (for lambdas)
+              if (func_val.func_ptr) {
+                return call_user_function(func_val.func_ptr.get(), argvals);
+              }
+
+              // Otherwise look it up as a named user function
+              auto func_it = functions.find(func_val.name);
               if (func_it != functions.end()) {
                 return call_user_function(func_it->second.get(), argvals);
               }
@@ -1236,7 +1249,15 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
       haveCalleeVal = true;
     }
     if (calleeVal.is_function()) {
-      auto it = functions.find(calleeVal.get_function().name);
+      const auto &func_val = calleeVal.get_function();
+      
+      // First, check if we have a direct pointer to the function (for lambdas)
+      if (func_val.func_ptr) {
+        return call_user_function(func_val.func_ptr.get(), argvals);
+      }
+      
+      // Otherwise, look it up in the global functions map (for named functions)
+      auto it = functions.find(func_val.name);
       if (it != functions.end()) {
         return call_user_function(it->second.get(), argvals);
       }
@@ -1391,12 +1412,13 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
   // func(params) { ... }
   case ExprKind::Function: {
     const auto *fe = static_cast<const FunctionExpr *>(e);
-    // Generate a unique name for this function expression
+    // Generate a unique name for this lambda function (for debugging/tracing)
     static size_t lambda_counter = 0;
     std::string func_name = "<lambda_" + std::to_string(lambda_counter++) + ">";
 
     // Create a Function object from the FunctionExpr
-    auto func = std::make_unique<Function>();
+    // Use shared_ptr for lambdas so they can be cleaned up automatically
+    auto func = std::make_shared<nari::Function>();
     func->name = func_name;
     func->line = fe->line;
     func->col = fe->col;
@@ -1430,10 +1452,10 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
     }
     // we can use the original body directly
     func->body = std::make_unique<BlockStmt>();
-    // add to global func map
-    functions[func_name] = std::move(func);
-
-    return Value::make_function(func_name);
+    
+    // Don't add lambdas to global functions map - store them directly in the Value
+    // This allows them to be garbage collected when no longer referenced
+    return Value::make_function(func_name, func);
   }
 
   // index access: arr[index] or obj[key]

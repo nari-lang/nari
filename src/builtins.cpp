@@ -15,10 +15,10 @@
 #include <vector>
 
 #include "runtime.h"
-#ifndef NO_OPENSSL
+#ifdef ENABLE_HTTP
 #include "io.h"
 #endif
-#ifndef NO_FFI
+#ifdef ENABLE_FFI
 #include "ffi.h"
 #endif
 #include "parser_api.h"
@@ -27,7 +27,7 @@
 #include "win_funcs.h"
 #endif
 
-#ifndef NO_FFI
+#ifdef ENABLE_FFI
 namespace {
 
 bool utf8_to_utf16(const std::string &input, std::u16string &output) {
@@ -219,16 +219,19 @@ Value ScriptRuntime::builtin_setTimeout(const std::vector<Value> &argvals,
     auto io_op = std::make_shared<IOOperation>(IOOperation::Type::Timer);
     io_op->timer_ms = delay_ms;
 
-    std::string callback_name;
-    if (callback_val.is_function()) {
-      callback_name = callback_val.get_function().name;
-    }
-
-    io_op->callback = [this, callback_name]() {
-      if (!callback_name.empty()) {
-        auto it = functions.find(callback_name);
-        if (it != functions.end()) {
-          call_user_function(it->second.get(), {});
+    // Capture the complete callback Value to keep lambdas alive
+    io_op->callback = [this, callback_val]() {
+      if (callback_val.is_function()) {
+        const auto &fn = callback_val.get_function();
+        // Try direct pointer first (lambdas)
+        if (fn.func_ptr) {
+          call_user_function(fn.func_ptr.get(), {});
+        } else {
+          // Fall back to global map (named functions)
+          auto it = functions.find(fn.name);
+          if (it != functions.end()) {
+            call_user_function(it->second.get(), {});
+          }
         }
       }
     };
@@ -251,14 +254,9 @@ Value ScriptRuntime::builtin_setInterval(const std::vector<Value> &argvals,
       delay_ms = static_cast<int64_t>(argvals[1].get_float());
     }
 
-    std::string callback_name;
-    if (callback_val.is_function()) {
-      callback_name = callback_val.get_function().name;
-    }
-
     IntervalData interval;
     interval.id = next_interval_id++;
-    interval.callback_name = callback_name;
+    interval.callback = callback_val;  // Store the Value directly
     interval.interval_ms = delay_ms;
     interval.next_fire =
         std::chrono::steady_clock::now() + std::chrono::milliseconds(delay_ms);
@@ -503,19 +501,19 @@ Value ScriptRuntime::builtin_fs_listDir(const std::vector<Value> &argvals,
   return Value::none();
 }
 
+#ifdef ENABLE_HTTP
 // Network builtins
 Value ScriptRuntime::builtin_net_createServer(const std::vector<Value> &argvals,
                                               const nari::CallExpr *) {
   if (argvals.size() >= 2) {
     int port = static_cast<int>(argvals[0].as_number());
     Value callback_val = argvals[1];
-    std::string callback_name =
-        callback_val.is_function() ? callback_val.get_function().name : "";
 
     auto listen_op =
         std::make_shared<TcpOperation>(IOOperation::Type::TcpListen);
     listen_op->port = port;
-    listen_op->callback = [this, callback_name, listen_op, port]() {
+    // Capture the complete callback Value to keep lambdas alive
+    listen_op->callback = [this, callback_val, listen_op, port]() {
       if (!listen_op->success) {
         fprintf(stderr, "Failed to create server: %s\n",
                 listen_op->error_msg.c_str());
@@ -531,13 +529,13 @@ Value ScriptRuntime::builtin_net_createServer(const std::vector<Value> &argvals,
         server_sockets.push_back(server_fd);
       }
 
-      auto accept_loop = [this, server_fd, callback_name]() {
+      auto accept_loop = [this, server_fd, callback_val]() {
         while (!Runtime::g_shutdown_requested.load()) {
           auto accept_op =
               std::make_shared<TcpOperation>(IOOperation::Type::TcpAccept);
           accept_op->socket_fd = server_fd;
 
-          accept_op->callback = [this, callback_name, accept_op]() {
+          accept_op->callback = [this, callback_val, accept_op]() {
             if (!accept_op->success) {
               return;
             }
@@ -553,10 +551,17 @@ Value ScriptRuntime::builtin_net_createServer(const std::vector<Value> &argvals,
               (*conn_map)["close"] = Value::make_function("__net_conn_close");
             }
 
-            if (!callback_name.empty()) {
-              auto it = functions.find(callback_name);
-              if (it != functions.end()) {
-                call_user_function(it->second.get(), {conn_obj});
+            if (callback_val.is_function()) {
+              const auto &fn = callback_val.get_function();
+              // Try direct pointer first (lambdas)
+              if (fn.func_ptr) {
+                call_user_function(fn.func_ptr.get(), {conn_obj});
+              } else {
+                // Fall back to global map (named functions)
+                auto it = functions.find(fn.name);
+                if (it != functions.end()) {
+                  call_user_function(it->second.get(), {conn_obj});
+                }
               }
             }
           };
@@ -604,22 +609,30 @@ Value ScriptRuntime::builtin_net_conn_read(const std::vector<Value> &argvals,
     if (fd_it != obj->end() && fd_it->second.is_int()) {
       int fd = static_cast<int>(fd_it->second.get_int());
       Value callback_val = argvals[1];
-      std::string callback_name =
-          callback_val.is_function() ? callback_val.get_function().name : "";
 
       auto read_op = std::make_shared<TcpOperation>(IOOperation::Type::TcpRead);
       read_op->socket_fd = fd;
-      read_op->callback = [this, callback_name, read_op]() {
-        if (!callback_name.empty()) {
-          auto it = functions.find(callback_name);
-          if (it != functions.end()) {
+      // Capture the complete callback Value to keep lambdas alive
+      read_op->callback = [this, callback_val, read_op]() {
+        if (callback_val.is_function()) {
+          const auto &fn = callback_val.get_function();
+          nari::Function *func_ptr = nullptr;
+          if (fn.func_ptr) {
+            func_ptr = fn.func_ptr.get();
+          } else {
+            auto it = functions.find(fn.name);
+            if (it != functions.end()) {
+              func_ptr = it->second.get();
+            }
+          }
+          if (func_ptr) {
             if (read_op->success) {
               call_user_function(
-                  it->second.get(),
+                  func_ptr,
                   {Value::none(), Value::make_string(read_op->result_string)});
             } else {
               call_user_function(
-                  it->second.get(),
+                  func_ptr,
                   {Value::make_string(read_op->error_msg), Value::none()});
             }
           }
@@ -645,21 +658,29 @@ Value ScriptRuntime::builtin_net_conn_write(const std::vector<Value> &argvals,
       int fd = static_cast<int>(fd_it->second.get_int());
       std::string data = argvals[1].to_string();
       Value callback_val = argvals[2];
-      std::string callback_name =
-          callback_val.is_function() ? callback_val.get_function().name : "";
 
       auto write_op =
           std::make_shared<TcpOperation>(IOOperation::Type::TcpWrite);
       write_op->socket_fd = fd;
       write_op->data = data;
-      write_op->callback = [this, callback_name, write_op]() {
-        if (!callback_name.empty()) {
-          auto it = functions.find(callback_name);
-          if (it != functions.end()) {
+      // Capture the complete callback Value to keep lambdas alive
+      write_op->callback = [this, callback_val, write_op]() {
+        if (callback_val.is_function()) {
+          const auto &fn = callback_val.get_function();
+          nari::Function *func_ptr = nullptr;
+          if (fn.func_ptr) {
+            func_ptr = fn.func_ptr.get();
+          } else {
+            auto it = functions.find(fn.name);
+            if (it != functions.end()) {
+              func_ptr = it->second.get();
+            }
+          }
+          if (func_ptr) {
             if (write_op->success) {
-              call_user_function(it->second.get(), {Value::none()});
+              call_user_function(func_ptr, {Value::none()});
             } else {
-              call_user_function(it->second.get(),
+              call_user_function(func_ptr,
                                  {Value::make_string(write_op->error_msg)});
             }
           }
@@ -696,7 +717,6 @@ Value ScriptRuntime::builtin_net_conn_close(const std::vector<Value> &argvals,
   return Value::none();
 }
 
-#ifndef NO_OPENSSL
 // HTTP builtins
 Value ScriptRuntime::builtin_http_get(const std::vector<Value> &argvals,
                                       const nari::CallExpr *) {
@@ -778,8 +798,6 @@ Value ScriptRuntime::builtin_http_request(const std::vector<Value> &argvals,
                                           const nari::CallExpr *) {
   if (argvals.size() >= 2 && argvals[0].is_object()) {
     Value callback_val = argvals[1];
-    std::string callback_name =
-        callback_val.is_function() ? callback_val.get_function().name : "";
 
     auto &opts_ptr = argvals[0].get_object();
     if (!opts_ptr)
@@ -850,10 +868,20 @@ Value ScriptRuntime::builtin_http_request(const std::vector<Value> &argvals,
     http_op->body = body;
     http_op->headers = headers;
 
-    http_op->callback = [this, callback_name, http_op]() {
-      if (!callback_name.empty()) {
-        auto it = functions.find(callback_name);
-        if (it != functions.end()) {
+    // Capture the complete callback Value to keep lambdas alive
+    http_op->callback = [this, callback_val, http_op]() {
+      if (callback_val.is_function()) {
+        const auto &fn = callback_val.get_function();
+        nari::Function *func_ptr = nullptr;
+        if (fn.func_ptr) {
+          func_ptr = fn.func_ptr.get();
+        } else {
+          auto it = functions.find(fn.name);
+          if (it != functions.end()) {
+            func_ptr = it->second.get();
+          }
+        }
+        if (func_ptr) {
           if (http_op->success) {
             auto response = Value::make_object();
             auto &resp_obj = response.get_object();
@@ -871,10 +899,10 @@ Value ScriptRuntime::builtin_http_request(const std::vector<Value> &argvals,
               (*resp_obj)["headers"] = headers;
             }
 
-            call_user_function(it->second.get(), {Value::none(), response});
+            call_user_function(func_ptr, {Value::none(), response});
           } else {
             call_user_function(
-                it->second.get(),
+                func_ptr,
                 {Value::make_string(http_op->error_msg), Value::none()});
           }
         }
@@ -886,7 +914,7 @@ Value ScriptRuntime::builtin_http_request(const std::vector<Value> &argvals,
   }
   return Value::none();
 }
-#endif // NO_OPENSSL
+#endif // ENABLE_HTTP
 
 // Array builtins
 Value ScriptRuntime::builtin_push(const std::vector<Value> &argvals,
@@ -1361,7 +1389,7 @@ Value ScriptRuntime::builtin_typeof(const std::vector<Value> &argvals,
   return Value::make_string("null");
 }
 
-#ifndef NO_FFI
+#ifdef ENABLE_FFI
 Value ScriptRuntime::builtin_ffi_membersof(const std::vector<Value> &argvals,
                                            const nari::CallExpr *) {
   if (argvals.empty()) {
@@ -1472,7 +1500,7 @@ Value ScriptRuntime::builtin_ffi_membersof(const std::vector<Value> &argvals,
 
   return Value::make_object(result);
 }
-#endif // NO_FFI
+#endif // ENABLE_FFI
 
 Value ScriptRuntime::builtin_toNumber(const std::vector<Value> &argvals,
                                       const nari::CallExpr *) {
@@ -1612,7 +1640,7 @@ Value ScriptRuntime::builtin_time(const std::vector<Value> &,
   return Value::make_int(ms);
 }
 
-#ifndef NO_FFI
+#ifdef ENABLE_FFI
 // FFI builtins
 Value ScriptRuntime::builtin_ffi_load_library(const std::vector<Value> &argvals,
                                               const nari::CallExpr *) {
@@ -2138,7 +2166,7 @@ Value ScriptRuntime::builtin_ffi_sizeof(const std::vector<Value> &argvals,
   return Value::make_int(static_cast<int64_t>(struct_size));
 }
 
-#endif // NO_FFI
+#endif // ENABLE_FFI
 
 Value ScriptRuntime::builtin_platform_arch(const std::vector<Value> &,
                                            const nari::CallExpr *) {
@@ -2285,7 +2313,7 @@ Value ScriptRuntime::builtin_gc_enable(const std::vector<Value> &argvals,
   return Value::make_bool(false);
 }
 
-#ifndef NO_FFI
+#ifdef ENABLE_FFI
 // __ffi_create_callback(signature, nari_function) - create a native callback
 // from a Nari function
 Value ScriptRuntime::builtin_ffi_create_callback(
@@ -2396,7 +2424,7 @@ Value ScriptRuntime::builtin_ffi_free_callback(
 
   return Value::none();
 }
-#endif
+#endif // ENABLE_FFI
 
 Value ScriptRuntime::builtin_gc_set_threshold(const std::vector<Value> &argvals,
                                               const CallExpr *) {
@@ -2419,4 +2447,36 @@ Value ScriptRuntime::builtin_gc_set_threshold(const std::vector<Value> &argvals,
   }
 
   return Value::make_bool(false);
+}
+
+// __gc_set_memory_limit(bytes) - Set artificial memory limit (0 = unlimited)
+// Useful for testing how apps behave under memory constraints
+Value ScriptRuntime::builtin_gc_set_memory_limit(const std::vector<Value> &argvals,
+                                                  const CallExpr *) {
+  auto &gc = GarbageCollector::instance();
+
+  if (argvals.size() >= 1) {
+    int64_t limit = 0;
+    if (argvals[0].is_int()) {
+      limit = argvals[0].get_int();
+    } else if (argvals[0].is_float()) {
+      limit = static_cast<int64_t>(argvals[0].get_float());
+    } else {
+      return Value::make_bool(false);
+    }
+
+    if (limit >= 0) {
+      gc.set_memory_limit(static_cast<size_t>(limit));
+      return Value::make_bool(true);
+    }
+  }
+
+  return Value::make_bool(false);
+}
+
+// __gc_get_memory_usage() - Get estimated memory usage in bytes
+Value ScriptRuntime::builtin_gc_get_memory_usage(const std::vector<Value> &argvals,
+                                                  const CallExpr *) {
+  auto &gc = GarbageCollector::instance();
+  return Value::make_int(static_cast<int64_t>(gc.get_estimated_memory_usage()));
 }
