@@ -56,6 +56,105 @@ x /= 4;    // x = 6
 x %= 4;    // x = 2
 ```
 
+### Destructuring Assignment
+
+Destructuring allows you to extract multiple values from arrays or objects into separate variables.
+
+#### Array Destructuring
+
+Extract values from arrays by position:
+
+```nari
+let [a, b, c] = [1, 2, 3];
+print(a);  // 1
+print(b);  // 2
+print(c);  // 3
+```
+
+**With fewer variables than elements:**
+```nari
+let numbers = [10, 20, 30, 40, 50];
+let [first, second] = numbers;
+print(first);   // 10
+print(second);  // 20
+// Remaining elements are ignored
+```
+
+**With more variables than elements:**
+```nari
+let short = [100, 200];
+let [x, y, z] = short;
+print(x);  // 100
+print(y);  // 200
+print(z);  // null (missing elements become null)
+```
+
+**Destructuring function returns:**
+```nari
+func getCoordinates() {
+    return [42, 84];
+}
+
+let [x, y] = getCoordinates();
+print(x);  // 42
+print(y);  // 84
+```
+
+#### Object Destructuring
+
+Extract values from objects by key:
+
+```nari
+let person = { name: "Alice", age: 30, city: "NYC" };
+let {name, age} = person;
+print(name);  // Alice
+print(age);   // 30
+```
+
+**With different variable names:**
+```nari
+let coords = { x: 100, y: 200 };
+let {x: posX, y: posY} = coords;
+print(posX);  // 100
+print(posY);  // 200
+```
+
+**With missing properties:**
+```nari
+let partial = { foo: "bar" };
+let {foo, baz} = partial;
+print(foo);  // bar
+print(baz);  // null (missing properties become null)
+```
+
+**Destructuring function returns:**
+```nari
+func getUserInfo() {
+    return { username: "bob123", email: "bob@example.com" };
+}
+
+let {username, email} = getUserInfo();
+print(username);  // bob123
+print(email);     // bob@example.com
+```
+
+#### Global Destructuring
+
+Destructuring works with `global` as well:
+
+```nari
+global [globalA, globalB] = [999, 888];
+global {alpha, beta} = {alpha: "A", beta: "B"};
+```
+
+#### Requirements
+
+> [!IMPORTANT]
+> Destructuring assignments **must** be initialized. This is invalid:
+> ```nari
+> let [a, b];  // Error: requires initialization
+> ```
+
 ### Increment and Decrement
 
 ```nari

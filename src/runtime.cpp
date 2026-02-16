@@ -484,6 +484,71 @@ void ScriptRuntime::collect_garbage() {
   }
 }
 
+// recursively collect all fields from a class and its parents
+static void collect_all_fields(const nari::ClassDecl *class_decl, 
+                                std::vector<const nari::ClassField*> &all_fields) {
+  if (!class_decl) return;
+  
+  // collect parent fields
+  if (!class_decl->parent_name.empty()) {
+    const nari::ClassDecl *parent = Parser::get_registered_class(class_decl->parent_name);
+    if (parent) {
+      collect_all_fields(parent, all_fields);
+    }
+  }
+  
+  // then add this class's fields
+  for (const auto &field : class_decl->fields) {
+    all_fields.push_back(&field);
+  }
+}
+
+// find method in class hierarchy, nullptr if not found.
+static const nari::ClassMethod* find_method_in_hierarchy(const nari::ClassDecl *class_decl,
+                                                          const std::string &method_name) {
+  if (!class_decl) return nullptr;
+  
+  // check this class
+  for (const auto &m : class_decl->methods) {
+    if (m.name == method_name) {
+      return &m;
+    }
+  }
+  
+  // then check our parent
+  if (!class_decl->parent_name.empty()) {
+    const nari::ClassDecl *parent = Parser::get_registered_class(class_decl->parent_name);
+    if (parent) {
+      return find_method_in_hierarchy(parent, method_name);
+    }
+  }
+  
+  return nullptr;
+}
+
+// find field declarations in class hierarchy, again, nullptr if not found.
+static const nari::ClassField* find_field_in_hierarchy(const nari::ClassDecl *class_decl,
+                                                        const std::string &field_name) {
+  if (!class_decl) return nullptr;
+  
+  // check this class
+  for (const auto &field : class_decl->fields) {
+    if (field.name == field_name) {
+      return &field;
+    }
+  }
+  
+  // then check our parent
+  if (!class_decl->parent_name.empty()) {
+    const nari::ClassDecl *parent = Parser::get_registered_class(class_decl->parent_name);
+    if (parent) {
+      return find_field_in_hierarchy(parent, field_name);
+    }
+  }
+  
+  return nullptr;
+}
+
 Value ScriptRuntime::eval_expr(const Expr *e) {
   if (!e)
     return Value::none();
@@ -1007,7 +1072,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                                 : static_cast<int64_t>(left.as_number());
       int64_t r = right.is_int() ? right.get_int()
                                  : static_cast<int64_t>(right.as_number());
-      // Clamp shift amount to reasonable range to avoid undefined behavior
+      // clamp shift amount to reasonable range to avoid UB
       if (r < 0)
         r = 0;
       if (r >= 64)
@@ -1019,7 +1084,8 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                                 : static_cast<int64_t>(left.as_number());
       int64_t r = right.is_int() ? right.get_int()
                                  : static_cast<int64_t>(right.as_number());
-      // Clamp shift amount to reasonable range to avoid undefined behavior
+
+      // clamp shift amount to reasonable range to avoid UB
       if (r < 0)
         r = 0;
       if (r >= 64)
@@ -1038,7 +1104,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
       Value obj = eval_expr(me->object.get());
       std::string method_name = me->member;
 
-      // Handle class instance method calls
+      // handle class instance method calls
       if (obj.is_class_instance()) {
         const auto &instance = obj.get_class_instance();
         const nari::ClassDecl *class_decl =
@@ -1048,14 +1114,8 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
           runtime_fatal("Unknown class: " + instance->class_name, callExpr);
         }
 
-        // Find the method
-        const nari::ClassMethod *method = nullptr;
-        for (const auto &m : class_decl->methods) {
-          if (m.name == method_name) {
-            method = &m;
-            break;
-          }
-        }
+        // find method in class hierarchy
+        const nari::ClassMethod *method = find_method_in_hierarchy(class_decl, method_name);
 
         if (!method) {
           runtime_fatal("Class " + instance->class_name + " has no method '" +
@@ -1492,30 +1552,27 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         runtime_fatal("Unknown class: " + instance->class_name, me);
       }
 
-      // Check if it's a field
-      for (const auto &field : class_decl->fields) {
-        if (field.name == me->member) {
-          // Check visibility
-          if (field.visibility == nari::Visibility::Private) {
-            // Private field - only accessible from within the class
-            if (current_class_name != instance->class_name) {
-              runtime_fatal("Cannot access private field '" + me->member +
-                                "' of class " + instance->class_name,
-                            me);
-            }
+      // check if it's a field in the class hierarchy
+      const nari::ClassField *field = find_field_in_hierarchy(class_decl, me->member);
+      if (field) {
+        // check visibility
+        if (field->visibility == nari::Visibility::Private) {
+          // we can't access private fields.
+          if (current_class_name != instance->class_name) {
+            runtime_fatal(
+              "Cannot access private field '" + me->member + "' of class " + instance->class_name, 
+              me
+            );
           }
-
-          auto it = instance->fields->find(me->member);
-          if (it != instance->fields->end()) {
-            return it->second;
-          }
-          return Value::none();
         }
+
+        auto it = instance->fields->find(me->member);
+        if (it != instance->fields->end()) {
+          return it->second;
+        }
+        return Value::none();
       }
 
-      // Not a field - could be a method reference
-      // Methods are checked at call time
-      // For now, just return none for non-existent members
       return Value::none();
     }
 
@@ -1526,7 +1583,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
       }
       auto it = objMap->find(me->member);
       if (it == objMap->end()) {
-        return Value::none(); // Return null for missing members
+        return Value::none(); // return null for missing members
       }
       return it->second;
     } else if (obj.is_handle()) {
@@ -1637,71 +1694,78 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
     // Create new instance
     auto instance = std::make_shared<ClassInstance>(ne->class_name);
 
-    // Initialize fields with default values
-    for (const auto &field : class_decl->fields) {
-      if (field.default_value) {
-        (*instance->fields)[field.name] = eval_expr(field.default_value.get());
+    // collect all fields from this class and its parents
+    std::vector<const nari::ClassField*> all_fields;
+    collect_all_fields(class_decl, all_fields);
+
+    // initialize fields with default values (parent fields first, then child)
+    for (const auto *field : all_fields) {
+      if (field->default_value) {
+        (*instance->fields)[field->name] = eval_expr(field->default_value.get());
       } else {
-        (*instance->fields)[field.name] = Value::none();
+        (*instance->fields)[field->name] = Value::none();
       }
     }
 
-    // Find and call constructor if it exists
-    nari::ClassMethod *constructor =
-        const_cast<nari::ClassDecl *>(class_decl)->get_constructor();
-    if (constructor) {
-      // Evaluate constructor arguments
+    // find and call constructor if it exists
+    const nari::ClassMethod *constructor = find_method_in_hierarchy(class_decl, "init");
+    if (constructor && constructor->is_constructor) {
+      // evaluate constructor arguments
       std::vector<Value> arg_values;
       for (const auto &arg_expr : ne->args) {
         arg_values.push_back(eval_expr(arg_expr.get()));
       }
 
-      // Check argument count
+      // check arg count
       if (arg_values.size() != constructor->params.size()) {
-        runtime_fatal("Constructor expects " +
-                          std::to_string(constructor->params.size()) +
-                          " arguments but got " +
-                          std::to_string(arg_values.size()),
-                      ne);
+        runtime_fatal(
+          "Constructor expects " +
+          std::to_string(constructor->params.size()) +
+          " arguments but got " +
+          std::to_string(arg_values.size()),
+          ne
+        );
       }
 
-      // Set up 'this' context and execute constructor
+      // configure 'this' context and run ctor
       ClassInstancePtr saved_instance = current_instance;
       std::string saved_class = current_class_name;
       current_instance = instance;
       current_class_name = ne->class_name;
 
-      // Create new scope for constructor
+      // create new scope for ctor
       call_stack.emplace_back();
 
-      // Bind parameters
+      // bind parameters
       for (size_t i = 0; i < constructor->params.size(); ++i) {
         call_stack.back()[constructor->params[i].name] = arg_values[i];
       }
 
-      // Execute constructor body
+      // run ctor body
       if (constructor->body) {
         for (const auto &stmt : constructor->body->stmts) {
           exec_stmt(stmt.get());
-          if (flags.return_flag || flags.break_flag || flags.continue_flag ||
-              flags.throw_flag) {
+          if (flags.any_flag()) {
             break;
           }
         }
       }
 
-      // Restore context
+      // restore ctx
       call_stack.pop_back();
       current_instance = saved_instance;
       current_class_name = saved_class;
 
-      // Clear flags except throw
+      // clear flags except throw
       if (flags.return_flag)
         flags.return_flag = false;
     } else if (!ne->args.empty()) {
-      runtime_fatal("Class " + ne->class_name +
-                        " has no constructor but arguments were provided",
-                    ne);
+      runtime_fatal(
+        "Class " +
+        ne->class_name +
+        " has no constructor but arguments were provided",
+        ne
+      );
     }
 
     Value result;
@@ -1717,7 +1781,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
   return Value::none();
 }
 
-// Execute a statement AST node
+// execute a statement AST node
 void ScriptRuntime::exec_stmt(const Stmt *s) {
   if (!s) {
     fprintf(stderr, "Runtime trace: exec_stmt received null statement\n");
@@ -1736,8 +1800,135 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
   switch (s->stmt_kind) {
 
   // variable declaration: `let name = expr` or `global name = expr`
+  // or destructuring: `let [a, b] = expr` or `let {x, y} = expr`
   case StmtKind::VarDecl: {
     const auto *varDecl = static_cast<const VarDeclStmt *>(s);
+    
+    // handle destructuring
+    if (varDecl->destructure_kind == nari::DestructureKind::Array) {
+      // array destructuring: let [a, b, c] = value
+      if (!varDecl->initializerExpr) {
+        runtime_fatal("Array destructuring requires initialization", varDecl);
+      }
+      
+      Value val = eval_expr(varDecl->initializerExpr.get());
+      if (!val.is_array()) {
+        runtime_fatal("Array destructuring requires an array value", varDecl);
+      }
+      
+      const auto &arr = val.get_array();
+      for (size_t i = 0; i < varDecl->array_names.size(); i++) {
+        Value element = Value::none();
+        if (arr && i < arr->size()) {
+          element = (*arr)[i];
+        }
+        
+        // declare the variable
+        const std::string &name = varDecl->array_names[i];
+        if (varDecl->is_global) {
+          globals[name] = element;
+        } else if (!block_scope_stack.empty()) {
+          auto &block_scope = block_scope_stack.back();
+          if (block_scope.find(name) != block_scope.end()) {
+            runtime_fatal("Variable already declared in current block: '" + name + "'", varDecl);
+          }
+          block_scope[name] = element;
+        } else if (!call_stack.empty()) {
+          auto &locals = call_stack.back();
+          if (locals.find(name) != locals.end()) {
+            runtime_fatal("Variable already declared: '" + name + "'", varDecl);
+          }
+          locals[name] = element;
+        } else {
+          if (!module_stack.empty()) {
+            const std::string &modfn = module_stack.back();
+            auto &module = module_local_vars[modfn];
+            if (module.find(name) != module.end()) {
+              runtime_fatal("Module-local already declared: '" + name + "'", varDecl);
+            }
+            module[name] = element;
+          } else if (!varDecl->filename.empty()) {
+            auto &module = module_local_vars[varDecl->filename];
+            if (module.find(name) != module.end()) {
+              runtime_fatal("Module-local already declared: '" + name + "'", varDecl);
+            }
+            module[name] = element;
+          } else {
+            if (globals.find(name) != globals.end()) {
+              runtime_fatal("Global already declared: '" + name + "'", varDecl);
+            }
+            globals[name] = element;
+          }
+        }
+      }
+      return;
+    }
+    
+    if (varDecl->destructure_kind == nari::DestructureKind::Object) {
+      // object destructuring: let {a, b: c} = value
+      if (!varDecl->initializerExpr) {
+        runtime_fatal("Object destructuring requires initialization", varDecl);
+      }
+      
+      Value val = eval_expr(varDecl->initializerExpr.get());
+      if (!val.is_object()) {
+        runtime_fatal("Object destructuring requires an object value", varDecl);
+      }
+      
+      const auto &obj = val.get_object();
+      for (const auto &binding : varDecl->object_bindings) {
+        const std::string &key = binding.first;
+        const std::string &name = binding.second;
+        
+        Value element = Value::none();
+        if (obj) {
+          auto it = obj->find(key);
+          if (it != obj->end()) {
+            element = it->second;
+          }
+        }
+        
+        // declare the variable
+        if (varDecl->is_global) {
+          globals[name] = element;
+        } else if (!block_scope_stack.empty()) {
+          auto &block_scope = block_scope_stack.back();
+          if (block_scope.find(name) != block_scope.end()) {
+            runtime_fatal("Variable already declared in current block: '" + name + "'", varDecl);
+          }
+          block_scope[name] = element;
+        } else if (!call_stack.empty()) {
+          auto &locals = call_stack.back();
+          if (locals.find(name) != locals.end()) {
+            runtime_fatal("Variable already declared: '" + name + "'", varDecl);
+          }
+          locals[name] = element;
+        } else {
+          if (!module_stack.empty()) {
+            const std::string &modfn = module_stack.back();
+            auto &module = module_local_vars[modfn];
+            if (module.find(name) != module.end()) {
+              runtime_fatal("Module-local already declared: '" + name + "'", varDecl);
+            }
+            module[name] = element;
+          } else if (!varDecl->filename.empty()) {
+            auto &module = module_local_vars[varDecl->filename];
+            if (module.find(name) != module.end()) {
+              runtime_fatal("Module-local already declared: '" + name + "'", varDecl);
+            }
+            module[name] = element;
+          } else {
+            if (globals.find(name) != globals.end()) {
+              runtime_fatal("Global already declared: '" + name + "'", varDecl);
+            }
+            globals[name] = element;
+          }
+        }
+      }
+      return;
+    }
+    
+    // simple variable declaration
     Value val = Value::none();
     if (varDecl->initializerExpr)
       val = eval_expr(varDecl->initializerExpr.get());
@@ -1903,27 +2094,28 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                         indexAssignStmt);
         }
 
-        // Find the field
-        bool found = false;
-        for (const auto &field : class_decl->fields) {
-          if (field.name == me->member) {
-            // Check visibility
-            if (field.visibility == nari::Visibility::Private) {
-              if (current_class_name != instance->class_name) {
-                runtime_fatal("Cannot assign to private field '" + me->member +
-                                  "' of class " + instance->class_name,
-                              indexAssignStmt);
-              }
-            }
-            found = true;
-            break;
-          }
+        // find the field in class hierarchy
+        const nari::ClassField *field = find_field_in_hierarchy(class_decl, me->member);
+        
+        if (!field) {
+          runtime_fatal(
+            "Class " +
+            instance->class_name +
+            " has no field '" +
+            me->member + "'",
+            indexAssignStmt
+          );
         }
 
-        if (!found) {
-          runtime_fatal("Class " + instance->class_name + " has no field '" +
-                            me->member + "'",
-                        indexAssignStmt);
+        // check visibility
+        if (field->visibility == nari::Visibility::Private) {
+          if (current_class_name != instance->class_name) {
+            runtime_fatal(
+              "Cannot assign to private field '" + me->member +
+              "' of class " + instance->class_name,
+              indexAssignStmt
+            );
+          }
         }
 
         (*instance->fields)[me->member] = val;

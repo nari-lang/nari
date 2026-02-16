@@ -1,0 +1,73 @@
+// Test arrow functions
+
+// Basic arrow function with block body
+let add = (a, b) => {
+    return a + b;
+};
+print("add(5, 3) = " @ add(5, 3) @ "\n");
+
+// Arrow function with expression body (implicit return)
+let multiply = (x, y) => x * y;
+print("multiply(4, 7) = " @ multiply(4, 7) @ "\n");
+
+// Arrow function with single parameter
+let square = (n) => n * n;
+print("square(9) = " @ square(9) @ "\n");
+
+// Arrow function with no parameters
+let getHello = () => "Hello from arrow function!";
+print(getHello() @ "\n");
+
+// Arrow function with default parameters
+let greet = (name, greeting) => {
+    if (greeting == null) {
+        greeting = "Hello";
+    }
+    return greeting @ ", " @ name @ "!";
+};
+print(greet("Alice") @ "\n");
+print(greet("Bob", "Hi") @ "\n");
+
+// Arrow function returning an object
+let makePerson = (name, age) => {
+    return { name: name, age: age };
+};
+let person = makePerson("Charlie", 30);
+print("Person: " @ person.name @ ", age " @ person.age @ "\n");
+
+// Nested arrow functions
+let makeAdder = (x) => {
+    return (y) => x + y;
+};
+let add5 = makeAdder(5);
+print("add5(10) = " @ add5(10) @ "\n");
+
+// Arrow function in array
+let operations = [
+    (x) => x + 1,
+    (x) => x * 2,
+    (x) => x - 3
+];
+let val = 10;
+print("Starting with: " @ val @ "\n");
+print("After +1: " @ operations[0](val) @ "\n");
+print("After *2: " @ operations[1](val) @ "\n");
+print("After -3: " @ operations[2](val) @ "\n");
+
+// Arrow function as callback
+let applyOperation = (arr, fn) => {
+    let result = [];
+    for (item in arr) {
+        result.push(fn(item));
+    }
+    return result;
+};
+let numbers = [1, 2, 3, 4, 5];
+let doubled = applyOperation(numbers, (n) => n * 2);
+print("Doubled: ");
+for (num in doubled) {
+    print(num @ " ");
+}
+print("\n");
+
+print("All arrow function tests passed!\n");

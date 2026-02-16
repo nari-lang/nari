@@ -206,6 +206,228 @@ let ex = new Example();
 // print(ex.secret);  // Runtime error: Cannot access private field
 ```
 
+## Inheritance
+
+Classes can inherit from other classes using the `extends` keyword, allowing you to create hierarchies and reuse code.
+
+### Basic Inheritance
+
+```nari
+class Animal {
+    public name: string
+    public age: number
+    
+    init(n: string, a: number) {
+        this.name = n;
+        this.age = a;
+    }
+    
+    speak() {
+        print(this.name @ " makes a sound");
+    }
+    
+    getInfo() {
+        return this.name @ " is " @ this.age @ " years old";
+    }
+}
+
+class Dog extends Animal {
+    public breed: string
+    
+    init(n: string, a: number, b: string) {
+        // Initialize parent fields
+        this.name = n;
+        this.age = a;
+        // Initialize own fields
+        this.breed = b;
+    }
+    
+    // Override parent method
+    speak() {
+        print(this.name @ " barks: Woof!");
+    }
+    
+    // New method specific to Dog
+    getBreed() {
+        return this.breed;
+    }
+}
+
+let dog = new Dog("Buddy", 3, "Golden Retriever");
+dog.speak();            // Buddy barks: Woof!
+print(dog.getInfo());   // Buddy is 3 years old (inherited method)
+print(dog.getBreed());  // Golden Retriever
+```
+
+### Method Overriding
+
+Child classes can override parent methods:
+
+```nari
+class Shape {
+    public name: string
+    
+    init(n: string) {
+        this.name = n;
+    }
+    
+    area() {
+        return 0;
+    }
+    
+    describe() {
+        print("This is a " @ this.name);
+    }
+}
+
+class Rectangle extends Shape {
+    public width: number
+    public height: number
+    
+    init(w: number, h: number) {
+        this.name = "rectangle";
+        this.width = w;
+        this.height = h;
+    }
+    
+    // Override the area method
+    area() {
+        return this.width * this.height;
+    }
+}
+
+let rect = new Rectangle(5, 10);
+rect.describe();        // This is a rectangle (inherited)
+print(rect.area());     // 50 (overridden)
+```
+
+### Multi-level Inheritance
+
+Classes can form inheritance chains:
+
+```nari
+class Animal {
+    public name: string
+    
+    init(n: string) {
+        this.name = n;
+    }
+    
+    move() {
+        print(this.name @ " moves");
+    }
+}
+
+class Dog extends Animal {
+    public breed: string
+    
+    init(n: string, b: string) {
+        this.name = n;
+        this.breed = b;
+    }
+    
+    bark() {
+        print("Woof!");
+    }
+}
+
+class Puppy extends Dog {
+    public age: number
+    
+    init(n: string, b: string, a: number) {
+        this.name = n;
+        this.breed = b;
+        this.age = a;
+    }
+    
+    // Override move from Animal
+    move() {
+        print(this.name @ " bounces playfully");
+    }
+}
+
+let puppy = new Puppy("Max", "Labrador", 1);
+puppy.move();    // Max bounces playfully
+puppy.bark();    // Woof! (from Dog)
+```
+
+### Inheriting Private Fields
+
+Private fields are inherited but maintain their visibility rules:
+
+```nari
+class Base {
+    private secret: string
+    
+    init(s: string) {
+        this.secret = s;
+    }
+    
+    public revealSecret() {
+        return this.secret;  // OK: accessed from within Base
+    }
+}
+
+class Derived extends Base {
+    init(s: string) {
+        this.secret = s;  // OK: field exists in Derived
+    }
+    
+    public tryAccess() {
+        // Note: this.secret is accessible in methods,
+        // but only within the class that originally defined it
+        return "Cannot directly access parent's private field";
+    }
+}
+
+let obj = new Derived("hidden");
+print(obj.revealSecret());  // hidden (inherited method works)
+```
+
+### Current Limitations
+
+> [!NOTE]
+> - No `super` keyword to call parent constructors
+> - No `super.method()` syntax to call parent method implementations
+> - Child constructors must manually initialize parent fields
+> - No multiple inheritance (a class can only extend one parent)
+
+### Best Practices
+
+**1. Initialize all fields in constructors:**
+```nari
+class Child extends Parent {
+    init(parentField, childField) {
+        // Initialize parent fields first
+        this.parentField = parentField;
+        // Then child fields
+        this.childField = childField;
+    }
+}
+```
+
+**2. Use inheritance for "is-a" relationships:**
+```nari
+// Good: Dog is an Animal
+class Dog extends Animal { }
+
+// Good: Circle is a Shape
+class Circle extends Shape { }
+```
+
+**3. Keep inheritance hierarchies shallow:**
+```nari
+// Prefer shallow hierarchies (1-2 levels)
+class Animal { }
+class Dog extends Animal { }
+
+// Avoid deep hierarchies when possible
+class A { }
+class B extends A { }
+class C extends B { }
+class D extends C { }  // Getting too deep
+```
+
 ## Complete Example
 
 ```nari

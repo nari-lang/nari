@@ -174,7 +174,7 @@ The [examples/](examples/) directory contains sample programs demonstrating vari
 Nari is implemented in C++20 and includes:
 
 * Custom parser and abstract syntax tree representation
-* Bytecode interpreter with runtime type checking
+* Tree walking interpreter with runtime type checking
 * Garbage collector for automatic memory management
 * Class system with inheritance and encapsulation (see [Classes](docs/18-classes.md))
 * Integration with libffi for dynamic C function calls
@@ -188,3 +188,4 @@ See [EDITOR_SUPPORT.md](EDITOR_SUPPORT.md) for information on syntax highlightin
 
 This project is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for details.
 
+However, despite being licensed under the GPL, you are more than welcome to contact me if you're interested in using Nari for a proprietary project. I'm open to discussing alternative licensing arrangements on a case-by-case basis, and I would love to see Nari used in a wide variety of projects, both open source and commercial!

@@ -1,7 +1,14 @@
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifdef __linux__
+#include <endian.h>
+#endif
+#if defined(__APPLE__) && defined(__MACH__)
+#include <machine/endian.h>
+#endif
+#include <bit>
 #include <filesystem>
 #include <random>
 #include <string>
@@ -1641,7 +1648,7 @@ Value ScriptRuntime::builtin_ffi_load_library(const std::vector<Value> &argvals,
   for (const auto &symbol : symbols) {
     // TODO: these are just placeholders, actual symbol values should be
     // function pointers probably
-    (*lib_obj)[symbol] = Value::make_string("FFI:" + symbol);
+    (*lib_obj)[symbol] = Value::make_string("FFI::" + symbol);
   }
 
   std::vector<Value> symbols_array;
@@ -2179,11 +2186,18 @@ Value ScriptRuntime::builtin_platform_os(const std::vector<Value> &,
 #endif
 }
 
-Value ScriptRuntime::builtin_platform_endianness(const std::vector<Value> &,
-                                                 const nari::CallExpr *) {
-  return std::endian::native == std::endian::little
-             ? Value::make_string("little")
-             : Value::make_string("big");
+#ifdef __BYTE_ORDER
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    #define ENDIAN_STRING "little"
+#else
+    #define ENDIAN_STRING "big"
+#endif
+#else
+#define ENDIAN_STRING (std::endian::native == std::endian::little) ? "little" : "big"
+#endif
+
+Value ScriptRuntime::builtin_platform_endianness(const std::vector<Value> &, const nari::CallExpr *) {
+  return Value::make_string(ENDIAN_STRING);
 }
 
 Value ScriptRuntime::builtin_platform_hostname(const std::vector<Value> &,

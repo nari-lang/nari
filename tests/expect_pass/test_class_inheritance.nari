@@ -1,0 +1,98 @@
+// Test class inheritance
+
+// Base class
+class Animal {
+    public name: string
+    public age: number
+    
+    init(n: string, a: number) {
+        this.name = n;
+        this.age = a;
+    }
+    
+    speak() {
+        print(this.name @ " makes a sound\n");
+    }
+    
+    getInfo() {
+        return this.name @ " is " @ this.age @ " years old";
+    }
+}
+
+// Derived class
+class Dog extends Animal {
+    public breed: string
+    
+    init(n: string, a: number, b: string) {
+        // Manually initialize parent fields for now
+        this.name = n;
+        this.age = a;
+        this.breed = b;
+    }
+    
+    speak() {
+        print(this.name @ " barks: Woof!\n");
+    }
+    
+    getBreed() {
+        return this.breed;
+    }
+}
+
+// Another derived class
+class Cat extends Animal {
+    public indoor: bool
+    
+    init(n: string, a: number, isIndoor: bool) {
+        this.name = n;
+        this.age = a;
+        this.indoor = isIndoor;
+    }
+    
+    speak() {
+        print(this.name @ " meows: Meow!\n");
+    }
+}
+
+// Create instances
+let animal = new Animal("Generic Animal", 5);
+animal.speak();
+print(animal.getInfo() @ "\n");
+
+let dog = new Dog("Buddy", 3, "Golden Retriever");
+dog.speak();
+print(dog.getInfo() @ "\n");
+print("Breed: " @ dog.getBreed() @ "\n");
+
+let cat = new Cat("Whiskers", 2, true);
+cat.speak();
+print(cat.getInfo() @ "\n");
+print("Indoor cat: " @ cat.indoor @ "\n");
+
+// Test method inheritance
+print("\nTesting inherited methods:\n");
+print("Dog info: " @ dog.getInfo() @ "\n");
+print("Cat info: " @ cat.getInfo() @ "\n");
+
+// Multi-level inheritance
+class Puppy extends Dog {
+    public isPlayful: bool = true;
+    
+    init(n: string, b: string) {
+        this.name = n;
+        this.age = 0;
+        this.breed = b;
+    }
+    
+    speak() {
+        print(this.name @ " yips: Yip yip!\n");
+    }
+}
+
+let puppy = new Puppy("Max", "Labrador");
+puppy.speak();
+print(puppy.getInfo() @ "\n");
+print("Breed: " @ puppy.getBreed() @ "\n");
+print("Playful: " @ puppy.isPlayful @ "\n");
+
+print("\nAll class inheritance tests passed!\n");

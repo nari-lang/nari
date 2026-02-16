@@ -4,3 +4,4 @@
 build
 thirdparty/openssl/
 thirdparty/libffi-3.5.2/
+test.nari

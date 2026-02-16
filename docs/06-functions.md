@@ -129,6 +129,160 @@ print(operations[1](5));   // 15
 print(operations[2](5));   // 25
 ```
 
+## Arrow Functions
+
+Arrow functions provide a more concise syntax for writing function expressions. They're especially useful for callbacks and short functions.
+
+### Basic Syntax
+
+**Expression body** (implicit return):
+```nari
+let add = (a, b) => a + b;
+let square = (n) => n * n;
+let double = (x) => x * 2;
+
+print(add(5, 3));      // 8
+print(square(9));      // 81
+print(double(4));      // 8
+```
+
+**Block body** (explicit return):
+```nari
+let greet = (name) => {
+    let message = "Hello, " @ name @ "!";
+    return message;
+};
+
+print(greet("Alice"));  // Hello, Alice!
+```
+
+### Parameter Variations
+
+**No parameters:**
+```nari
+let getTimestamp = () => "2026-02-15";
+let getRandom = () => Math.rand();
+```
+
+**Single parameter** (parentheses still required):
+```nari
+let negate = (x) => -x;
+let isEven = (n) => n % 2 == 0;
+```
+
+**Multiple parameters:**
+```nari
+let multiply = (x, y) => x * y;
+let max = (a, b) => a > b ? a : b;
+```
+
+### With Default Parameters
+
+```nari
+let greet = (name, greeting = "Hello") => {
+    return greeting @ ", " @ name @ "!";
+};
+
+print(greet("Alice"));           // Hello, Alice!
+print(greet("Bob", "Hi"));       // Hi, Bob!
+```
+
+### With Type Annotations
+
+```nari
+let add = (a: number, b: number) => a + b;
+let format = (name: string) => `Name: {name}`;
+```
+
+### In Array/Object Literals
+
+```nari
+let operations = [
+    (x) => x + 1,
+    (x) => x * 2,
+    (x) => x ** 2
+];
+
+let calculator = {
+    add: (a, b) => a + b,
+    sub: (a, b) => a - b,
+    mul: (a, b) => a * b,
+    div: (a, b) => a / b
+};
+
+print(operations[1](10));        // 20
+print(calculator.mul(4, 5));     // 20
+```
+
+### As Callbacks
+
+Arrow functions are ideal for callbacks:
+
+```nari
+func applyToArray(arr, fn) {
+    let result = [];
+    for (item in arr) {
+        result.push(fn(item));
+    }
+    return result;
+}
+
+let numbers = [1, 2, 3, 4, 5];
+let doubled = applyToArray(numbers, (n) => n * 2);
+let squared = applyToArray(numbers, (n) => n * n);
+
+print(doubled);  // [2, 4, 6, 8, 10]
+print(squared);  // [1, 4, 9, 16, 25]
+```
+
+### Closures with Arrow Functions
+
+Arrow functions can capture variables from their enclosing scope:
+
+```nari
+func makeMultiplier(factor) {
+    return (x) => x * factor;
+}
+
+let triple = makeMultiplier(3);
+let quadruple = makeMultiplier(4);
+
+print(triple(5));      // 15
+print(quadruple(5));   // 20
+```
+
+### Nested Arrow Functions
+
+```nari
+let add = (a) => (b) => a + b;
+
+let add5 = add(5);
+print(add5(10));       // 15
+print(add(3)(7));      // 10
+```
+
+### Comparison: Traditional vs Arrow Functions
+
+```nari
+// Traditional function expression
+let traditional = func(x, y) {
+    return x + y;
+};
+
+// Arrow function with block
+let arrowBlock = (x, y) => {
+    return x + y;
+};
+
+// Arrow function with expression (most concise)
+let arrowExpr = (x, y) => x + y;
+
+// All three are functionally equivalent
+print(traditional(2, 3));   // 5
+print(arrowBlock(2, 3));    // 5
+print(arrowExpr(2, 3));     // 5
+```
+
 ## Higher-Order Functions
 
 Functions that take other functions as parameters or return functions:

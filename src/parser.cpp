@@ -122,6 +122,8 @@ enum class TokenKind {
   TK_NULLISHCOALESCE,
   // ->
   TK_ARROW,
+  // =>
+  TK_FATARROW,
   // &
   TK_AMPERSAND,
   // |
@@ -789,13 +791,14 @@ private:
   }
 
   bool looks_like_class_decl() {
-    // class IDENT { or class IDENT< (generics)
+    // class IDENT { or class IDENT< (generics) or class IDENT extends
     if (peek().kind != TokenKind::TK_IDENT || peek().text != "class")
       return false;
     if (peek(1).kind != TokenKind::TK_IDENT)
       return false;
     if (peek(2).kind == TokenKind::TK_LBRACE ||
-        peek(2).kind == TokenKind::TK_LT)
+        peek(2).kind == TokenKind::TK_LT ||
+        (peek(2).kind == TokenKind::TK_IDENT && peek(2).text == "extends"))
       return true;
     return false;
   }
@@ -981,6 +984,16 @@ private:
 
     // parse generic parameters
     parse_generic_arguments(class_decl.get());
+
+    // Parse optional extends clause
+    if (peek().kind == TokenKind::TK_IDENT && peek().text == "extends") {
+      next(); // consume 'extends'
+      const Token &parentTok = peek();
+      if (parentTok.kind != TokenKind::TK_IDENT) {
+        error_and_exit("Expected parent class name after 'extends'");
+      }
+      class_decl->parent_name = next().text;
+    }
 
     expect(TokenKind::TK_LBRACE, "class body start '{'");
 
@@ -1906,12 +1919,11 @@ private:
     return expr;
   }
 
-  // Helper to check if we're looking at an arrow function: ( params ) =>
   bool looks_like_arrow_function() {
     if (peek().kind != TokenKind::TK_LPAREN)
       return false;
 
-    // Simple lookahead to find matching ) and check for =>
+    // lookahead to find matching ) and check for =>
     size_t i = idx + 1;
     int depth = 1;
     while (i < toks.size() && depth > 0) {
@@ -1924,14 +1936,14 @@ private:
       ++i;
     }
 
-    // Check if next two tokens are => (we don't have a single => token, so
-    // check for =>, or in this case we need to add it to TokenKind) For now,
-    // let's implement without arrow functions since we'd need to add the =>
-    // token
+    // check if next token after matching ) is =>
+    if (i < toks.size() && toks[i].kind == TokenKind::TK_FATARROW)
+      return true;
+      
     return false;
   }
 
-  // Parse function expression: func(params) { ... }
+  // parse function expression: func(params) { ... }
   ExprPtr parse_function_expression() {
     const Token &funcTok = peek();
     expect(TokenKind::TK_IDENT, "func keyword");
@@ -1942,8 +1954,122 @@ private:
     func_expr->filename =
         funcTok.filename.empty() ? g_current_filename : funcTok.filename;
 
-    // Parse parameters
+    // parse parameters
     expect(TokenKind::TK_LPAREN, "function params start '('");
+    bool seen_rest = false;
+    if (peek().kind != TokenKind::TK_RPAREN) {
+      while (true) {
+        bool is_rest = false;
+        if (peek().kind == TokenKind::TK_ELLIPSIS) {
+          if (seen_rest)
+            error_and_exit("Only one rest parameter is allowed");
+          seen_rest = true;
+          is_rest = true;
+          next(); // consume '...'
+        }
+
+        const Token &p = peek();
+        if (p.kind != TokenKind::TK_IDENT) {
+          error_and_exit("Expected parameter name");
+        }
+        std::string pname = next().text;
+
+        // parse optional type annotation: name: type or name: type[]
+        nari::TypeAnnotationPtr param_type = nullptr;
+        if (peek().kind == TokenKind::TK_COLON) {
+          next(); // consume ':'
+          if (peek().kind != TokenKind::TK_IDENT) {
+            error_and_exit("Expected type name after ':'");
+          }
+          std::string type_name = next().text;
+          bool is_array = false;
+          // Check for array syntax: type[]
+          if (peek().kind == TokenKind::TK_LBRACKET &&
+              peek(1).kind == TokenKind::TK_RBRACKET) {
+            next(); // consume '['
+            next(); // consume ']'
+            is_array = true;
+          }
+          param_type =
+              std::make_unique<nari::TypeAnnotation>(type_name, is_array);
+        }
+
+        ExprPtr default_value = nullptr;
+        if (!is_rest && peek().kind == TokenKind::TK_EQUAL) {
+          next(); // consume '='
+          default_value = parse_expression();
+        } else if (is_rest && peek().kind == TokenKind::TK_EQUAL) {
+          error_and_exit("Rest parameter cannot have a default value");
+        }
+
+        func_expr->params.emplace_back(pname, std::move(default_value), is_rest,
+                                       std::move(param_type));
+
+        if (is_rest) {
+          if (peek().kind == TokenKind::TK_COMMA) {
+            error_and_exit("Rest parameter must be last");
+          }
+          break;
+        }
+
+        if (peek().kind == TokenKind::TK_COMMA)
+          next();
+        else
+          break;
+      }
+    }
+    expect(TokenKind::TK_RPAREN, "function params end ')'");
+
+    // parse optional return type: -> type or -> type[]
+    if (peek().kind == TokenKind::TK_ARROW) {
+      next(); // consume '->'
+      if (peek().kind != TokenKind::TK_IDENT) {
+        error_and_exit("Expected return type after '->'");
+      }
+      std::string return_type_name = next().text;
+      bool is_array = false;
+      // Check for array syntax: type[]
+      if (peek().kind == TokenKind::TK_LBRACKET &&
+          peek(1).kind == TokenKind::TK_RBRACKET) {
+        next(); // consume '['
+        next(); // consume ']'
+        is_array = true;
+      }
+      func_expr->return_type =
+          std::make_unique<nari::TypeAnnotation>(return_type_name, is_array);
+    }
+
+    func_expr->body = parse_block();
+    return std::move(func_expr);
+  }
+
+  // parse spawn expression: spawn { ... }
+  ExprPtr parse_spawn_expression() {
+    const Token &spawnTok = peek();
+    expect(TokenKind::TK_IDENT, "spawn keyword");
+
+    auto spawn_expr = std::make_unique<nari::SpawnExpr>(nullptr);
+    spawn_expr->line = spawnTok.line;
+    spawn_expr->col = spawnTok.col;
+    spawn_expr->filename =
+        spawnTok.filename.empty() ? g_current_filename : spawnTok.filename;
+
+    // parse the block
+    spawn_expr->body = parse_block();
+    return spawn_expr;
+  }
+
+  // parse arrow function expression: (params) => { ... } or (params) => expr
+  ExprPtr parse_arrow_function_expression() {
+    const Token &parenTok = peek();
+    auto func_expr = std::make_unique<nari::FunctionExpr>();
+    func_expr->line = parenTok.line;
+    func_expr->col = parenTok.col;
+    func_expr->filename =
+        parenTok.filename.empty() ? g_current_filename : parenTok.filename;
+
+    // Parse parameters
+    expect(TokenKind::TK_LPAREN, "arrow function params start '('");
     bool seen_rest = false;
     if (peek().kind != TokenKind::TK_RPAREN) {
       while (true) {
@@ -2006,53 +2132,30 @@ private:
           break;
       }
     }
-    expect(TokenKind::TK_RPAREN, "function params end ')'");
+    expect(TokenKind::TK_RPAREN, "arrow function params end ')'");
+    
+    expect(TokenKind::TK_FATARROW, "'=>' in arrow function");
 
-    // Parse optional return type: -> type or -> type[]
-    if (peek().kind == TokenKind::TK_ARROW) {
-      next(); // consume '->'
-      if (peek().kind != TokenKind::TK_IDENT) {
-        error_and_exit("Expected return type after '->'");
-      }
-      std::string return_type_name = next().text;
-      bool is_array = false;
-      // Check for array syntax: type[]
-      if (peek().kind == TokenKind::TK_LBRACKET &&
-          peek(1).kind == TokenKind::TK_RBRACKET) {
-        next(); // consume '['
-        next(); // consume ']'
-        is_array = true;
-      }
-      func_expr->return_type =
-          std::make_unique<nari::TypeAnnotation>(return_type_name, is_array);
+    // Parse body: either a block or a single expression
+    if (peek().kind == TokenKind::TK_LBRACE) {
+      // Block body: (x) => { return x + 1; }
+      func_expr->body = parse_block();
+    } else {
+      // Expression body: (x) => x + 1
+      // Convert to implicit return
+      ExprPtr body_expr = parse_expression();
+      auto ret_stmt = std::make_unique<nari::ReturnStmt>(std::move(body_expr));
+      ret_stmt->line = func_expr->line;
+      ret_stmt->col = func_expr->col;
+      ret_stmt->filename = func_expr->filename;
+      
+      auto block = std::make_unique<nari::BlockStmt>();
+      block->stmts.push_back(std::move(ret_stmt));
+      
+      func_expr->body = std::move(block);
     }
-
-    func_expr->body = parse_block();
+    
     return std::move(func_expr);
-  }
-
-  // Parse spawn expression: spawn { ... }
-  ExprPtr parse_spawn_expression() {
-    const Token &spawnTok = peek();
-    expect(TokenKind::TK_IDENT, "spawn keyword");
-
-    auto spawn_expr = std::make_unique<nari::SpawnExpr>(nullptr);
-    spawn_expr->line = spawnTok.line;
-    spawn_expr->col = spawnTok.col;
-    spawn_expr->filename =
-        spawnTok.filename.empty() ? g_current_filename : spawnTok.filename;
-
-    // Parse the block
-    spawn_expr->body = parse_block();
-    return spawn_expr;
-  }
-
-  // Parse arrow function expression: (params) => { ... }
-  ExprPtr parse_arrow_function_expression() {
-    // For now, return nullptr since we need to add => token support
-    // This is a placeholder for future implementation
-    error_and_exit("Arrow functions not yet implemented");
-    return nullptr;
   }
 
   // parse assignment, expression-statement, and block statements.
@@ -2306,11 +2409,103 @@ private:
       }
 
       // variable declaration: `let IDENT = expr` or `global IDENT = expr`
+      // or destructuring: `let [a, b] = expr` or `let {x, y} = expr`
       if (tok.text == "let" || tok.text == "global") {
         VarDeclCtrl is_global = (VarDeclCtrl)(tok.text == "global");
         Token keyword = tok;
         next(); // consume 'let' or 'global'
 
+        // Check for array destructuring: let [a, b, c] = ...
+        if (peek().kind == TokenKind::TK_LBRACKET) {
+          next(); // consume '['
+          
+          std::vector<std::string> names;
+          while (peek().kind != TokenKind::TK_RBRACKET && !is_eof()) {
+            if (peek().kind != TokenKind::TK_IDENT) {
+              error_and_exit("Expected identifier in array destructuring");
+            }
+            names.push_back(next().text);
+            
+            if (peek().kind == TokenKind::TK_COMMA) {
+              next(); // consume ','
+            } else if (peek().kind != TokenKind::TK_RBRACKET) {
+              error_and_exit("Expected ',' or ']' in array destructuring");
+            }
+          }
+          expect(TokenKind::TK_RBRACKET, "']' to close array destructuring");
+          
+          ExprPtr init = nullptr;
+          if (peek().kind == TokenKind::TK_EQUAL) {
+            next(); // consume '='
+            init = parse_expression();
+          } else {
+            error_and_exit("Array destructuring requires initialization");
+          }
+          
+          if (peek().kind == TokenKind::TK_SEMICOLON)
+            next();
+            
+          auto decl = std::make_unique<nari::VarDeclStmt>("", std::move(init), is_global);
+          decl->destructure_kind = nari::DestructureKind::Array;
+          decl->array_names = std::move(names);
+          decl->line = keyword.line;
+          decl->col = keyword.col;
+          decl->filename = keyword.filename.empty() ? g_current_filename : keyword.filename;
+          return decl;
+        }
+        
+        // check for object destructuring: let {x, y} = ... or let {a: x, b: y} = ...
+        if (peek().kind == TokenKind::TK_LBRACE) {
+          next(); // consume '{'
+          
+          std::vector<std::pair<std::string, std::string>> bindings;
+          while (peek().kind != TokenKind::TK_RBRACE && !is_eof()) {
+            if (peek().kind != TokenKind::TK_IDENT) {
+              error_and_exit("Expected identifier in object destructuring");
+            }
+            std::string key = next().text;
+            std::string name = key;  // default: use same name
+            
+            // check for key: name syntax
+            if (peek().kind == TokenKind::TK_COLON) {
+              next(); // consume ':'
+              if (peek().kind != TokenKind::TK_IDENT) {
+                error_and_exit("Expected identifier after ':' in object destructuring");
+              }
+              name = next().text;
+            }
+            
+            bindings.emplace_back(key, name);
+            
+            if (peek().kind == TokenKind::TK_COMMA) {
+              next(); // consume ','
+            } else if (peek().kind != TokenKind::TK_RBRACE) {
+              error_and_exit("Expected ',' or '}' in object destructuring");
+            }
+          }
+          expect(TokenKind::TK_RBRACE, "'}' to close object destructuring");
+          
+          ExprPtr init = nullptr;
+          if (peek().kind == TokenKind::TK_EQUAL) {
+            next(); // consume '='
+            init = parse_expression();
+          } else {
+            error_and_exit("Object destructuring requires initialization");
+          }
+          
+          if (peek().kind == TokenKind::TK_SEMICOLON)
+            next();
+            
+          auto decl = std::make_unique<nari::VarDeclStmt>("", std::move(init), is_global);
+          decl->destructure_kind = nari::DestructureKind::Object;
+          decl->object_bindings = std::move(bindings);
+          decl->line = keyword.line;
+          decl->col = keyword.col;
+          decl->filename = keyword.filename.empty() ? g_current_filename : keyword.filename;
+          return decl;
+        }
+
+        // simple variable declaration
         const Token &nameTok = peek();
         if (nameTok.kind != TokenKind::TK_IDENT) {
           error_and_exit(std::string(is_global
@@ -3031,8 +3226,10 @@ private:
     while (!is_eof() && peek().kind != TokenKind::TK_RBRACE) {
       auto pattern = parse_pattern();
 
-      // expect '=>'
-      if (peek().kind == TokenKind::TK_EQUAL &&
+      // expect '=>' (either as FATARROW or as '=' followed by '>')
+      if (peek().kind == TokenKind::TK_FATARROW) {
+        next(); // consume '=>'
+      } else if (peek().kind == TokenKind::TK_EQUAL &&
           peek(1).kind == TokenKind::TK_GT) {
         next(); // consume '='
         next(); // consume '>'
@@ -3213,6 +3410,11 @@ private:
       next();
       return num_expr;
     } else if (tok.kind == TokenKind::TK_LPAREN) {
+      // Check if this is an arrow function: (params) => ...
+      if (looks_like_arrow_function()) {
+        return parse_arrow_function_expression();
+      }
+      // Otherwise, it's a parenthesized expression
       next(); // consume '('
       ExprPtr e = parse_expression();
       expect(TokenKind::TK_RPAREN, "closing )");
@@ -3391,6 +3593,11 @@ std::vector<FunctionPtr> parse_program_from_source(const std::string &src,
     }
     if (c == '=' && peek() == '=') {
       push_tok(TokenKind::TK_EQEQ, "==", line, col);
+      advance(2);
+      continue;
+    }
+    if (c == '=' && peek() == '>') {
+      push_tok(TokenKind::TK_FATARROW, "=>", line, col);
       advance(2);
       continue;
     }

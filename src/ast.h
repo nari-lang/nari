@@ -472,10 +472,21 @@ struct ExprStmt : Stmt {
 
 enum VarDeclCtrl : bool { GLOBAL = true, LOCAL = false };
 
+enum class DestructureKind {
+  None,       // simple variable: let x = value
+  Array,      // array destructuring: let [a, b] = value
+  Object      // object destructuring: let {x, y} = value
+};
+
 struct VarDeclStmt : Stmt {
-  std::string name;
+  std::string name;  // for simple declarations
   ExprPtr initializerExpr; // optional initializer
   VarDeclCtrl is_global = LOCAL;
+  
+  // Destructuring support
+  DestructureKind destructure_kind = DestructureKind::None;
+  std::vector<std::string> array_names;  // for array destructuring: [a, b, c]
+  std::vector<std::pair<std::string, std::string>> object_bindings;  // for object destructuring: {key: name}
 
   VarDeclStmt(std::string n, ExprPtr i, VarDeclCtrl g = LOCAL)
       : name(std::move(n)), initializerExpr(std::move(i)), is_global(g) {
@@ -484,10 +495,31 @@ struct VarDeclStmt : Stmt {
 
   void pretty_print(int indent = 0) const override {
     print_indent(indent);
-    if (is_global)
-      printf("VarDecl (global): %s%s =\n", name.c_str(), loc_str().c_str());
-    else
-      printf("VarDecl: %s%s =\n", name.c_str(), loc_str().c_str());
+    if (destructure_kind == DestructureKind::Array) {
+      printf("VarDecl (array destructuring)%s: [", loc_str().c_str());
+      for (size_t i = 0; i < array_names.size(); i++) {
+        if (i > 0) printf(", ");
+        printf("%s", array_names[i].c_str());
+      }
+      printf("] =\n");
+    } else if (destructure_kind == DestructureKind::Object) {
+      printf("VarDecl (object destructuring)%s: {", loc_str().c_str());
+      for (size_t i = 0; i < object_bindings.size(); i++) {
+        if (i > 0) printf(", ");
+        if (object_bindings[i].first == object_bindings[i].second) {
+          printf("%s", object_bindings[i].first.c_str());
+        } else {
+          printf("%s: %s", object_bindings[i].first.c_str(), 
+                 object_bindings[i].second.c_str());
+        }
+      }
+      printf("} =\n");
+    } else {
+      if (is_global)
+        printf("VarDecl (global): %s%s =\n", name.c_str(), loc_str().c_str());
+      else
+        printf("VarDecl: %s%s =\n", name.c_str(), loc_str().c_str());
+    }
     if (initializerExpr)
       initializerExpr->pretty_print(indent + 2);
   }
@@ -926,7 +958,10 @@ using TypeDeclPtr = std::unique_ptr<TypeDecl>;
 using EnumDeclPtr = std::unique_ptr<EnumDecl>;
 
 // visibility for class members and methods
-enum class Visibility { Public, Private };
+enum class Visibility { 
+  Public,
+  Private
+};
 
 // class field with visibility and optional default value
 struct ClassField {
@@ -954,9 +989,10 @@ struct ClassMethod {
       : name(std::move(n)), visibility(v) {}
 };
 
-// Class declaration: class Name<T> { fields... methods... }
+// Class declaration: class Name<T> extends Parent { fields... methods... }
 struct ClassDecl : ASTNode {
   std::string name;
+  std::string parent_name;  // for inheritance
   std::vector<std::string> generic_params;
   std::vector<ClassField> fields;
   std::vector<ClassMethod> methods;

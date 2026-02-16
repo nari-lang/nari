@@ -5,10 +5,13 @@ WINDOWS=false
 EMSCRIPTEN=false
 CROSS_FILE="glibc-clang.txt"
 
+EXTRA_ARGS=""
+
 for arg in "$@"; do
     if [ "$arg" = "--release" ]; then
         echo "Building as release..."
         BUILD_TYPE=release
+        EXTRA_ARGS="$EXTRA_ARGS -Db_lto=true -Db_lto_mode=thin"
     elif [ "$arg" = "--reconfigure" ]; then
         echo "Forcing reconfigure..."
         RECONFIGURE=true
@@ -55,7 +58,7 @@ elif [ "$EMSCRIPTEN" != true ]; then
 fi
 
 if [ "$RECONFIGURE" = true ]; then
-    meson setup build/$BUILD_DIR/ --cross-file toolchain/$CROSS_FILE --buildtype=$BUILD_TYPE
+    meson setup build/$BUILD_DIR/ --cross-file toolchain/$CROSS_FILE --buildtype=$BUILD_TYPE $EXTRA_ARGS
 fi
 
 meson compile -C build/$BUILD_DIR/

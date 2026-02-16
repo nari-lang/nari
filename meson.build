@@ -47,49 +47,96 @@ all_deps = []
 
 # OpenSSL - not needed for emscripten
 if not is_emscripten
-  openssl_prefix = is_windows ? 'thirdparty/openssl/build-windows' : 'thirdparty/openssl/build-linux'
-  openssl_inc = include_directories(openssl_prefix / 'include')
+  if is_windows
+    openssl_prefix = is_windows ? 'thirdparty/openssl/build-windows' : 'thirdparty/openssl/build-linux'
+    openssl_inc = include_directories(openssl_prefix / 'include')
 
-  # Try lib64 first, then lib (Windows uses lib)
-  openssl_lib_dir = (openssl_prefix / 'lib64')
+    # Try lib64 first, then lib (Windows uses lib)
+    openssl_lib_dir = (openssl_prefix / 'lib64')
 
-  ssl_lib = cc.find_library(
-    'ssl',
-    dirs: [meson.project_source_root() / openssl_lib_dir],
-    static: true,
-    required: true
-  )
+    ssl_lib = cc.find_library(
+      'ssl',
+      dirs: [meson.project_source_root() / openssl_lib_dir],
+      static: true,
+      required: true
+    )
 
-  crypto_lib = cc.find_library(
-    'crypto',
-    dirs: [meson.project_source_root() / openssl_lib_dir],
-    static: true,
-    required: true
-  )
+    crypto_lib = cc.find_library(
+      'crypto',
+      dirs: [meson.project_source_root() / openssl_lib_dir],
+      static: true,
+      required: true
+    )
 
-  openssl_dep = declare_dependency(
-    include_directories: openssl_inc,
-    dependencies: [ssl_lib, crypto_lib],
-  )
-  
+    openssl_dep = declare_dependency(
+      include_directories: openssl_inc,
+      dependencies: [ssl_lib, crypto_lib],
+    )
+    
+    all_deps += [openssl_dep]
+  else
+    # Non-Windows: Try system libraries first, fall back to static
+    ssl_lib = cc.find_library('ssl', required: false)
+    crypto_lib = cc.find_library('crypto', required: false)
+    
+    if ssl_lib.found() and crypto_lib.found()
+      openssl_dep = declare_dependency(
+        dependencies: [ssl_lib, crypto_lib],
+      )
+    else
+      # Fall back to static libraries
+      openssl_lib_dir = meson.current_source_dir() / 'thirdparty' / 'openssl' / 'build-linux' / 'lib'
+      openssl_inc_dir = meson.current_source_dir() / 'thirdparty' / 'openssl' / 'build-linux' / 'include'
+      
+      ssl_lib = cc.find_library('ssl', dirs: [openssl_lib_dir], static: true, required: true)
+      crypto_lib = cc.find_library('crypto', dirs: [openssl_lib_dir], static: true, required: true)
+      
+      openssl_dep = declare_dependency(
+        dependencies: [ssl_lib, crypto_lib],
+        include_directories: include_directories(openssl_inc_dir)
+      )
+    endif
+  endif
+
   all_deps += [openssl_dep]
 endif
 
 # libffi - not available for emscripten
 if not is_emscripten
-  ffi_build_dir = is_windows ? 'thirdparty/libffi-3.5.2/build-windows' : 'thirdparty/libffi-3.5.2/build'
-  ffi_inc = include_directories(ffi_build_dir / 'include')
-  ffi_lib = cc.find_library(
-    'ffi',
-    dirs: [meson.project_source_root() / ffi_build_dir / 'lib'],
-    static: true,
-    required: true
-  )
-  ffi_dep = declare_dependency(
-    include_directories: ffi_inc,
-    dependencies: [ffi_lib],
-  )
-  
+  if is_windows
+    ffi_build_dir = is_windows ? 'thirdparty/libffi-3.5.2/build-windows' : 'thirdparty/libffi-3.5.2/build'
+    ffi_inc = include_directories(ffi_build_dir / 'include')
+    ffi_lib = cc.find_library(
+      'ffi',
+      dirs: [meson.project_source_root() / ffi_build_dir / 'lib'],
+      static: true,
+      required: true
+    )
+    ffi_dep = declare_dependency(
+      include_directories: ffi_inc,
+      dependencies: [ffi_lib],
+    )
+  else
+    # Non-Windows: Try system library first, fall back to static
+    ffi_lib = cc.find_library('ffi', required: false)
+    
+    if ffi_lib.found()
+      ffi_dep = declare_dependency(
+        dependencies: [ffi_lib],
+      )
+    else
+      # Fall back to static library
+      ffi_lib_dir = meson.current_source_dir() / 'thirdparty' / 'libffi-3.5.2' / 'build' / 'lib'
+      ffi_inc_dir = meson.current_source_dir() / 'thirdparty' / 'libffi-3.5.2' / 'build' / 'include'
+      
+      ffi_lib = cc.find_library('ffi', dirs: [ffi_lib_dir], static: true, required: true)
+      ffi_dep = declare_dependency(
+        dependencies: [ffi_lib],
+        include_directories: include_directories(ffi_inc_dir)
+      )
+    endif
+  endif
+
   all_deps += [ffi_dep]
 endif
 
@@ -109,11 +156,11 @@ endif
 all_deps += platform_deps
 
 # Emscripten-specific link arguments
-emscripten_link_args = []
+link_args = []
 if is_emscripten
   tests_dir = meson.project_source_root() / 'tests'
   shell_file = meson.project_source_root() / 'shell.html'
-  emscripten_link_args = [
+  link_args = [
     '--preload-file', tests_dir + '@/tests/',
     '--shell-file', shell_file
   ]
@@ -124,6 +171,6 @@ executable(
   sources,
   include_directories: inc_dirs,
   dependencies: all_deps,
-  link_args: emscripten_link_args,
+  link_args: link_args,
   install: true,
 )
