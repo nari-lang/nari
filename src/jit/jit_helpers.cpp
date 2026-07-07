@@ -214,13 +214,12 @@ void jit_mul(VM *vm) {
     Value &b = vm->peek(0);
     Value &a = vm->peek(1);
     if (a.is_int() && b.is_int()) {
-        // int48 * int48 can overflow int64 (signed-overflow UB).
-        // mul_overflow_i64 detects it; promote to float on overflow.
+        // fused check: product outside int48 promotes to float in one branch
         int64_t product;
-        if (NARI_UNLIKELY(mul_overflow_i64(a.get_int(), b.get_int(), &product))) {
+        if (NARI_UNLIKELY(mul_overflow_i48(a.get_int(), b.get_int(), &product))) {
             a.inplace_float(a.as_number() * b.as_number());
         } else {
-            a.inplace_int_checked(product);
+            a.inplace_int(product);
         }
     } else {
         a.inplace_float(a.as_number() * b.as_number());

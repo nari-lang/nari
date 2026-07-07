@@ -15,108 +15,107 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-DEFAULT_OUTPUT = Path("msvc")
-DEFAULT_DOWNLOADS = Path("downloads")
-OUTPUT = DEFAULT_OUTPUT
-DOWNLOADS = DEFAULT_DOWNLOADS
+OUTPUT = Path("msvc")         # output folder
+DOWNLOADS = Path("downloads") # temporary download files
 
 # NOTE: not all host & target architecture combinations are supported
 
 DEFAULT_HOST = "x64"
-ALL_HOSTS  = "x64 x86 arm64".split()
+ALL_HOSTS    = "x64 x86 arm64".split()
 
 DEFAULT_TARGET = "x64"
-ALL_TARGETS  = "x64 x86 arm arm64".split()
+ALL_TARGETS    = "x64 x86 arm arm64".split()
 
 DEFAULT_VERSION = "latest"
-ALL_VERSIONS  = "2019 2022 2026 latest".split()
-ALL_TOOLSETS  = "latest v142 v143".split()
+ALL_VERSIONS    = "2019 2022 2026 latest".split()
+ALL_TOOLSETS    = "latest v142 v143".split()
 
 MANIFEST_URLS = {
-  "latest": ["https://aka.ms/vs/stable/channel",  "https://aka.ms/vs/insiders/channel"  ],
-  "2026":  ["https://aka.ms/vs/18/stable/channel",  "https://aka.ms/vs/18/insiders/channel"],
-  "2022":  ["https://aka.ms/vs/17/release/channel", "https://aka.ms/vs/17/pre/channel"  ],
-  "2019":  ["https://aka.ms/vs/16/release/channel", "https://aka.ms/vs/16/pre/channel"  ],
+  "latest": ["https://aka.ms/vs/stable/channel",     "https://aka.ms/vs/insiders/channel"   ],
+  "2026":   ["https://aka.ms/vs/18/stable/channel",  "https://aka.ms/vs/18/insiders/channel"],
+  "2022":   ["https://aka.ms/vs/17/release/channel", "https://aka.ms/vs/17/pre/channel"     ],
+  "2019":   ["https://aka.ms/vs/16/release/channel", "https://aka.ms/vs/16/pre/channel"     ],
 }
 
 ssl_context = None
 
 def to_windows_path(path):
   return subprocess.check_output(
-  ["winepath", "-w", str(Path(path).resolve())],
-  text=True,
+    ["winepath", "-w", str(Path(path).resolve())],
+    text=True,
   ).strip()
 
+# extract an .msi archive; on non-Windows hosts we run msiexec through wine
 def extract_msi(msi_path, output_dir):
   if os.name == "nt":
-  cmd = [
-  "msiexec.exe",
-  "/a",
-  str(msi_path),
-  "/quiet",
-  "/qn",
-  f'TARGETDIR={Path(output_dir).resolve()}',
-  ]
+    cmd = [
+      "msiexec.exe",
+      "/a",
+      str(msi_path),
+      "/quiet",
+      "/qn",
+      f'TARGETDIR={Path(output_dir).resolve()}',
+    ]
   else:
-  if shutil.which("wine") is None or shutil.which("winepath") is None:
-  sys.exit("ERROR: extracting the Windows SDK on non-Windows hosts requires both 'wine' and 'winepath'")
-  cmd = [
-  "wine",
-  "msiexec",
-  "/a",
-  to_windows_path(msi_path),
-  "/quiet",
-  "/qn",
-  f'TARGETDIR={to_windows_path(output_dir)}',
-  ]
+    if shutil.which("wine") is None or shutil.which("winepath") is None:
+      sys.exit("ERROR: extracting the Windows SDK on non-Windows hosts requires both 'wine' and 'winepath'")
+    cmd = [
+      "wine",
+      "msiexec",
+      "/a",
+      to_windows_path(msi_path),
+      "/quiet",
+      "/qn",
+      f'TARGETDIR={to_windows_path(output_dir)}',
+    ]
 
   subprocess.check_call(cmd)
 
 def download(url):
   with urllib.request.urlopen(url, context=ssl_context) as res:
-  return res.read()
+    return res.read()
 
 total_download = 0
 
 def download_progress(url, check, filename):
   fpath = DOWNLOADS / filename
   if fpath.exists():
-  data = fpath.read_bytes()
-  if hashlib.sha256(data).hexdigest() == check.lower():
-  print(f"\r{filename} ... OK")
-  return data
+    data = fpath.read_bytes()
+    if hashlib.sha256(data).hexdigest() == check.lower():
+      print(f"\r{filename} ... OK")
+      return data
 
   global total_download
   with fpath.open("wb") as f:
-  data = io.BytesIO()
-  with urllib.request.urlopen(url, context=ssl_context) as res:
-  total = int(res.headers["Content-Length"])
-  size = 0
-  while True:
-  block = res.read(1<<20)
-  if not block:
-  break
-  f.write(block)
-  data.write(block)
-  size += len(block)
-  perc = size * 100 // total
-  print(f"\r{filename} ... {perc}%", end="")
-  print()
-  data = data.getvalue()
-  digest = hashlib.sha256(data).hexdigest()
-  if check.lower() != digest:
-  sys.exit(f"Hash mismatch for f{pkg}")
-  total_download += len(data)
-  return data
+    data = io.BytesIO()
+    with urllib.request.urlopen(url, context=ssl_context) as res:
+      total = int(res.headers["Content-Length"])
+      size = 0
+      while True:
+        block = res.read(1<<20)
+        if not block:
+          break
+        f.write(block)
+        data.write(block)
+        size += len(block)
+        perc = size * 100 // total
+        print(f"\r{filename} ... {perc}%", end="")
+    print()
+    data = data.getvalue()
+    digest = hashlib.sha256(data).hexdigest()
+    if check.lower() != digest:
+      sys.exit(f"Hash mismatch for {filename}")
+    total_download += len(data)
+    return data
 
 # super crappy msi format parser just to find required .cab files
 def get_msi_cabs(msi):
   index = 0
   while True:
-  index = msi.find(b".cab", index+4)
-  if index < 0:
-  return
-  yield msi[index-32:index+4].decode("ascii")
+    index = msi.find(b".cab", index+4)
+    if index < 0:
+      return
+    yield msi[index-32:index+4].decode("ascii")
 
 def first(items, cond = lambda x: True):
   return next((item for item in items if cond(item)), None)
@@ -128,11 +127,11 @@ def parse_msvc_key(value):
 def toolset_matches(value, toolset):
   major, minor = parse_msvc_key(value)
   if major != 14:
-  return False
+    return False
   if toolset == "v142":
-  return 20 <= minor < 30
+    return 20 <= minor < 30
   if toolset == "v143":
-  return 30 <= minor < 50
+    return 30 <= minor < 50
   return True
 
 
@@ -144,8 +143,8 @@ ap.add_argument("--accept-license", action="store_true", help="Automatically acc
 ap.add_argument("--msvc-version", help="Get specific MSVC version")
 ap.add_argument("--sdk-version", help="Get specific Windows SDK version")
 ap.add_argument("--toolset", default="latest", help="Select a Visual C++ toolset family", choices=ALL_TOOLSETS)
-ap.add_argument("--output", default=str(DEFAULT_OUTPUT), help="Output folder for the unpacked MSVC/SDK toolchain")
-ap.add_argument("--downloads", default=str(DEFAULT_DOWNLOADS), help="Download cache folder")
+ap.add_argument("--output", default=str(OUTPUT), help="Output folder for the unpacked MSVC/SDK toolchain")
+ap.add_argument("--downloads", default=str(DOWNLOADS), help="Download cache folder")
 ap.add_argument("--vs", default=DEFAULT_VERSION, help=f"Visual Studio version to use for installation", choices=ALL_VERSIONS)
 ap.add_argument("--insiders", action="store_true", help="Use insiders channnel")
 ap.add_argument("--preview", action="store_true", help="Allow preview / release candidate MSVC versions")
@@ -160,7 +159,7 @@ host = args.host
 targets = args.target.split(',')
 for target in targets:
   if target not in ALL_TARGETS:
-  sys.exit(f"Unknown {target} target architecture!")
+    sys.exit(f"Unknown {target} target architecture!")
 
 
 ### get main manifest
@@ -172,19 +171,19 @@ try:
 except urllib.error.URLError as err:
   import ssl
   if isinstance(err.args[0], ssl.SSLCertVerificationError):
-  # for more info about Python & issues with Windows certificates see https://stackoverflow.com/a/52074591
-  print("ERROR: ssl certificate verification error")
-  try:
-  import certifi
-  except ModuleNotFoundError:
-  print("ERROR: please install 'certifi' package to use Mozilla certificates")
-  print("ERROR: or update your Windows certs, see instructions here: https://woshub.com/updating-trusted-root-certificates-in-windows-10/#h2_3")
-  sys.exit()
-  print("NOTE: retrying with certifi certificates")
-  ssl_context = ssl.create_default_context(cafile=certifi.where())
-  manifest = json.loads(download(URL))
+    # for more info about Python & issues with Windows certificates see https://stackoverflow.com/a/52074591
+    print("ERROR: ssl certificate verification error")
+    try:
+      import certifi
+    except ModuleNotFoundError:
+      print("ERROR: please install 'certifi' package to use Mozilla certificates")
+      print("ERROR: or update your Windows certs, see instructions here: https://woshub.com/updating-trusted-root-certificates-in-windows-10/#h2_3")
+      sys.exit()
+    print("NOTE: retrying with certifi certificates")
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    manifest = json.loads(download(URL))
   else:
-  raise
+    raise
 
 ### download VS manifest
 
@@ -207,21 +206,21 @@ sdk = {}
 
 for pid,p in packages.items():
   if pid.startswith("Microsoft.VC.".lower()) and pid.endswith(".Tools.HostX64.TargetX64.base".lower()) and "premium" not in pid.lower():
-  pver = ".".join(pid.split(".")[2:4])
-  if pver[0].isnumeric():
-  msvc[pver] = pid
+    pver = ".".join(pid.split(".")[2:4])
+    if pver[0].isnumeric():
+      msvc[pver] = pid
   elif pid.startswith("Microsoft.VisualStudio.Component.Windows10SDK.".lower()) or \
-  pid.startswith("Microsoft.VisualStudio.Component.Windows11SDK.".lower()):
-  pver = pid.split(".")[-1]
-  if pver.isnumeric():
-  sdk[pver] = pid
+       pid.startswith("Microsoft.VisualStudio.Component.Windows11SDK.".lower()):
+    pver = pid.split(".")[-1]
+    if pver.isnumeric():
+      sdk[pver] = pid
 
 if not args.preview:
   # remove preview version from non-preview package list
   p = packages.get("Microsoft.VC.Preview.Tools.HostX64.TargetX64".lower())
   if p:
-  pver = ".".join(p[0]["version"].split(".")[:2])
-  msvc.pop(pver)
+    pver = ".".join(p[0]["version"].split(".")[:2])
+    msvc.pop(pver)
 
 if args.show_versions:
   print("MSVC versions:", " ".join(sorted(msvc.keys())))
@@ -233,9 +232,9 @@ if args.msvc_version:
 else:
   msvc_candidates = sorted(msvc.keys(), key=parse_msvc_key)
   if args.toolset != "latest":
-  msvc_candidates = [value for value in msvc_candidates if toolset_matches(value, args.toolset)]
-  if not msvc_candidates:
-  sys.exit(f"Could not find an MSVC version for toolset {args.toolset} in the selected Visual Studio manifest")
+    msvc_candidates = [value for value in msvc_candidates if toolset_matches(value, args.toolset)]
+    if not msvc_candidates:
+      sys.exit(f"Could not find an MSVC version for toolset {args.toolset} in the selected Visual Studio manifest")
   msvc_ver = msvc_candidates[-1]
 sdk_ver = args.sdk_version or max(sorted(sdk.keys()))
 
@@ -262,7 +261,7 @@ license = resource["license"]
 if not args.accept_license:
   accept = input(f"Do you accept Visual Studio license at {license} [Y/N] ? ")
   if not accept or accept[0].lower() != "y":
-  sys.exit(0)
+    sys.exit(0)
 
 OUTPUT.mkdir(exist_ok=True)
 DOWNLOADS.mkdir(exist_ok=True)
@@ -280,38 +279,38 @@ msvc_packages = [
 
 for target in targets:
   msvc_packages += [
-  f"microsoft.vc.{msvc_ver}.tools.host{host}.target{target}.base",
-  f"microsoft.vc.{msvc_ver}.tools.host{host}.target{target}.res.base",
-  f"microsoft.vc.{msvc_ver}.crt.{target}.desktop.base",
-  f"microsoft.vc.{msvc_ver}.crt.{target}.store.base",
-  f"microsoft.vc.{msvc_ver}.premium.tools.host{host}.target{target}.base",
-  f"microsoft.vc.{msvc_ver}.pgo.{target}.base",
+    f"microsoft.vc.{msvc_ver}.tools.host{host}.target{target}.base",
+    f"microsoft.vc.{msvc_ver}.tools.host{host}.target{target}.res.base",
+    f"microsoft.vc.{msvc_ver}.crt.{target}.desktop.base",
+    f"microsoft.vc.{msvc_ver}.crt.{target}.store.base",
+    f"microsoft.vc.{msvc_ver}.premium.tools.host{host}.target{target}.base",
+    f"microsoft.vc.{msvc_ver}.pgo.{target}.base",
   ]
   if target in ["x86", "x64"]:
-  msvc_packages += [f"microsoft.vc.{msvc_ver}.asan.{target}.base"]
+    msvc_packages += [f"microsoft.vc.{msvc_ver}.asan.{target}.base"]
 
   redist_suffix = ".onecore.desktop" if target == "arm" else ""
   redist_pkg = f"microsoft.vc.{msvc_ver}.crt.redist.{target}{redist_suffix}.base"
   if redist_pkg not in packages:
-  redist_name = f"microsoft.visualcpp.crt.redist.{target}{redist_suffix}"
-  redist = first(packages[redist_name])
-  redist_pkg = first(redist["dependencies"], lambda dep: dep.endswith(".base")).lower()
+    redist_name = f"microsoft.visualcpp.crt.redist.{target}{redist_suffix}"
+    redist = first(packages[redist_name])
+    redist_pkg = first(redist["dependencies"], lambda dep: dep.endswith(".base")).lower()
   msvc_packages += [redist_pkg]
 
 for pkg in sorted(msvc_packages):
   if pkg not in packages:
-  print(f"\r{pkg} ... !!! MISSING !!!")
-  continue
+    print(f"\r{pkg} ... !!! MISSING !!!")
+    continue
   p = first(packages[pkg], lambda p: p.get("language") in (None, "en-US"))
   for payload in p["payloads"]:
-  filename = payload["fileName"]
-  download_progress(payload["url"], payload["sha256"], filename)
-  with zipfile.ZipFile(DOWNLOADS / filename) as z:
-  for name in z.namelist():
-  if name.startswith("Contents/"):
-  out = OUTPUT / Path(name).relative_to("Contents")
-  out.parent.mkdir(parents=True, exist_ok=True)
-  out.write_bytes(z.read(name))
+    filename = payload["fileName"]
+    download_progress(payload["url"], payload["sha256"], filename)
+    with zipfile.ZipFile(DOWNLOADS / filename) as z:
+      for name in z.namelist():
+        if name.startswith("Contents/"):
+          out = OUTPUT / Path(name).relative_to("Contents")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_bytes(z.read(name))
 
 
 ### download Windows SDK
@@ -326,8 +325,8 @@ sdk_packages = [
 
 for target in ALL_TARGETS:
   sdk_packages += [
-  f"Windows SDK Desktop Headers {target}-x86_en-us.msi",
-  f"Windows SDK OnecoreUap Headers {target}-x86_en-us.msi",
+    f"Windows SDK Desktop Headers {target}-x86_en-us.msi",
+    f"Windows SDK OnecoreUap Headers {target}-x86_en-us.msi",
   ]
 
 for target in targets:
@@ -344,24 +343,24 @@ with tempfile.TemporaryDirectory(dir=DOWNLOADS) as d:
 
   # download msi files
   for pkg in sorted(sdk_packages):
-  payload = first(sdk_pkg["payloads"], lambda p: p["fileName"] == f"Installers\\{pkg}")
-  if payload is None:
-  continue
-  msi.append(DOWNLOADS / pkg)
-  data = download_progress(payload["url"], payload["sha256"], pkg)
-  cabs += list(get_msi_cabs(data))
+    payload = first(sdk_pkg["payloads"], lambda p: p["fileName"] == f"Installers\\{pkg}")
+    if payload is None:
+      continue
+    msi.append(DOWNLOADS / pkg)
+    data = download_progress(payload["url"], payload["sha256"], pkg)
+    cabs += list(get_msi_cabs(data))
 
   # download .cab files
   for pkg in cabs:
-  payload = first(sdk_pkg["payloads"], lambda p: p["fileName"] == f"Installers\\{pkg}")
-  download_progress(payload["url"], payload["sha256"], pkg)
+    payload = first(sdk_pkg["payloads"], lambda p: p["fileName"] == f"Installers\\{pkg}")
+    download_progress(payload["url"], payload["sha256"], pkg)
 
   print("Unpacking msi files...")
 
   # run msi installers
   for m in msi:
-  extract_msi(m, OUTPUT)
-  (OUTPUT / m.name).unlink(missing_ok=True)
+    extract_msi(m, OUTPUT)
+    (OUTPUT / m.name).unlink(missing_ok=True)
 
 
 ### versions
@@ -379,9 +378,9 @@ if redist.exists():
   redistv = first((redist / "MSVC").glob("*")).name
   src = redist / "MSVC" / redistv / "debug_nonredist"
   for target in targets:
-  for f in (src / target).glob("**/*.dll"):
-  dst = OUTPUT / "VC/Tools/MSVC" / msvcv / f"bin/Host{host}" / target
-  f.replace(dst / f.name)
+    for f in (src / target).glob("**/*.dll"):
+      dst = OUTPUT / "VC/Tools/MSVC" / msvcv / f"bin/Host{host}" / target
+      f.replace(dst / f.name)
 
   shutil.rmtree(redist)
 
@@ -410,17 +409,17 @@ shutil.rmtree(OUTPUT / "Common7", ignore_errors=True)
 shutil.rmtree(OUTPUT / "VC/Tools/MSVC" / msvcv / "Auxiliary")
 for target in targets:
   for f in [f"store", "uwp", "enclave", "onecore"]:
-  shutil.rmtree(OUTPUT / "VC/Tools/MSVC" / msvcv / "lib" / target / f, ignore_errors=True)
+    shutil.rmtree(OUTPUT / "VC/Tools/MSVC" / msvcv / "lib" / target / f, ignore_errors=True)
   shutil.rmtree(OUTPUT / "VC/Tools/MSVC" / msvcv / f"bin/Host{host}" / target / "onecore", ignore_errors=True)
 for f in ["Catalogs", "DesignTime", f"bin/{sdkv}/chpe", f"Lib/{sdkv}/ucrt_enclave"]:
   shutil.rmtree(OUTPUT / "Windows Kits/10" / f, ignore_errors=True)
 for arch in ["x86", "x64", "arm", "arm64"]:
   if arch not in targets:
-  shutil.rmtree(OUTPUT / "Windows Kits/10/Lib" / sdkv / "ucrt" / arch, ignore_errors=True)
-  shutil.rmtree(OUTPUT / "Windows Kits/10/Lib" / sdkv / "um" / arch, ignore_errors=True)
+    shutil.rmtree(OUTPUT / "Windows Kits/10/Lib" / sdkv / "ucrt" / arch, ignore_errors=True)
+    shutil.rmtree(OUTPUT / "Windows Kits/10/Lib" / sdkv / "um" / arch, ignore_errors=True)
   if arch != host:
-  shutil.rmtree(OUTPUT / "VC/Tools/MSVC" / msvcv / f"bin/Host{arch}", ignore_errors=True)
-  shutil.rmtree(OUTPUT / "Windows Kits/10/bin" / sdkv / arch, ignore_errors=True)
+    shutil.rmtree(OUTPUT / "VC/Tools/MSVC" / msvcv / f"bin/Host{arch}", ignore_errors=True)
+    shutil.rmtree(OUTPUT / "Windows Kits/10/bin" / sdkv / arch, ignore_errors=True)
 
 # executable that is collecting & sending telemetry every time cl/link runs
 for target in targets:

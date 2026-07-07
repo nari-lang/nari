@@ -3,6 +3,7 @@
 #include "ir_opt.h"
 
 #include "bytecode.h"
+#include "int_overflow.h"
 
 #include <algorithm>
 #include <climits>
@@ -75,8 +76,8 @@ static Ty arith_type(Op op, Ty a, Ty b) {
 static constexpr int64_t kInt48Max = (1LL << 47) - 1;
 static constexpr int64_t kInt48Min = -(1LL << 47);
 
-static bool fits_int48_i128(__int128 v) {
-    return v >= (__int128)kInt48Min && v <= (__int128)kInt48Max;
+static bool fits_int48_i64(int64_t v) {
+    return v >= kInt48Min && v <= kInt48Max;
 }
 
 static bool is_const(Op op) {
@@ -180,9 +181,10 @@ static Inst make_bool_const(bool v, size_t pc) {
     return out;
 }
 
-static Inst number_result_from_i128(__int128 v, double fallback, size_t pc) {
-    if (fits_int48_i128(v)) {
-        return make_int_const((int64_t)v, pc);
+// `overflowed` = exact integer result didn't fit int64 (so certainly not int48)
+static Inst number_result_checked(bool overflowed, int64_t v, double fallback, size_t pc) {
+    if (!overflowed && fits_int48_i64(v)) {
+        return make_int_const(v, pc);
     }
     return make_float_const(fallback, pc);
 }
@@ -192,8 +194,9 @@ static bool fold_binary_const(Op op, const Inst &lhs, const Inst &rhs,
     switch (op) {
         case Op::DynAdd:
             if (lhs.op == Op::IConst && rhs.op == Op::IConst) {
-                __int128 r = (__int128)lhs.imm_int + (__int128)rhs.imm_int;
-                out = number_result_from_i128(r, (double)lhs.imm_int + (double)rhs.imm_int, pc);
+                int64_t r;
+                bool ovf = add_overflow_i64(lhs.imm_int, rhs.imm_int, &r);
+                out = number_result_checked(ovf, r, (double)lhs.imm_int + (double)rhs.imm_int, pc);
                 return true;
             }
             if (numeric_const(lhs) && numeric_const(rhs)) {
@@ -203,8 +206,9 @@ static bool fold_binary_const(Op op, const Inst &lhs, const Inst &rhs,
             return false;
         case Op::DynSub:
             if (lhs.op == Op::IConst && rhs.op == Op::IConst) {
-                __int128 r = (__int128)lhs.imm_int - (__int128)rhs.imm_int;
-                out = number_result_from_i128(r, (double)lhs.imm_int - (double)rhs.imm_int, pc);
+                int64_t r;
+                bool ovf = sub_overflow_i64(lhs.imm_int, rhs.imm_int, &r);
+                out = number_result_checked(ovf, r, (double)lhs.imm_int - (double)rhs.imm_int, pc);
                 return true;
             }
             if (numeric_const(lhs) && numeric_const(rhs)) {
@@ -214,8 +218,12 @@ static bool fold_binary_const(Op op, const Inst &lhs, const Inst &rhs,
             return false;
         case Op::DynMul:
             if (lhs.op == Op::IConst && rhs.op == Op::IConst) {
-                __int128 r = (__int128)lhs.imm_int * (__int128)rhs.imm_int;
-                out = number_result_from_i128(r, (double)lhs.imm_int * (double)rhs.imm_int, pc);
+                int64_t r;
+                if (mul_overflow_i48(lhs.imm_int, rhs.imm_int, &r)) {
+                    out = make_float_const((double)lhs.imm_int * (double)rhs.imm_int, pc);
+                } else {
+                    out = make_int_const(r, pc);
+                }
                 return true;
             }
             if (numeric_const(lhs) && numeric_const(rhs)) {

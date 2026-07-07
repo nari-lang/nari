@@ -1,4 +1,5 @@
 #include "common.h"
+#include "compat.h" // nari::compat::endian for the no-__BYTE_ORDER path (MSVC)
 
 Value ScriptRuntime::builtin_platform_arch(const Value *, size_t, const nari::CallExpr *) {
 #if defined(__EMSCRIPTEN__)

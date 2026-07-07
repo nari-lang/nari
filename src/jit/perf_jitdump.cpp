@@ -1,6 +1,18 @@
 #ifndef DISABLE_JIT
 #include "asmjit_jit.h"
 
+// perf jitdump only exists on Linux; other platforms get no-op stubs (at EOF)
+#if !defined(__linux__)
+namespace nari {
+namespace jit {
+void perf_jitdump_register(const std::string &, const void *, size_t) {
+}
+void perf_jitdump_close() {
+}
+} // namespace jit
+} // namespace nari
+#else
+
 // Linux perf jitdump writer (spec version 1, +CLOCK_MONOTONIC timestamps).
 //
 //  get relevant data by doing the following:
@@ -234,4 +246,5 @@ void perf_jitdump_close() {
 } // namespace jit
 } // namespace nari
 
+#endif // __linux__
 #endif // !DISABLE_JIT

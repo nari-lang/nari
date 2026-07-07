@@ -1301,13 +1301,12 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
             }
             if (op == "*") {
                 if (left.is_int() && right.is_int()) {
-                    // Two int48 values multiplied can overflow int64 (UB), mul_overflow_i64 detects it
-                    // fall back to float multiplication if overflow occurs
+                    // fused check: product outside int48 falls back to float
                     int64_t product;
-                    if (NARI_UNLIKELY(mul_overflow_i64(left.get_int(), right.get_int(), &product))) {
+                    if (NARI_UNLIKELY(mul_overflow_i48(left.get_int(), right.get_int(), &product))) {
                         return Value::make_float(left.as_number() * right.as_number());
                     }
-                    return Value::make_int_checked(product);
+                    return Value::make_int(product);
                 }
                 return Value::make_float(left.as_number() * right.as_number());
             }

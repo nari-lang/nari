@@ -365,7 +365,9 @@ void VM::register_builtin(const std::string &name) {
         ScriptRuntime::BuiltinFn func = runtime->lookup_builtin_member(name);
         if (func) {
             auto &data = builtins[name].get_function();
-            static_assert(sizeof(func) == sizeof(data.jit_builtin_fn), "pointer-to-member size mismatch");
+            // member-fn pointers are 16 bytes on Itanium ABI but 8 on MSVC x64. 
+            // reader (jit_call_value) memcpys the same sizeof back out.
+            static_assert(sizeof(func) <= sizeof(data.jit_builtin_fn), "pointer-to-member too large for jit_builtin_fn");
             std::memcpy(data.jit_builtin_fn, &func, sizeof(func));
             data.jit_builtin_fn_valid = true;
         }
@@ -1010,13 +1012,12 @@ bool VM::execute_instruction() {
             Value &b = peek(0);
             Value &a = peek(1);
             if (a.is_int() && b.is_int()) {
-                // get_int() values are int48 (range +/-2^47), but they can reach up to 2^94,
-                // which would obviously overflow even int64, so we use mul_overflow_i64 to detect it and promote to float if necessary.
+                // any product outside int48 promotes to float in one branch
                 int64_t product;
-                if (NARI_UNLIKELY(mul_overflow_i64(a.get_int(), b.get_int(), &product))) {
+                if (NARI_UNLIKELY(mul_overflow_i48(a.get_int(), b.get_int(), &product))) {
                     a.set_float(a.as_number() * b.as_number());
                 } else {
-                    a.inplace_int_checked(product);
+                    a.inplace_int(product);
                 }
             } else {
                 a.set_float(a.as_number() * b.as_number());
