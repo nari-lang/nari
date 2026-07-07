@@ -89,11 +89,17 @@ typedef SSIZE_T ssize_t;
 #endif
 #define close _close
 #define poll WSAPoll
+#define NARI_CLOSE_SOCKET(fd) ::closesocket(static_cast<SOCKET>(fd))
+using nari_socket_t = SOCKET;
+#define NARI_INVALID_SOCKET INVALID_SOCKET
 #elif defined(NARI_MCU)
 // MCU means no POSIX networking. Socket/poll headers are provided by
 // the platform SDK (e.g. ESP-IDF lwIP) if networking is ever re-enabled
 // however networking is currently not supported on MCU targets.
 #include <unistd.h>
+#define NARI_CLOSE_SOCKET(fd) ::close(fd)
+using nari_socket_t = int;
+#define NARI_INVALID_SOCKET (-1)
 #else
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -102,6 +108,10 @@ typedef SSIZE_T ssize_t;
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+// On POSIX sockets are ordinary file descriptors
+#define NARI_CLOSE_SOCKET(fd) ::close(fd)
+using nari_socket_t = int;
+#define NARI_INVALID_SOCKET (-1)
 #endif
 #include <cstring>
 #ifndef DISABLE_HTTP
@@ -441,6 +451,10 @@ class IOThreadPool {
 
   public:
     IOThreadPool(size_t num_threads = 4) {
+#if defined(_WIN32) && !defined(DISABLE_HTTP)
+        WSADATA wsa_data;
+        WSAStartup(MAKEWORD(2, 2), &wsa_data);
+#endif
 #ifndef DISABLE_HTTP
         curl_global_init(CURL_GLOBAL_DEFAULT);
         curl_share = curl_share_init();
@@ -586,15 +600,16 @@ class IOThreadPool {
 #ifndef DISABLE_HTTP
                             case IOOperation::Type::TcpListen: {
                                 auto tcp_op = std::static_pointer_cast<TcpOperation>(op);
-                                int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
-                                if (sock_fd < 0) {
+                                nari_socket_t raw_fd = socket(AF_INET, SOCK_STREAM, 0);
+                                if (raw_fd == NARI_INVALID_SOCKET) {
                                     tcp_op->success = false;
                                     tcp_op->error_msg = "Failed to create socket: " + std::string(strerror(errno));
                                     break;
                                 }
+                                int sock_fd = static_cast<int>(raw_fd);
 
                                 int opt = 1;
-                                setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+                                setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
 
                                 struct sockaddr_in addr;
                                 memset(&addr, 0, sizeof(addr));
@@ -609,14 +624,14 @@ class IOThreadPool {
                                         std::to_string(tcp_op->port) + ": " +
                                         std::string(strerror(errno));
 
-                                    close(sock_fd);
+                                    NARI_CLOSE_SOCKET(sock_fd);
                                     break;
                                 }
 
                                 if (listen(sock_fd, 128) < 0) {
                                     tcp_op->success = false;
                                     tcp_op->error_msg = "Failed to listen: " + std::string(strerror(errno));
-                                    close(sock_fd);
+                                    NARI_CLOSE_SOCKET(sock_fd);
                                     break;
                                 }
 
@@ -661,12 +676,13 @@ class IOThreadPool {
                                 struct sockaddr_in client_addr;
                                 socklen_t client_len = sizeof(client_addr);
 
-                                int client_fd = accept(tcp_op->socket_fd, (struct sockaddr *)&client_addr, &client_len);
-                                if (client_fd < 0) {
+                                nari_socket_t raw_client_fd = accept(tcp_op->socket_fd, (struct sockaddr *)&client_addr, &client_len);
+                                if (raw_client_fd == NARI_INVALID_SOCKET) {
                                     tcp_op->success = false;
                                     tcp_op->error_msg = "Failed to accept connection: " + std::string(strerror(errno));
                                     break;
                                 }
+                                int client_fd = static_cast<int>(raw_client_fd);
 
                                 tcp_op->client_fd = client_fd;
                                 tcp_op->client_ip = inet_ntoa(client_addr.sin_addr);
@@ -719,7 +735,7 @@ class IOThreadPool {
                             case IOOperation::Type::TcpClose: {
                                 auto tcp_op = std::static_pointer_cast<TcpOperation>(op);
                                 if (tcp_op->socket_fd >= 0) {
-                                    close(tcp_op->socket_fd);
+                                    NARI_CLOSE_SOCKET(tcp_op->socket_fd);
                                     tcp_op->success = true;
                                 } else {
                                     tcp_op->success = false;
@@ -730,18 +746,19 @@ class IOThreadPool {
 
                             case IOOperation::Type::TcpConnect: {
                                 auto tcp_op = std::static_pointer_cast<TcpOperation>(op);
-                                int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
-                                if (sock_fd < 0) {
+                                nari_socket_t raw_fd = socket(AF_INET, SOCK_STREAM, 0);
+                                if (raw_fd == NARI_INVALID_SOCKET) {
                                     tcp_op->success = false;
                                     tcp_op->error_msg = "Failed to create socket: " + std::string(strerror(errno));
                                     break;
                                 }
+                                int sock_fd = static_cast<int>(raw_fd);
 
                                 struct hostent *server = gethostbyname(tcp_op->host.c_str());
                                 if (server == nullptr) {
                                     tcp_op->success = false;
                                     tcp_op->error_msg = "Failed to resolve host: " + tcp_op->host;
-                                    close(sock_fd);
+                                    NARI_CLOSE_SOCKET(sock_fd);
                                     break;
                                 }
 
@@ -758,7 +775,7 @@ class IOThreadPool {
                                         ":" + std::to_string(tcp_op->port) + ": " +
                                         std::string(strerror(errno));
 
-                                    close(sock_fd);
+                                    NARI_CLOSE_SOCKET(sock_fd);
                                     break;
                                 }
 
@@ -769,12 +786,13 @@ class IOThreadPool {
 
                             case IOOperation::Type::UdpBind: {
                                 auto udp_op = std::static_pointer_cast<UdpOperation>(op);
-                                int sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
-                                if (sock_fd < 0) {
+                                nari_socket_t raw_fd = socket(AF_INET, SOCK_DGRAM, 0);
+                                if (raw_fd == NARI_INVALID_SOCKET) {
                                     udp_op->success = false;
                                     udp_op->error_msg = "Failed to create UDP socket: " + std::string(strerror(errno));
                                     break;
                                 }
+                                int sock_fd = static_cast<int>(raw_fd);
 
                                 struct sockaddr_in addr;
                                 memset(&addr, 0, sizeof(addr));
@@ -788,7 +806,7 @@ class IOThreadPool {
                                         "Failed to bind UDP socket to port " +
                                         std::to_string(udp_op->port) + ": " +
                                         std::string(strerror(errno));
-                                    close(sock_fd);
+                                    NARI_CLOSE_SOCKET(sock_fd);
                                     break;
                                 }
 
@@ -904,7 +922,7 @@ class IOThreadPool {
                             case IOOperation::Type::UdpClose: {
                                 auto udp_op = std::static_pointer_cast<UdpOperation>(op);
                                 if (udp_op->socket_fd >= 0) {
-                                    close(udp_op->socket_fd);
+                                    NARI_CLOSE_SOCKET(udp_op->socket_fd);
                                     udp_op->success = true;
                                 } else {
                                     udp_op->success = false;
@@ -1042,6 +1060,9 @@ class IOThreadPool {
             curl_share_cleanup(curl_share);
         }
         curl_global_cleanup();
+#endif
+#if defined(_WIN32) && !defined(DISABLE_HTTP)
+        WSACleanup();
 #endif
     }
 

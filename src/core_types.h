@@ -220,6 +220,7 @@ struct Value {
     double as_number() const;
     bool as_bool() const;
     std::string to_string(bool in_container_context = false) const;
+    std::string to_string_impl(bool in_container_context, std::vector<const void *> &seen) const;
     static bool values_equal(const Value &a, const Value &b);
 };
 
@@ -817,6 +818,12 @@ inline bool is_truthy(const Value &v) {
     return v.as_bool();
 }
 inline std::string Value::to_string(bool in_container_context) const {
+    // `seen` tracks the ancestor container chain to prevent recursing until the C stack overflows.
+    std::vector<const void *> seen;
+    return to_string_impl(in_container_context, seen);
+}
+inline std::string Value::to_string_impl(bool in_container_context, std::vector<const void *> &seen) const {
+    constexpr size_t kMaxDepth = 128; // also caps non-cyclic nesting
     if (is_none()) {
         return "<null>";
     }
@@ -836,18 +843,39 @@ inline std::string Value::to_string(bool in_container_context) const {
         return in_container_context ? (std::string("\"") + s + "\"") : s;
     }
     if (is_array()) {
+        const void *p = heap_ptr();
+        for (const void *q : seen) {
+            if (q == p) {
+                return "[Circular]";
+            }
+        }
+        if (seen.size() >= kMaxDepth) {
+            return "...";
+        }
+        seen.push_back(p);
         std::string r = "[";
         const auto &a = get_array();
         for (size_t i = 0; i < a.size(); i++) {
             if (i) {
                 r += ", ";
             }
-            r += a[i].to_string(true);
+            r += a[i].to_string_impl(true, seen);
         }
         r += "]";
+        seen.pop_back();
         return r;
     }
     if (is_object()) {
+        const void *p = heap_ptr();
+        for (const void *q : seen) {
+            if (q == p) {
+                return "[Circular]";
+            }
+        }
+        if (seen.size() >= kMaxDepth) {
+            return "...";
+        }
+        seen.push_back(p);
         std::string r = "{";
         const auto *o = get_obj_ptr();
         bool first = true;
@@ -858,10 +886,11 @@ inline std::string Value::to_string(bool in_container_context) const {
                     r += ", ";
                 }
                 first = false;
-                r += k + ": " + (v ? v->to_string(true) : Value::none().to_string(true));
+                r += k + ": " + (v ? v->to_string_impl(true, seen) : Value::none().to_string_impl(true, seen));
             }
         }
         r += "}";
+        seen.pop_back();
         return r;
     }
     if (is_function()) {
@@ -879,8 +908,23 @@ inline std::string Value::to_string(bool in_container_context) const {
         return re ? ("/" + re->pattern + "/" + re->flags) : "/(?:)/";
     }
     if (is_delegate()) {
+        const void *p = heap_ptr();
+        for (const void *q : seen) {
+            if (q == p) {
+                return "[Circular]";
+            }
+        }
+        if (seen.size() >= kMaxDepth) {
+            return "...";
+        }
         auto *d = get_delegate();
-        return d ? ("<delegate " + d->target.to_string(true) + ">") : "<delegate>";
+        if (!d) {
+            return "<delegate>";
+        }
+        seen.push_back(p);
+        std::string r = "<delegate " + d->target.to_string_impl(true, seen) + ">";
+        seen.pop_back();
+        return r;
     }
     return "<unknown>";
 }

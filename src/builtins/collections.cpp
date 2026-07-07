@@ -210,7 +210,7 @@ Value ScriptRuntime::builtin_yield(const Value *, size_t, const nari::CallExpr *
             // close all server sockets to unblock accept() calls
             std::lock_guard<std::mutex> lock(server_sockets_mutex);
             for (int fd : server_sockets) {
-                close(fd);
+                NARI_CLOSE_SOCKET(fd);
             }
             server_sockets.clear();
 #endif
@@ -1661,7 +1661,24 @@ static Value json_to_value(const nlohmann::json &j) {
     return Value::none();
 }
 
-static nlohmann::json value_to_json(const Value &v) {
+// max container nesting for JSON serialization; also bounds C-stack recursion.
+static constexpr size_t kJsonMaxDepth = 512;
+
+static bool json_enter(std::vector<const void *> &seen, const void *p) {
+    if (seen.size() >= kJsonMaxDepth) {
+        return false;
+    }
+    for (const void *q : seen) {
+        if (q == p) {
+            return false;
+        }
+    }
+    seen.push_back(p);
+    return true;
+}
+
+// On cyclic or too-deeply-nested input, sets ok=false and returns null.
+static nlohmann::json value_to_json(const Value &v, std::vector<const void *> &seen, bool &ok) {
     if (v.is_none()) {
         return nullptr;
     }
@@ -1678,31 +1695,55 @@ static nlohmann::json value_to_json(const Value &v) {
         return v.get_string();
     }
     if (v.is_array()) {
+        if (!json_enter(seen, v.heap_ptr())) {
+            ok = false;
+            return nullptr;
+        }
         nlohmann::json arr = nlohmann::json::array();
         for (const auto &el : v.get_array()) {
-            arr.push_back(value_to_json(el));
+            arr.push_back(value_to_json(el, seen, ok));
+            if (!ok) {
+                return nullptr;
+            }
         }
+        seen.pop_back();
         return arr;
     }
     if (v.is_object()) {
+        if (!json_enter(seen, v.heap_ptr())) {
+            ok = false;
+            return nullptr;
+        }
         nlohmann::json obj = nlohmann::json::object();
         const ObjectObj *oobj = v.get_obj_ptr();
         for (const auto &name : oobj->get_keys()) {
             if (const Value *val = oobj->get_field(name)) {
-                obj[name] = value_to_json(*val);
+                obj[name] = value_to_json(*val, seen, ok);
+                if (!ok) {
+                    return nullptr;
+                }
             }
         }
+        seen.pop_back();
         return obj;
     }
     // class instances: serialize fields like an object
     if (v.is_class_instance()) {
+        if (!json_enter(seen, v.heap_ptr())) {
+            ok = false;
+            return nullptr;
+        }
         nlohmann::json obj = nlohmann::json::object();
         const ClassInstance *ci = v.get_class_instance();
         if (ci->layout) {
             for (size_t i = 0; i < ci->field_values.size(); i++) {
-                obj[ci->layout->names[i]] = value_to_json(ci->field_values[i]);
+                obj[ci->layout->names[i]] = value_to_json(ci->field_values[i], seen, ok);
+                if (!ok) {
+                    return nullptr;
+                }
             }
         }
+        seen.pop_back();
         return obj;
     }
     return nullptr;
@@ -1717,6 +1758,9 @@ struct JsonDirectParser {
     const char *end;
     bool ok = true;
     std::string err;
+    // current container nesting; capped so malicious/degenerate input
+    // (e.g. 100k "[") can't overflow the C stack via recursion
+    int depth = 0;
     // Shape of the most recently built object
     const ObjectShape *spec_shape = nullptr;
 
@@ -2054,10 +2098,26 @@ struct JsonDirectParser {
         }
         char c = *p;
         switch (c) {
-            case '{':
-                return parse_object();
-            case '[':
-                return parse_array();
+            case '{': {
+                if (depth >= (int)kJsonMaxDepth) {
+                    fail("nesting too deep");
+                    return Value::none();
+                }
+                depth++;
+                Value v = parse_object();
+                depth--;
+                return v;
+            }
+            case '[': {
+                if (depth >= (int)kJsonMaxDepth) {
+                    fail("nesting too deep");
+                    return Value::none();
+                }
+                depth++;
+                Value v = parse_array();
+                depth--;
+                return v;
+            }
             case '"':
                 return Value::make_string(parse_string());
             case 't':
@@ -2165,45 +2225,55 @@ static void json_escape_into(const std::string &s, std::string &out) {
     }
 }
 
-// Direct Value -> compact JSON text. Object/class keys are emitted in insertion order
-static void value_to_json_string(const Value &v, std::string &out) {
+// Direct Value -> compact JSON text. Object/class keys are emitted in insertion order.
+// Returns false on cyclic or too-deeply-nested input (out is left partial).
+static bool value_to_json_string(const Value &v, std::string &out, std::vector<const void *> &seen) {
     if (v.is_none()) {
         out += "null";
-        return;
+        return true;
     }
     if (v.is_bool()) {
         out += v.get_bool() ? "true" : "false";
-        return;
+        return true;
     }
     if (v.is_int()) {
         char buf[24];
         auto res = std::to_chars(buf, buf + sizeof(buf), v.get_int());
         out.append(buf, res.ptr - buf); // no temp string allocation
-        return;
+        return true;
     }
     if (v.is_float()) {
         out += nlohmann::json(v.get_float()).dump();
-        return;
+        return true;
     }
     if (v.is_string()) {
         out += '"';
         json_escape_into(v.get_string(), out);
         out += '"';
-        return;
+        return true;
     }
     if (v.is_array()) {
+        if (!json_enter(seen, v.heap_ptr())) {
+            return false;
+        }
         out += '[';
         const auto &a = v.get_array();
         for (size_t i = 0; i < a.size(); i++) {
             if (i) {
                 out += ',';
             }
-            value_to_json_string(a[i], out);
+            if (!value_to_json_string(a[i], out, seen)) {
+                return false;
+            }
         }
         out += ']';
-        return;
+        seen.pop_back();
+        return true;
     }
     if (v.is_object()) {
+        if (!json_enter(seen, v.heap_ptr())) {
+            return false;
+        }
         out += '{';
         const ObjectObj *o = v.get_obj_ptr();
         if (!o->dict_mode) {
@@ -2217,7 +2287,9 @@ static void value_to_json_string(const Value &v, std::string &out) {
                 out += '"';
                 json_escape_into(names[i], out);
                 out += "\":";
-                value_to_json_string(o->fields[i], out);
+                if (!value_to_json_string(o->fields[i], out, seen)) {
+                    return false;
+                }
             }
         } else {
             bool first = true;
@@ -2230,14 +2302,20 @@ static void value_to_json_string(const Value &v, std::string &out) {
                     out += '"';
                     json_escape_into(name, out);
                     out += "\":";
-                    value_to_json_string(*val, out);
+                    if (!value_to_json_string(*val, out, seen)) {
+                        return false;
+                    }
                 }
             }
         }
         out += '}';
-        return;
+        seen.pop_back();
+        return true;
     }
     if (v.is_class_instance()) {
+        if (!json_enter(seen, v.heap_ptr())) {
+            return false;
+        }
         out += '{';
         const ClassInstance *ci = v.get_class_instance();
         if (ci->layout) {
@@ -2248,13 +2326,17 @@ static void value_to_json_string(const Value &v, std::string &out) {
                 out += '"';
                 json_escape_into(ci->layout->names[i], out);
                 out += "\":";
-                value_to_json_string(ci->field_values[i], out);
+                if (!value_to_json_string(ci->field_values[i], out, seen)) {
+                    return false;
+                }
             }
         }
         out += '}';
-        return;
+        seen.pop_back();
+        return true;
     }
     out += "null";
+    return true;
 }
 
 // __json_stringify(value[, indent]) -> string
@@ -2270,15 +2352,24 @@ Value ScriptRuntime::builtin_json_stringify(const Value *argvals, size_t argc, c
             indent = static_cast<int>(argvals[1].get_float());
         }
     }
+    // reused across calls to avoid a per-stringify allocation
+    static thread_local std::vector<const void *> seen;
+    seen.clear();
     // attempt to use our implementation instead of nlohmann's slower (DOM-based) code
     if (indent < 0) {
         std::string out;
         out.reserve(64);
-        value_to_json_string(argvals[0], out);
+        if (!value_to_json_string(argvals[0], out, seen)) {
+            return script_throw("TypeError: JSON.stringify: cyclic or too deeply nested structure");
+        }
         return Value::make_string(std::move(out));
     }
+    bool ok = true;
     try {
-        nlohmann::json j = value_to_json(argvals[0]);
+        nlohmann::json j = value_to_json(argvals[0], seen, ok);
+        if (!ok) {
+            return script_throw("TypeError: JSON.stringify: cyclic or too deeply nested structure");
+        }
         return Value::make_string(j.dump(indent));
     } catch (...) {
         return Value::make_string("null");

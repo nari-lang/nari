@@ -385,7 +385,7 @@ class ScriptRuntime {
 #ifndef NO_THREADS
         std::lock_guard<std::mutex> socket_lock(server_sockets_mutex);
         for (int fd : server_sockets) {
-            close(fd);
+            NARI_CLOSE_SOCKET(fd);
         }
         server_sockets.clear();
 

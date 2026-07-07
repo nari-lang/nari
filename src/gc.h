@@ -134,8 +134,6 @@ class GarbageCollector {
     size_t memory_limit = 0;
     size_t estimated_memory_usage = 0;
 
-    void mark_array(HeapHeader *p);
-    void mark_object(HeapHeader *p);
-    void mark_handle(HeapHeader *p);
-    void mark_class_instance(HeapHeader *p);
+    // mark-phase worklist
+    std::vector<uint64_t> mark_stack;
 };

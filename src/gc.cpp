@@ -99,108 +99,90 @@ void GarbageCollector::clear_marks() {
     }
 }
 
-void GarbageCollector::mark_value(const Value &v) {
-    // Strings are leaf objects (no children) but are GC-tracked, so a reachable
-    // one must be marked or the sweep would free it.
-    if (v.is_string() && !v.is_sso()) {
-        v.heap_ptr()->gc_marked = true;
-        return;
-    }
-    if (v.is_array()) {
-        mark_array(v.heap_ptr());
-    } else if (v.is_object()) {
-        mark_object(v.heap_ptr());
-    } else if (v.is_handle()) {
-        mark_handle(v.heap_ptr());
-    } else if (v.is_class_instance()) {
-        mark_class_instance(v.heap_ptr());
-    } else if (v.is_function()) {
-        // closures with captures are GC-tracked, use gc_marked to break cycles.
-        // non-closure functions have null captures and are skipped.
-        auto *fd = static_cast<FunctionData *>(v.heap_ptr());
-        if (!fd || !fd->captures || fd->gc_marked) {
-            return;
+// iterative mark: an explicit worklist keeps C-stack usage independent of data shape
+void GarbageCollector::mark_value(const Value &root) {
+    auto push = [this](const Value &v) {
+        if (v.is_heap()) {
+            mark_stack.push_back(v.raw_bits());
         }
-        fd->gc_marked = true;
-        for (const auto &cell : *fd->captures) {
-            if (cell) {
-                mark_value(*cell);
-            }
-        }
-    } else if (v.is_delegate()) {
-        // Delegate holds two Value children (target + handler); either may form a
-        // cycle back to the delegate, so guard with the intrusive mark bit.
+    };
+    push(root);
+    while (!mark_stack.empty()) {
+        const Value v = Value::from_raw(mark_stack.back());
+        mark_stack.pop_back();
         HeapHeader *p = v.heap_ptr();
-        if (p && !is_marked(p)) {
-            mark_ptr(p);
-            auto *d = static_cast<DelegateData *>(p);
-            mark_value(d->target);
-            mark_value(d->handler);
+        if (!p || p->gc_marked) {
+            continue;
         }
-    }
-}
-
-void GarbageCollector::mark_array(HeapHeader *p) {
-    if (!p || is_marked(p)) {
-        return;
-    }
-    mark_ptr(p);
-    for (const auto &elem : static_cast<ArrayObj *>(p)->v) {
-        mark_value(elem);
-    }
-}
-
-void GarbageCollector::mark_object(HeapHeader *p) {
-    if (!p || is_marked(p)) {
-        return;
-    }
-    mark_ptr(p);
-    auto *obj = static_cast<ObjectObj *>(p);
-    // shape-mode storage.
-    for (const Value &v : obj->fields) {
-        mark_value(v);
-    }
-    // dict-mode storage
-    if (obj->dict_mode) {
-        for (const auto &name : obj->get_keys()) {
-            if (const Value *v = obj->get_field(name)) {
-                mark_value(*v);
+        p->gc_marked = true;
+        switch (p->type_tag) {
+            case ValueTag::Array:
+                for (const auto &elem : static_cast<ArrayObj *>(p)->v) {
+                    push(elem);
+                }
+                break;
+            case ValueTag::Object: {
+                auto *obj = static_cast<ObjectObj *>(p);
+                // shape-mode storage.
+                for (const Value &f : obj->fields) {
+                    push(f);
+                }
+                // dict-mode storage
+                if (obj->dict_mode) {
+                    for (const auto &name : obj->get_keys()) {
+                        if (const Value *dv = obj->get_field(name)) {
+                            push(*dv);
+                        }
+                    }
+                }
+                break;
             }
-        }
-    }
-}
-
-void GarbageCollector::mark_handle(HeapHeader *p) {
-    if (!p || is_marked(p)) {
-        return;
-    }
-    mark_ptr(p);
-    auto *h = static_cast<HandleData *>(p);
-    mark_value(h->result);
-    mark_value(h->error);
-    if (h->task) {
-        for (const auto &[k, v] : h->task->locals) {
-            mark_value(v);
-        }
-        for (const auto &scope : h->task->block_scopes) {
-            for (const auto &[k, v] : scope) {
-                mark_value(v);
+            case ValueTag::Handle: {
+                auto *h = static_cast<HandleData *>(p);
+                push(h->result);
+                push(h->error);
+                if (h->task) {
+                    for (const auto &[k, tv] : h->task->locals) {
+                        push(tv);
+                    }
+                    for (const auto &scope : h->task->block_scopes) {
+                        for (const auto &[k, sv] : scope) {
+                            push(sv);
+                        }
+                    }
+                    push(h->task->result);
+                    push(h->task->error);
+                    push(h->task->flags.return_value);
+                    push(h->task->flags.throw_value);
+                }
+                break;
             }
+            case ValueTag::ClassInstance:
+                for (const Value &f : static_cast<ClassInstance *>(p)->field_values) {
+                    push(f);
+                }
+                break;
+            case ValueTag::Function: {
+                // only closures have captures (and only they are GC-tracked)
+                auto *fd = static_cast<FunctionData *>(p);
+                if (fd->captures) {
+                    for (const auto &cell : *fd->captures) {
+                        if (cell) {
+                            push(*cell);
+                        }
+                    }
+                }
+                break;
+            }
+            case ValueTag::Delegate: {
+                auto *d = static_cast<DelegateData *>(p);
+                push(d->target);
+                push(d->handler);
+                break;
+            }
+            default:
+                break; // string and others: leaf objects, no children
         }
-        mark_value(h->task->result);
-        mark_value(h->task->error);
-        mark_value(h->task->flags.return_value);
-        mark_value(h->task->flags.throw_value);
-    }
-}
-
-void GarbageCollector::mark_class_instance(HeapHeader *p) {
-    if (!p || is_marked(p)) {
-        return;
-    }
-    mark_ptr(p);
-    for (const Value &v : static_cast<ClassInstance *>(p)->field_values) {
-        mark_value(v);
     }
 }
 
@@ -316,6 +298,10 @@ size_t GarbageCollector::collect(const std::vector<const Value *> &roots) {
         if (root) {
             mark_value(*root);
         }
+    }
+    // don't retain a pathologically grown worklist across collections (512KB cap)
+    if (mark_stack.capacity() > 65536) {
+        mark_stack.shrink_to_fit();
     }
     size_t collected = sweep();
     total_collected += collected;

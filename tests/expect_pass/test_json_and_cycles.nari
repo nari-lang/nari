@@ -1,0 +1,85 @@
+// Regression tests for three crash fixes:
+//  1. cyclic values segfaulted print() / string interpolation / JSON.stringify
+//  2. deeply nested live structures segfaulted the GC mark phase (recursion)
+//  3. deeply nested JSON.parse input segfaulted the parser (recursion)
+// A failure here is an uncaught throw (nonzero exit) or a crash.
+
+func expect(cond, msg) {
+  if (cond == false) {
+    throw "FAILED: " + msg;
+  }
+}
+
+// 1. cyclic values stringify safely
+let o = {};
+o.x = o;
+let s = `{o}`;
+expect(s.index_of("[Circular]") >= 0, "cyclic object should stringify as [Circular], got: " + s);
+print("cyclic object:", s);
+
+let a = [1];
+a.push(a);
+let s2 = `{a}`;
+expect(s2.index_of("[Circular]") >= 0, "cyclic array should stringify as [Circular], got: " + s2);
+print("cyclic array:", s2);
+
+// shared (non-cyclic) references must still print fully
+let shared = [1, 2];
+let both = [shared, shared];
+expect(`{both}` == "[[1, 2], [1, 2]]", "shared refs should not be treated as cycles");
+
+// JSON.stringify on a cycle throws a catchable TypeError
+let threw = false;
+try { JSON.stringify(o); } catch (e) { threw = true; }
+expect(threw, "JSON.stringify(cycle) should throw");
+threw = false;
+try { JSON.stringify(o, 2); } catch (e) { threw = true; }
+expect(threw, "JSON.stringify(cycle, indent) should throw");
+print("cyclic stringify throws: ok");
+
+// 2. deep structures survive GC marking
+let deep = 0;
+for (let i = 0; i < 200000; i = i + 1) {
+  deep = [deep];
+}
+__gc_collect(); // pre-fix: recursive marking overflowed the C stack here
+expect(deep.length() == 1, "deep structure intact after collect");
+let dp = `{deep}`; // print path is depth-capped, must not crash
+expect(dp.length() < 1000, "deep to_string should be depth-capped");
+print("deep structure + collect: ok");
+
+// stringify of a too-deep (non-cyclic) structure throws instead of crashing
+threw = false;
+try { JSON.stringify(deep); } catch (e) { threw = true; }
+expect(threw, "JSON.stringify(too deep) should throw");
+
+// 3. JSON.parse depth guard
+threw = false;
+try { JSON.parse("[".repeat(100000) + "]".repeat(100000)); } catch (e) { threw = true; }
+expect(threw, "JSON.parse(100k deep) should throw, not crash");
+
+// 512 accepted, 513 rejected
+let v512 = JSON.parse("[".repeat(512) + "1" + "]".repeat(512));
+expect(v512.length() == 1, "512-deep JSON should parse");
+threw = false;
+try { 
+  JSON.parse("[".repeat(513) + "1" + "]".repeat(513))
+} catch (e) {
+  threw = true;
+}
+expect(threw, "513-deep JSON should throw");
+print("parse depth guard: ok");
+
+// round-trip near the limit
+let d500 = 0;
+for (let i = 0; i < 500; i = i + 1) {
+  d500 = [d500];
+}
+let js = JSON.stringify(d500);
+expect(JSON.stringify(JSON.parse(js)) == js, "500-deep round-trip");
+
+// plain JSON still works
+let obj = JSON.parse("{\"a\": [1, 2, {\"b\": \"x\"}], \"c\": null}");
+expect(obj.a[2].b == "x", "normal parse");
+expect(JSON.stringify(obj) == "{\"a\":[1,2,{\"b\":\"x\"}],\"c\":null}", "normal stringify");
+print("round-trip + plain JSON: ok");
