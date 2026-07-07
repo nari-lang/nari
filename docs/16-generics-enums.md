@@ -96,14 +96,24 @@ enum Result<T, E> {
 
 #### 3. Struct Variants
 
-Variants with named fields (not yet fully implemented):
+Variants with named fields:
 
 ```nari
 enum Message {
     Text { content: string },
     Image { url: string, width: number, height: number }
 }
+
+let msg = Image("photo.png", 640, 480);
+
+match msg {
+    Text(data)  => print("text: " @ data.content),
+    Image(data) => print("image: " @ data.url @ " " @ to_string(data.width))
+}
 ```
+
+The constructor takes positional arguments in field order and the bound value
+in a match arm is an object with the named fields.
 
 ## Creating Enum Values
 
@@ -132,7 +142,28 @@ let failure = Err("something went wrong");
 
 **Convention:** Constructor function names match variant names.
 
-**Note:** The standard library automatically provides `Ok`, `Err`, `Some`, and `None` constructors, so you don't need to define them yourself. They are shown here to illustrate how enum values work internally.
+**Note:** The standard library automatically provides `Ok`, `Err`, `Some`, and
+`None` constructors, so you don't need to define them yourself. They are shown
+here to illustrate how enum values work internally. The built-in values also
+come with helper methods:
+
+- **Option:** `is_some()`, `is_none()`, `unwrap()`, `unwrap_or(default)`,
+  `map(fn)`, `and_then(fn)`, `or_else(fn)`, `filter(fn)`
+- **Result:** `is_ok()`, `is_err()`, `unwrap()`, `unwrap_or(default)`,
+  `unwrap_err()`, `map(fn)`, `map_err(fn)`, `and_then(fn)`, `or_else(fn)`
+
+```nari
+let x = Some(42);
+print(x.unwrap());          // 42
+print(x.map(func(v) { return v * 2; }).unwrap());  // 84
+
+let r = Ok(10);
+print(r.is_ok());           // true
+print(r.unwrap_or(0));      // 10
+```
+
+Declaring your own `enum` also auto-generates constructor functions for each
+variant, so you can write `Some(x)` or `Red` directly without defining them.
 
 ## Pattern Matching
 
@@ -158,7 +189,7 @@ Match and destructure enum variants:
 let result = Ok(42);
 
 match result {
-    Ok(value) => print("Success: " @ toString(value)),
+    Ok(value) => print("Success: " @ to_string(value)),
     Err(error) => print("Error: " @ error)
 }
 // Prints: "Success: 42"
@@ -192,7 +223,7 @@ Bind any value to a variable:
 let x = 42;
 
 match x {
-    value => print("The value is: " @ toString(value))
+    value => print("The value is: " @ to_string(value))
 }
 // Prints: "The value is: 42"
 ```
@@ -257,7 +288,7 @@ let numbers = [1, 2, 3, 4, 5];
 let found = find(numbers, func(x) { return x > 3; });
 
 match found {
-    Some(value) => print("Found: " @ toString(value)),
+    Some(value) => print("Found: " @ to_string(value)),
     None => print("Not found")
 }
 // Prints: "Found: 4"
@@ -288,7 +319,7 @@ func safeDivide(a, b) {
 let result = safeDivide(10, 2);
 
 match result {
-    Ok(value) => print("Result: " @ toString(value)),
+    Ok(value) => print("Result: " @ to_string(value)),
     Err(error) => print("Error: " @ error)
 }
 // Prints: "Result: 5"
@@ -329,7 +360,7 @@ print(unwrapOr(attempted, -1));  // -1
 ```nari
 func parseNumber(str) {
     // Validation logic here
-    let num = toNumber(str);
+    let num = to_number(str);
     if (isValid) {
         let ok = Ok(num);
         return ok;
@@ -349,7 +380,7 @@ func processInput(input) {
 
 let result = processInput("42");
 match result {
-    Ok(n) => print("Valid: " @ toString(n)),
+    Ok(n) => print("Valid: " @ to_string(n)),
     Err(e) => print("Invalid: " @ e)
 }
 ```
@@ -369,7 +400,7 @@ let numbers = [10, 20, 30];
 let item = at(numbers, 1);
 
 match item {
-    Some(value) => print("Item: " @ toString(value)),
+    Some(value) => print("Item: " @ to_string(value)),
     None => print("Index out of bounds")
 }
 // Prints: "Item: 20"
@@ -379,7 +410,7 @@ match item {
 
 ```nari
 func readConfig(filename) {
-    let fileResult = readFile(filename);
+    let fileResult = read_file(filename);
     
     return match fileResult {
         Ok(content) => parseConfig(content),
@@ -403,29 +434,9 @@ func parseConfig(content) {
 ### Current Limitations
 
 1. **Generic constraints:** No way to constrain generic parameters
-2. **Struct variants:** Named fields in enum variants not fully implemented
-3. **Nested patterns:** Complex nested pattern matching limited
-4. **Type inference:** Generic types not inferred, must be explicit in constructors
-5. **Exhaustiveness checking:** No compile-time checks for missing match arms
-
-### Workarounds
-
-**Function call returns in if statements:**
-
-Instead of:
-```nari
-if (condition) {
-    return Ok(value);  // May not work correctly
-}
-```
-
-Use:
-```nari
-if (condition) {
-    let result = Ok(value);
-    return result;  // Works reliably
-}
-```
+2. **Nested patterns:** Complex nested pattern matching is limited
+3. **Type inference:** Generic types are not inferred, must be explicit in constructors
+4. **Exhaustiveness checking:** No compile-time checks for missing match arms
 
 ## Best Practices
 

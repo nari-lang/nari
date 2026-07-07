@@ -259,12 +259,15 @@ let a = 1; let b = 2; let c = 3;
 
 ### Regular Strings
 
-Use single or double quotes:
+Use double quotes:
 
 ```nari
-let single = 'Hello';
-let double = "World";
+let greeting = "Hello";
+let name = "World";
 ```
+
+> Note: string literals use double quotes (`"`). Single quotes are not string
+> delimiters. Backticks are used for template strings (see below).
 
 ### String Interpolation
 

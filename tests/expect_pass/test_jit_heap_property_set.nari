@@ -1,0 +1,34 @@
+func assert(cond, msg) {
+    if (!cond) throw msg;
+}
+
+func run_heap_property_set() {
+    let holder = { value: null, other: null };
+    let a = { x: 1 };
+    let b = { x: 2 };
+    let c = [1, 2, 3];
+
+    for (let i = 0; i < 20000; i++) {
+        holder.value = a;
+        assert(holder.value.x == 1, "object heap set a failed");
+
+        holder.value = b;
+        assert(holder.value.x == 2, "object heap overwrite b failed");
+
+        holder.other = holder.value;
+        assert(holder.other.x == 2, "object heap alias set failed");
+
+        holder.value = c;
+        assert(holder.value[1] == 2, "array heap set failed");
+
+        holder.value = null;
+        assert(holder.value == null, "heap clear failed");
+    }
+
+    assert(a.x == 1, "source object a survived");
+    assert(b.x == 2, "source object b survived");
+    assert(c[2] == 3, "source array survived");
+}
+
+run_heap_property_set();
+print("heap property set ok");

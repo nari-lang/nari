@@ -1,0 +1,88 @@
+// Regression tests for arithmetic UB fixes (audit findings A, B, C).
+//
+// All of these used to be undefined behavior in C++ that happened to
+// "work" on x86 by accident. After the fix:
+//   - OP_MUL overflow promotes to float
+//   - bitwise/shift on float operand goes through safe_double_to_i64
+//   - OP_NEG of INT48_MIN promotes to float
+//   - shift count >= 64 or negative is masked with & 63
+
+func assert(cond, msg) {
+    if (!cond) {
+        throw "ASSERT FAILED: " @ msg;
+    }
+}
+
+// === A: OP_MUL int*int that overflows int64 must NOT wrap silently ===
+// 2^47 - 1 squared overflows int64 (~2^94). Pre-fix this was UB (UBSan trap).
+// Post-fix: promoted to a float so the result is a finite-but-rounded double.
+let big = 140737488355327;  // INT48_MAX
+let prod = big * big;
+// The exact integer is 19807040619342695735406594, way beyond int64.
+// As a double, it rounds; just verify it's positive and far larger than big.
+assert(prod > big, "INT48_MAX * INT48_MAX must promote to a positive float, got: " @ prod);
+
+// Same shape with negatives (still positive product).
+let neg_prod = (-big) * (-big);
+assert(neg_prod > big, "(-INT48_MAX) * (-INT48_MAX) must be a large positive, got: " @ neg_prod);
+
+// Mixed sign overflow.
+let mix = big * (-big);
+assert(mix < (-big), "INT48_MAX * (-INT48_MAX) must be a large negative, got: " @ mix);
+
+// Non-overflowing product still gives an int.
+let small = 1000 * 1000;
+assert(small == 1000000, "1000 * 1000 must equal 1000000, got: " @ small);
+
+// === B: bitwise/shift ops with NaN / Inf / out-of-range double operands ===
+// Pre-fix: static_cast<int64_t>(NaN) is UB; on x86 the result happens to be
+// INT64_MIN, leading to a "0" via & or | by chance. Post-fix: explicit guard
+// returns 0, so the operation is at least defined and stable.
+let nan_val = 0.0 / 0.0;
+let r1 = nan_val | 0;
+assert(r1 == 0, "NaN | 0 must be defined and equal 0, got: " @ r1);
+let r2 = nan_val & 0xFF;
+assert(r2 == 0, "NaN & 0xFF must be 0, got: " @ r2);
+let r3 = nan_val << 1;
+assert(r3 == 0, "NaN << 1 must be 0, got: " @ r3);
+let r4 = nan_val >> 1;
+assert(r4 == 0, "NaN >> 1 must be 0, got: " @ r4);
+
+let inf_val = 1.0 / 0.0;
+// 1.0/0.0 currently produces NaN in Nari (not Inf), so this is the same path
+// - but reflect that intent in the assertions.
+let r5 = inf_val & 0xFF;
+assert(r5 == 0, "Inf-like & 0xFF must be 0, got: " @ r5);
+
+// huge finite double - also out of int64 range. Built by repeated
+// multiplication because Nari's parser doesn't currently accept the
+// `1e30` exponent literal form.
+let huge = 1.0 * 100000000000.0 * 100000000000.0;  // ~1e22, well beyond int64
+let r6 = huge & 0xFFFFFFFF;
+assert(r6 == 0, "huge float & mask must be 0 (defined), got: " @ r6);
+
+// === C: -INT48_MIN must promote to float instead of silently wrapping ===
+let imin = -140737488355328; // INT48_MIN
+let neg = -imin;
+// Without the fix, neg == INT48_MIN (silent wrap). With the fix, neg is a
+// positive float ~140737488355328.
+assert(neg > 0, "-(INT48_MIN) must be positive (got " @ neg @ ")");
+// Round-trip: small ints negate normally
+let x = -42;
+let y = -x;
+assert(y == 42, "-(-42) must equal 42, got: " @ y);
+
+// === Shift count masking: x << 64 / x >> 64 / x << -1 must not be UB ===
+// Mask & 63: 64 -> 0, so x << 64 == x; x << -1 -> shift by 63 (== -1 & 63).
+let s1 = 1 << 64;
+assert(s1 == 1, "1 << 64 (mask & 63 -> 0) must equal 1, got: " @ s1);
+let s2 = 1 << 65;
+assert(s2 == 2, "1 << 65 (mask & 63 -> 1) must equal 2, got: " @ s2);
+let s3 = 256 >> 64;
+assert(s3 == 256, "256 >> 64 must equal 256, got: " @ s3);
+let s4 = 1 << 0;
+assert(s4 == 1, "1 << 0 must equal 1, got: " @ s4);
+let s5 = 8 >> 2;
+assert(s5 == 2, "8 >> 2 must equal 2, got: " @ s5);
+
+print("arith UB regression tests passed");

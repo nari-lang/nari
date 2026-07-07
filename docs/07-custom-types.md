@@ -184,7 +184,7 @@ func withdraw(account: BankAccount, amount: number) -> bool {
 }
 
 func getAccountInfo(account: BankAccount) -> string {
-    return account.owner @ "'s account: $" @ toString(account.balance);
+    return account.owner @ "'s account: $" @ to_string(account.balance);
 }
 
 // Usage
@@ -226,7 +226,7 @@ func validateForm(form: RegisterForm) -> ValidationResult {
         result.isValid = false;
     }
     
-    if (form.email.indexOf("@") == -1) {
+    if (form.email.index_of("@") == -1) {
         result.errors.push("Invalid email address");
         result.isValid = false;
     }
@@ -350,7 +350,7 @@ type Guest {
 }
 
 func isAdmin(user) -> bool {
-    return user.hasKey("permissions");
+    return user.has_key("permissions");
 }
 
 func processUser(user) {
@@ -371,7 +371,7 @@ Current limitations of the type system:
 3. **No union types**: Cannot express "Type A or Type B"
 4. **No interfaces**: No formal interface declarations
 
-Note: Generics and enums are supported — see [Generics and Enums](16-generics-enums.md).
+Note: Generics and enums are supported. see [Generics and Enums](16-generics-enums.md).
 
 ## Future Enhancements
 

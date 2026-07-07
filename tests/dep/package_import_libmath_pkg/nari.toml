@@ -1,0 +1,6 @@
+packageFormat = 1
+name = "fixture/libmath"
+version = "0.1.0"
+
+[exports]
+"." = "src/libmath.nari"

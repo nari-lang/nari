@@ -22,6 +22,15 @@ def choose_delim(content: str, base: str = "EMBED") -> str:
             return delim
     raise RuntimeError("Unable to find suitable raw-string delimiter not present in the input")
 
+def chunk_text(content: str, chunk_size: int = 12000) -> list[str]:
+    """
+    Split content into reasonably small chunks so MSVC does not reject one
+    oversized string literal in generated sources.
+    """
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    return [content[i:i + chunk_size] for i in range(0, len(content), chunk_size)] or [""]
+
 def generate_cpp(function_name: str, content: str) -> str:
     """
     Produce C++ source text that defines `std::string <function_name>()` returning
@@ -38,14 +47,20 @@ def generate_cpp(function_name: str, content: str) -> str:
         "#include <string>\n\n"
     ).format(function_name)
 
-    # Use a raw string literal. Keep the exact contents (including trailing newlines).
-    raw = 'R"{delim}({content}){delim}"'.format(delim=delim, content=content)
+    # Use adjacent raw string literals so large embedded resources still compile
+    # under MSVC, which rejects overly large single string tokens.
+    raw_chunks = [
+        'R"{delim}({content}){delim}"'.format(delim=delim, content=chunk)
+        for chunk in chunk_text(content)
+    ]
+    raw = "\n        ".join(raw_chunks)
 
     cpp = (
         header +
         "std::string {fn}() {{\n"
         "    // Return the embedded resource as an std::string.\n"
-        "    // Using a raw string literal prevents the need for escaping.\n"
+        "    // Using raw string literal chunks prevents the need for escaping\n"
+        "    // and keeps MSVC under its per-literal size limit.\n"
         "    return std::string({raw});\n"
         "}}\n"
     ).format(fn=function_name, raw=raw)

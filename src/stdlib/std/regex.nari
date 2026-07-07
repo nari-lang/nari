@@ -1,0 +1,112 @@
+// -- Regex -------------------------------------------------------------------
+// Stdlib surface over the runtime's regex engine (SRELL, ECMAScript syntax).
+// Lets you build regexes from dynamic strings (literals like /foo/i remain
+// the primary form). Returns/uses native regex values, so .test() / .exec()
+// remain available as methods.
+//
+// import { Regex } from "std/regex";
+
+export let Regex = {
+  // Regex.new(pattern, flags?) -> regex value. Throws RegexError on
+  // malformed pattern. flags: any of "imsguvy" (g/u/v/y silently accepted).
+  new: func(pattern, flags) {
+      if (flags == null) { flags = ""; }
+      return __regex_new(pattern, flags);
+  },
+
+  // Regex.escape(str) -> str with all regex metacharacters backslash-escaped
+  escape: func(s) {
+      let meta = ".*+?^$()[]{}|\\/";
+      let out = "";
+      let i = 0;
+      while (i < s.length()) {
+          let c = s.char_at(i);
+          if (meta.index_of(c) >= 0) {
+              out = out + "\\" + c;
+          } else {
+              out = out + c;
+          }
+          i = i + 1;
+      }
+      return out;
+  },
+
+  // Regex.match(re, str) -> first match object {value, index, groups} or null.
+  // Accepts either a regex value or a pattern string.
+  match: func(re, str) {
+      if (typeof(re) == "string") { re = __regex_new(re, ""); }
+      return re.exec(str);
+  },
+
+  // Regex.test(re, str) -> bool. Accepts regex or pattern string.
+  test: func(re, str) {
+      if (typeof(re) == "string") { re = __regex_new(re, ""); }
+      return re.test(str);
+  },
+
+  // Regex.split(re, str) -> array of segments split by every match.
+  // No-match returns [str].
+  split: func(re, str) {
+      if (typeof(re) == "string") { re = __regex_new(re, ""); }
+      let parts = [];
+      let rest = str;
+      let safety = 0;
+      while (true) {
+          let m = re.exec(rest);
+          if (m == null) {
+              parts.push(rest);
+              return parts;
+          }
+          if (m.value.length() == 0) {
+              // zero-width match: emit the rest as one piece, avoid infinite loop
+              parts.push(rest);
+              return parts;
+          }
+          parts.push(rest.substr(0, m.index));
+          rest = rest.substr(m.index + m.value.length());
+          safety = safety + 1;
+          if (safety > 100000) { return parts; }
+      }
+      return parts;
+  },
+
+  // Regex.replace(re, str, replacement) -> str with FIRST match replaced.
+  // `replacement` is a literal string ($1 etc. not interpolated - use
+  // Regex.replace_with for callback-based substitution).
+  replace: func(re, str, replacement) {
+      if (typeof(re) == "string") { re = __regex_new(re, ""); }
+      let m = re.exec(str);
+      if (m == null) { return str; }
+      return str.substr(0, m.index) + replacement + str.substr(m.index + m.value.length());
+  },
+
+  // Regex.replace_all(re, str, replacement) -> str with EVERY non-overlapping
+  // match replaced. Literal replacement (see Regex.replace).
+  replace_all: func(re, str, replacement) {
+      if (typeof(re) == "string") { re = __regex_new(re, ""); }
+      let out = "";
+      let rest = str;
+      let safety = 0;
+      while (true) {
+          let m = re.exec(rest);
+          if (m == null) {
+              return out + rest;
+          }
+          out = out + rest.substr(0, m.index) + replacement;
+          if (m.value.length() == 0) {
+              // zero-width: consume one char to make progress
+              if (m.index < rest.length()) {
+                  out = out + rest.char_at(m.index);
+                  rest = rest.substr(m.index + 1);
+              } else {
+                  return out;
+              }
+          } else {
+              rest = rest.substr(m.index + m.value.length());
+          }
+          safety = safety + 1;
+          if (safety > 100000) { return out + rest; }
+      }
+      return out;
+  }
+};

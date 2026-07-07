@@ -1,0 +1,135 @@
+// -- Path --------------------------------------------------------------------
+// POSIX-style path utilities (forward-slash separator)
+//
+//  import { Path } from "std/path";
+
+export let Path = {
+    sep: "/",
+    
+    is_absolute: func(p) {
+        return p.length() > 0 && p.char_at(0) == "/";
+    },
+
+    // basename(path, ext?) -> last component, optionally stripping ext
+    basename: func(p, ext) {
+        // strip trailing slashes
+        let end = p.length();
+        while (end > 1 && p.char_at(end - 1) == "/") {
+            end = end - 1;
+        }
+        let base = p.substr(0, end);
+        let i = base.length() - 1;
+        while (i >= 0 && base.char_at(i) != "/") {
+            i = i - 1;
+        }
+        let name = base.substr(i + 1);
+        if (ext != null && ext.length() > 0 && ext.length() < name.length()) {
+            let tail = name.substr(name.length() - ext.length());
+            if (tail == ext) {
+                return name.substr(0, name.length() - ext.length());
+            }
+        }
+        return name;
+    },
+
+    // dirname(path) -> everything before the last separator
+    dirname: func(p) {
+        if (p.length() == 0) { return "."; }
+        let end = p.length();
+        while (end > 1 && p.char_at(end - 1) == "/") {
+            end = end - 1;
+        }
+        let base = p.substr(0, end);
+        let i = base.length() - 1;
+        while (i >= 0 && base.char_at(i) != "/") {
+            i = i - 1;
+        }
+        if (i < 0) { return "."; }
+        if (i == 0) { return "/"; }
+        // strip trailing slashes from dir
+        while (i > 0 && base.char_at(i - 1) == "/") {
+            i = i - 1;
+        }
+        if (i == 0) { return "/"; }
+        return base.substr(0, i);
+    },
+
+    // extname(path) -> ".ext" or "" (mirrors node:path semantics for
+    // leading-dot files: ".bashrc" has no extname)
+    extname: func(p) {
+        let name = Path.basename(p);
+        let i = name.length() - 1;
+        while (i > 0) {
+            if (name.char_at(i) == ".") {
+                // leading-dot only? no ext
+                let j = i - 1;
+                while (j >= 0 && name.char_at(j) == ".") { j = j - 1; }
+                if (j < 0) { return ""; }
+                return name.substr(i);
+            }
+            i = i - 1;
+        }
+        return "";
+    },
+
+    // join(...parts) -> single normalized path. nulls/empty parts skipped.
+    join: func(parts) {
+        let out = "";
+        let i = 0;
+        while (i < parts.length()) {
+            let part = parts[i];
+            if (part != null && part != "") {
+                if (out == "") {
+                    out = part;
+                } else if (out.char_at(out.length() - 1) == "/") {
+                    if (part.char_at(0) == "/") {
+                        out = out + part.substr(1);
+                    } else {
+                        out = out + part;
+                    }
+                } else {
+                    if (part.char_at(0) == "/") {
+                        out = out + part;
+                    } else {
+                        out = out + "/" + part;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        if (out == "") { return "."; }
+        return Path.normalize(out);
+    },
+
+    // normalize(path) -> collapse ".", ".." and duplicate slashes
+    normalize: func(p) {
+        if (p.length() == 0) { return "."; }
+        let is_abs = p.char_at(0) == "/";
+        let trailing = p.length() > 1 && p.char_at(p.length() - 1) == "/";
+        let segs = p.split("/");
+        let stack = [];
+        let i = 0;
+        while (i < segs.length()) {
+            let s = segs[i];
+            if (s == "" || s == ".") {
+                // skip
+            } else if (s == "..") {
+                if (stack.length() > 0 && stack[stack.length() - 1] != "..") {
+                    stack.pop();
+                } else if (!is_abs) {
+                    stack.push("..");
+                }
+            } else {
+                stack.push(s);
+            }
+            i = i + 1;
+        }
+        let result = stack.join("/");
+        if (is_abs) { result = "/" + result; }
+        if (trailing && result.length() > 0 && result.char_at(result.length() - 1) != "/") {
+            result = result + "/";
+        }
+        if (result == "") { return "."; }
+        return result;
+    }
+};

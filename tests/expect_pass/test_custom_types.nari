@@ -27,7 +27,7 @@ func create_score(player_name: string, points: number) -> Score {
 
 // Function using Player type
 func get_player_info(player: Player) -> string {
-    return player.username @ " (Level " @ toString(player.level) @ ")";
+    return player.username @ " (Level " @ to_string(player.level) @ ")";
 }
 
 // Function creating a Player object
@@ -59,19 +59,19 @@ func start() {
     let score2 = create_score("Bob", 75);
     let score3 = create_score("Charlie", 200);
     
-    print("Score 1: " @ score1.name @ " - " @ toString(score1.score));
-    print("Is high score? " @ toString(is_high_score(score1)));
+    print("Score 1: " @ score1.name @ " - " @ to_string(score1.score));
+    print("Is high score? " @ to_string(is_high_score(score1)));
     
-    print("Score 2: " @ score2.name @ " - " @ toString(score2.score));
-    print("Is high score? " @ toString(is_high_score(score2)));
+    print("Score 2: " @ score2.name @ " - " @ to_string(score2.score));
+    print("Is high score? " @ to_string(is_high_score(score2)));
     
     // Test array of custom types
     let all_scores = [score1, score2, score3];
     let high_scores = get_top_scores(all_scores);
     
-    print("High scores count: " @ toString(high_scores.length()));
+    print("High scores count: " @ to_string(high_scores.length()));
     for (s in high_scores) {
-        print("  " @ s.name @ ": " @ toString(s.score));
+        print("  " @ s.name @ ": " @ to_string(s.score));
     }
     
     // Test Player type
@@ -85,8 +85,8 @@ func start() {
     player1.level = 5;
     player1.inventory = ["sword", "shield", "potion"];
     
-    print("Updated player level: " @ toString(player1.level));
-    print("Inventory items: " @ toString(player1.inventory.length()));
+    print("Updated player level: " @ to_string(player1.level));
+    print("Inventory items: " @ to_string(player1.inventory.length()));
     
     print("Tests Complete");
 }

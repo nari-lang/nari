@@ -1,0 +1,27 @@
+// `await expr` desugars to `expr.value`, sugar for the handle-fetch pattern.
+
+// 1. await on a stored handle
+let h = spawn { return 42 }
+if (await h != 42) { throw "await on stored handle: expected 42" }
+
+// 2. await on an inline spawn
+let r = await spawn { return 10 + 20 }
+if (r != 30) { throw "await on inline spawn: expected 30, got " @ string(r) }
+
+// 3. await chains correctly with following operators (handle is on the left)
+let h2 = spawn { return "hello" }
+if ((await h2) @ " world" != "hello world") { throw "await + concat failed" }
+
+// 4. await binds the full postfix chain, `await obj.handle` is `(obj.handle).value`
+let obj = { h: spawn { return [1, 2, 3] } }
+let arr = await obj.h
+if (arr.length() != 3 || arr[0] != 1) { throw "await on member access failed" }
+
+// 5. Spawn.await(...) still works, `await` is a valid identifier in property position
+if (Spawn.await(spawn { return 99 }) != 99) { throw "Spawn.await() regressed" }
+
+// 6. nested awaits
+let n = await spawn { return await spawn { return 7 } }
+if (n != 7) { throw "nested await failed" }
+
+print("test_await: ok!")

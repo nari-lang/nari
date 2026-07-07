@@ -1,0 +1,26 @@
+func assert(cond, msg) {
+    if (!cond) { throw msg; }
+}
+
+func make_counter() {
+    let n = 0;
+    return func() {
+        n = n + 1;
+        return n;
+    };
+}
+
+func run_counter_loop(limit) {
+    let counter = make_counter();
+    let total = 0;
+    for (let i = 0; i < limit; i++) {
+        total = total + counter();
+    }
+    return total;
+}
+
+let first = run_counter_loop(20);
+let second = run_counter_loop(20);
+
+assert(first == 210, "first closure loop should be 210, got " @ first);
+assert(second == 210, "second closure loop should be 210, got " @ second);

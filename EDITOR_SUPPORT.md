@@ -1,179 +1,161 @@
-# Tree-sitter Grammar and Editor Support for Nari
+# Editor Support for Nari
 
-This directory contains Tree-sitter grammar and editor integrations for Nari.
+This document describes the editor tooling that currently exists in this repository.
 
-## Directory Structure
+## Current Layout
 
+The current editor-related files are:
+
+```text
+lsp/lsp_server.cpp  # C++ language server implementation
+lsp/builtins.d.nari  # builtin declarations used by LSP/editor features
+lsp/extension/  # VS Code extension
+lsp/extension/src/extension.ts  # VS Code extension entrypoint
+lsp/extension/syntaxes/  # TextMate grammar for .nari files
+lsp/extension/package.json  # VS Code contribution metadata
+.zed/debug.json  # Repository-local Zed debug configuration
+.vscode/  # Repository-local VS Code workspace settings
 ```
-tree-sitter-nari/     # Tree-sitter grammar
-vscode-nari/          # VSCode extension
-zed-nari/             # Zed editor extension
-```
 
-## Setup Instructions
+Older documentation may mention top-level `tree-sitter-nari/`, `vscode-nari/`, or `zed-nari/` directories. Those are not the current layout in this repo.
 
-### Tree-sitter Grammar
+## Built Editor Binaries
 
-The Tree-sitter grammar is located in `tree-sitter-nari/`.
+A normal native build can produce three useful binaries:
 
-#### Prerequisites
 ```bash
-npm install -g tree-sitter-cli
+./build.sh
+./build.sh --release
 ```
 
-#### Building the Grammar
+Debug build outputs are under `build/debug/` and release build outputs are under `build/release/`:
+
+```text
+build/debug/interpreter  # Nari interpreter and DAP server via --dap
+build/debug/naric  # bytecode compiler
+build/debug/nari-lsp  # language server
+build/release/interpreter
+build/release/naric
+build/release/nari-lsp
+```
+
+The VS Code extension and other editor integrations currently discover these binaries from the workspace build directories or from `PATH`.
+
+## VS Code Extension
+
+The VS Code extension lives in `lsp/extension/`.
+
+### Features
+
+- Syntax highlighting for `.nari` files through the TextMate grammar in `lsp/extension/syntaxes/`.
+- Language configuration: brackets, comments, quotes, and related editor behavior.
+- `nari-lsp` integration over stdio.
+- Completion, hover, diagnostics, go-to-definition, references, document/workspace symbols, signature help, semantic tokens, code actions, and inlay hints as implemented by `lsp/lsp_server.cpp`.
+- Debugging through the interpreter's DAP mode: `interpreter --dap`.
+- Breakpoint support for `.nari` files.
+
+### Development Setup
+
+From `lsp/extension/`:
 
 ```bash
-cd tree-sitter-nari
 npm install
-tree-sitter generate
+npm run compile
 ```
 
-#### Testing the Grammar
+Then open the repo in VS Code and run/debug the extension from that folder, or symlink/copy `lsp/extension` into your VS Code extensions directory while developing.
 
-```bash
-tree-sitter test
-tree-sitter parse ../tests/expect_pass/test_features.nari
-```
+The extension looks for `nari-lsp` in this order:
 
-### VSCode Extension
+1. The `nari.lsp.serverPath` setting.
+2. `build/debug/nari-lsp` or `build/release/nari-lsp` under any workspace folder.
+3. `nari-lsp` on `PATH`.
 
-Located in `vscode-nari/`.
+The debugger looks for `interpreter` in this order:
 
-#### Installation
+1. The `nari.debug.interpreterPath` setting.
+2. `build/release/interpreter` or `build/debug/interpreter` under any workspace folder.
+3. `interpreter` on `PATH`.
 
-```bash
-# Copy/symlink the extension folder to VSCode extensions directory
+On Windows, the `.exe` variants are also checked.
 
-# Linux/Mac:
-ln -s $(pwd)/vscode-nari ~/.vscode/extensions/nari-0.1.0
-
-# Windows:
-mklink /D "%USERPROFILE%\.vscode\extensions\nari-0.1.0" "%CD%\vscode-nari"
-
-# Restart VSCode
-```
-
-#### Features
-- Syntax highlighting
-- Auto-closing brackets and quotes
-- Comment toggling (Ctrl+/)
-- Code folding
-
-### Zed Editor Extension
-
-Located in `zed-nari/`.
-
-#### Installation
-
-Ctrl + P -> 'install dev extension' -> pick `zed-nari`.
-
-## Language Features
-
-The grammar supports all Nari language features:
-
-### Keywords
-- `func`, `let`, `global`
-- `if`, `else`, `while`, `for`, `in`
-- `switch`, `case`, `default`
-- `return`, `break`, `continue`
-- `throw`, `try`, `catch`, `finally`
-- `menu`, `import`
-
-### Operators
-- Arithmetic: `+`, `-`, `*`, `/`, `%`, `**`
-- Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
-- Logical: `&&`, `||`, `!`
-- Special: `@` (concatenation), `??` (nullish coalescing)
-- Update: `++`, `--`
-
-### Literals
-- Numbers: `123`, `3.14`
-- Strings: `"double"`, `'single'`, `` `interpolated {expr}` ``
-- Booleans: `true`, `false`
-- Null: `null`
-- Arrays: `[1, 2, 3]`
-- Objects: `{key: value}`
-
-### Comments
-- Line comments: `// comment`
-
-## Customization
-
-### Adding More Highlighting Rules
-
-Edit `tree-sitter-nari/queries/highlights.scm` and add new patterns:
-
-```scheme
-; Example: Highlight built-in functions differently
-(call_expression
-  function: (identifier) @function.builtin
-  (#match? @function.builtin "^(print|length|push|pop)$"))
-```
-
-### Adjusting Colors
-
-For VSCode, create a `.vscode/settings.json`:
+### Useful Settings
 
 ```json
 {
-  "editor.tokenColorCustomizations": {
-    "textMateRules": [
-      {
-        "scope": "keyword.control.nari",
-        "settings": {
-          "foreground": "#C678DD"
-        }
-      }
-    ]
-  }
+  "nari.lsp.enable": true,
+  "nari.lsp.serverPath": "/absolute/path/to/nari-lsp",
+  "nari.lsp.inlayHints": false,
+  "nari.debug.interpreterPath": "/absolute/path/to/interpreter"
 }
 ```
 
-For Zed, edit your Zed settings and customize the theme.
+Leave the path settings empty to use auto-discovery.
 
-## Publishing
+### Example Debug Configuration
 
-### VSCode Marketplace
-
-```bash
-cd vscode-nari
-vsce publish
+```json
+{
+  "type": "nari",
+  "request": "launch",
+  "name": "Debug current Nari file",
+  "program": "${file}",
+  "stopOnEntry": true,
+  "args": []
+}
 ```
 
-### Zed Extensions
+## Zed
 
-Submit a pull request to the Zed extensions repository or publish to your own repository.
+This repo currently contains a repository-local `.zed/debug.json` for debugger configuration, but it does not contain a packaged top-level Zed extension directory.
 
-## Development
+If you use Zed, point its language-server/debugger configuration at the built binaries:
 
-### Testing Changes
+- `build/debug/nari-lsp` or `build/release/nari-lsp`
+- `build/debug/interpreter` or `build/release/interpreter`
 
-1. Modify `grammar.js`
-2. Run `tree-sitter generate`
-3. Test with `tree-sitter parse <test-file.nari>`
-4. Update highlight queries if needed
-5. Reload your editor
+The roadmap still tracks publishing and packaging a clean Zed extension as future work.
 
-### Common Issues
+## LSP Logging
 
-**VSCode not highlighting:**
-- Check the file extension is `.nari`
-- Reload window (Ctrl+Shift+P → "Reload Window")
-- Check Output → Log (Extension Host) for errors
+The current language server writes debug logs to `/tmp/nari-lsp.log` when logging is initialized. This is a development convenience and is tracked for cleanup: logging should become opt-in and platform-aware.
 
-**Zed not working:**
-- Ensure Tree-sitter grammar is compiled
-- Check Zed logs: `~/.config/zed/logs/`
-- Verify extension directory structure
+## Troubleshooting
+
+### VS Code does not highlight `.nari` files
+
+- Check that the file extension is `.nari`.
+- Confirm the extension is installed or running in an Extension Development Host.
+- Reload the VS Code window.
+- Check `Output -> Log (Extension Host)` for activation or grammar errors.
+
+### LSP features do not work
+
+- Build the project so `nari-lsp` exists.
+- Set `nari.lsp.serverPath` to an absolute path if auto-discovery fails.
+- Verify `nari.lsp.enable` is `true`.
+- Check `/tmp/nari-lsp.log` on Linux for current development logs.
+
+### Debugging does not start
+
+- Build the interpreter.
+- Set `nari.debug.interpreterPath` to an absolute path if auto-discovery fails.
+- Make sure your launch configuration uses `type: "nari"` and points `program` at a `.nari` or `.naric` file.
+
+## Packaging Status
+
+The current VS Code extension is development-ready but not yet a polished marketplace distribution. The main missing pieces are:
+
+- explicit `onLanguage:nari` activation,
+- bundled or auto-installed `nari-lsp` / interpreter binaries,
+- marketplace release automation,
+- extension versioning tied to Nari release artifacts,
+- and broader DAP/LSP integration tests.
 
 ## Resources
 
-- [Tree-sitter Documentation](https://tree-sitter.github.io/)
-- [VSCode Extension API](https://code.visualstudio.com/api)
-- [Zed Extension Guide](https://zed.dev/docs/extensions)
+- [VS Code Extension API](https://code.visualstudio.com/api)
+- [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
+- [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/)
 - [TextMate Grammar Guide](https://macromates.com/manual/en/language_grammars)
-
-## License
-
-MIT
+- [Zed Extension Guide](https://zed.dev/docs/extensions)

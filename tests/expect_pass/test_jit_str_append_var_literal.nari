@@ -1,0 +1,69 @@
+// Regression test for the JIT peephole bug in
+// `LOAD_CONST(string) + STR_APPEND_VAR + POP`.
+//
+// In src/jit/asmjit_jit.cpp the peephole emitted
+//   cc.mov(str_ptr_vreg, Imm(stable_ptr));
+// AFTER `arch::invoke_imm(...)` had already created the InvokeNode that
+// consumes str_ptr_vreg. The Compiler IR runs nodes in emission order, so
+// the call argument was loaded from an undefined spill slot before the mov
+// landed -> the appended bytes were garbage (e.g. 8, 99 instead of 13, 10
+// for "\r\n").
+//
+// Repro shape: a tight loop in a compiled function (eager-compile triggers
+// on string-op-in-loop) that appends a small string-constant literal to a
+// variable string with the result reassigned to that same variable.
+//
+// Pre-fix: bytes 10/11 of the result were undefined.
+// Post-fix: bytes 10/11 are 13 (\r) and 10 (\n).
+
+let assert = func(cond, msg) {
+    if (!cond) {
+        throw "assertion failed: " @ msg;
+    }
+};
+
+func build_crlf_appended(n) {
+    let crlf = "\r\n";
+    let body = "AAAAAAAAAA";  // 10 chars, indices 0..9
+    let i = 0;
+    while (i < n) {
+        body = body @ crlf;
+        i++;
+    }
+    return body;
+}
+
+// Single-iteration variant exercises the exact peephole code path that
+// regressed; repeat counts > 1 also exercise the loop carry of the
+// updated `body` slot.
+let s1 = build_crlf_appended(1);
+assert(s1.length() == 12, "single append length");
+assert(s1.char_code_at(10) == 13, "single append byte 10 == \\r (got " @ s1.char_code_at(10) @ ")");
+assert(s1.char_code_at(11) == 10, "single append byte 11 == \\n (got " @ s1.char_code_at(11) @ ")");
+
+let s3 = build_crlf_appended(3);
+assert(s3.length() == 16, "triple append length");
+let i = 0;
+while (i < 3) {
+    let off = 10 + i * 2;
+    assert(s3.char_code_at(off) == 13, "triple append byte " @ off @ " == \\r");
+    assert(s3.char_code_at(off + 1) == 10, "triple append byte " @ (off + 1) @ " == \\n");
+    i++;
+}
+
+// Also exercise a non-CRLF small literal so the fix isn't accidentally
+// special-casing two-byte payloads.
+func build_with_marker(n) {
+    let marker = "::END";
+    let body = "payload";
+    let i = 0;
+    while (i < n) {
+        body = body @ marker;
+        i++;
+    }
+    return body;
+}
+let m = build_with_marker(2);
+assert(m == "payload::END::END", "marker append: got '" @ m @ "'");
+
+print("test_jit_str_append_var_literal: PASS");

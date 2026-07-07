@@ -1,0 +1,133 @@
+{
+  "name": "nari-language",
+  "displayName": "Nari Language",
+  "description": "Language support for the Nari scripting language (.nari)",
+  "version": "0.1.0",
+  "publisher": "nari",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Debuggers"
+  ],
+  "activationEvents": [
+    "onDebugResolve:nari",
+    "onDebugDynamicConfigurations:nari"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "nari",
+        "aliases": ["Nari", "nari"],
+        "extensions": [".nari"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./media/nari-icon.png",
+          "dark": "./media/nari-icon.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nari",
+        "scopeName": "source.nari",
+        "path": "./syntaxes/nari.tmLanguage.json"
+      }
+    ],
+    "breakpoints": [
+      { "language": "nari" }
+    ],
+    "debuggers": [
+      {
+        "type": "nari",
+        "label": "Nari Debugger",
+        "languages": ["nari"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to the .nari or .naric file to debug.",
+                "default": "${file}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Break before executing the first instruction.",
+                "default": true
+              },
+              "args": {
+                "type": "array",
+                "description": "Arguments forwarded to the program.",
+                "items": { "type": "string" },
+                "default": []
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "nari",
+            "request": "launch",
+            "name": "Debug current Nari file",
+            "program": "${file}",
+            "stopOnEntry": true
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Nari: Launch current file",
+            "description": "Debug the active .nari file.",
+            "body": {
+              "type": "nari",
+              "request": "launch",
+              "name": "${1:Debug current Nari file}",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": true
+            }
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "Nari",
+      "properties": {
+        "nari.lsp.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the nari-lsp binary. Leave empty to auto-detect from the build directory or PATH."
+        },
+        "nari.lsp.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Nari language server."
+        },
+        "nari.lsp.inlayHints": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show inlay type hints for variable declarations (e.g. ': string' after 'let s = \"hello\"')."
+        },
+        "nari.debug.interpreterPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the nari interpreter binary used for debugging. Leave empty to auto-detect from the build directory or PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0"
+  }
+}

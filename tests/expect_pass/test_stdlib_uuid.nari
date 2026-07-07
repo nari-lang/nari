@@ -1,0 +1,43 @@
+// uuid.v4(): RFC-4122 version-4 layout. Non-cryptographic (mt19937).
+
+import { uuid } from "std/uuid";
+
+func check(name, cond) {
+    if (!cond) {
+        throw "uuid test failed: " @ name;
+    }
+}
+
+let u = uuid.v4();
+
+// 8-4-4-4-12 -> 36 chars total
+check("length", u.length() == 36);
+
+// hyphen positions
+check("dash8", u.char_at(8) == "-");
+check("dash13", u.char_at(13) == "-");
+check("dash18", u.char_at(18) == "-");
+check("dash23", u.char_at(23) == "-");
+
+// version nibble is always '4'
+check("version", u.char_at(14) == "4");
+
+// variant nibble is one of 8, 9, a, b
+let variant = u.char_at(19);
+check("variant", variant == "8" || variant == "9" || variant == "a" || variant == "b");
+
+// every character is a lowercase hex digit or a hyphen
+let allowed = "0123456789abcdef-";
+let i = 0;
+while (i < u.length()) {
+    let c = u.char_at(i);
+    if (allowed.index_of(c) < 0) {
+        throw "uuid test failed: invalid char at " @ i @ " -> " @ c;
+    }
+    i = i + 1;
+}
+
+// distinct values across calls (collision probability ~ 1 / 2^122)
+check("distinct", uuid.v4() != uuid.v4());
+
+system.print("uuid stdlib: v4 = " @ u);

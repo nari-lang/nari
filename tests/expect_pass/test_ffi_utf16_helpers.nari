@@ -1,18 +1,22 @@
 let p1 = __ffi_utf16("hello")
 if (p1 == 0) {
-    throw("__ffi_utf16 returned null for ascii input")
+    throw "__ffi_utf16 returned null for ascii input"
 }
 __ffi_free(p1)
 
 let p2 = __ffi_utf16("Hello 👋 Привет こんにちは")
 if (p2 == 0) {
-    throw("__ffi_utf16 returned null for unicode input")
+    throw "__ffi_utf16 returned null for unicode input"
+}
+let s2 = __ffi_utf16_read(p2)
+if (s2 != "Hello 👋 Привет こんにちは") {
+    throw "__ffi_utf16_read did not return the original string!"
 }
 __ffi_free(p2)
 
 let p3 = __ffi_utf16("")
 if (p3 == 0) {
-    throw("__ffi_utf16 returned null for empty string")
+    throw "__ffi_utf16 returned null for empty string"
 }
 __ffi_free(p3)
 

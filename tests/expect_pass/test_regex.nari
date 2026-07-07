@@ -1,0 +1,94 @@
+// -- Regex literal basics ----------------------------------------------------
+
+// typeof
+if (typeof(/hello/) != "regex") { throw "typeof regex literal should be 'regex'"; }
+if (typeof(/foo/gi) != "regex") { throw "typeof regex with flags should be 'regex'"; }
+
+let r = /hello/i;
+if (typeof(r) != "regex") { throw "typeof stored regex should be 'regex'"; }
+
+// -- .test() -----------------------------------------------------------------
+
+// case-insensitive match
+if (!r.test("Hello World")) { throw "case-insensitive test should match 'Hello World'"; }
+if (!r.test("say hello there")) { throw "test should match substring 'hello'"; }
+if (r.test("goodbye")) { throw "test should NOT match 'goodbye'"; }
+
+// anchors
+if (!/^start/.test("start of string")) { throw "anchor ^ should match at start"; }
+if (/^start/.test("not at start"))     { throw "anchor ^ should NOT match mid-string"; }
+if (!/end$/.test("at the end"))        { throw "anchor $ should match at end"; }
+
+// digit class
+if (!/\d+/.test("abc 42 def")) { throw "\\d+ should match digits in string"; }
+if (/^\d+$/.test("12abc"))     { throw "^\\d+$ should NOT match mixed string"; }
+if (!/^\d+$/.test("12345"))    { throw "^\\d+$ should match pure digits"; }
+if (/^\d+$/.test(""))          { throw "^\\d+$ should NOT match empty string"; }
+
+// -- .exec() -----------------------------------------------------------------
+
+// no-match returns null
+let m_null = /xyz/.exec("hello world");
+if (m_null != null) { throw "exec should return null on no match"; }
+
+// simple match (no capture groups)
+let m1 = /\d+/.exec("abc 42 def");
+if (m1 == null)       { throw "exec should find digits"; }
+if (m1.value != "42") { throw "exec value should be '42', got: " @ m1.value; }
+if (m1.index != 4)    { throw "exec index should be 4, got: " @ m1.index; }
+if (m1.groups.length() != 1) { throw "groups should have 1 entry (full match only)"; }
+if (m1.groups[0] != "42") { throw "groups[0] should be full match '42'"; }
+
+// match with capture groups
+let m2 = /(\d+)-(\d+)/.exec("date: 2024-01");
+if (m2 == null)              { throw "exec should match '2024-01'"; }
+if (m2.value != "2024-01")   { throw "exec value should be '2024-01'"; }
+if (m2.index != 6)           { throw "exec index should be 6"; }
+if (m2.groups.length() != 3) { throw "groups should have 3 entries (full + 2 captures)"; }
+if (m2.groups[0] != "2024-01") { throw "groups[0] should be full match"; }
+if (m2.groups[1] != "2024")    { throw "groups[1] should be first capture '2024'"; }
+if (m2.groups[2] != "01")      { throw "groups[2] should be second capture '01'"; }
+
+// case-insensitive exec
+let m3 = /hello/i.exec("say HELLO there");
+if (m3 == null)        { throw "case-insensitive exec should match"; }
+if (m3.value != "HELLO") { throw "exec value should be 'HELLO' (original case)"; }
+
+// -- regex in expressions -----------------------------------------------------
+
+// inline method call on literal
+let ok = /^\w+$/.test("identifier");
+if (!ok) { throw "inline .test on letter-only string should be true"; }
+
+// regex as argument / condition
+func validate_email(s: string) -> bool {
+    return /^[^@]+@[^@]+\.[^@]+$/.test(s);
+}
+if (!validate_email("user@example.com")) { throw "valid email should pass"; }
+if (validate_email("not-an-email"))      { throw "invalid email should fail"; }
+
+// -- string coercion ----------------------------------------------------------
+
+let re_str = "" @ /\d+/;
+if (re_str != "/\\d+/") { throw "regex to-string should give '/\\d+/', got: " @ re_str; }
+
+let re_flags_str = "" @ /foo/gi;
+if (re_flags_str != "/foo/gi") { throw "regex with flags to-string should give '/foo/gi'"; }
+
+// -- division disambiguation --------------------------------------------------
+
+let a = 10;
+let b = 2;
+if (a / b != 5) { throw "division 10/2 should give 5"; }
+if ((8 + 2) / 5 != 2) { throw "(8+2)/5 should give 2"; }
+
+let x = 9;
+let y = 3;
+let q = x / y;
+if (q != 3) { throw "x/y should give 3"; }
+
+// regex after operator (not a division)
+let is_digit = /^\d$/.test("7");
+if (!is_digit) { throw "single digit should match ^\\d$"; }
+
+print("All regex tests passed.");

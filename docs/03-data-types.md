@@ -184,20 +184,20 @@ Built-in functions for type checking:
 ```nari
 let value = 42;
 
-isNumber(value);    // true
-isString(value);    // false
-isBool(value);      // false
-isArray(value);     // false
-isObject(value);    // false
-isFunction(value);  // false
+is_number(value);    // true
+is_string(value);    // false
+is_bool(value);      // false
+is_array(value);     // false
+is_object(value);    // false
+is_function(value);  // false
 
 // Examples
-isNumber(42);               // true
-isString("hello");          // true
-isBool(false);              // true
-isArray([1, 2, 3]);         // true
-isObject({a: 1});           // true
-isFunction(func(){});       // true
+is_number(42);               // true
+is_string("hello");          // true
+is_bool(false);              // true
+is_array([1, 2, 3]);         // true
+is_object({a: 1});           // true
+is_function(func(){});       // true
 ```
 
 ## Type Conversion
@@ -205,33 +205,33 @@ isFunction(func(){});       // true
 ### To Number
 
 ```nari
-let n1 = toNumber("42");        // 42
-let n2 = toNumber("3.14");      // 3.14
-let n3 = toNumber(true);        // 1
-let n4 = toNumber(false);       // 0
-let n5 = toNumber("abc");       // 0 (invalid)
+let n1 = to_number("42");        // 42
+let n2 = to_number("3.14");      // 3.14
+let n3 = to_number(true);        // 1
+let n4 = to_number(false);       // 0
+let n5 = to_number("abc");       // 0 (invalid)
 ```
 
 ### To String
 
 ```nari
-let s1 = toString(42);          // "42"
-let s2 = toString(3.14);        // "3.14"
-let s3 = toString(true);        // "true"
-let s4 = toString([1, 2]);      // "[1, 2]"
-let s5 = toString({a: 1});      // "{a: 1}"
+let s1 = to_string(42);          // "42"
+let s2 = to_string(3.14);        // "3.14"
+let s3 = to_string(true);        // "true"
+let s4 = to_string([1, 2]);      // "[1, 2]"
+let s5 = to_string({a: 1});      // "{a: 1}"
 ```
 
 ### To Boolean
 
 ```nari
-let b1 = toBool(42);            // true (non-zero)
-let b2 = toBool(0);             // false
-let b3 = toBool("text");        // true (non-empty)
-let b4 = toBool("");            // false (empty)
-let b5 = toBool(null);          // false
-let b6 = toBool([]);            // false (empty array)
-let b7 = toBool([1]);           // true (non-empty)
+let b1 = to_bool(42);            // true (non-zero)
+let b2 = to_bool(0);             // false
+let b3 = to_bool("text");        // true (non-empty)
+let b4 = to_bool("");            // false (empty)
+let b5 = to_bool(null);          // false
+let b6 = to_bool([]);            // false (empty array)
+let b7 = to_bool([1]);           // true (non-empty)
 ```
 
 ## Truthiness and Falsiness
@@ -268,8 +268,8 @@ Some operators automatically coerce types:
 
 ```nari
 // Arithmetic coerces to number
-print("5" + 3);         // 8 (string "5" → number 5)
-print(true + 1);        // 2 (true → 1)
+print("5" + 3);         // 8 (string "5" -> number 5)
+print(true + 1);        // 2 (true -> 1)
 
 // String concatenation with @
 print(42 @ " items");   // "42 items"

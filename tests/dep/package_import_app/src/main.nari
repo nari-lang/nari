@@ -1,0 +1,14 @@
+import libmath from "libmath";
+import { add as add_full_name } from "fixture/libmath";
+
+export func run_checks() {
+    if (libmath.add(2, 3) != 5) {
+        throw "short package import failed";
+    }
+
+    if (add_full_name(4, 6) != 10) {
+        throw "full package import failed";
+    }
+
+    return "ok";
+}

@@ -2,26 +2,26 @@
 
 let x = 0;
 if (true) x = 10;
-if (x != 10) { throw("single if statement failed"); }
+if (x != 10) { throw "single if statement failed"; }
 
 if (false) x = 99;
-if (x != 10) { throw("single if false branch changed state"); }
+if (x != 10) { throw "single if false branch changed state"; }
 
 if (x == 10) x += 1; else x += 100;
-if (x != 11) { throw("single if/else statement failed"); }
+if (x != 11) { throw "single if/else statement failed"; }
 
 let y = 0;
 if (false)
     y = 1;
 else
     y = 2;
-if (y != 2) { throw("multiline single-statement if/else failed"); }
+if (y != 2) { throw "multiline single-statement if/else failed"; }
 
 let inner = 0;
 let outer = 1;
 if (outer == 1)
     if (true) inner = 7;
     else inner = 9;
-if (inner != 7) { throw("dangling else binding failed"); }
+if (inner != 7) { throw "dangling else binding failed"; }
 
 print("if single-statement tests passed");

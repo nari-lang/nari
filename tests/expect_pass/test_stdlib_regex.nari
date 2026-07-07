@@ -1,0 +1,63 @@
+// Regex stdlib: surface over the runtime regex engine.
+
+import { Regex } from "std/regex";
+
+func check(name, cond) {
+    if (!cond) { throw "Regex test failed: " @ name; }
+}
+
+// Regex.new + .test method
+let r = Regex.new("\\d+", "");
+check("new+test hit", r.test("abc 123"));
+check("new+test miss", !r.test("abc def"));
+
+// Regex.test (string pattern shorthand)
+check("test string pat", Regex.test("\\d+", "x9y"));
+check("test no match", !Regex.test("\\d+", "abc"));
+
+// Regex.match -> first match object
+let m = Regex.match("\\d+", "abc 42 then 99");
+check("match value", m.value == "42");
+check("match index", m.index == 4);
+
+// Regex.escape
+check("escape meta", Regex.escape("a.b*c?d") == "a\\.b\\*c\\?d");
+check("escape parens", Regex.escape("(x)") == "\\(x\\)");
+// roundtrip: escaped pattern matches the original literal as a substring
+let lit = "1.2.3";
+check("escape roundtrip", Regex.test(Regex.escape(lit), "see 1.2.3 here"));
+check("escape no false", !Regex.test(Regex.escape(lit), "see 1X2X3 here"));
+
+// Regex.replace (first only)
+check("replace first", Regex.replace("\\d+", "a1 b2 c3", "X") == "aX b2 c3");
+check("replace miss", Regex.replace("\\d+", "abc", "X") == "abc");
+
+// Regex.replace_all
+check("replace_all", Regex.replace_all("\\d+", "a1 b22 c333", "n") == "an bn cn");
+check("replace_all miss", Regex.replace_all("\\d+", "abc", "n") == "abc");
+check("replace_all empty replacement", Regex.replace_all("a", "banana", "") == "bnn");
+
+// Regex.split
+let parts = Regex.split("\\s+", "one  two\tthree");
+check("split count", parts.length() == 3);
+check("split[0]", parts[0] == "one");
+check("split[1]", parts[1] == "two");
+check("split[2]", parts[2] == "three");
+
+// Flags: case-insensitive
+let ci = Regex.new("foo", "i");
+check("ci flag hit", ci.test("FOO bar"));
+check("ci flag literal", ci.test("foo bar"));
+
+// Bad pattern -> RegexError. Need try/catch (use a sentinel since we can't
+// know exact error class semantics). The runtime throws RegexError via
+// runtime_fatal; treat presence of caught error as success.
+let caught = false;
+try {
+    Regex.new("[unclosed", "");
+} catch (e) {
+    caught = true;
+}
+check("bad pattern throws", caught);
+
+print("Regex stdlib OK");

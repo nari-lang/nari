@@ -1,0 +1,76 @@
+// Regression test: a JIT-compiled closure invoked via call_function_value_sync
+// (delegate traps, array higher-order callbacks, timers, FFI callbacks) must
+// read its captured variables correctly.
+//
+// Bug (fixed): call_function_value_sync pushed the callee frame WITHOUT its
+// captures, then patched frames.back().captures afterward. The interpreter
+// tolerated this (body ran after the patch), but a JIT-compiled body executes
+// inline during the frame push (compiled(this)) reading an EMPTY capture list,
+// and had already popped its own frame — so the post-hoc patch also corrupted
+// the caller. Any hot closure-with-captures reached through that path returned
+// wrong results. Fixed by passing captures up front (bytecode.cpp
+// call_function_value_sync). These loops run long enough to cross the JIT
+// threshold (50), so they exercise the JIT path; --tree-walk covers the
+// interpreter. Both must agree with the arithmetic ground truth.
+
+func assert(cond, msg) {
+    if (!cond) { throw msg; }
+}
+
+// --- Delegate get/set traps capturing a local ---------------------------
+func delegate_capture_sum(n, secret) {
+    let store = {}
+    let d = Delegate(store, {
+        // captures `secret` (a local), not a global
+        get: func(t, k) { let v = t[k]; if (v == null) { return secret } return v },
+        set: func(t, k, v) { t[k] = v + secret }
+    })
+    let cs = 0
+    for (let i = 0; i < n; i++) {
+        d["x"] = i          // stored as i + secret
+        cs = cs + d["x"]    // reads back i + secret
+    }
+    return cs
+}
+
+// --- Nested delegates: outer trap re-enters inner (captures `inner`) -----
+func nested_delegate_sum(n) {
+    let inner = Delegate({"x": 42}, {
+        get: func(t, k) { let v = t[k]; if (v == null) { return -1 } return v }
+    })
+    let outer = Delegate({}, {
+        get: func(t, k) { return inner[k] }   // captures `inner`
+    })
+    let cs = 0
+    for (let i = 0; i < n; i++) { cs = cs + outer["x"] }
+    return cs
+}
+
+// --- Array higher-order callback capturing a local -----------------------
+func reduce_capture(n, base) {
+    let arr = [1, 2, 3, 4, 5]   // sum 15; + base per element
+    let total = 0
+    for (let i = 0; i < n; i++) {
+        total = total + arr.reduce(func(acc, x) { return acc + x + base }, 0)
+    }
+    return total
+}
+
+let N = 2000
+
+// delegate_capture_sum: set stores (i + secret); get returns that stored value
+// (the key exists), so each iter adds (i + secret); secret=10.
+// sum_{i=0}^{N-1}(i + secret) = N*(N-1)/2 + N*secret
+let expect_deleg = (N * (N - 1)) / 2 + N * 10
+assert(delegate_capture_sum(N, 10) == expect_deleg,
+    "delegate capture: got " @ delegate_capture_sum(N, 10) @ " want " @ expect_deleg)
+
+// nested: each iter adds 42
+assert(nested_delegate_sum(N) == N * 42,
+    "nested delegate: got " @ nested_delegate_sum(N) @ " want " @ (N * 42))
+
+// reduce: each call = 15 + base*5 = 15 + 50 = 65
+assert(reduce_capture(N, 10) == N * 65,
+    "reduce capture: got " @ reduce_capture(N, 10) @ " want " @ (N * 65))
+
+print("test_jit_closure_trap_captures: ok")

@@ -1,0 +1,52 @@
+// Path stdlib: POSIX-style path utilities (forward-slash separator).
+
+import { Path } from "std/path";
+
+func check(name, cond) {
+    if (!cond) { throw "Path test failed: " @ name; }
+}
+
+// is_absolute
+check("is_absolute /a", Path.is_absolute("/a/b"));
+check("is_absolute a", !Path.is_absolute("a/b"));
+check("is_absolute empty", !Path.is_absolute(""));
+
+// basename
+check("basename simple", Path.basename("/a/b/c.txt") == "c.txt");
+check("basename root file", Path.basename("/foo") == "foo");
+check("basename trailing slash", Path.basename("/a/b/") == "b");
+check("basename no slash", Path.basename("file.js") == "file.js");
+check("basename strip ext", Path.basename("/a/b/c.txt", ".txt") == "c");
+check("basename ext mismatch", Path.basename("/a/b/c.txt", ".js") == "c.txt");
+
+// dirname
+check("dirname normal", Path.dirname("/a/b/c.txt") == "/a/b");
+check("dirname single", Path.dirname("/foo") == "/");
+check("dirname relative", Path.dirname("a/b") == "a");
+check("dirname none", Path.dirname("file") == ".");
+check("dirname trailing", Path.dirname("/a/b/") == "/a");
+
+// extname
+check("extname simple", Path.extname("file.txt") == ".txt");
+check("extname multi", Path.extname("foo.tar.gz") == ".gz");
+check("extname none", Path.extname("README") == "");
+check("extname dotfile", Path.extname(".bashrc") == "");
+check("extname trailing dot", Path.extname("foo.") == ".");
+
+// join
+check("join basic", Path.join(["/a", "b", "c"]) == "/a/b/c");
+check("join trailing slash", Path.join(["/a/", "b"]) == "/a/b");
+check("join leading slash", Path.join(["/a", "/b"]) == "/a/b");
+check("join empty parts", Path.join(["a", "", "b"]) == "a/b");
+check("join all empty", Path.join(["", ""]) == ".");
+
+// normalize
+check("normalize dotdot", Path.normalize("/a/b/../c") == "/a/c");
+check("normalize dot", Path.normalize("/a/./b") == "/a/b");
+check("normalize dup slash", Path.normalize("/a//b") == "/a/b");
+check("normalize trailing", Path.normalize("/a/b/") == "/a/b/");
+check("normalize relative dotdot", Path.normalize("a/../b") == "b");
+check("normalize escape root", Path.normalize("/../a") == "/a");
+check("normalize empty", Path.normalize("") == ".");
+
+print("Path stdlib OK");

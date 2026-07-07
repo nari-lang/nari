@@ -30,7 +30,7 @@ class Person {
 
     public birthday() {
         this.incrementAge();
-        print(this.name @ " is now " @ toString(this.age));
+        print(this.name @ " is now " @ to_string(this.age));
     }
 }
 

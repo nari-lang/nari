@@ -24,7 +24,7 @@ class Person {
 
 ## Fields
 
-Fields are class member variables that hold data for each instance. Each field must have a visibility modifier (`public` or `private`) and a type annotation.
+Fields are class member variables that hold data for each instance. Each field has a type annotation and may have a visibility modifier (`public` or `private`). If the modifier is omitted, the field defaults to `public`.
 
 ### Public Fields
 
@@ -141,10 +141,33 @@ class Person {
     
     public birthday() {
         this.incrementAge();
-        print(this.name @ " is now " @ toString(this.age));
+        print(this.name @ " is now " @ to_string(this.age));
     }
 }
 ```
+
+## Static Members
+
+Fields and methods marked `static` belong to the class itself rather than to
+individual instances. They are accessed through the class name:
+
+```nari
+class Counter {
+    static count: number = 0;
+
+    static bump() -> number {
+        Counter.count = Counter.count + 1;
+        return Counter.count;
+    }
+}
+
+print(Counter.bump());  // 1
+print(Counter.bump());  // 2
+print(Counter.count);   // 2
+```
+
+Static members are shared across all instances. A visibility modifier
+(`public`/`private`) may be combined with `static`.
 
 ## The `this` Keyword
 

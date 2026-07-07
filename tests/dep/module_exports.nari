@@ -1,0 +1,15 @@
+func helper_double(x) {
+    return x * 2;
+}
+
+export func times_two(x) {
+    return helper_double(x);
+}
+
+let magic_number = 41;
+
+func plus_one(x) {
+    return x + 1;
+}
+
+export { magic_number, plus_one as increment };

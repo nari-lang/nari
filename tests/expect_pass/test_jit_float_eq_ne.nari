@@ -1,0 +1,81 @@
+// Regression test for trace-JIT float == / != (FloatEq / FloatNe).
+//
+// Before the fix, OP_EQ/OP_NE on two Float operands aborted trace recording
+// (see src/bytecode/bytecode.cpp: "FloatEq/FloatNe not implemented yet"), so
+// any hot loop containing a float equality test was never trace-compiled.
+//
+// Now the recorder emits FloatEq/FloatNe and the asmjit backend materializes a
+// NaN-correct boolean. On x86, ucomisd sets the parity flag (PF=1) for unordered
+// (NaN) operands, so eq/ne cannot be a single setcc; the backend combines ZF with
+// PF (sete+setnp / setne+setp). On ARM64 fcmp already yields IEEE-correct EQ/NE.
+//
+// Note on what this test can and cannot catch: the trace JIT guards every branch
+// with a side-exit and recomputes in the interpreter on mismatch, so a pure
+// codegen bug on the NaN path would deopt rather than corrupt output. This test
+// therefore verifies (a) the loop trace-compiles without crashing, (b) finite
+// float ==/!= are correct under JIT, and (c) NaN semantics match the interpreter.
+// Run it with NARI_DISABLE_TRACE_JIT=1 to confirm interpreter-equivalence.
+
+func assert(cond, msg) {
+    if (!cond) {
+        throw "ASSERT FAILED: " @ msg;
+    }
+}
+
+let ITERS = 2000; // well above TRACE_HOT_n (8) so the body runs compiled
+
+let nan_val = 0.0 / 0.0; // NaN
+let a = 3.5;
+let b = 7.25;
+
+// Counters driven by float ==/!= inside a hot loop. Each `if` becomes a
+// side-exit guard, exercising both the SideExitIfFalse (recorded-true) and
+// SideExitIfTrue (recorded-false) consumers of the new non-lazy Bool.
+let c_eq_nan = 0;   // (nan == nan) -> always false -> 0
+let c_ne_nan = 0;   // (nan != nan) -> always true  -> ITERS
+let c_eq_fin_t = 0; // (a == a)     -> always true  -> ITERS
+let c_eq_fin_f = 0; // (a == b)     -> always false -> 0
+let c_ne_fin_t = 0; // (a != b)     -> always true  -> ITERS
+let c_ne_fin_f = 0; // (a != a)     -> always false -> 0
+
+let i = 0;
+while (i < ITERS) {
+    if (nan_val == nan_val) { c_eq_nan = c_eq_nan + 1; }
+    if (nan_val != nan_val) { c_ne_nan = c_ne_nan + 1; }
+    if (a == a) { c_eq_fin_t = c_eq_fin_t + 1; }
+    if (a == b) { c_eq_fin_f = c_eq_fin_f + 1; }
+    if (a != b) { c_ne_fin_t = c_ne_fin_t + 1; }
+    if (a != a) { c_ne_fin_f = c_ne_fin_f + 1; }
+    i = i + 1;
+}
+
+assert(c_eq_nan == 0,      "nan == nan must be false every iter, got: " @ c_eq_nan);
+assert(c_ne_nan == ITERS,  "nan != nan must be true every iter, got: " @ c_ne_nan);
+assert(c_eq_fin_t == ITERS, "a == a must be true every iter, got: " @ c_eq_fin_t);
+assert(c_eq_fin_f == 0,     "a == b must be false every iter, got: " @ c_eq_fin_f);
+assert(c_ne_fin_t == ITERS, "a != b must be true every iter, got: " @ c_ne_fin_t);
+assert(c_ne_fin_f == 0,     "a != a must be false every iter, got: " @ c_ne_fin_f);
+
+// Float != as a loop-exit condition (CondExitIfFalse consumer, finite operands).
+// Counts to a known bound; verifies the loop terminates at exactly the right step.
+let x = 0.0;
+let steps = 0;
+while (x != 1000.0) {
+    x = x + 1.0;
+    steps = steps + 1;
+}
+assert(steps == 1000, "float != loop must run exactly 1000 times, got: " @ steps);
+
+// Float == used to detect a hit while scanning (recorded-false guard, then a
+// single recorded-true iteration at the match). Exercises FloatEq in a loop.
+let y = 0.0;
+let hit_at = -1;
+let k = 0;
+while (k < ITERS) {
+    if (y == 500.0) { hit_at = k; }
+    y = y + 1.0;
+    k = k + 1;
+}
+assert(hit_at == 500, "float == should detect match at step 500, got: " @ hit_at);
+
+print("PASS: trace-JIT float ==/!= NaN-correct and finite-correct");

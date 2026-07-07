@@ -33,6 +33,6 @@ func start() {
 
     print("Rest params");
     let vals = collect(1, 2, 3, 4);
-    print("length(vals) = " @ toString(vals.length()));
-    print("sum(10, 1, 2, 3) = " @ toString(sum(10, 1, 2, 3)));
+    print("length(vals) = " @ to_string(vals.length()));
+    print("sum(10, 1, 2, 3) = " @ to_string(sum(10, 1, 2, 3)));
 }

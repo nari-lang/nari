@@ -100,9 +100,9 @@ obj.city = null;
 // Rebuild without property
 func deleteKey(obj, keyToDelete) {
     let newObj = {};
-    let objKeys = obj.keys();
+    let obj_keys = obj.keys();
     
-    for (key in objKeys) {
+    for (key in obj_keys) {
         if (key != keyToDelete) {
             newObj[key] = obj[key];
         }
@@ -125,11 +125,11 @@ Get array of object keys.
 ```nari
 let obj = { name: "Alice", age: 30, city: "Boston" };
 
-let objKeys = obj.keys();
-print(objKeys);  // ["name", "age", "city"]
+let obj_keys = obj.keys();
+print(obj_keys);  // ["name", "age", "city"]
 
 // Iterate over keys
-for (key in objKeys) {
+for (key in obj_keys) {
     print(key @ ": " @ obj[key]);
 }
 // name: Alice
@@ -162,19 +162,19 @@ print(total);  // 267
 **Parameters:** None  
 **Returns:** Array of values
 
-### hasKey(key)
+### has_key(key)
 
 Check if object has property.
 
 ```nari
 let obj = { name: "Alice", age: 30 };
 
-obj.hasKey("name");     // true
-obj.hasKey("age");      // true
-obj.hasKey("city");     // false
+obj.has_key("name");     // true
+obj.has_key("age");      // true
+obj.has_key("city");     // false
 
 // Safe property access
-if (obj.hasKey("email")) {
+if (obj.has_key("email")) {
     print(obj.email);
 } else {
     print("No email");
@@ -183,6 +183,80 @@ if (obj.hasKey("email")) {
 
 **Parameters:** `key` - Property name (string)
 
+**Returns:** Boolean
+
+### entries()
+
+Get array of `[key, value]` pairs.
+
+```nari
+let obj = { a: 1, b: "hello", c: true };
+
+let pairs = obj.entries();
+print(pairs);  // [["a", 1], ["b", "hello"], ["c", true]]
+
+// Iterate over key-value pairs
+for (entry in obj.entries()) {
+    print(entry[0] @ " = " @ entry[1]);
+}
+// a = 1
+// b = hello
+// c = true
+```
+
+**Parameters:** None  
+**Returns:** Array of `[key, value]` arrays
+
+### assign(...sources)
+
+Copy all properties from one or more source objects into this object. Existing
+keys are overwritten; new keys are added. Sources are applied left to right, and
+non-object arguments are ignored.
+
+```nari
+let target = { x: 1, y: 2 };
+target.assign({ y: 20, z: 30 });
+print(target);  // { x: 1, y: 20, z: 30 }
+
+// Multiple sources in one call
+let config = { debug: false };
+config.assign({ port: 8080 }, { debug: true, host: "localhost" });
+print(config);  // { debug: true, port: 8080, host: "localhost" }
+```
+
+**Parameters:** `...sources` - One or more objects whose properties are copied  
+**Returns:** The modified target object
+
+### freeze()
+
+Prevent any further modifications to the object. After freezing, attempts to set or add properties are silently ignored.
+
+```nari
+let constants = { PI: 3.14159, E: 2.71828 };
+constants.freeze();
+
+constants.PI = 0;           // silently ignored
+constants.newKey = "nope";   // silently ignored
+
+print(constants.PI);  // 3.14159
+```
+
+**Parameters:** None  
+**Returns:** The frozen object (allows chaining)
+
+### is_frozen()
+
+Check whether the object has been frozen.
+
+```nari
+let obj = { x: 1 };
+print(obj.is_frozen());  // false
+
+obj.freeze();
+print(obj.is_frozen());  // true
+```
+
+**Parameters:** None  
 **Returns:** Boolean
 
 ### length()
@@ -239,9 +313,9 @@ for (let i = 0; i < personKeys.length(); i++) {
 ```nari
 func mapValues(obj, transform) {
     let result = {};
-    let objKeys = obj.keys();
+    let obj_keys = obj.keys();
     
-    for (key in objKeys) {
+    for (key in obj_keys) {
         result[key] = transform(obj[key]);
     }
     
@@ -260,9 +334,9 @@ print(scaled);  // { math: 9, english: 8.5, science: 9.2 }
 ```nari
 func filterObject(obj, predicate) {
     let result = {};
-    let objKeys = obj.keys();
+    let obj_keys = obj.keys();
     
-    for (key in objKeys) {
+    for (key in obj_keys) {
         if (predicate(key, obj[key])) {
             result[key] = obj[key];
         }
@@ -273,7 +347,7 @@ func filterObject(obj, predicate) {
 
 let person = { name: "Alice", age: 30, city: "Boston", active: true };
 let strings = filterObject(person, func(key, value) {
-    return isString(value);
+    return is_string(value);
 });
 print(strings);  // { name: "Alice", city: "Boston" }
 ```
@@ -310,22 +384,22 @@ print(settings);
 ### Deep Clone
 
 ```nari
-func deepClone(obj) {
-    if (isArray(obj)) {
+func deep_clone(obj) {
+    if (is_array(obj)) {
         let result = [];
         for (item in obj) {
-            result.push(deepClone(item));
+            result.push(deep_clone(item));
         }
         return result;
     }
 
-    if (!isObject(obj)) {
+    if (!is_object(obj)) {
         return obj;  // Primitive value
     }
     
     let result = {};
     for (key in obj.keys()) {
-        result[key] = deepClone(obj[key]);
+        result[key] = deep_clone(obj[key]);
     }
     return result;
 }
@@ -336,7 +410,7 @@ let original = {
     meta: { active: true }
 };
 
-let copy = deepClone(original);
+let copy = deep_clone(original);
 copy.scores[0] = 100;
 
 print(original.scores[0]);  // 90 (unchanged)
@@ -347,7 +421,7 @@ print(copy.scores[0]);      // 100
 
 ```nari
 func equals(obj1, obj2) {
-    if (!isObject(obj1) || !isObject(obj2)) {
+    if (!is_object(obj1) || !is_object(obj2)) {
         return obj1 == obj2;
     }
     
@@ -359,7 +433,7 @@ func equals(obj1, obj2) {
     }
     
     for (key in keys1) {
-        if (!obj2.hasKey(key)) {
+        if (!obj2.has_key(key)) {
             return false;
         }
         if (!equals(obj1[key], obj2[key])) {
@@ -381,10 +455,10 @@ print(equals(a, c));  // false
 ### Pick Properties
 
 ```nari
-func pick(obj, selectedKeys) {
+func pick(obj, selected_keys) {
     let result = {};
-    for (key in selectedKeys) {
-        if (obj.hasKey(key)) {
+    for (key in selected_keys) {
+        if (obj.has_key(key)) {
             result[key] = obj[key];
         }
     }
@@ -406,14 +480,14 @@ print(publicInfo);  // { id: 123, name: "Alice", role: "admin" }
 ### Omit Properties
 
 ```nari
-func omit(obj, excludedKeys) {
+func omit(obj, excluded_keys) {
     let result = {};
-    let objKeys = obj.keys();
+    let obj_keys = obj.keys();
     
-    for (key in objKeys) {
+    for (key in obj_keys) {
         let excluded = false;
-        for (exKey in excludedKeys) {
-            if (exKey == key) {
+        for (ex_key in excluded_keys) {
+            if (ex_key == key) {
                 excluded = true;
             }
         }
@@ -444,7 +518,7 @@ func getProperty(obj, path) {
     let current = obj;
     
     for (key in pathKeys) {
-        if (!isObject(current) || !current.hasKey(key)) {
+        if (!is_object(current) || !current.has_key(key)) {
             return null;
         }
         current = current[key];
@@ -479,7 +553,7 @@ func setProperty(obj, path, value) {
     for (let i = 0; i < pathKeys.length() - 1; i++) {
         let key = pathKeys[i];
         
-        if (!current.hasKey(key) || !isObject(current[key])) {
+        if (!current.has_key(key) || !is_object(current[key])) {
             current[key] = {};
         }
         
@@ -504,13 +578,13 @@ print(config);
 ### Group By
 
 ```nari
-func groupBy(arr, keyFn) {
+func group_by(arr, key_fn) {
     let result = {};
     
     for (item in arr) {
-        let key = keyFn(item);
+        let key = key_fn(item);
         
-        if (!result.hasKey(key)) {
+        if (!result.has_key(key)) {
             result[key] = [];
         }
         
@@ -526,8 +600,8 @@ let people = [
     { name: "Charlie", age: 30, city: "Boston" }
 ];
 
-let byAge = groupBy(people, func(person) {
-    return toString(person.age);
+let byAge = group_by(people, func(person) {
+    return to_string(person.age);
 });
 
 print(byAge);
@@ -543,13 +617,13 @@ print(byAge);
 ### Count Occurrences
 
 ```nari
-func countBy(arr, keyFn) {
+func countBy(arr, key_fn) {
     let result = {};
     
     for (item in arr) {
-        let key = keyFn(item);
+        let key = key_fn(item);
         
-        if (!result.hasKey(key)) {
+        if (!result.has_key(key)) {
             result[key] = 0;
         }
         
@@ -572,7 +646,7 @@ func invert(obj) {
     let result = {};
     
     for (key in obj.keys()) {
-        let value = toString(obj[key]);
+        let value = to_string(obj[key]);
         result[value] = key;
     }
     
@@ -597,7 +671,7 @@ func set(key, value) {
 }
 
 func get(key) {
-    if (store.hasKey(key)) {
+    if (store.has_key(key)) {
         return store[key];
     }
     return null;
@@ -627,10 +701,10 @@ let config = {
 };
 
 func getConfig(key) {
-    if (config.user.hasKey(key)) {
+    if (config.user.has_key(key)) {
         return config.user[key];
     }
-    if (config.defaults.hasKey(key)) {
+    if (config.defaults.has_key(key)) {
         return config.defaults[key];
     }
     return null;

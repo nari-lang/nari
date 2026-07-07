@@ -1,0 +1,49 @@
+name: Sanitizers
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# AddressSanitizer + UndefinedBehaviorSanitizer build of the interpreter, run
+# against the full test suite. Targets use-after-free / out-of-bounds / integer
+# and shift UB (e.g. the JIT codegen paths). Uses the default GCC toolchain to
+# avoid ABI surprises. Leak detection and container-overflow detection are off
+# (the JIT writes vm->stack's end pointer directly, bypassing libc++ container
+# annotations); see run_tests.sh for the full rationale.
+jobs:
+  sanitize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-pip ninja-build
+          pip install meson conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Install dependencies via Conan
+        run: |
+          mkdir -p build/conan
+          conan install . --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
+
+      - name: Configure (ASan + UBSan)
+        run: meson setup build/sanitize --buildtype=debug -Db_sanitize=address,undefined -Db_lundef=false
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/build/conan
+
+      - name: Build
+        run: meson compile -C build/sanitize
+
+      - name: Run tests under sanitizers
+        run: SKIP_BUILD=1 SKIP_NETWORK_TESTS=1 ./run_tests.sh --sanitize
+        env:
+          ASAN_OPTIONS: abort_on_error=1:halt_on_error=1:detect_leaks=0:detect_container_overflow=0:strict_string_checks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1

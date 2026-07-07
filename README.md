@@ -28,8 +28,8 @@ print("Hello, World!");
 
 ```nari
 let handle = spawn {
-    let response = http.get("https://example.com/data");
-    return response.body;
+  let response = http.get("https://example.com/data");
+  return response.body;
 };
 
 print("Response:", handle.value);
@@ -39,16 +39,16 @@ print("Response:", handle.value);
 
 ```nari
 class Person {
-    public name: string;
-    public age: number;
-    init(name, age) {
-        this.name = name;
-        this.age = age;
-    }
-    
-    greet() {
-        print(`Hello, my name is {this.name}! I am {this.age} years old.`);
-    }
+  public name: string;
+  public age: number;
+  init(name, age) {
+  this.name = name;
+  this.age = age;
+  }
+  
+  greet() {
+  print(`Hello, my name is {this.name}! I am {this.age} years old.`);
+  }
 }
 
 let person = new Person("Alice", 30);
@@ -61,8 +61,8 @@ person.greet();
 import libc from "libc.so.6"
 
 let str_sig = {
-    returns: "int",
-    params: ["string"]
+  returns: "int",
+  params: ["string"]
 }
 
 let len = __ffi_call(libc, "strlen", str_sig, ["Hello, World!"])
@@ -73,10 +73,11 @@ print("Length: " @ len @ "\n")  // Output: Length: 13
 
 ### Prerequisites
 
-* Meson build system
+* Meson build system and Ninja
+* Conan for third-party dependency installation
 * C++20 compatible compiler (Clang or GCC recommended)
-* Python 3 (for stdlib embedding script, eventually this will be refactored to not be necessary!)
-* libffi development libraries
+* Python 3 (for the stdlib/builtins embedding script; this is planned to be removed as a normal build dependency)
+* Platform SDK/toolchain for your target OS
 
 ### Linux Build
 
@@ -85,13 +86,19 @@ print("Length: " @ len @ "\n")  // Output: Length: 13
 ./build.sh
 ```
 
-The interpreter will be built in `build/debug/interpreter`.
+By default this creates a debug build in `build/debug/`:
+
+* `build/debug/interpreter`
+* `build/debug/naric`
+* `build/debug/nari-lsp` when LSP support is enabled
 
 For a release build:
 
 ```bash
 ./build.sh --release
 ```
+
+Release artifacts are placed in `build/release/`.
 
 ### Minimal Build (Embedded Systems)
 
@@ -103,11 +110,15 @@ For reduced binary size and memory usage, you can disable FFI and HTTP networkin
 
 ### Windows Build
 
-```bash
-./build.sh --windows
+Use the PowerShell build script from a normal PowerShell prompt:
+
+```powershell
+.\build.ps1  # debug
+.\build.ps1 -Release  # release
+.\build.ps1 -ClangCl  # clang-cl instead of MSVC
 ```
 
-See [BUILD_WINDOWS.md](BUILD_WINDOWS.md) for detailed Windows build instructions.
+See [BUILD_WINDOWS.md](BUILD_WINDOWS.md) for detailed native Windows and Wine-based cross-build instructions.
 
 ### WebAssembly Build
 
@@ -119,16 +130,26 @@ This creates a WebAssembly build suitable for running in web browsers.
 
 ## Running Programs
 
-Execute a Nari script file:
+Execute a Nari script file with whichever build you created:
 
 ```bash
 ./build/debug/interpreter script.nari
+./build/release/interpreter script.nari
+```
+
+Compile a script to bytecode:
+
+```bash
+./build/release/naric script.nari -o script.naric
+./build/release/interpreter script.naric
 ```
 
 Run the test suite:
 
 ```bash
-./run_tests.sh
+./run_tests.sh  # release build, default bytecode VM path
+./run_tests.sh --debug  # debug build
+./run_tests.sh --tree-walk
 ```
 
 ## Documentation
@@ -153,6 +174,7 @@ Comprehensive documentation is available in the [docs/](docs/) directory:
 * [Generics and Enums](docs/16-generics-enums.md): Generic types and algebraic data types
 * [C FFI](docs/17-ffi.md): Foreign function interface for calling C libraries
 * [Classes](docs/18-classes.md): Object-oriented programming with classes
+* [Bytecode](docs/19-bytecode.md): `.naric` files, verifier guarantees, and compiled module imports
 
 ## Examples
 
@@ -168,22 +190,25 @@ The [examples/](examples/) directory contains sample programs demonstrating vari
 
 ## Project Structure
 
-* `src/`: Core interpreter source code
+* `src/`: Core interpreter, runtime, bytecode VM/compiler, debugger, DAP server, JIT, GC, and builtins
+* `src/stdlib/`: Standard library implemented in Nari and embedded into normal builds
 * `docs/`: Language documentation
 * `examples/`: Example programs
-* `tests/`: Test suite with passing and failing test cases
-* `src/stdlib/`: Standard library implementation
-* `thirdparty/`: External dependencies (httplib, libffi, OpenSSL)
-* `tools/`: Build utilities
-* `toolchain/`: Cross-compilation toolchain files
-* `workspace/`: Experimental features that won't be commited (gitignored, use this space for testing out new features or experimenting with running scripts.)
+* `tests/`: Passing, expected-failing, dependency, and robustness tests
+* `lsp/`: C++ language server plus the VS Code extension under `lsp/extension/`
+* `npkg-frontend/`: Package-manager CLI, registry server, and web frontend experiments
+* `esp_idf_project/`: ESP-IDF / embedded experiments
+* `tools/`: Build and code-generation utilities
+* `toolchain/`: Meson cross/native toolchain files
+* `thirdparty/`: Vendored or manually managed third-party sources; most normal dependencies are installed through Conan
+* `workspace/`: Local experiments and scratch files; this directory is gitignored
 
 ## Implementation Details
 
 Nari is implemented in C++20 and includes:
 
 * Custom parser and abstract syntax tree representation
-* Tree walking interpreter with runtime type checking
+* Tree-walking interpreter and bytecode VM with runtime type checking
 * Garbage collector for automatic memory management
 * Class system with inheritance and encapsulation (see [Classes](docs/18-classes.md))
 * Integration with libffi for dynamic C function calls
@@ -191,7 +216,7 @@ Nari is implemented in C++20 and includes:
 
 ## Editor Support
 
-See [EDITOR_SUPPORT.md](EDITOR_SUPPORT.md) for information on syntax highlighting and editor integration.
+See [EDITOR_SUPPORT.md](EDITOR_SUPPORT.md) for information on the VS Code extension, `nari-lsp`, debugging, syntax highlighting, and editor integration.
 
 ## License
 

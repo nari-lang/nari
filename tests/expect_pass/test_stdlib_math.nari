@@ -1,0 +1,60 @@
+// math stdlib: constants, wired native trig/log/exp, and pure-Nari helpers.
+
+func approx(a, b) {
+    let d = a - b;
+    if (d < 0) { d = -d; }
+    return d < 0.000001;
+}
+
+func check(name, cond) {
+    if (!cond) {
+        throw "math test failed: " @ name;
+    }
+}
+
+// constants
+check("PI", approx(math.PI, 3.141592653589793));
+check("E", approx(math.E, 2.718281828459045));
+
+// pure-Nari helpers
+check("pow", approx(math.pow(2, 10), 1024));
+check("square", approx(math.square(7), 49));
+check("abs.neg", approx(math.abs(-5), 5));
+check("abs.pos", approx(math.abs(5), 5));
+check("min", math.min(3, 8) == 3);
+check("max", math.max(3, 8) == 8);
+
+// round: floor(n + 0.5) -> returns int
+check("round.up", math.round(2.5) == 3);
+check("round.down", math.round(2.4) == 2);
+check("round.half.zero", math.round(0.5) == 1);
+check("round.neg", math.round(-1.5) == -1);
+
+// clamp
+check("clamp.inside", math.clamp(5, 0, 10) == 5);
+check("clamp.low", math.clamp(-3, 0, 10) == 0);
+check("clamp.high", math.clamp(42, 0, 10) == 10);
+
+// native trig / inverse trig (exact at these inputs)
+check("sin0", approx(math.sin(0), 0));
+check("cos0", approx(math.cos(0), 1));
+check("tan0", approx(math.tan(0), 0));
+check("atan0", approx(math.atan(0), 0));
+check("atan2", approx(math.atan2(0, 1), 0));
+
+// native exp / log
+check("exp0", approx(math.exp(0), 1));
+check("log1", approx(math.log(1), 0));
+check("logE", approx(math.log(math.E), 1));
+check("log10", approx(math.log10(1000), 3));
+check("log2", approx(math.log2(8), 3));
+
+// native sqrt / floor / ceil
+check("sqrt", approx(math.sqrt(16), 4));
+check("floor", math.floor(3.9) == 3);
+check("ceil", math.ceil(3.1) == 4);
+
+// also reachable via the system aggregate
+check("system.math", approx(system.math.PI, math.PI));
+
+system.print("math stdlib: all checks passed");

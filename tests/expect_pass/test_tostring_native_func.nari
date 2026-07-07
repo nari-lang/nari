@@ -3,6 +3,6 @@ func some_func() {
 }
 
 // substr is now a method-only builtin, not accessible as identifier
-// Test toString with a global builtin function instead
-print(toString(print))
-print(toString(some_func))
+// Test to_string with a global builtin function instead
+print(to_string(print))
+print(to_string(some_func))

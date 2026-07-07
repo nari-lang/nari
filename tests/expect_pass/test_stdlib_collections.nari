@@ -1,0 +1,95 @@
+// Map / Set stdlib: ordered string-keyed containers.
+
+import { Map, Set } from "std/collections";
+
+func check(name, cond) {
+    if (!cond) { throw "Collections test failed: " @ name; }
+}
+
+let m = Map.create();
+check("empty size", m.size() == 0);
+check("empty has", !m.has("x"));
+check("empty get", m.get("x") == null);
+
+m.set("a", 1);
+m.set("b", 2);
+m.set("c", 3);
+check("size after 3 sets", m.size() == 3);
+check("has a", m.has("a"));
+check("has b", m.has("b"));
+check("get a", m.get("a") == 1);
+check("get b", m.get("b") == 2);
+
+// overwrite preserves order
+m.set("a", 100);
+check("overwrite value", m.get("a") == 100);
+check("overwrite size", m.size() == 3);
+let keys = m.keys();
+check("order[0]", keys[0] == "a");
+check("order[1]", keys[1] == "b");
+check("order[2]", keys[2] == "c");
+
+// values and entries
+let vals = m.values();
+check("values[0]", vals[0] == 100);
+check("values[2]", vals[2] == 3);
+let ents = m.entries();
+check("entries[1][0]", ents[1][0] == "b");
+check("entries[1][1]", ents[1][1] == 2);
+
+// delete
+check("delete existing", m.delete("b"));
+check("delete missing", !m.delete("zzz"));
+check("size after delete", m.size() == 2);
+check("get deleted", m.get("b") == null);
+let keys2 = m.keys();
+check("order after delete[0]", keys2[0] == "a");
+check("order after delete[1]", keys2[1] == "c");
+
+// for_each
+let acc = 0;
+m.for_each(func(v, k) { acc = acc + v; });
+check("for_each sum", acc == 103);
+
+// clear
+m.clear();
+check("clear size", m.size() == 0);
+check("clear keys", m.keys().length() == 0);
+
+// stringified keys: 1 and "1" collide
+m.set(1, "int");
+check("int-key get via int", m.get(1) == "int");
+check("int-key get via str", m.get("1") == "int");
+
+// Set
+let s = Set.create();
+check("set empty", s.size() == 0);
+s.add("x");
+s.add("y");
+s.add("x");
+check("dedup size", s.size() == 2);
+check("set has x", s.has("x"));
+check("set has y", s.has("y"));
+check("set has missing", !s.has("z"));
+
+let sv = s.values();
+check("set values len", sv.length() == 2);
+
+check("set delete hit", s.delete("x"));
+check("set delete miss", !s.delete("zzz"));
+check("set size after del", s.size() == 1);
+
+// initial-values constructor
+let s2 = Set.create([1, 2, 3, 2, 1]);
+check("set init dedup", s2.size() == 3);
+check("set init has 1", s2.has(1));
+
+// for_each
+let count = 0;
+s2.for_each(func(v) { count = count + 1; });
+check("set for_each count", count == 3);
+
+s2.clear();
+check("set clear", s2.size() == 0);
+
+print("Collections stdlib OK");

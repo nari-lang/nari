@@ -1,0 +1,763 @@
+// Nari stdlib prelude. Always loaded; populates the implicit globals every
+// program can rely on without an explicit import.
+//
+// Importable modules (Date, Regex, URL, Path, Logger, Random, uuid, Hash,
+// Archive, Hex, Base64, Map, Set) live under src/stdlib/std/<name>.nari and
+// must be brought in via:
+//
+//  import { Foo } from "std/<name>";
+
+enum Result<T, E> {
+  Ok(T),
+  Err(E)
+}
+
+enum Option<T> {
+  Some(T),
+  None
+}
+
+func __stdlib_init__() {
+  global stdlib_version = "0.0.3";
+
+  // Result helpers
+  global Ok = func(value) {
+      return {
+          __variant: "Ok",
+          __data: value,
+          is_ok: func() {
+              return true;
+          },
+          is_err: func() {
+              return false;
+          },
+          unwrap: func() {
+              return value;
+          },
+          unwrap_or: func(default_val) {
+              return value;
+          },
+          unwrap_err: func() {
+              throw "Called unwrap_err on Ok value";
+          },
+          map: func(f) {
+              return Ok(f(value));
+          },
+          map_err: func(f) {
+              return Ok(value);
+          },
+          and_then: func(f) {
+              return f(value);
+          },
+          or_else: func(f) {
+              return Ok(value);
+          }
+      };
+  };
+
+  global Err = func(error) {
+      return {
+          __variant: "Err",
+          __data: error,
+          is_ok: func() {
+              return false;
+          },
+          is_err: func() {
+              return true;
+          },
+          unwrap: func() {
+              throw error;
+          },
+          unwrap_or: func(default_val) {
+              return default_val;
+          },
+          unwrap_err: func() {
+              return error;
+          },
+          map: func(f) {
+              return Err(error);
+          },
+          map_err: func(f) {
+              return Err(f(error));
+          },
+          and_then: func(f) {
+              return Err(error);
+          },
+          or_else: func(f) {
+              return f(error);
+          }
+      };
+  };
+
+  // Option helpers
+  global Some = func(value) {
+      return {
+          __variant: "Some",
+          __data: value,
+          is_some: func() {
+              return true;
+          },
+          is_none: func() {
+              return false;
+          },
+          unwrap: func() {
+              return value;
+          },
+          unwrap_or: func(default_val) {
+              return value;
+          },
+          map: func(f) {
+              return Some(f(value));
+          },
+          and_then: func(f) {
+              return f(value);
+          },
+          or_else: func(f) {
+              return Some(value);
+          },
+          filter: func(pred) {
+              if (pred(value)) {
+                  return Some(value);
+              } else {
+                  return None();
+              }
+          }
+      };
+  };
+
+  global None = func() {
+      return {
+          __variant: "None",
+          is_some: func() {
+              return false;
+          },
+          is_none: func() {
+              return true;
+          },
+          unwrap: func() {
+              throw "Called unwrap on None value";
+          },
+          unwrap_or: func(default_val) {
+              return default_val;
+          },
+          map: func(f) {
+              return None();
+          },
+          and_then: func(f) {
+              return None();
+          },
+          or_else: func(f) {
+              return f();
+          },
+          filter: func(pred) {
+              return None();
+          }
+      };
+  };
+
+  global String = {
+      capitalize: func(str) {
+          if (str.length() == 0) {
+              return str
+          }
+
+          let first = str.char_at(0).to_upper();
+          let rest = str.substr(1);
+          return first + rest;
+      },
+      count_words: func(text) {
+          let trimmed = text.trim();
+          if (trimmed.length() == 0) {
+              return 0
+          }
+
+          let words = trimmed.split(" ");
+          return words.length();
+      },
+      truncate: func(str, max_length) {
+          if (!max_length) {
+              max_length = 20;
+          }
+
+          if (str.length() <= max_length) {
+              return str;
+          }
+          return str.substr(0, max_length - 3) + "...";
+      }
+  }
+
+  global Array = {
+      unique: func(arr) {
+          let result = [];
+          for (item in arr) {
+              let found = false;
+              for (existing in result) {
+                  if (existing == item) {
+                      found = true;
+                  }
+              }
+              if (!found) {
+                  result.push(item);
+              }
+          }
+          return result;
+      },
+      flatten: func(arr) {
+          let result = [];
+          for (item in arr) {
+              if (is_array(item)) {
+                  let flat = Array.flatten(item);
+                  result = result.concat(flat);
+              } else {
+                  result.push(item);
+              }
+          }
+          return result;
+      },
+      chunk: func(arr, size) {
+          let result = [];
+          for (let i = 0; i < arr.length(); i = i + size) {
+              let end = i + size;
+              if (end > arr.length()) {
+                  end = arr.length();
+              }
+              result.push(arr.slice(i, end));
+          }
+          return result;
+      },
+      find_max: func(arr) {
+          if (arr.length() == 0) {
+              return null;
+          }
+
+          let max = arr[0];
+          for (let i = 1; i < arr.length(); i++) {
+              if (arr[i] > max) {
+                  max = arr[i];
+              }
+          }
+          return max;
+      },
+      sum: func(arr : number[]) {
+          let total = 0;
+          for (num in arr) {
+              total += num;
+          }
+          return total;
+      },
+      partition: func(arr, predicate) {
+          let pass = [];
+          let fail = [];
+
+          for (item in arr) {
+              if (predicate(item)) {
+                  pass.push(item);
+              } else {
+                  fail.push(item);
+              }
+          }
+
+          return [pass, fail];
+      },
+      intersection: func(arr1, arr2) {
+          let result = [];
+          for (item in arr1) {
+              let in_arr2 = false;
+              for (other in arr2) {
+                  if (other == item) {
+                      in_arr2 = true;
+                  }
+              }
+              let in_result = false;
+              for (existing in result) {
+                  if (existing == item) {
+                      in_result = true;
+                  }
+              }
+              if (in_arr2 && !in_result) {
+                  result.push(item);
+              }
+          }
+          return result;
+      }
+  }
+
+  global Object = {
+      deep_clone: func(obj) {
+          if (is_array(obj)) {
+              let result = [];
+              for (item in obj) {
+                  result.push(Object.deep_clone(item));
+              }
+              return result;
+          }
+
+          if (!is_object(obj)) {
+              return obj; // Primitive value
+          }
+
+          let result = {};
+          for (key in obj.keys()) {
+              result[key] = Object.deep_clone(obj[key]);
+          }
+          return result;
+      },
+      equals: func(obj1, obj2) {
+          if (!is_object(obj1) || !is_object(obj2)) {
+              return obj1 == obj2;
+          }
+
+          let keys1 = obj1.keys();
+          let keys2 = obj2.keys();
+
+          if (keys1.length() != keys2.length()) {
+              return false;
+          }
+
+          for (key in keys1) {
+              if (!obj2.has_key(key)) {
+                  return false;
+              }
+              if (!Object.equals(obj1[key], obj2[key])) {
+                  return false;
+              }
+          }
+
+          return true;
+      },
+      pick: func(obj, selected_keys) {
+          let result = {};
+          for (key in selected_keys) {
+              if (obj.has_key(key)) {
+                  result[key] = obj[key];
+              }
+          }
+          return result;
+      },
+      omit: func(obj, excluded_keys) {
+          let result = {};
+          let obj_keys = obj.keys();
+
+          for (key in obj_keys) {
+              let excluded = false;
+              for (ex_key in excluded_keys) {
+                  if (ex_key == key) {
+                      excluded = true;
+                  }
+              }
+              if (!excluded) {
+                  result[key] = obj[key];
+              }
+          }
+
+          return result;
+      },
+      group_by: func(arr, key_fn) {
+          let result = {};
+
+          for (item in arr) {
+              let key = key_fn(item);
+              if (!result.has_key(key)) {
+                  result[key] = [];
+              }
+              result[key].push(item);
+          }
+
+          return result;
+      }
+  }
+
+  global fs = {
+    read_file: func(path) {
+        return __fs_readFile(path);
+    },
+    write_file: func(path, content) {
+        return __fs_writeFile(path, content);
+    },
+    append_file: func(path, content) {
+        return __fs_appendFile(path, content);
+    },
+    exists: func(path) {
+        return __fs_fileExists(path);
+    },
+    file_exists: func(path) {
+        return __fs_fileExists(path);
+    },
+    is_directory: func(path) {
+        return __fs_isDirectory(path);
+    },
+    mkdir_all: func(path) {
+        return __fs_mkdirAll(path);
+    },
+    delete_file: func(path) {
+        return __fs_deleteFile(path);
+    },
+    list_dir: func(path) {
+        return __fs_listDir(path);
+    }
+  };
+
+  global io = {
+    stdin: {
+        read: read_all,
+        read_line: read_line
+    }
+  };
+
+  global platform = {
+    arch: __platform_arch(),
+    os: __platform_os(),
+    endianness: __platform_endianness(),
+    hostname: __platform_hostname(),
+    getenv: func(var) {
+        return __platform_getenv(var);
+    }
+  };
+
+  global process = {
+    exit: func(code) {
+        __process_exit(code);
+    },
+    argc: __process_argc(),
+    argv: __process_argv()
+  };
+
+  global math = {
+    PI: 3.141592653589793,
+    E: 2.718281828459045,
+    pow: func(base, exponent) {
+        return base ** exponent;
+    },
+    square: func(n) {
+        return n * n;
+    },
+    sqrt: __math_sqrt,
+    abs: func(n) {
+        return n < 0 ? -n : n;
+    },
+    min: func(a, b) {
+        return a < b ? a : b;
+    },
+    max: func(a, b) {
+        return a > b ? a : b;
+    },
+    clamp: func(n, lo, hi) {
+        if (n < lo) { return lo; }
+        if (n > hi) { return hi; }
+        return n;
+    },
+    round: func(n) {
+        return __math_floor(n + 0.5);
+    },
+    rand: __math_rand,
+    sin: __math_sin,
+    cos: __math_cos,
+    tan: __math_tan,
+    atan: __math_atan,
+    atan2: __math_atan2,
+    exp: __math_exp,
+    log: __math_log,
+    log10: func(x) {
+        return __math_log(x) / __math_log(10);
+    },
+    log2: func(x) {
+        return __math_log(x) / __math_log(2);
+    },
+    floor: __math_floor,
+    ceil: __math_ceil
+  };
+
+  global net = {
+    // Legacy blocking server. Spins an internal accept loop and a yield
+    // loop on the main task, exiting only when shutdown is requested.
+    create_server: func(port, on_connection) {
+        __net_createServer(port, on_connection);
+    
+        while (!__shutdown_requested()) {
+            __yield();
+        }
+    },
+    
+    // TCP client. Returns an IO handle that resolves to a conn:
+    //  { fd, ip, port }
+    // Read/write/close via net.read(conn, cb), net.write(conn, data, cb),
+    // net.close(conn). The conn object is also accepted directly.
+    connect: func(host, port) {
+        return __net_connect(host, port);
+    },
+    
+    // TCP listener (non-blocking). Returns an IO handle resolving to:
+    //  { fd, port }
+    // Pass port=null or 0 for an ephemeral kernel-assigned port; the
+    // resolved server.port reflects the bound port. Use net.accept(server)
+    // to wait for a single inbound connection (loop to keep accepting),
+    // and net.close_server(server) when done.
+    listen: func(port) {
+        let p = port;
+        if (p == null) { p = 0; }
+        return __net_listen(p);
+    },
+    
+    // Wait for one inbound TCP connection on a listening server. Returns
+    // an IO handle resolving to a conn object { fd, ip, port }. To issue
+    // accept concurrently with other work (e.g. a same-process connect),
+    // call accept() WITHOUT awaiting first, then await later.
+    accept: func(server) {
+        return __net_accept(server);
+    },
+    
+    // Read up to one chunk from a TCP conn. cb(err, data).
+    read: func(conn, cb) {
+        return __net_conn_read(conn, cb);
+    },
+    
+    // Write data to a TCP conn. cb(err).
+    write: func(conn, data, cb) {
+        return __net_conn_write(conn, data, cb);
+    },
+    
+    // Close a TCP conn.
+    close: func(conn) {
+        return __net_conn_close(conn);
+    },
+    
+    // Close a TCP listener.
+    close_server: func(server) {
+        return __net_server_close(server);
+    },
+    
+    // UDP socket. Returns an IO handle resolving to { fd, port }.
+    // port null/0 -> ephemeral. Use net.udp_send(sock, host, port, data),
+    // net.udp_recv(sock, timeout_ms?), net.udp_close(sock).
+    udp_socket: func(port) {
+        let p = port;
+        if (p == null) { p = 0; }
+        return __udp_bind(p);
+    },
+    
+    // Send a UDP datagram. Returns an IO handle resolving to bytes sent.
+    udp_send: func(sock, host, port, data) {
+        return __udp_send(sock, host, port, data);
+    },
+    
+    // Receive one UDP datagram. timeout_ms is optional; null/0 blocks
+    // forever (until shutdown). Resolves to { data, ip, port }.
+    udp_recv: func(sock, timeout_ms) {
+        return __udp_recv(sock, timeout_ms);
+    },
+    
+    // Close a UDP socket.
+    udp_close: func(sock) {
+        return __udp_close(sock);
+    }
+  };
+
+if (platform.os == "emscripten") {
+    global http = {
+        get: func(url) {
+            throw "HTTP requests not supported in Emscripten environment!";
+        },
+        request: func(options, callback) {
+            throw "HTTP requests not supported in Emscripten environment!";
+        }
+    };
+} else {
+    // accepts either a plain URL string or an options object: { url, method?, headers?, body? }
+    // returns a handle
+    global http = {
+        get: func(url) {
+            if (typeof(url) == "object") {
+                return __http_fetch(url);
+            }
+            return __http_get(url);
+        },
+        request: func(options, callback) {
+            return __http_request(options, callback);
+        }
+    };
+}
+
+global JSON = {
+    // parse a JSON string into a Nari value (object, array, string, number, bool, or null)
+    // throws SyntaxError on malformed input
+    parse: func(text) {
+        return __json_parse(text);
+    },
+
+    // serialize a Nari value to a JSON string
+    // optional second argument `indent` (integer) enables pretty-printing
+    stringify: func(value, indent) {
+        if (indent == null) {
+            return __json_stringify(value);
+        }
+        return __json_stringify(value, indent);
+    }
+};
+
+global system = {
+    version: stdlib_version,
+    print: print,
+    math: math,
+    fs: fs,
+    io: io,
+    net: net,
+    http: http,
+    platform: platform,
+    json: JSON,
+    exec: func(command) {
+        return __system_exec(command);
+    }
+};
+
+global yield = func() {
+    __yield();
+};
+
+global Spawn = {
+    await: func(handle) {
+        return handle.value;
+    },
+
+    // try_await: wait for a handle, but never throw. Returns an object:
+    //  { ok: true,  value: <result> }  on success
+    //  { ok: false, error: <error>, failed: true } on failure
+    //
+    // Useful for http/fs/tcp calls where the alternative is wrapping every
+    // call site in try/catch. The handle is drained by polling .ready so
+    // that .value (which throws on a Failed handle) is never touched on
+    // the failure path.
+    try_await: func(handle) {
+        while (handle.ready == false) {
+            yield();
+        }
+        let result = {};
+        if (handle.failed) {
+            result.ok = false;
+            result.failed = true;
+            result.error = handle.error;
+        } else {
+            result.ok = true;
+            result.value = handle.value;
+        }
+        return result;
+    },
+
+    // race: Returns the fastest completing handle
+    race: func(handles) {
+        let i = 0;
+        let len = handles.length();
+        while (i < len) {
+            let dummy = handles[i].value;
+            i = i + 1;
+        }
+
+        let fastest_index = 0;
+        let fastest_duration = handles[0].duration;
+
+        i = 1;
+        while (i < len) {
+            let duration = handles[i].duration;
+            if (duration < fastest_duration) {
+                fastest_index = i;
+                fastest_duration = duration;
+            }
+            i = i + 1;
+        }
+
+        let result = {};
+        result.index = fastest_index;
+        result.handle = handles[fastest_index];
+        result.value = handles[fastest_index].value;
+        result.duration = handles[fastest_index].duration;
+        return result;
+    },
+
+    // all: Wait for all handles to complete, return array of results
+    all: func(handles) {
+        let results = [];
+        let i = 0;
+        let len = handles.length();
+        while (i < len) {
+            let val = handles[i].value;
+            results = results.concat([val]);
+            i = i + 1;
+        }
+        return results;
+    },
+
+    // all_settled: Wait for all handles, return results including failures
+    // Returns array of { status, value?, error?, duration }
+    all_settled: func(handles) {
+        let results = [];
+        let i = 0;
+        let len = handles.length();
+        while (i < len) {
+            let dummy = handles[i].value;
+            let result = {};
+            result.index = i;
+            result.duration = handles[i].duration;
+
+            if (handles[i].failed) {
+                result.status = "rejected";
+                result.error = handles[i].error;
+            } else {
+                result.status = "fulfilled";
+                result.value = handles[i].value;
+            }
+
+            results = results.concat([result]);
+            i = i + 1;
+        }
+        return results;
+    },
+
+    // any: Return first successful handle (by completion time)
+    // Note: Returns fastest successful, not necessarily first to succeed
+    any: func(handles) {
+        let i = 0;
+        let len = handles.length();
+
+        while (i < len) {
+            let dummy = handles[i].value;
+            i = i + 1;
+        }
+
+        let best_index = -1;
+        let best_duration = 999999;
+
+        i = 0;
+        while (i < len) {
+            if (!handles[i].failed) {
+                if (best_index < 0 || handles[i].duration < best_duration) {
+                    best_index = i;
+                    best_duration = handles[i].duration;
+                }
+            }
+            i = i + 1;
+        }
+
+        if (best_index < 0) {
+            throw "All handles failed";
+        }
+
+        let result = {};
+        result.index = best_index;
+        result.value = handles[best_index].value;
+        result.duration = handles[best_index].duration;
+        return result;
+    },
+
+    // apply async operation to array of items
+    map: func(items, fn) {
+        let results = [];
+        let i = 0;
+        let len = items.length();
+        while (i < len) {
+            let handle = fn(items[i]);
+            results = results.concat([handle]);
+            i = i + 1;
+        }
+        return results;
+    },
+};
+}

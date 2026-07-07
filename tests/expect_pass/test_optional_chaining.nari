@@ -1,0 +1,41 @@
+// Test optional chaining
+
+// Basic member access
+let obj = {name: "Alice", age: 30}
+print("obj?.name:", obj?.name)
+print("obj?.age:", obj?.age)
+
+// None propagation
+let nothing = none
+print("nothing?.name:", nothing?.name)
+print("nothing?.foo?.bar:", nothing?.foo?.bar)
+
+// Nested optional chaining
+let nested = {inner: {value: 42}}
+print("nested?.inner?.value:", nested?.inner?.value)
+
+// None in the middle
+let partial = {inner: none}
+print("partial?.inner?.value:", partial?.inner?.value)
+
+// Optional index access
+let arr = [10, 20, 30]
+print("arr?.[1]:", arr?.[1])
+print("nothing?.[0]:", nothing?.[0])
+
+// Optional function call
+func greet(name) {
+  return "Hello, " + name
+}
+let fn = greet
+print("fn?.(\"world\"):", fn?.("world"))
+
+let no_fn = none
+print("no_fn?.(\"world\"):", no_fn?.("world"))
+
+// Chaining member + index
+let data = {items: [1, 2, 3]}
+print("data?.items?.[2]:", data?.items?.[2])
+print("nothing?.items?.[0]:", nothing?.items?.[0])
+
+print("All optional chaining tests passed!")

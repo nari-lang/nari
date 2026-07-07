@@ -15,7 +15,7 @@ func test_result_match() {
     let result = divide(10, 2);
     
     let output = match result {
-        Ok(value) => "Success: " @ toString(value),
+        Ok(value) => "Success: " @ to_string(value),
         Err(error) => "Error: " @ error
     };
     
@@ -27,7 +27,7 @@ func test_error_match() {
     let result = divide(10, 0);
     
     let output = match result {
-        Ok(value) => "Success: " @ toString(value),
+        Ok(value) => "Success: " @ to_string(value),
         Err(error) => "Error: " @ error
     };
     
@@ -40,12 +40,12 @@ func test_option() {
     let none_val = None();
     
     let output1 = match some_val {
-        Some(x) => "Got value: " @ toString(x),
+        Some(x) => "Got value: " @ to_string(x),
         None => "No value"
     };
     
     let output2 = match none_val {
-        Some(x) => "Got value: " @ toString(x),
+        Some(x) => "Got value: " @ to_string(x),
         None => "No value"
     };
     
@@ -73,7 +73,7 @@ func test_binding() {
     let value = 42;
     
     let result = match value {
-        x => "The value is: " @ toString(x)
+        x => "The value is: " @ to_string(x)
     };
     
     print(result);  // "The value is: 42"

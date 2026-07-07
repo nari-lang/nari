@@ -1,3 +1,7 @@
 {
-    "mesonbuild.configureOnOpen": false
+    "mesonbuild.configureOnOpen": false,
+    "chat.tools.terminal.autoApprove": {
+        "./build/release/naric": true
+    },
+    "C_Cpp.errorSquiggles": "enabled"
 }

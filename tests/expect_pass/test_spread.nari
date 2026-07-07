@@ -1,0 +1,53 @@
+// Test spread operator
+
+// === Array spread ===
+let a = [1, 2, 3]
+let b = [...a, 4, 5]
+print("Array spread:", b)
+
+// Spread in the middle
+let c = [0, ...a, 4]
+print("Spread middle:", c)
+
+// Multiple spreads
+let d = [10, 20]
+let e = [...a, ...d]
+print("Multiple spreads:", e)
+
+// Empty spread
+let empty = []
+let f = [...empty, 1]
+print("Empty spread:", f)
+
+// === Object spread ===
+let obj1 = {x: 1, y: 2}
+let obj2 = {...obj1, z: 3}
+print("Object spread:", obj2)
+
+// Object spread override
+let obj3 = {...obj1, x: 99}
+print("Object override:", obj3)
+
+// Multiple object spreads
+let obj4 = {a: 1}
+let obj5 = {b: 2}
+let obj6 = {...obj4, ...obj5, c: 3}
+print("Multi obj spread:", obj6)
+
+// === Function call spread ===
+func sum(a, b, c) {
+  return a + b + c
+}
+let args = [10, 20, 30]
+let result = sum(...args)
+print("Call spread:", result)
+
+// Mixed args with spread
+func add4(a, b, c, d) {
+  return a + b + c + d
+}
+let partial = [3, 4]
+let result2 = add4(1, 2, ...partial)
+print("Mixed call spread:", result2)
+
+print("All spread tests passed!")

@@ -23,7 +23,7 @@ print(result);  // 42
 ```nari
 let handle = spawn {
     let response = http.get("https://example.com");
-    return response.statusCode;
+    return response.status_code;
 };
 
 print("Request started...");
@@ -83,7 +83,7 @@ let results = Spawn.all(handles);
 
 // results is an array of all responses
 for (result in results) {
-    print("Status: " @ result.statusCode);
+    print("Status: " @ result.status_code);
 }
 ```
 
@@ -105,7 +105,7 @@ let handles = Spawn.map(urls, func(url) {
 let winner = Spawn.race(handles);
 print("Fastest URL index: " @ winner.index);
 print("Duration: " @ winner.duration @ "ms");
-print("Result: " @ winner.value.statusCode);
+print("Result: " @ winner.value.status_code);
 ```
 
 ### Spawn.any
@@ -121,75 +121,104 @@ let firstSuccess = Spawn.any(handles);
 print("First successful: " @ urls[firstSuccess.index]);
 ```
 
-### Spawn.allSettled
+### Spawn.all_settled
 
-Get all results with their status (success/failure):
+Get all results with their status. Each result is an object with fields
+`index`, `duration`, `status` (`"fulfilled"` or `"rejected"`), and either
+`value` (on success) or `error` (on failure):
 
 ```nari
 let handles = Spawn.map(urls, func(url) { 
     return http.get(url); 
 });
 
-let settled = Spawn.allSettled(handles);
+let settled = Spawn.all_settled(handles);
 
 for (result in settled) {
-    if (result.status == "completed") {
+    if (result.status == "fulfilled") {
         print("Success! Duration: " @ result.duration @ "ms");
     } else {
-        print("Failed!");
+        print("Failed: " @ result.error);
     }
+}
+```
+
+### Spawn.await
+
+Wait for a single handle to complete and return its value (equivalent to
+reading `handle.value`, which throws if the operation failed):
+
+```nari
+let handle = spawn { return http.get("https://example.com"); };
+let response = Spawn.await(handle);
+print(response.status_code);
+```
+
+### Spawn.try_await
+
+Like `Spawn.await`, but never throws. It returns an object describing the
+outcome: `{ ok: true, value: ... }` on success, or
+`{ ok: false, failed: true, error: ... }` on failure:
+
+```nari
+let handle = spawn { return http.get("https://example.com"); };
+let result = Spawn.try_await(handle);
+if (result.ok) {
+    print(result.value.status_code);
+} else {
+    print("Failed: " @ result.error);
 }
 ```
 
 ## Timers and Scheduling
 
-### setTimeout
+### set_timeout
 
 Execute code after a delay:
 
 ```nari
 print("Starting...");
 
-setTimeout(func() {
+set_timeout(func() {
     print("This runs after 2 seconds");
 }, 2000);
 
 print("Timer set!");
 ```
 
-### setInterval
+### set_interval
 
 Execute code repeatedly at intervals:
 
 ```nari
 let count = 0;
 
-let intervalId = setInterval(func() {
+let intervalId = set_interval(func() {
     count = count + 1;
     print("Tick " @ count);
     
     if (count >= 5) {
-        clearInterval(intervalId);
+        clear_interval(intervalId);
     }
 }, 1000);
 
 print("Interval started!");
 ```
 
-### clearInterval
+### clear_interval
 
 Stop a repeating interval:
 
 ```nari
 global timerId;
 
-timerId = setInterval(func() {
+timerId = set_interval(func() {
     print("Running...");
 }, 1000);
 
 // Stop after 5 seconds
-setTimeout(func() {
-    clearInterval(timerId);
+set_timeout(func() {
+    clear_interval(timerId);
     print("Stopped!");
 }, 5000);
 ```
@@ -208,15 +237,15 @@ Nari uses an event loop to manage asynchronous operations:
 ```nari
 print("1. Start");
 
-setTimeout(func() {
+set_timeout(func() {
     print("3. Timer callback");
 }, 0);
 
-print("2. After setTimeout");
+print("2. After set_timeout");
 
 // Output:
 // 1. Start
-// 2. After setTimeout
+// 2. After set_timeout
 // 3. Timer callback
 ```
 
@@ -251,7 +280,7 @@ spawn {
 
 ```nari
 let response = http.get("https://api.example.com/data");
-print("Status: " @ response.statusCode);
+print("Status: " @ response.status_code);
 print("Body: " @ response.body);
 ```
 
@@ -267,7 +296,7 @@ let response = http.request({
     body: "{\"name\":\"Alice\",\"age\":30}"
 });
 
-print("Status: " @ response.statusCode);
+print("Status: " @ response.status_code);
 ```
 
 ## Network Servers
@@ -275,7 +304,7 @@ print("Status: " @ response.statusCode);
 ### TCP Server
 
 ```nari
-func onConnection(conn) {
+func on_connection(conn) {
     conn.read(conn, func(err, data) {
         if (err) {
             print("Read error: " @ err);
@@ -294,11 +323,11 @@ func onConnection(conn) {
     });
 }
 
-net.createServer(8080, onConnection);
+net.create_server(8080, on_connection);
 print("Server listening on port 8080");
 
 // Keep event loop running
-setInterval(func() {}, 1000);
+set_interval(func() {}, 1000);
 ```
 
 ### HTTP Server Example
@@ -322,9 +351,9 @@ func handleRequest(conn) {
     });
 }
 
-net.createServer(8080, handleRequest);
+net.create_server(8080, handleRequest);
 print("HTTP server running on port 8080");
-setInterval(func() {}, 1000);
+set_interval(func() {}, 1000);
 ```
 
 ## Async Patterns
@@ -380,9 +409,9 @@ let result = handle.value;
 ### Timeout Pattern
 
 ```nari
-func withTimeout(handle, timeoutMs) {
+func withTimeout(handle, timeout_ms) {
     let timeoutHandle = spawn {
-        setTimeout(func() {}, timeoutMs);
+        set_timeout(func() {}, timeout_ms);
         return null;
     };
     
@@ -434,13 +463,13 @@ spawn {
 ### 3. Clean Up Resources
 
 ```nari
-let intervalId = setInterval(func() {
+let intervalId = set_interval(func() {
     // Do work
 }, 1000);
 
 // Remember to clear when done
-setTimeout(func() {
-    clearInterval(intervalId);
+set_timeout(func() {
+    clear_interval(intervalId);
 }, 10000);
 ```
 

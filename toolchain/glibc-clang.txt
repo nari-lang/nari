@@ -15,7 +15,13 @@ endian = 'little'
 needs_exe_wrapper = false
 
 [built-in options]
-c_args = ['-fdiagnostics-absolute-paths', '-Wno-unused-command-line-argument']
-cpp_args = ['-stdlib=libc++', '-fdiagnostics-absolute-paths', '-Wno-unused-variable', '-Wno-unused-lambda-capture', '-Wno-unused-command-line-argument']
-c_link_args = ['-fuse-ld=lld']
-cpp_link_args = ['-fuse-ld=lld', '-lc++', '-Wl,--gc-sections']
+c_args = ['-fdiagnostics-absolute-paths', '-Wno-unused-command-line-argument', '-march=native']
+# STL: libstdc++ (clang's default on Linux). Benchmarked ~10% faster than
+# libc++ on this interpreter's recursion-heavy workloads (fib 229->203ms,
+# perf_benchmark 137->125ms). The conan deps must be built against the same
+# STL - build.sh pins -s compiler.libcxx=libstdc++11 to keep them in sync and
+# avoid a mixed-runtime link. (-lc++ is added by meson.build only when libc++
+# is the active STL, so it is intentionally absent here.)
+cpp_args = ['-fdiagnostics-absolute-paths', '-Wno-unused-variable', '-Wno-unused-lambda-capture', '-Wno-unused-command-line-argument', '-Wno-unused-function', '-march=native']
+c_link_args = ['-fuse-ld=mold']
+cpp_link_args = ['-fuse-ld=mold', '-Wl,--icf=safe', '-Wl,--gc-sections']

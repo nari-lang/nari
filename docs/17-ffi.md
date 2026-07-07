@@ -53,15 +53,17 @@ __ffi_call(library, "function_name", signature, arguments)
 
 For Windows `W` APIs (such as `MessageBoxW`) that expect UTF-16 pointers, use:
 
-- `__ffi_utf16(str)` → returns a pointer (as integer) to a null-terminated UTF-16 buffer
-- `__ffi_alloc(sizeBytes)` → allocates a zeroed writable buffer for output parameters
-- `__ffi_utf16_read(ptr, maxUnits?)` → reads UTF-16 memory back into a Nari UTF-8 string
-- `__ffi_free(ptr)` → frees memory previously allocated by `__ffi_utf16`
+- `__ffi_utf16(str)` -> returns a pointer (as integer) to a null-terminated UTF-16 buffer
+- `__ffi_alloc(sizeBytes)` -> allocates a zeroed writable buffer for output parameters
+- `__ffi_utf16_read(ptr, maxUnits?)` -> reads UTF-16 memory back into a Nari UTF-8 string
+- `__ffi_free(ptr)` -> frees memory previously allocated by `__ffi_utf16`
 
 Example:
 
 ```nari
-let textW = __ffi_utf16("Hello 👋")
+import user32 from "user32.dll"
+
+let textW = __ffi_utf16("Hello")
 let titleW = __ffi_utf16("Nari")
 
 let result = __ffi_call(user32, "MessageBoxW", {
@@ -199,6 +201,221 @@ for (num in numbers) {
 }
 ```
 
+## Header Bindgen
+
+Nari ships with a small header-to-FFI generator written in Nari itself:
+
+```bash
+./build/debug/interpreter tools/ffi_bindgen.nari \
+  --input /path/to/header.h \
+  --output bindings.nari
+```
+
+For more complex headers, a Clang AST backend is also available:
+
+```bash
+./build/debug/interpreter tools/ffi_bindgen.nari \
+  --backend clang-json \
+  --cc clang \
+  --input /path/to/header.h \
+  --output bindings.nari
+```
+
+For Win32 or other MSVC-style headers, prefer `clang-cl`:
+
+```bash
+./build/debug/interpreter tools/ffi_bindgen.nari \
+  --backend clang-json \
+  --cc clang-cl \
+  --input /path/to/header.h \
+  --output bindings.nari
+```
+
+### Win32 from Linux with cargo-xwin
+
+If you've used [`cargo-xwin`](https://github.com/rust-cross/cargo-xwin) to splat
+the Windows SDK + MSVC CRT into `~/.xwin-cache/splat`, the simplest invocation
+is just:
+
+```bash
+./build/debug/interpreter tools/ffi_bindgen.nari \
+  --output win_bindings.nari \
+  --xwin ~/.xwin-cache/splat
+```
+
+With no `--input`, the generator defaults to `<splat>/sdk/include/um/Windows.h`
+(the umbrella header) and emits a `global Win32 = { ... }` object so you can
+just call `Win32.MessageBoxA(...)`, `Win32.CreateWindowExW(...)`, etc.
+
+You can also point `--input` at a specific Win32 sub-header by short name:
+
+```bash
+./build/debug/interpreter tools/ffi_bindgen.nari \
+  --input shellapi.h \
+  --output shell_bindings.nari \
+  --xwin ~/.xwin-cache/splat
+```
+
+The short name is resolved against the standard SDK subdirs (`um`, `shared`,
+`ucrt`, `winrt`, `cppwinrt`). Because most Win32 sub-headers depend on the
+foundational typedefs from `<windows.h>`, the generator automatically wraps your
+header in a tiny shim that does `#include <windows.h>` first, so things like
+`winuser.h`, `wingdi.h`, `commctrl.h`, and `shellapi.h` work standalone.
+
+You can still pass a full filesystem path if you prefer:
+
+```bash
+./build/debug/interpreter tools/ffi_bindgen.nari \
+  --input ~/.xwin-cache/splat/sdk/include/um/Windows.h \
+  --output bindings.nari \
+  --xwin ~/.xwin-cache/splat
+```
+
+The script auto-detects the target architecture from `<splat>/sdk/lib/um/<arch>`
+(e.g. `x86`, `x86_64`, `aarch64`), sets the matching ABI (`ilp32` for x86,
+`llp64` for x64/arm64), passes the correct `--target=` triple to clang, and adds
+the required `/imsvc` include paths for `crt/include` and
+`sdk/include/{ucrt,shared,um,winrt,cppwinrt}`. You can override the arch with
+`--arch x86|x64|arm64`, the triple with `--target <triple>`, or the ABI with
+`--abi`. The `clang-cl` driver is selected automatically (you can override with
+`--cc`), as is `--backend clang-json` (override with `--backend legacy`).
+
+For an installation that follows the official MSVC layout
+(`VC/Tools/MSVC/<v>/...` and `Windows Kits/10/Include/<v>/...`), use `--win32`
+plus `--winsysroot` instead. That preset also accepts `--arch` /
+`--target` for cross-compilation.
+
+When `--win32` or `--xwin` is in effect, the generated bindings expose a single
+`Win32` wrapper object backed by a small loader that imports the standard
+Windows system DLLs (`user32.dll`, `kernel32.dll`, `gdi32.dll`, `advapi32.dll`,
+`shell32.dll`, `comctl32.dll`, `comdlg32.dll`, `ole32.dll`, `oleaut32.dll`,
+`shlwapi.dll`, `winmm.dll`, `ws2_32.dll`, `msimg32.dll`, `version.dll`,
+`psapi.dll`, `dwmapi.dll`, `uxtheme.dll`, `imm32.dll`). Each call is
+transparently routed to whichever DLL exports the symbol on first use and
+cached for subsequent calls. So once you have your bindings file you can just
+write:
+
+```nari
+import { Win32 } from "./win_bindings.nari"
+
+Win32.MessageBoxA(0, "Hello from Nari", "Greetings", 0)
+let hwnd = Win32.GetDesktopWindow()
+let hInstance = Win32.GetModuleHandleW(0)
+```
+
+For non-Win32 headers you can opt into the same multi-library loader with
+`--module-name <Name>` and `--libs lib1,lib2,...`. With a single library and no
+`--module-name`, the legacy behaviour is preserved (one `import lib from
+"libname"` and direct `__ffi_call(libname, ...)` in each wrapper).
+
+### Generating npkg packages with `--package-name`
+
+For larger projects, the generator can emit a multi-file npkg-compatible
+package instead of a single `.nari` file. Pass `--package-name <name>` and
+point `--output` at a directory:
+
+```bash
+./build/debug/interpreter tools/ffi_bindgen.nari \
+  --output ./packages/win32 \
+  --xwin ~/.xwin-cache/splat \
+  --package-name "@ffi/win32" \
+  --package-version "0.1.0"
+```
+
+The generated layout is:
+
+```
+packages/win32/
++-- nari.toml             # packageFormat = 1, name, version, [exports]
++-- src/
+    +-- win32.nari        # umbrella: aggregates per-DLL wrappers into `Win32`
+    +-- core.nari         # shared types, structs, macros, FFI signatures
+    +-- user32.nari       # exports User32 = { MessageBoxA, ... }
+    +-- kernel32.nari     # exports Kernel32 = { GetModuleHandleW, ... }
+    +-- gdi32.nari
+    +-- ...               # one file per source DLL
+```
+
+Each function is grouped under its source DLL by inspecting the SDK's import
+`.lib` files. Consumers can opt into whichever granularity they want:
+
+```nari
+// Everything (loads all 7 default Win32 DLLs)
+import { Win32 } from "@ffi/win32"
+Win32.MessageBoxA(0, "Hi", "Title", 0)
+
+// One DLL only (loads just user32.dll)
+import { User32 } from "@ffi/win32/user32"
+User32.GetDesktopWindow()
+
+// Surgical: a single function from one DLL
+import { CreateWindowExW } from "@ffi/win32/user32"
+
+// Constants and types only - no DLL load
+import { WM_QUIT, MB_OK, WS_VISIBLE } from "@ffi/win32/core"
+```
+
+Add the package to your project's `nari.toml`:
+
+```toml
+[dependencies]
+"@ffi/win32" = { path = "/path/to/packages/win32" }
+# or, once published:
+# "@ffi/win32" = { version = "0.1.0" }
+```
+
+It preprocesses the header with `cc -E -P` (or `clang-cl /EP` when using
+`clang-cl`), then emits:
+
+- `type` aliases for supported `typedef`s
+- `type Name { ... }` declarations for supported `struct`s
+- pooled `global SIG_* = { returns: ..., params: [...] }` signature objects shared across matching function shapes
+- a `load_<Name>()` helper plus `global <Name> = { ... }` wrapper object that calls through `__ffi_call(...)` (single lib) or a `<Name>_call(name, sig, args)` indirection that resolves the right library lazily (multi-lib mode)
+- object-like `#define` constants for supported macros, including integer aliases and simple `CLITERAL(Type){ ... }` struct literals
+
+The `legacy` backend is fast and works well for simpler C headers. The `clang-json` backend is better for macro-heavy or declaration-heavy headers because it reads Clang's JSON AST instead of relying on the token parser alone.
+
+On Linux, Windows SDK headers may still need a small case-normalizing include overlay because the SDK assumes a case-insensitive filesystem (`winbase.h` vs `WinBase.h`, `winuser.h` vs `WinUser.h`, and similar cases).
+
+Optional flags:
+
+```bash
+./build/debug/interpreter tools/ffi_bindgen.nari \
+  --input win32.h \
+  --output win32_bindings.nari \
+  --cc x86_64-w64-mingw32-gcc \
+  --abi llp64 \
+  --cppflags "-I/path/to/includes -DUNICODE"
+```
+
+Current supported subset:
+
+- plain `typedef` aliases
+- `typedef enum { ... } Name;` with integer-valued enumerators
+- `typedef struct { ... } Name;`
+- `typedef struct Tag { ... } Name, *PName;`
+- plain `struct Name { ... };`
+- fixed-size array fields in structs are flattened into repeated fields to preserve layout
+- function pointer typedefs/callback aliases are treated as opaque `pointer` values
+- object-like `#define`s with literal/arithmetic/identifier bodies
+- `#define NAME CLITERAL(Type){ ... }` using previously parsed struct field order
+- ordinary function prototypes
+- variadic prototypes like `int printf(const char *fmt, ...);`
+
+Current intentional limitations:
+
+- unions are skipped
+- bitfields are skipped
+- function-like macros are skipped
+- complex declarators are skipped
+- unsupported declarations are emitted as comments in the generated file rather than guessed
+
+For ambiguous C integer types like `long`, use the correct ABI model:
+
+- `lp64`: typical Unix-like 64-bit targets
+- `llp64`: Windows 64-bit targets
+- `ilp32`: 32-bit targets
+
 ## Architecture Support
 
 The FFI currently supports:
@@ -236,9 +453,9 @@ let result = __ffi_call(raylib, "TextFormat", format_sig, [
 ### Type Inference for Variadic Args
 
 Variadic argument types are automatically inferred:
-- Nari strings → `pointer` (C string)
-- Nari integers → `int` (32-bit)
-- Nari floats → `double` (64-bit float)
+- Nari strings -> `pointer` (C string)
+- Nari integers -> `int` (32-bit)
+- Nari floats -> `double` (64-bit float)
 
 ### Complete Example
 
@@ -332,14 +549,14 @@ The `__ffi_membersof()` function:
 - Takes a type name as a string argument
 - Returns an object with `struct` and `fields` properties
 - Preserves field order from the type declaration
-- Automatically maps Nari types to FFI types (f32→"float", i32→"int", etc.)
+- Automatically maps Nari types to FFI types (f32->"float", i32->"int", etc.)
 
 **Type Mapping:**
-- `f32`, `float` → `"float"`
-- `f64`, `double` → `"double"`
-- `i32`, `int` → `"int"`
-- `i64`, `long` → `"long"`
-- `string`, `pointer` → `"pointer"`
+- `f32`, `float` -> `"float"`
+- `f64`, `double` -> `"double"`
+- `i32`, `int` -> `"int"`
+- `i64`, `long` -> `"long"`
+- `string`, `pointer` -> `"pointer"`
 
 ### Passing Struct Arguments
 
@@ -492,7 +709,7 @@ Reads a struct from memory and returns it as a Nari object.
 
 ```nari
 let point = __ffi_read_struct(ptr, "Point");
-print("x: " @ toString(point.x) @ ", y: " @ toString(point.y));
+print("x: " @ to_string(point.x) @ ", y: " @ to_string(point.y));
 ```
 
 #### `__ffi_write_struct(ptr, typename, object)`
@@ -735,7 +952,7 @@ __ffi_free_callback(wndproc);
 ### How Callbacks Work
 
 1. **Create**: `__ffi_create_callback` allocates executable memory and sets up a trampoline
-2. **Trampoline**: When C code calls the function pointer, it enters a bridge function
+2. **Trampoline**: When native code calls the function pointer, it enters a bridge function
 3. **Marshal**: C arguments are converted to Nari Values
 4. **Execute**: The Nari function is called with the converted arguments
 5. **Return**: The Nari return value is converted back to C and returned
@@ -745,7 +962,7 @@ __ffi_free_callback(wndproc);
 - Callbacks remain valid until `__ffi_free_callback` is called
 - The Nari function is kept alive (GC-safe) while the callback exists
 - Always free callbacks to avoid memory leaks
-- Be careful not to free callbacks that C code is still using
+- Be careful not to free callbacks that native code is still using
 
 ### Callback Limitations
 

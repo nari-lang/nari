@@ -161,7 +161,7 @@ print(greet("Alice"));  // Hello, Alice!
 **No parameters:**
 ```nari
 let getTimestamp = () => "2026-02-15";
-let getRandom = () => Math.rand();
+let getRandom = () => math.rand();
 ```
 
 **Single parameter** (parentheses still required):
@@ -481,14 +481,28 @@ example();
 ```nari
 global shared = 100;
 
-func modifyGlobal() {
-    shared = 200;
+func readGlobal() {
+    print(shared);  // reads are fine: 100
 }
 
-print(shared);      // 100
-modifyGlobal();
-print(shared);      // 200
+readGlobal();
 ```
+
+> [!IMPORTANT]
+> Assigning to a scalar global from **inside** a function does not update the
+> global — it creates a function-local variable that shadows it. To mutate
+> shared state from a function, wrap it in an object or array:
+>
+> ```nari
+> global state = { count: 100 };
+>
+> func modify() {
+>     state.count = 200;   // mutates the shared object
+> }
+>
+> modify();
+> print(state.count);      // 200
+> ```
 
 ### Lexical Scoping
 
@@ -525,7 +539,7 @@ func calculateTotal(items) {
 }
 
 func formatCurrency(amount) {
-    return "$" @ toString(amount);
+    return "$" @ to_string(amount);
 }
 
 // Usage

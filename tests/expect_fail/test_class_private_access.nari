@@ -5,7 +5,7 @@ class SecretKeeper {
     private secretInfo: string = "This is secret";
 
     public getSecret() -> string {
-        return this.secretInfo;  // OK - accessing from within class
+        return this.secretInfo;
     }
 }
 
@@ -15,5 +15,5 @@ let keeper = new SecretKeeper();
 print(keeper.publicInfo);
 print(keeper.getSecret());
 
-// This should cause a runtime error - trying to access private field
+// This should not
 print(keeper.secretInfo);

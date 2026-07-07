@@ -1,0 +1,7 @@
+packageFormat = 1
+name = "fixture/missing-path-root"
+version = "0.1.0"
+entry = "src/main.nari"
+
+[dependencies]
+fixture_missing_local = { path = "./does-not-exist" }

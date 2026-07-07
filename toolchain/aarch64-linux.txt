@@ -1,0 +1,20 @@
+[binaries]
+c = 'clang'
+cpp = 'clang++'
+ar = 'llvm-ar'
+strip = 'llvm-strip'
+
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+
+[built-in options]
+c_args = ['--target=aarch64-linux-gnu', '--sysroot=/usr/aarch64-linux-gnu', '-fdiagnostics-absolute-paths', '-Wno-unused-command-line-argument']
+cpp_args = ['--target=aarch64-linux-gnu', '--sysroot=/usr/aarch64-linux-gnu', '-fdiagnostics-absolute-paths', '-Wno-unused-variable', '-Wno-unused-lambda-capture', '-Wno-unused-command-line-argument', '-Wno-unused-function', '-I/usr/aarch64-linux-gnu/include/c++/15.1.0', '-I/usr/aarch64-linux-gnu/include/c++/15.1.0/aarch64-linux-gnu']
+c_link_args = ['--target=aarch64-linux-gnu', '--sysroot=/usr/aarch64-linux-gnu', '-fuse-ld=lld']
+cpp_link_args = ['--target=aarch64-linux-gnu', '--sysroot=/usr/aarch64-linux-gnu', '-fuse-ld=lld', '-L/usr/aarch64-linux-gnu/lib', '-lstdc++']

@@ -92,7 +92,7 @@ func validateAge(age) {
 try {
     validateAge(-5);
 } catch (error) {
-    if (isObject(error)) {
+    if (is_object(error)) {
         print(error.type @ ": " @ error.message);
         print("Value was: " @ error.value);
     } else {
@@ -186,7 +186,7 @@ func validateUser(user) {
         errors.push("Username must be at least 3 characters");
     }
     
-    if (!user.email || user.email.indexOf("@") == -1) {
+    if (!user.email || user.email.index_of("@") == -1) {
         errors.push("Invalid email address");
     }
     
@@ -218,7 +218,7 @@ func parseJSON(text) {
         throw "Empty JSON string";
     }
     
-    if (text.charAt(0) != "{" && text.charAt(0) != "[") {
+    if (text.char_at(0) != "{" && text.char_at(0) != "[") {
         throw "Invalid JSON format";
     }
     
@@ -275,7 +275,7 @@ try {
         "https://backup1.com",
         "https://backup2.com"
     ]);
-    print("Success: " @ data.statusCode);
+    print("Success: " @ data.status_code);
 } catch (e) {
     print("Complete failure: " @ e);
 }
@@ -290,7 +290,7 @@ func processFile(filename) {
     let content = null;
     
     try {
-        content = fs.readFile(filename);
+        content = fs.read_file(filename);
         if (!content) {
             throw "Could not read file";
         }
@@ -363,19 +363,19 @@ func processUser(user) {
 
 ```nari
 func calculateArea(shape) {
-    if (!isObject(shape)) {
+    if (!is_object(shape)) {
         throw "Shape must be an object";
     }
     
     if (shape.type == "circle") {
-        if (!isNumber(shape.radius)) {
+        if (!is_number(shape.radius)) {
             throw "Circle radius must be a number";
         }
         return 3.14159 * shape.radius ** 2;
     }
     
     if (shape.type == "rectangle") {
-        if (!isNumber(shape.width) || !isNumber(shape.height)) {
+        if (!is_number(shape.width) || !is_number(shape.height)) {
             throw "Rectangle dimensions must be numbers";
         }
         return shape.width * shape.height;
@@ -404,7 +404,7 @@ func retry(operation, maxAttempts) {
             
             if (attempts < maxAttempts) {
                 // Wait before retrying
-                setTimeout(func() {}, 1000);
+                set_timeout(func() {}, 1000);
             }
         }
     }
@@ -429,7 +429,7 @@ try {
 func getConfigValue(key, fallback) {
     try {
         let config = loadConfig();
-        if (config.hasKey(key)) {
+        if (config.has_key(key)) {
             return config[key];
         }
         return fallback;
@@ -451,9 +451,9 @@ let timeout = getConfigValue("timeout", 5000);
 try {
     performOperation();
 } catch (e) {
-    if (isObject(e) && e.type == "NetworkError") {
+    if (is_object(e) && e.type == "NetworkError") {
         handleNetworkError(e);
-    } else if (isObject(e) && e.type == "ValidationError") {
+    } else if (is_object(e) && e.type == "ValidationError") {
         handleValidationError(e);
     } else {
         handleUnknownError(e);

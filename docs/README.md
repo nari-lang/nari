@@ -25,6 +25,7 @@ Welcome to the Nari language documentation! Nari is a lightweight, dynamically-t
 ### Standard Library
 - [**Built-in Functions**](11-builtins.md) - Core functions available globally
 - [**Standard Library**](12-stdlib.md) - system, math, io, http, and net modules
+- [**Stdlib API Reference**](stdlib-reference.md) - Auto-generated reference for every prelude global and `std/*` module (regenerate with `tools/gen_stdlib_reference.py docs/stdlib-reference.md src/stdlib/std`)
 
 ### Reference
 - [**String Methods**](13-string-methods.md) - String manipulation functions
@@ -54,7 +55,7 @@ func greet(person: Person) {
 ```nari
 let handle = spawn {
     let response = http.get("https://example.com");
-    return response.statusCode;
+    return response.status_code;
 };
 
 print("Status:", handle.value);
@@ -71,7 +72,7 @@ print("Status:", handle.value);
 - **Operators** - Ternary `?:`, nullish coalescing `??`, exponentiation `**`
 - **Module System** - Import external files
 - **Error Handling** - try/catch/finally blocks
-- **Event Loop** - setTimeout, setInterval for scheduling
+- **Event Loop** - set_timeout, set_interval for scheduling
 
 ## Contributing
 

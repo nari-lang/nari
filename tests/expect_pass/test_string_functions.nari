@@ -7,11 +7,11 @@ let message = "The quick brown fox";
 system.print(`substr('" @ message @ "', 4, 5)   -> {message.substr(4, 5)}`);
 system.print(`substr('" @ message @ "', 10)     -> {message.substr(10)}`);
 
-// indexOf(str, search)
+// index_of(str, search)
 let sentence = "Nari is fun!";
-system.print(`indexOf("{sentence}", 'is')     ->  {sentence.indexOf("is")}`);
-system.print(`indexOf("{sentence}", 'fun')    ->  {sentence.indexOf("fun")}`);
-system.print(`indexOf("{sentence}", 'not')    -> {sentence.indexOf("not")}`);
+system.print(`index_of("{sentence}", 'is')     ->  {sentence.index_of("is")}`);
+system.print(`index_of("{sentence}", 'fun')    ->  {sentence.index_of("fun")}`);
+system.print(`index_of("{sentence}", 'not')    -> {sentence.index_of("not")}`);
 
 // split(str, delimiter)
 let fruits = "apple,banana,cherry";
@@ -28,42 +28,42 @@ let original = "I like dogs";
 let replaced = original.replace("dogs", "cats");
 system.print(`replace("{original}", "dogs", "cats")          -> {replaced}`);
 
-// replaceAll(str, find, replacement)
+// replace_all(str, find, replacement)
 let duplicates = "foo bar foo baz foo";
-let allReplaced = duplicates.replaceAll("foo", "qux");
-system.print(`replaceAll("{duplicates}", "foo", "qux") -> {allReplaced}`);
+let allReplaced = duplicates.replace_all("foo", "qux");
+system.print(`replace_all("{duplicates}", "foo", "qux") -> {allReplaced}`);
 
 // trim(str)
 let padded = "   spaces   ";
 system.print(`trim("{padded}")                            -> "{padded.trim()}"`);
 
-// toUpper(str) and toLower(str)
+// to_upper(str) and to_lower(str)
 let mixed = "Hello World";
-system.print(`toUpper("{mixed}") -> {mixed.toUpper()}`);
-system.print(`toLower("{mixed}") -> {mixed.toLower()}`);
-if (mixed.toUpper() != "HELLO WORLD" || mixed.toLower() != "hello world") {
-    throw "Error in toUpper or toLower functions. Expected 'HELLO WORLD' and 'hello world'.";
+system.print(`to_upper("{mixed}") -> {mixed.to_upper()}`);
+system.print(`to_lower("{mixed}") -> {mixed.to_lower()}`);
+if (mixed.to_upper() != "HELLO WORLD" || mixed.to_lower() != "hello world") {
+    throw "Error in to_upper or to_lower functions. Expected 'HELLO WORLD' and 'hello world'.";
 }
 
-// startsWith(str, prefix) and endsWith(str, suffix)
+// starts_with(str, prefix) and ends_with(str, suffix)
 let filename = "document.txt";
-system.print(`startsWith("{filename}", "doc")  -> {filename.startsWith("doc")}`);
-system.print(`startsWith("{filename}", "file") -> {filename.startsWith("file")}`);
-system.print(`endsWith("{filename}", ".txt")   -> {filename.endsWith(".txt")}`);
-system.print(`endsWith("{filename}", ".pdf")   -> {filename.endsWith(".pdf")}`);
+system.print(`starts_with("{filename}", "doc")  -> {filename.starts_with("doc")}`);
+system.print(`starts_with("{filename}", "file") -> {filename.starts_with("file")}`);
+system.print(`ends_with("{filename}", ".txt")   -> {filename.ends_with(".txt")}`);
+system.print(`ends_with("{filename}", ".pdf")   -> {filename.ends_with(".pdf")}`);
 
-if (!filename.startsWith("doc") || filename.endsWith(".pdf")) {
-    throw "Error in startsWith or endsWith functions. Expected true, false, true, false.";
+if (!filename.starts_with("doc") || filename.ends_with(".pdf")) {
+    throw "Error in starts_with or ends_with functions. Expected true, false, true, false.";
 }
 
-// charAt(str, index)
+// char_at(str, index)
 let alphabet = "ABCDEFG";
-system.print(`charAt("{alphabet}", 0) -> {alphabet.charAt(0)}`);
-system.print(`charAt("{alphabet}", 3) -> {alphabet.charAt(3)}`);
-system.print(`charAt("{alphabet}", 6) -> {alphabet.charAt(6)}`);
+system.print(`char_at("{alphabet}", 0) -> {alphabet.char_at(0)}`);
+system.print(`char_at("{alphabet}", 3) -> {alphabet.char_at(3)}`);
+system.print(`char_at("{alphabet}", 6) -> {alphabet.char_at(6)}`);
 
-if (alphabet.charAt(0) != "A" || alphabet.charAt(3) != "D" || alphabet.charAt(6) != "G") {
-    throw "Error in charAt function! Expected 'A, D, G'.";
+if (alphabet.char_at(0) != "A" || alphabet.char_at(3) != "D" || alphabet.char_at(6) != "G") {
+    throw "Error in char_at function! Expected 'A, D, G'.";
 }
 
 // join(array, delimiter)
@@ -81,15 +81,15 @@ if (numbers.join("-") != "1-2-3-4-5") {
 }
 
 let messy = "  HELLO  ";
-let clean = messy.trim().toLower();
-system.print(`toLower(trim("  HELLO  "))                 -> "{clean}"`);
+let clean = messy.trim().to_lower();
+system.print(`to_lower(trim("  HELLO  "))                 -> "{clean}"`);
 if (clean != "hello") {
-    throw "Error in combined trim and toLower functions. Expected 'hello'.";
+    throw "Error in combined trim and to_lower functions. Expected 'hello'.";
 }
 
 let name = "Alice";
-let greeting = `Hello, {name.toUpper()}!`;
-system.print(`toUpper("Alice")                           -> "{greeting}"`);
+let greeting = `Hello, {name.to_upper()}!`;
+system.print(`to_upper("Alice")                           -> "{greeting}"`);
 if (greeting != "Hello, ALICE!") {
-    throw "Error in string interpolation with toUpper. Expected 'Hello, ALICE!'.";
+    throw "Error in string interpolation with to_upper. Expected 'Hello, ALICE!'.";
 }

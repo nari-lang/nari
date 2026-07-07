@@ -1,0 +1,102 @@
+// Test Array.flat() and Array.flat_map()
+
+let assert = func(cond, msg) {
+  if (!cond) {
+    throw "assertion failed: " @ msg;
+  }
+};
+
+// flat() with default depth (1)
+let nested = [1, [2, 3], [4, [5, 6]]];
+let result = nested.flat();
+print("flat():", result);
+assert(result.length() == 5, "flat length 5");
+assert(result[0] == 1, "flat[0]");
+assert(result[1] == 2, "flat[1]");
+assert(result[2] == 3, "flat[2]");
+assert(result[3] == 4, "flat[3]");
+assert(result[4][0] == 5, "flat[4] is nested");
+
+// flat() with depth 2
+let deep = [1, [2, [3, [4]]]];
+let result2 = deep.flat(2);
+print("flat(2):", result2);
+assert(result2.length() == 4, "flat(2) length");
+assert(result2[0] == 1, "flat(2)[0]");
+assert(result2[1] == 2, "flat(2)[1]");
+assert(result2[2] == 3, "flat(2)[2]");
+assert(result2[3][0] == 4, "flat(2)[3] nested");
+
+// flat() with large depth (flattens everything)
+let result3 = deep.flat(100);
+print("flat(100):", result3);
+assert(result3.length() == 4, "flat(100) length");
+assert(result3[3] == 4, "flat(100) fully flat");
+
+// flat() with depth 0 (no flattening)
+let result4 = nested.flat(0);
+print("flat(0):", result4);
+assert(result4.length() == 3, "flat(0) unchanged");
+
+// flat() on already flat array
+let flat_arr = [1, 2, 3];
+let result5 = flat_arr.flat();
+print("flat() on flat:", result5);
+assert(result5.length() == 3, "flat on flat");
+
+// flat() on empty array
+let empty = [];
+let result6 = empty.flat();
+print("flat() on empty:", result6);
+assert(result6.length() == 0, "flat empty");
+
+// flat() with empty sub-arrays
+let sparse = [1, [], 2, [], 3];
+let result7 = sparse.flat();
+print("flat() with empty sub-arrays:", result7);
+assert(result7.length() == 3, "flat sparse");
+
+// flat_map() basic
+let arr = [1, 2, 3];
+let result8 = arr.flat_map(func(x) { return [x, x * 2]; });
+print("flat_map():", result8);
+assert(result8.length() == 6, "flat_map length");
+assert(result8[0] == 1, "flat_map[0]");
+assert(result8[1] == 2, "flat_map[1]");
+assert(result8[2] == 2, "flat_map[2]");
+assert(result8[3] == 4, "flat_map[3]");
+assert(result8[4] == 3, "flat_map[4]");
+assert(result8[5] == 6, "flat_map[5]");
+
+// flat_map() returning non-array values
+let result9 = arr.flat_map(func(x) { return x * 10; });
+print("flat_map() non-array:", result9);
+assert(result9.length() == 3, "flat_map non-array length");
+assert(result9[0] == 10, "flat_map non-array[0]");
+assert(result9[1] == 20, "flat_map non-array[1]");
+assert(result9[2] == 30, "flat_map non-array[2]");
+
+// flat_map() with mixed returns
+let result10 = arr.flat_map(func(x) {
+  if (x == 2) { return [x, x]; }
+  return x;
+});
+print("flat_map() mixed:", result10);
+assert(result10.length() == 4, "flat_map mixed length");
+assert(result10[0] == 1, "flat_map mixed[0]");
+assert(result10[1] == 2, "flat_map mixed[1]");
+assert(result10[2] == 2, "flat_map mixed[2]");
+assert(result10[3] == 3, "flat_map mixed[3]");
+
+// flat_map() receives index argument
+let result11 = arr.flat_map(func(x, i) { return [i]; });
+print("flat_map() with index:", result11);
+assert(result11[0] == 0, "flat_map index[0]");
+assert(result11[1] == 1, "flat_map index[1]");
+assert(result11[2] == 2, "flat_map index[2]");
+
+// flat_map() on empty array
+let result12 = [].flat_map(func(x) { return [x]; });
+assert(result12.length() == 0, "flat_map empty");
+
+print("All flat/flat_map tests passed!");

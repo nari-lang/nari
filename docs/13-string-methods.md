@@ -20,41 +20,67 @@ Extract a substring.
 
 **Returns:** String
 
-### charAt(index)
+### char_at(index)
 
 Get character at index.
 
 ```nari
-"Hello".charAt(0);   // "H"
-"Hello".charAt(4);   // "o"
-"Hello".charAt(10);  // "" (out of bounds)
+"Hello".char_at(0);   // "H"
+"Hello".char_at(4);   // "o"
+"Hello".char_at(10);  // "" (out of bounds)
 ```
 
 **Parameters:**
-- `string` - Source string
 - `index` - Character position (0-based)
 
 **Returns:** Single character string or empty string
 
-### slice(start, [end])
+### at(index)
 
-Extract a section of a string (similar to substr but uses start/end indices).
+Get character at index, with support for negative indices.
 
-Note: Use `substr` for length-based extraction.
+```nari
+"hello".at(0);       // "h"
+"hello".at(-1);      // "o" (last character)
+"hello".at(-2);      // "l"
+"hello".at(10);      // "" (out of bounds)
+```
+
+**Parameters:**
+- `index` - Character position (negative counts from end)
+
+**Returns:** Single character string or empty string
+
+### to_char_array()
+
+Split a string into an array of individual characters.
+
+```nari
+"abc".to_char_array();            // ["a", "b", "c"]
+"".to_char_array();               // []
+"hello".to_char_array().reverse().join("");  // "olleh"
+```
+
+**Parameters:** None
+
+**Returns:** Array of single-character strings
+
+> Note: strings do not have a `slice` method. Use `substr(start, [length])`
+> for substring extraction (`slice` is an array-only method).
 
 ## Searching
 
-### indexOf(searchString)
+### index_of(searchString)
 
 Find first occurrence of substring.
 
 ```nari
-"Hello, World!".indexOf("o");     // 4
-"Hello, World!".indexOf("World"); // 7
-"Hello, World!".indexOf("xyz");   // -1 (not found)
+"Hello, World!".index_of("o");     // 4
+"Hello, World!".index_of("World"); // 7
+"Hello, World!".index_of("xyz");   // -1 (not found)
 
 // Case sensitive
-"Hello".indexOf("hello");         // -1
+"Hello".index_of("hello");         // -1
 ```
 
 **Parameters:**
@@ -62,29 +88,46 @@ Find first occurrence of substring.
 
 **Returns:** Index of first match, or -1 if not found
 
-### lastIndexOf(searchString)
+### last_index_of(searchString, [fromIndex])
 
-Find last occurrence of substring.
+Find last occurrence of substring, optionally searching backward from
+`fromIndex`.
 
 ```nari
-"Hello, World!".lastIndexOf("o");  // 8
-"abcabc".lastIndexOf("abc");       // 3
-"abcabc".lastIndexOf("xyz");       // -1
+"Hello, World!".last_index_of("o");  // 8
+"abcabc".last_index_of("abc");       // 3
+"abcabc".last_index_of("abc", 2);    // 0 (searches backward from index 2)
+"abcabc".last_index_of("xyz");       // -1
 ```
 
 **Parameters:**
 - `searchString` - Substring to find
+- `fromIndex` - Optional index to search backward from
 
 **Returns:** Index of last match, or -1 if not found
 
-### startsWith(prefix)
+### includes(searchString)
+
+Check whether the string contains a substring.
+
+```nari
+"hello world".includes("world");  // true
+"hello".includes("xyz");          // false
+```
+
+**Parameters:**
+- `searchString` - Substring to look for
+
+**Returns:** Boolean
+
+### starts_with(prefix)
 
 Check if string starts with prefix.
 
 ```nari
-"Hello, World!".startsWith("Hello");  // true
-"Hello, World!".startsWith("World");  // false
-"".startsWith("");                    // true
+"Hello, World!".starts_with("Hello");  // true
+"Hello, World!".starts_with("World");  // false
+"".starts_with("");                    // true
 ```
 
 **Parameters:**
@@ -92,14 +135,14 @@ Check if string starts with prefix.
 
 **Returns:** Boolean
 
-### endsWith(string, suffix)
+### ends_with(suffix)
 
 Check if string ends with suffix.
 
 ```nari
-"Hello, World!".endsWith("World!");   // true
-"Hello, World!".endsWith("Hello");    // false
-"test.txt".endsWith(".txt");          // true
+"Hello, World!".ends_with("World!");   // true
+"Hello, World!".ends_with("Hello");    // false
+"test.txt".ends_with(".txt");          // true
 ```
 
 **Parameters:**
@@ -125,14 +168,14 @@ Replace first occurrence.
 
 **Returns:** New string
 
-### replaceAll(searchString, replaceString)
+### replace_all(searchString, replaceString)
 
 Replace all occurrences.
 
 ```nari
-"abc abc abc".replaceAll("abc", "xyz");    // "xyz xyz xyz"
-"Hello Hello".replaceAll("Hello", "Hi");   // "Hi Hi"
-"test".replaceAll("t", "T");               // "TesT"
+"abc abc abc".replace_all("abc", "xyz");    // "xyz xyz xyz"
+"Hello Hello".replace_all("Hello", "Hi");   // "Hi Hi"
+"test".replace_all("t", "T");               // "TesT"
 ```
 
 **Parameters:**
@@ -141,7 +184,7 @@ Replace all occurrences.
 
 **Returns:** New string
 
-### trim(string)
+### trim()
 
 Remove leading and trailing whitespace.
 
@@ -155,30 +198,106 @@ Remove leading and trailing whitespace.
 
 **Returns:** Trimmed string
 
+### trim_start()
+
+Remove leading whitespace only.
+
+```nari
+"  hello  ".trim_start();           // "hello  "
+"\t\nhello".trim_start();           // "hello"
+```
+
+**Parameters:** None
+
+**Returns:** String with leading whitespace removed
+
+### trim_end()
+
+Remove trailing whitespace only.
+
+```nari
+"  hello  ".trim_end();             // "  hello"
+"hello\t\n".trim_end();             // "hello"
+```
+
+**Parameters:** None
+
+**Returns:** String with trailing whitespace removed
+
+### pad_start(targetLength, [padString])
+
+Pad the beginning of a string to reach a target length.
+
+```nari
+"5".pad_start(3, "0");        // "005"
+"hi".pad_start(5);            // "   hi" (default pad is space)
+"hello".pad_start(3);         // "hello" (no change, already long enough)
+"x".pad_start(7, "ab");       // "abababx"
+```
+
+**Parameters:**
+- `targetLength` - Desired minimum length of the result
+- `padString` - String to pad with (optional, defaults to `" "`)
+
+**Returns:** Padded string
+
+### pad_end(targetLength, [padString])
+
+Pad the end of a string to reach a target length.
+
+```nari
+"hi".pad_end(5);              // "hi   " (default pad is space)
+"hi".pad_end(8, "!-");        // "hi!-!-!-"
+"hello".pad_end(3);           // "hello" (no change, already long enough)
+"x".pad_end(5, ".");          // "x...."
+```
+
+**Parameters:**
+- `targetLength` - Desired minimum length of the result
+- `padString` - String to pad with (optional, defaults to `" "`)
+
+**Returns:** Padded string
+
+### repeat(count)
+
+Repeat a string a given number of times.
+
+```nari
+"abc".repeat(3);             // "abcabcabc"
+"-".repeat(10);              // "----------"
+"hello".repeat(0);           // ""
+"xy".repeat(1);              // "xy"
+```
+
+**Parameters:**
+- `count` - Number of times to repeat (must be non-negative)
+
+**Returns:** Repeated string
+
 ## Case Conversion
 
-### toUpper()
+### to_upper()
 
 Convert to uppercase.
 
 ```nari
-"hello".toUpper();         // "HELLO"
-"Hello, World!".toUpper(); // "HELLO, WORLD!"
-"123abc".toUpper();        // "123ABC"
+"hello".to_upper();         // "HELLO"
+"Hello, World!".to_upper(); // "HELLO, WORLD!"
+"123abc".to_upper();        // "123ABC"
 ```
 
 **Parameters:** None
 
 **Returns:** Uppercase string
 
-### toLower()
+### to_lower()
 
 Convert to lowercase.
 
 ```nari
-"HELLO".toLower();         // "hello"
-"Hello, World!".toLower(); // "hello, world!"
-"ABC123".toLower();        // "abc123"
+"HELLO".to_lower();         // "hello"
+"Hello, World!".to_lower(); // "hello, world!"
+"ABC123".to_lower();        // "abc123"
 ```
 
 **Parameters:** None
@@ -235,6 +354,37 @@ Get string length as a `number`.
 
 **Returns:** Number
 
+### char_code_at(index)
+
+Get the character code (ASCII value) at the given index.
+
+```nari
+"A".char_code_at(0);         // 65
+"hello".char_code_at(1);     // 101 (e)
+"0".char_code_at(0);         // 48
+```
+
+**Parameters:**
+- `index` - Character position (0-based)
+
+**Returns:** Number (character code, or -1 if out of bounds)
+
+### from_char_code(code)
+
+Create a single-character string from an ASCII code. Called as a standalone function, not a method.
+
+```nari
+from_char_code(65);          // "A"
+from_char_code(97);          // "a"
+from_char_code(48);          // "0"
+from_char_code(32);          // " "
+```
+
+**Parameters:**
+- `code` - ASCII character code (0 - 127)
+
+**Returns:** Single character string
+
 ## Concatenation
 
 ### Using @ Operator
@@ -269,7 +419,7 @@ let x = 5, y = 10;
 print(`Sum: {x + y}`);            // "Sum: 15"
 
 // Function calls
-print(`Upper: {"hello".toUpper()}`);  // "Upper: HELLO"
+print(`Upper: {"hello".to_upper()}`);  // "Upper: HELLO"
 ```
 
 ## Practical Examples
@@ -292,7 +442,7 @@ print(fields[1]);  // "30"
 ```nari
 func cleanInput(input) {
     let cleaned = input.trim();
-    cleaned = cleaned.toLower();
+    cleaned = cleaned.to_lower();
     return cleaned;
 }
 
@@ -332,7 +482,7 @@ print(url);  // "https://api.example.com/search?q=nari&limit=10"
 func capitalize(str) {
     if (str.length() == 0) { return str }
     
-    let first = str.charAt(0).toUpper();
+    let first = str.char_at(0).to_upper();
     let rest = str.substr(1);
     return first @ rest;
 }
@@ -343,7 +493,7 @@ print(capitalize("hello"));  // "Hello"
 ### Word Count
 
 ```nari
-func countWords(text) {
+func count_words(text) {
     let trimmed = text.trim();
     if (trimmed.length() == 0) { return 0 }
     
@@ -351,17 +501,17 @@ func countWords(text) {
     return words.length();
 }
 
-print(countWords("Hello world"));     // 2
+print(count_words("Hello world"));     // 2
 ```
 
 ### String Truncation
 
 ```nari
-func truncate(str, maxLength) {
-    if (str.length() <= maxLength) {
+func truncate(str, max_length) {
+    if (str.length() <= max_length) {
         return str;
     }
-    return str.substr(0, maxLength - 3) @ "...";
+    return str.substr(0, max_length - 3) @ "...";
 }
 
 print(truncate("This is a long string", 10));

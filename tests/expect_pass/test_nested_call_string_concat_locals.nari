@@ -1,0 +1,23 @@
+func suffix(x) {
+    return x @ "/suffix";
+}
+
+func main() {
+    let a = "root";
+    let b = suffix(a);
+    let c = suffix(b);
+
+    if (a != "root") {
+        throw "nested call mutated original local";
+    }
+    if (b != "root/suffix") {
+        throw "nested call mutated intermediate local";
+    }
+    if (c != "root/suffix/suffix") {
+        throw "nested call returned wrong final value";
+    }
+
+    print("success!");
+}
+
+main();

@@ -11,9 +11,13 @@ let b = 3;
 print(a + b);    // 13  - Addition
 print(a - b);    // 7   - Subtraction
 print(a * b);    // 30  - Multiplication
-print(a / b);    // 3   - Division (integer division for integers)
+print(a / b);    // 3.3333... - Division (float unless evenly divisible)
 print(a % b);    // 1   - Modulo (remainder)
 ```
+
+Division returns an integer only when the operands are integers and divide
+evenly (e.g. `9 / 3` is `3`); otherwise the result is a float
+(e.g. `10 / 3` is `3.3333...`).
 
 ### Exponentiation
 
@@ -49,7 +53,8 @@ print(a >= b);     // false - Greater than or equal
 
 ### AND (&&)
 
-Returns the first falsy value, or the last value if all are truthy:
+Evaluates operands left to right, short-circuiting on the first falsy operand.
+The result is always a boolean (not the operand value):
 
 ```nari
 print(true && true);         // true
@@ -62,7 +67,8 @@ print(false && expensive_function());  // false, function not called
 
 ### OR (||)
 
-Returns the first truthy value, or the last value if all are falsy:
+Evaluates operands left to right, short-circuiting on the first truthy operand.
+The result is always a boolean (not the operand value):
 
 ```nari
 print(true || false);        // true
@@ -72,6 +78,11 @@ print(false || false);       // false
 // Short-circuit evaluation
 print(true || expensive_function());  // true, function not called
 ```
+
+> Note: `&&` and `||` always produce a boolean. To supply a default value
+> based on an operand, use the nullish coalescing operator `??` (see below).
+> For example, `count || 10` is `true` when `count` is `0`, whereas
+> `count ?? 10` is `0`.
 
 ### NOT (!)
 
@@ -110,11 +121,23 @@ x = 20;
 ```nari
 let x = 10;
 
-x += 5;      // x = x + 5  → 15
-x -= 3;      // x = x - 3  → 12
-x *= 2;      // x = x * 2  → 24
-x /= 4;      // x = x / 4  → 6
-x %= 4;      // x = x % 4  → 2
+x += 5;      // x = x + 5  -> 15
+x -= 3;      // x = x - 3  -> 12
+x *= 2;      // x = x * 2  -> 24
+x /= 4;      // x = x / 4  -> 6
+x %= 4;      // x = x % 4  -> 2
+```
+
+Bitwise compound assignment operators are also supported:
+
+```nari
+let f = 12;
+
+f &= 10;     // f = f & 10  (bitwise AND)
+f |= 1;      // f = f | 1   (bitwise OR)
+f ^= 3;      // f = f ^ 3   (bitwise XOR)
+f <<= 2;     // f = f << 2  (left shift)
+f >>= 1;     // f = f >> 1  (right shift)
 ```
 
 ## Increment/Decrement Operators
@@ -223,18 +246,21 @@ print(value);  // "Default"
 ```
 
 **Difference from OR (||):**
-- `??` only checks for `null`
-- `||` treats all falsy values (0, "", false, etc.) as trigger for right operand
+- `??` returns the left operand's value unless it is `null`, otherwise the right operand.
+- `||` always returns a boolean and treats all falsy values (0, "", false, etc.) as triggering the right operand.
 
 ```nari
 let count = 0;
-print(count || 10);    // 10 (0 is falsy)
-print(count ?? 10);    // 0  (0 is not null)
+print(count || 10);    // true (|| yields a bool; 0 is falsy so the right side is taken)
+print(count ?? 10);    // 0    (?? returns the value; 0 is not null)
 
 let name = "";
-print(name || "Guest");    // "Guest" ("" is falsy)
-print(name ?? "Guest");    // "" ("" is not null)
+print(name || "Guest");    // true (|| yields a bool; "" is falsy)
+print(name ?? "Guest");    // ""   (?? returns the value; "" is not null)
 ```
+
+Because `||` yields a boolean, `??` is the correct operator for
+default-value patterns.
 
 ## Member Access Operators
 
@@ -283,7 +309,7 @@ From highest to lowest:
 10. Logical OR: `||`
 11. Nullish coalescing: `??`
 12. Ternary: `?:`
-13. Assignment: `=` `+=` `-=` `*=` `/=` `%=`
+13. Assignment: `=` `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`
 
 **Use parentheses for clarity:**
 
@@ -297,10 +323,14 @@ let condition = (x > 5) && (y < 10);
 ### Arithmetic Operations
 
 ```nari
-print(5 + "3");      // 8 (string → number)
-print(true + 1);     // 2 (true → 1)
-print(false * 10);   // 0 (false → 0)
+print(5 + "3");      // "53" (+ concatenates when either operand is a string)
+print(true + 1);     // 2 (true -> 1)
+print(false * 10);   // 0 (false -> 0)
 ```
+
+Note: `+` performs string concatenation whenever either operand is a string;
+it does not coerce strings to numbers. Use `to_number(...)` for explicit
+numeric conversion.
 
 ### String Concatenation
 

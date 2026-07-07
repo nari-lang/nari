@@ -216,7 +216,10 @@ switch (day) {
 }
 ```
 
-**Note:** Nari's switch statement executes **all matching cases and the default**, similar to a fall-through behavior. Each matching case is executed.
+**Note:** Nari's switch statement executes **only the first matching case**.
+There is no C-style fall-through: after a matching case body runs, control jumps
+past the rest of the switch. The `default` branch runs only when no case matches.
+(The example above prints only `"Tuesday"`.)
 
 **With strings:**
 ```nari
@@ -252,7 +255,7 @@ switch (value) {
     default:
         print("Other");
 }
-// Prints: "Five" and "Other"
+// Prints: "Five"
 ```
 
 ## return Statement
@@ -334,7 +337,7 @@ print(classify(99));  // "other"
 let result = Ok(42);
 
 let output = match result {
-    Ok(value) => "Success: " @ toString(value),
+    Ok(value) => "Success: " @ to_string(value),
     Err(error) => "Error: " @ error
 };
 

@@ -94,8 +94,11 @@ print(arr);            // [1, 2, 3, 4, 5] (unchanged)
 ```
 
 **Parameters:**
-- `start` - Starting index (inclusive)
-- `end` - Ending index (exclusive, optional)
+- `start` - Starting index (inclusive). Negative values are clamped to `0`.
+- `end` - Ending index (exclusive, optional).
+
+Indices must be integers; negative `end` (counting from the end) is not
+supported.
 
 **Returns:** New array
 
@@ -162,41 +165,232 @@ for (let i = 0; i < numbers.length(); i++) {
 }
 ```
 
-### forEach (via stdlib)
+### for_each(callback)
 
-See [Standard Library](12-stdlib.md) for `Spawn.map` and other functional methods.
+Call a function for each element. Returns `null`.
+
+```nari
+let numbers = [1, 2, 3];
+numbers.for_each(func(n, i) {
+    print(i @ ": " @ n);
+});
+```
+
+**Parameters:** `callback(element, index, array)`
 
 ## Higher-Order Functions
 
-### map, filter
+Arrays have first-class functional methods. Each callback receives
+`(element, index, array)`.
 
-Use `spawn` blocks with `Spawn.map` for parallel operations:
+> Note: for CPU-bound work run in parallel across spawns, see
+> [`Spawn.map`](12-stdlib.md); the methods below run synchronously.
+
+### map(callback)
+
+Return a new array with the callback applied to each element.
 
 ```nari
 let numbers = [1, 2, 3, 4, 5];
-
-// Map
-let doubled = Spawn.map(numbers, func(n) {
-    return n * 2;
-});
+let doubled = numbers.map(func(n) { return n * 2; });
 print(doubled);  // [2, 4, 6, 8, 10]
+```
 
-// Filter (manual)
-func filter(arr, predicate) {
-    let result = [];
-    for (let i = 0; i < arr.length(); i++) {
-        if (predicate(arr[i])) {
-            result.push(arr[i]);
-        }
-    }
-    return result;
-}
+**Returns:** New array
 
-let evens = filter(numbers, func(n) {
-    return n % 2 == 0;
-});
+### filter(callback)
+
+Return a new array containing only elements for which the callback returns a
+truthy value.
+
+```nari
+let numbers = [1, 2, 3, 4, 5];
+let evens = numbers.filter(func(n) { return n % 2 == 0; });
 print(evens);  // [2, 4]
 ```
+
+**Returns:** New array
+
+### reduce(callback, [initial])
+
+Reduce the array to a single value. If `initial` is omitted, the first element
+is used as the starting accumulator. Reducing an empty array with no initial
+value returns `null`.
+
+```nari
+let numbers = [1, 2, 3, 4, 5];
+let total = numbers.reduce(func(acc, n) { return acc + n; }, 0);
+print(total);  // 15
+```
+
+**Parameters:** `callback(accumulator, element, index, array)`, optional `initial`
+
+**Returns:** Accumulated value
+
+### find(callback)
+
+Return the first element for which the callback returns truthy, or `null` if
+none match.
+
+```nari
+let numbers = [1, 2, 3, 4, 5];
+print(numbers.find(func(n) { return n > 3; }));  // 4
+```
+
+### find_index(callback)
+
+Return the index of the first matching element, or `-1` if none match.
+
+```nari
+let numbers = [1, 2, 3, 4, 5];
+print(numbers.find_index(func(n) { return n > 3; }));  // 3
+```
+
+### every(callback)
+
+Return `true` if the callback returns truthy for every element.
+
+```nari
+print([1, 2, 3].every(func(n) { return n > 0; }));  // true
+```
+
+### some(callback)
+
+Return `true` if the callback returns truthy for at least one element.
+
+```nari
+print([1, 2, 3].some(func(n) { return n > 2; }));  // true
+```
+
+## Sorting and Reordering
+
+### sort([comparator])
+
+Sort the array **in place** and return it. Without a comparator, elements are
+ordered numerically when possible, otherwise lexicographically. With a
+comparator `func(a, b)`, return a negative number if `a` should come before
+`b`, positive if after, and `0` if equal.
+
+```nari
+let nums = [3, 1, 2];
+nums.sort();
+print(nums);  // [1, 2, 3]
+
+let desc = [1, 2, 3];
+desc.sort(func(a, b) { return b - a; });
+print(desc);  // [3, 2, 1]
+```
+
+**Returns:** The (now sorted) array
+
+### reverse()
+
+Reverse the array **in place** and return it.
+
+```nari
+let arr = [1, 2, 3];
+arr.reverse();
+print(arr);  // [3, 2, 1]
+```
+
+**Returns:** The (now reversed) array
+
+## In-Place Modification
+
+### splice(start, [deleteCount], [...items])
+
+Remove `deleteCount` elements starting at `start`, optionally inserting new
+items. Modifies the array in place and returns an array of the removed elements.
+
+```nari
+let arr = [1, 2, 3, 4, 5];
+let removed = arr.splice(1, 2);
+print(removed);  // [2, 3]
+print(arr);      // [1, 4, 5]
+```
+
+**Returns:** Array of removed elements
+
+### fill(value, [count])
+
+Fill the array with `value` in place. If `count` is given, the array is resized
+to `count` elements and all are set to `value`.
+
+```nari
+let arr = [1, 2, 3];
+arr.fill(0);
+print(arr);  // [0, 0, 0]
+```
+
+**Returns:** The array
+
+## Searching
+
+### includes(value)
+
+Return `true` if the array contains a value equal to `value`. Also works on
+strings (substring check).
+
+```nari
+print([1, 2, 3].includes(2));  // true
+```
+
+### index_of(value)
+
+Return the index of the first element equal to `value`, or `-1` if not found.
+
+```nari
+print([10, 20, 30].index_of(20));  // 1
+```
+
+### flat([depth])
+
+Flatten nested arrays. Default depth is 1.
+
+```nari
+let nested = [1, [2, 3], [4, [5, 6]]];
+
+print(nested.flat());      // [1, 2, 3, 4, [5, 6]]
+print(nested.flat(2));     // [1, 2, 3, 4, 5, 6]
+
+// Depth 0 = no flattening
+print(nested.flat(0));     // [1, [2, 3], [4, [5, 6]]]
+
+// Removes empty sub-arrays
+let sparse = [1, [], 2, [], 3];
+print(sparse.flat());      // [1, 2, 3]
+```
+
+**Parameters:** `depth` (optional) - How deep to flatten (default: 1)
+
+**Returns:** New flattened array
+
+### flat_map(callback)
+
+Map each element then flatten the result by one level. Equivalent to `.map(fn).flat()` but more efficient.
+
+```nari
+let arr = [1, 2, 3];
+
+// Each element produces multiple values
+let result = arr.flat_map(func(x) { return [x, x * 2]; });
+print(result);  // [1, 2, 2, 4, 3, 6]
+
+// Non-array returns are kept as-is
+let doubled = arr.flat_map(func(x) { return x * 10; });
+print(doubled);  // [10, 20, 30]
+
+// Filter and map in one step
+let result2 = arr.flat_map(func(x) {
+  if (x % 2 == 0) { return []; }  // filter out evens
+  return [x * 10];
+});
+print(result2);  // [10, 30]
+```
+
+**Parameters:** `callback(element, index, array)` - Function called for each element
+
+**Returns:** New flattened array
 
 ## Practical Examples
 
@@ -279,21 +473,9 @@ print(unique(numbers));  // [1, 2, 3, 4]
 ### Flatten Nested Array
 
 ```nari
-func flatten(arr) {
-    let result = [];
-    for (item in arr) {
-        if (isArray(item)) {
-            let flat = flatten(item);
-            result = result.concat(flat);
-        } else {
-            result.push(item);
-        }
-    }
-    return result;
-}
-
+// Use the built-in flat() method:
 let nested = [1, [2, [3, 4]], 5];
-print(flatten(nested));  // [1, 2, 3, 4, 5]
+print(nested.flat(100));  // [1, 2, 3, 4, 5]
 ```
 
 ### Chunk Array
@@ -318,7 +500,7 @@ print(chunk(numbers, 3));  // [[1, 2, 3], [4, 5, 6], [7]]
 ### Find Max/Min
 
 ```nari
-func findMax(arr) {
+func find_max(arr) {
     if (arr.length() == 0) return null;
     
     let max = arr[0];
@@ -331,7 +513,7 @@ func findMax(arr) {
 }
 
 let numbers = [3, 7, 2, 9, 1];
-print(findMax(numbers));  // 9
+print(find_max(numbers));  // 9
 ```
 
 ### Sum Array
@@ -381,19 +563,19 @@ print(result[1]);   // [1, 3, 5]
 func intersection(arr1, arr2) {
     let result = [];
     for (item in arr1) {
-        let inArr2 = false;
+        let in_arr2 = false;
         for (other in arr2) {
             if (other == item) {
-                inArr2 = true;
+                in_arr2 = true;
             }
         }
-        let inResult = false;
+        let in_result = false;
         for (existing in result) {
             if (existing == item) {
-                inResult = true;
+                in_result = true;
             }
         }
-        if (inArr2 && !inResult) {
+        if (in_arr2 && !in_result) {
             result.push(item);
         }
     }

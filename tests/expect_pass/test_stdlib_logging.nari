@@ -1,0 +1,78 @@
+// Logger stdlib: leveled logger with optional sink for capture.
+
+import { Logger } from "std/logger";
+
+func check(name, cond) {
+    if (!cond) { throw "Logger test failed: " @ name; }
+}
+
+// Capture sink: record every line that passes the level filter.
+let captured = [];
+let sink = func(line) { captured.push(line); };
+
+// Level filtering
+let log = Logger.create({
+    level: "warn",
+    timestamps: false,
+    sink: sink
+});
+
+log.trace("t");
+log.debug("d");
+log.info("i");
+log.warn("w");
+log.error("e");
+log.fatal("f");
+
+check("filter dropped 3", captured.length() == 3);
+// Each line begins with [<level>] (no timestamp, no name)
+check("warn line", captured[0] == "[warn] w");
+check("error line", captured[1] == "[error] e");
+check("fatal line", captured[2] == "[fatal] f");
+
+// set_level via string
+captured = [];
+log.set_level("trace");
+log.trace("t1");
+log.info("i1");
+check("after set_level count", captured.length() == 2);
+check("trace emitted", captured[0] == "[trace] t1");
+
+// set_level via int
+captured = [];
+log.set_level(50);
+log.warn("w2");
+log.error("e2");
+check("int set_level filtered", captured.length() == 1);
+check("int set_level kept error", captured[0] == "[error] e2");
+
+// Named logger
+captured = [];
+let nlog = Logger.create({
+    name: "auth",
+    level: "info",
+    timestamps: false,
+    sink: sink
+});
+nlog.info("login");
+check("named line", captured[0] == "[info] [auth] login");
+
+// Default level = info; debug should be suppressed
+captured = [];
+let dlog = Logger.create({ timestamps: false, sink: sink });
+dlog.debug("nope");
+dlog.info("yep");
+check("default level dropped debug", captured.length() == 1);
+check("default level kept info", captured[0] == "[info] yep");
+
+// get_level
+check("get_level info", dlog.get_level() == 30);
+dlog.set_level("error");
+check("get_level error", dlog.get_level() == 50);
+
+// Unknown level string is a no-op
+let prev = dlog.get_level();
+dlog.set_level("nope");
+check("unknown level no-op", dlog.get_level() == prev);
+
+print("Logger stdlib OK");

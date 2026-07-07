@@ -3,96 +3,96 @@
 // Basic bitwise AND
 let a = 12 & 10;  // 1100 & 1010 = 1000 = 8
 print("12 & 10 = " @ a);
-if (a != 8) { throw("Bitwise AND failed"); }
+if (a != 8) { throw "Bitwise AND failed"; }
 
 // Basic bitwise OR
 let b = 12 | 10;  // 1100 | 1010 = 1110 = 14
 print("12 | 10 = " @ b);
-if (b != 14) { throw("Bitwise OR failed"); }
+if (b != 14) { throw "Bitwise OR failed"; }
 
 // Basic bitwise XOR
 let c = 12 ^ 10;  // 1100 ^ 1010 = 0110 = 6
 print("12 ^ 10 = " @ c);
-if (c != 6) { throw("Bitwise XOR failed"); }
+if (c != 6) { throw "Bitwise XOR failed"; }
 
 // Bitwise NOT
 let d = ~5;  // ~0101 = ...1010 (two's complement)
 print("~5 = " @ d);
-if (d != -6) { throw("Bitwise NOT failed"); }
+if (d != -6) { throw "Bitwise NOT failed"; }
 
 // Left shift
 let e = 5 << 2;  // 0101 << 2 = 10100 = 20
 print("5 << 2 = " @ e);
-if (e != 20) { throw("Left shift failed"); }
+if (e != 20) { throw "Left shift failed"; }
 
 // Right shift
 let f = 20 >> 2;  // 10100 >> 2 = 0101 = 5
 print("20 >> 2 = " @ f);
-if (f != 5) { throw("Right shift failed"); }
+if (f != 5) { throw "Right shift failed"; }
 
 // Compound assignment &=
 let g = 12;
 g &= 10;  // g = g & 10 = 8
 print("g &= 10: " @ g);
-if (g != 8) { throw("Compound AND failed"); }
+if (g != 8) { throw "Compound AND failed"; }
 
 // Compound assignment |=
 let h = 12;
 h |= 10;  // h = h | 10 = 14
 print("h |= 10: " @ h);
-if (h != 14) { throw("Compound OR failed"); }
+if (h != 14) { throw "Compound OR failed"; }
 
 // Compound assignment ^=
 let i = 12;
 i ^= 10;  // i = i ^ 10 = 6
 print("i ^= 10: " @ i);
-if (i != 6) { throw("Compound XOR failed"); }
+if (i != 6) { throw "Compound XOR failed"; }
 
 // Compound assignment <<=
 let j = 5;
 j <<= 2;  // j = j << 2 = 20
 print("j <<= 2: " @ j);
-if (j != 20) { throw("Compound left shift failed"); }
+if (j != 20) { throw "Compound left shift failed"; }
 
 // Compound assignment >>=
 let k = 20;
 k >>= 2;  // k = k >> 2 = 5
 print("k >>= 2: " @ k);
-if (k != 5) { throw("Compound right shift failed"); }
+if (k != 5) { throw "Compound right shift failed"; }
 
 // More complex expressions
 let l = (8 | 4) & 12;  // (8 | 4) & 12 = 12 & 12 = 12
 print("(8 | 4) & 12 = " @ l);
-if (l != 12) { throw("Complex expression 1 failed"); }
+if (l != 12) { throw "Complex expression 1 failed"; }
 
 let m = 15 ^ (7 & 3);  // 15 ^ (7 & 3) = 15 ^ 3 = 12
 print("15 ^ (7 & 3) = " @ m);
-if (m != 12) { throw("Complex expression 2 failed"); }
+if (m != 12) { throw "Complex expression 2 failed"; }
 
 // Shift with expressions
 let n = (2 + 2) << (1 + 1);  // 4 << 2 = 16
 print("(2 + 2) << (1 + 1) = " @ n);
-if (n != 16) { throw("Complex shift failed"); }
+if (n != 16) { throw "Complex shift failed"; }
 
 // Bitwise operations with variables
 let x_dec = 10;
 let y_dec = 12;
 let result = x_dec & y_dec;
 print("Binary AND result: " @ result);
-if (result != 8) { throw("Variable AND failed"); }
+if (result != 8) { throw "Variable AND failed"; }
 
 // Precedence test: bitwise should be lower than arithmetic
 let p = 4 + 4 & 7;  // Should be (4 + 4) & 7 = 8 & 7 = 0
 print("4 + 4 & 7 = " @ p);
-if (p != 0) { throw("Precedence test 1 failed"); }
+if (p != 0) { throw "Precedence test 1 failed"; }
 
 let q = 2 << 1 + 1;  // Should be 2 << (1 + 1) = 2 << 2 = 8
 print("2 << 1 + 1 = " @ q);
-if (q != 8) { throw("Precedence test 2 failed"); }
+if (q != 8) { throw "Precedence test 2 failed"; }
 
 // Test with negative numbers
 let neg1 = -8 >> 1;  // Arithmetic right shift of negative number
 print("-8 >> 1 = " @ neg1);
-if (neg1 != -4) { throw("Negative right shift failed"); }
+if (neg1 != -4) { throw "Negative right shift failed"; }
 
 print("\nAll bitwise operation tests passed!");

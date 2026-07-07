@@ -1,0 +1,54 @@
+// Regression test: bytecode property inline-cache ABA bug.
+// A builtin (e.g. regex.exec) returning a fresh ObjectObj that is consumed
+// immediately by GET_PROPERTY would, on the 2nd+ call where the allocator
+// reuses the freed ObjectObj's address with the same shape_version, hit a
+// stale IC entry whose val_ptr pointed into the freed std::vector buffer.
+// Symptom: garbage float values where strings/ints are expected.
+
+func test(label, expected, actual) {
+    if (expected != actual) {
+        print("FAIL " @ label @ ": expected=" @ expected @ " actual=" @ actual);
+        return false;
+    }
+    return true;
+}
+
+let ok = true;
+
+// --- Pattern A: regex.exec returning {value, index, groups} ---
+func first_value(re, str) {
+    return re.exec(str).value;  // GET_PROPERTY immediately on returned object
+}
+let r = __regex_new("a", "");
+ok = ok && test("exec.value c1", "a", first_value(r, "banana"));
+ok = ok && test("exec.value c2", "a", first_value(r, "banana"));  // ABA was here
+ok = ok && test("exec.value c3", "a", first_value(r, "banana"));
+ok = ok && test("exec.value c4", "a", first_value(r, "banana"));
+
+// --- Pattern B: read .index (different field, same object shape) ---
+func first_index(re, str) {
+    return re.exec(str).index;
+}
+ok = ok && test("exec.index c1", 1, first_index(r, "banana"));
+ok = ok && test("exec.index c2", 1, first_index(r, "banana"));
+ok = ok && test("exec.index c3", 1, first_index(r, "banana"));
+
+// --- Pattern C: with intermediate let binding (the original repro) ---
+func plain(re, str, repl) {
+    let out = ""; let rest = str;
+    while (true) {
+        let m = re.exec(rest);
+        if (m == null) { return out @ rest; }
+        out = out @ rest.substr(0, m.index) @ repl;
+        rest = rest.substr(m.index + m.value.length());
+    }
+}
+ok = ok && test("plain c1 banana->X", "bXnXnX", plain(r, "banana", "X"));
+ok = ok && test("plain c2 banana->X", "bXnXnX", plain(r, "banana", "X"));
+ok = ok && test("plain c3 apple->_", "_pple", plain(r, "apple", "_"));
+
+if (ok) {
+    print("test_bytecode_prop_ic_aba: PASS");
+} else {
+    print("test_bytecode_prop_ic_aba: FAIL");
+}

@@ -1,0 +1,84 @@
+// Test object methods: entries, assign, freeze, is_frozen
+
+let assert = func(cond, msg) {
+    if (!cond) {
+        system.print("[FAIL] " @ msg);
+        throw "assertion failed: " @ msg;
+    }
+    system.print("[pass] " @ msg);
+};
+
+// --- entries -----------------------------------------------------------------
+
+let obj1 = { a: 1, b: "hello", c: true };
+let entries = obj1.entries();
+assert(entries.length() == 3, "entries returns 3 pairs");
+assert(entries[0][0] == "a", "entries[0] key is a");
+assert(entries[0][1] == 1, "entries[0] value is 1");
+assert(entries[1][0] == "b", "entries[1] key is b");
+assert(entries[1][1] == "hello", "entries[1] value is hello");
+assert(entries[2][0] == "c", "entries[2] key is c");
+assert(entries[2][1] == true, "entries[2] value is true");
+
+// empty object
+let emptyEntries = {}.entries();
+assert(emptyEntries.length() == 0, "entries of empty object is empty");
+
+// --- assign ------------------------------------------------------------------
+
+// basic assign
+let target = { x: 1 };
+target.assign({ y: 2, z: 3 });
+assert(target.has_key("x"), "assign preserves existing key x");
+assert(target.has_key("y"), "assign adds key y");
+assert(target.has_key("z"), "assign adds key z");
+assert(target.x == 1, "assign preserves value x=1");
+assert(target.y == 2, "assign sets value y=2");
+assert(target.z == 3, "assign sets value z=3");
+
+// assign overwrites existing keys
+let over = { a: 1, b: 2 };
+over.assign({ b: 99, c: 3 });
+assert(over.b == 99, "assign overwrites existing key b");
+assert(over.c == 3, "assign adds new key c");
+assert(over.a == 1, "assign preserves untouched key a");
+
+// multiple sources
+let multi = { base: 0 };
+multi.assign({ a: 1 });
+multi.assign({ b: 2 });
+assert(multi.base == 0, "multi assign preserves base");
+assert(multi.a == 1, "multi assign first source");
+assert(multi.b == 2, "multi assign second source");
+
+// --- freeze ------------------------------------------------------------------
+
+let frozen = { val: 42, name: "immutable" };
+assert(frozen.is_frozen() == false, "not frozen initially");
+
+frozen.freeze();
+assert(frozen.is_frozen() == true, "frozen after freeze()");
+
+// try to modify
+frozen.val = 999;
+frozen.name = "changed";
+assert(frozen.val == 42, "freeze prevents val change");
+assert(frozen.name == "immutable", "freeze prevents name change");
+
+// assign to frozen object should be silently ignored
+frozen.assign({ newField: "nope" });
+assert(frozen.has_key("newField") == false, "freeze prevents assign adding fields");
+
+// freeze doesn't affect other objects
+let unfrozen = { x: 1 };
+unfrozen.x = 2;
+assert(unfrozen.x == 2, "unfrozen object still modifiable");
+
+// --- is_frozen ----------------------------------------------------------------
+
+let obj2 = { a: 1 };
+assert(obj2.is_frozen() == false, "is_frozen false for normal object");
+obj2.freeze();
+assert(obj2.is_frozen() == true, "is_frozen true after freeze");
+
+print("All object method tests passed!");

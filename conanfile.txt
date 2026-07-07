@@ -1,0 +1,53 @@
+[requires]
+asmjit/cci.20251209
+mbedtls/3.5.0
+zlib/[>=1.2]
+libcurl/8.19.0
+libffi/[>=3.4]
+replxx/0.0.4
+libarchive/3.8.7
+
+[generators]
+MesonToolchain
+
+[options]
+asmjit*:shared=False
+mbedtls*:shared=False
+zlib*:shared=False
+libcurl*:shared=False
+libcurl*:with_ssl=mbedtls
+# disable unneeded protocols
+libcurl*:with_ftp=False
+libcurl*:with_file=False
+libcurl*:with_dict=False
+libcurl*:with_gopher=False
+libcurl*:with_imap=False
+libcurl*:with_mqtt=False
+libcurl*:with_pop3=False
+libcurl*:with_rtsp=False
+libcurl*:with_smb=False
+libcurl*:with_smtp=False
+libcurl*:with_telnet=False
+libcurl*:with_tftp=False
+libcurl*:with_ntlm_wb=False
+libffi*:shared=False
+# libarchive: static, tar + gzip + zip only. zip support is built-in (no extra
+# dep); gzip needs zlib (already required). Disable everything else to keep
+# the dependency tree small and the binary lean.
+libarchive*:shared=False
+libarchive*:with_zlib=True
+libarchive*:with_bzip2=False
+libarchive*:with_libxml2=False
+libarchive*:with_expat=False
+libarchive*:with_iconv=False
+libarchive*:with_pcreposix=False
+libarchive*:with_nettle=False
+libarchive*:with_openssl=False
+libarchive*:with_libb2=False
+libarchive*:with_lz4=False
+libarchive*:with_lzo=False
+libarchive*:with_lzma=False
+libarchive*:with_zstd=False
+libarchive*:with_mbedtls=False
+libarchive*:with_acl=False
+libarchive*:with_xattr=False

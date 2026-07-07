@@ -1,0 +1,94 @@
+// Date / time stdlib coverage.
+//
+// These checks are timezone-deterministic: every test goes through UTC, and
+// no test depends on the host's wall clock.
+
+import { Date } from "std/date";
+
+func assert(cond, msg) {
+    if (!cond) {
+        print("FAIL:", msg);
+        __process_exit(1);
+    }
+}
+
+// Date.now / Date.utc / round-trip
+let nowMs = Date.now();
+assert(typeof(nowMs) == "int", "now returns int");
+assert(nowMs > 1700000000000, "now is post-2023 ms");
+
+let epoch = Date.utc(1970, 1, 1, 0, 0, 0, 0);
+assert(epoch == 0, "Unix epoch == 0");
+
+let knownMs = Date.utc(2025, 6, 15, 12, 34, 56, 789);
+let d = Date.from_ms(knownMs);
+assert(d.year == 2025 && d.month == 6 && d.day == 15, "components y/m/d");
+assert(d.hour == 12 && d.minute == 34 && d.second == 56, "components h/m/s");
+assert(d.millis == 789, "millis");
+assert(d.utc == true, "utc flag");
+
+// -- ISO formatting + parse round-trip -------------------------------------
+let iso = d.to_iso_string();
+assert(iso == "2025-06-15T12:34:56.789Z", "iso canonical: '" @ iso @ "'");
+let reparsed = Date.from_ms(Date.parse_iso(iso));
+assert(reparsed.equals(d), "iso parse round-trip");
+
+// Date-only -> midnight UTC
+let dateOnly = Date.parse_iso("2025-01-01");
+assert(dateOnly == Date.utc(2025, 1, 1, 0, 0, 0, 0), "date-only is UTC midnight");
+
+// Offset normalization: +05:00 should equal Z 5 hours earlier.
+let aOff = Date.parse_iso("2025-01-01T05:00:00+05:00");
+let aUtc = Date.parse_iso("2025-01-01T00:00:00Z");
+assert(aOff == aUtc, "+05:00 normalized to UTC");
+
+let bOff = Date.parse_iso("2024-12-31T23:00:00-01:00");
+let bUtc = Date.parse_iso("2025-01-01T00:00:00Z");
+assert(bOff == bUtc, "-01:00 normalized to UTC");
+
+// Fractional seconds: ".1" -> 100ms, ".12" -> 120ms, ".123456" truncates to 123
+assert(Date.parse_iso("2025-01-01T00:00:00.1Z")    == Date.utc(2025,1,1,0,0,0,100), ".1 -> 100ms");
+assert(Date.parse_iso("2025-01-01T00:00:00.12Z")   == Date.utc(2025,1,1,0,0,0,120), ".12 -> 120ms");
+assert(Date.parse_iso("2025-01-01T00:00:00.123Z")  == Date.utc(2025,1,1,0,0,0,123), ".123 -> 123ms");
+assert(Date.parse_iso("2025-01-01T00:00:00.123456Z") == Date.utc(2025,1,1,0,0,0,123), ".123456 truncates");
+
+// -- Format strings + %L extension -----------------------------------------
+let f = Date.format(knownMs, "%Y-%m-%d %H:%M:%S.%L", true);
+assert(f == "2025-06-15 12:34:56.789", "format: '" @ f @ "'");
+
+// -- Arithmetic ------------------------------------------------------------
+let later = d.add_ms(1500);
+assert(later.diff_ms(d) == 1500, "add_ms/diff_ms");
+assert(later.second == 58 && later.millis == 289, "+1500ms = +1.5s");
+
+// -- Leap day --------------------------------------------------------------
+let leap = Date.from_ms(Date.utc(2024, 2, 29, 0, 0, 0, 0));
+assert(leap.day == 29 && leap.month == 2 && leap.year == 2024, "leap day Feb 29 2024");
+// Feb 29 2024 was a Thursday (weekday 4 in Sun=0..Sat=6 numbering).
+assert(leap.weekday == 4, "Feb 29 2024 is Thursday");
+
+// -- Year boundaries -------------------------------------------------------
+let yearEnd = Date.from_ms(Date.utc(2024, 12, 31, 23, 59, 59, 999));
+let yearStart = yearEnd.add_ms(1);
+assert(yearStart.year == 2025 && yearStart.month == 1 && yearStart.day == 1, "year rollover");
+assert(yearStart.hour == 0 && yearStart.minute == 0 && yearStart.second == 0, "rollover h/m/s");
+assert(yearStart.millis == 0, "rollover ms");
+
+// -- Errors are catchable --------------------------------------------------
+let threw = false;
+try {
+    Date.parse_iso("not a date");
+} catch (e) {
+    threw = true;
+}
+assert(threw, "parse_iso throws on garbage");
+
+threw = false;
+try {
+    Date.parse_iso("2025-13-01T00:00:00Z");
+} catch (e) {
+    threw = true;
+}
+assert(threw, "parse_iso rejects month 13");
+
+print("date stdlib: all checks passed");

@@ -1,0 +1,66 @@
+// test static class members
+
+class Counter {
+  static count: number = 0;
+
+  static increment() {
+    Counter.count = Counter.count + 1;
+  }
+
+  static get_count() -> number {
+    return Counter.count;
+  }
+
+  public init() {
+    Counter.increment();
+  }
+}
+
+// static field access
+print("Counter.count initial:", Counter.count);
+
+// Static method call
+Counter.increment();
+print("After increment:", Counter.count);
+print("get_count:", Counter.get_count());
+
+// Static field set
+Counter.count = 10;
+print("After set to 10:", Counter.count);
+
+// Creating instances should call init which increments
+let c1 = Counter();
+print("After new c1:", Counter.count);
+
+let c2 = Counter();
+print("After new c2:", Counter.count);
+
+// Static with default values
+class Config {
+  static debug: boolean = false;
+  static max_retries: number = 3;
+  static name: string = "default";
+}
+
+print("Config.debug:", Config.debug);
+print("Config.max_retries:", Config.max_retries);
+print("Config.name:", Config.name);
+
+Config.debug = true;
+print("Config.debug after set:", Config.debug);
+
+// Static methods with parameters
+class MathHelper {
+  static add(a: number, b: number) -> number {
+    return a + b;
+  }
+
+  static square(x: number) -> number {
+    return x * x;
+  }
+}
+
+print("MathHelper.add(3,4):", MathHelper.add(3, 4));
+print("MathHelper.square(5):", MathHelper.square(5));
+
+print("All static class member tests passed!");

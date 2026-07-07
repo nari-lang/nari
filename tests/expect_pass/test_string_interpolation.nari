@@ -47,6 +47,8 @@ let a = 3;
 let b = 4;
 let hyp = (a ** 2 + b ** 2) ** 0.5;
 system.print(`Hypotenuse of {a} and {b} is approximately {hyp}`);
+system.print(`Hypotenuse rounded: {hyp:.3f}`);
+system.print(`Integer formatted as fixed-point: {value:.2f}`);
 // null coalescing in interpolation
 let missing;
 system.print(`Value: {missing ?? "default"}`);

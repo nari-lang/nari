@@ -49,8 +49,8 @@ print("keys(person):", personKeys);
 let personVals = person.values();
 print("values(person):", personVals);
 
-// Test hasKey()
-print("hasKey(person, \"name\"):", person.hasKey("name"));
-print("hasKey(person, \"email\"):", person.hasKey("email"));
+// Test has_key()
+print("has_key(person, \"name\"):", person.has_key("name"));
+print("has_key(person, \"email\"):", person.has_key("email"));
 
 print("All array/object method tests passed!");

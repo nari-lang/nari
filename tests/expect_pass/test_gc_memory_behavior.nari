@@ -1,24 +1,23 @@
 // Test to verify GC doesn't hold unnecessary references
-// Objects should be freed by shared_ptr refcounting when possible
-// GC should only collect actual circular references
+// The collector should reclaim unreachable objects without keeping stale roots.
 
 system.print("GC Memory Behavior Test\n");
 
-// Test 1: Non-circular allocations should be freed automatically
-system.print("[Test 1] Non-circular allocations (auto-freed by shared_ptr)");
+// Test 1: Non-circular allocations should be collectable.
+system.print("[Test 1] Non-circular allocations (collectable)");
 let before1 = __gc_stats();
 
 for (let i = 0; i < 1000; i = i + 1) {
     let temp = { id: i, data: [1, 2, 3] };
-    // temp goes out of scope - should be freed automatically
+    // temp goes out of scope and should be collectable.
 }
 
 let after1 = __gc_stats();
 system.print("  Allocated: 1000+");
 system.print("  Still tracked: " @ after1.tracked);
-system.print("  Note: If tracked is low, objects were auto-freed (GOOD)");
+system.print("  Note: If tracked is low, unreachable objects were collected (GOOD)");
 
-// Test 2: Circular references need GC
+// Test 2: Circular references need GC.
 system.print("\n[Test 2] Circular references (need GC collection)");
 let before2 = __gc_stats();
 
@@ -26,7 +25,7 @@ for (let i = 0; i < 100; i = i + 1) {
     let obj1 = { id: i };
     let obj2 = { ref: obj1 };
     obj1.ref = obj2;  // Circular reference
-    // Now out of scope - shared_ptr can't free due to cycle
+    // Now out of scope; only the collector can reclaim the cycle.
 }
 
 let after2 = __gc_stats();
@@ -41,7 +40,7 @@ system.print("  After GC tracked: " @ collectResult.tracked);
 // Test 3: Memory behavior comparison
 system.print("\n[Test 3] GC vs non-GC allocations");
 
-// Create objects that should be auto-freed
+// Create short-lived acyclic objects.
 let stats3a = __gc_stats();
 for (let i = 0; i < 5000; i = i + 1) {
     let temp = [i, i+1, i+2];
@@ -51,7 +50,7 @@ let autoFreed = stats3b.tracked - stats3a.tracked;
 
 system.print("  After 5000 non-circular allocations:");
 system.print("  Tracked increase: " @ autoFreed);
-system.print("  Expected: ~0 (objects auto-freed)");
+system.print("  Expected: low after safe-point collection");
 
 // Create circular references
 let stats3c = __gc_stats();

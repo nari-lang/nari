@@ -1,0 +1,135 @@
+// Test string methods: pad_start, pad_end, repeat
+
+let assert = func(cond, msg) {
+    if (!cond) {
+        system.print("[FAIL] " @ msg);
+        throw "assertion failed: " @ msg;
+    }
+    system.print("[pass] " @ msg);
+};
+
+// pad_start
+
+// basic padding with default space
+assert("hi".pad_start(5) == "   hi", "pad_start default space");
+
+// padding with custom character
+assert("5".pad_start(3, "0") == "005", "pad_start zero-fill");
+
+// multi-char pad string
+assert("x".pad_start(7, "ab") == "abababx", "pad_start multi-char pad");
+
+// string already long enough: No change
+assert("hello".pad_start(3) == "hello", "pad_start no-op when long enough");
+
+// exact length: no change
+assert("abc".pad_start(3) == "abc", "pad_start no-op at exact length");
+
+// target length 0: no change
+assert("hi".pad_start(0) == "hi", "pad_start target 0");
+
+// pad_end
+
+// basic padding with default space
+assert("hi".pad_end(5) == "hi   ", "pad_end default space");
+
+// padding with custom character
+assert("hi".pad_end(8, "!-") == "hi!-!-!-", "pad_end multi-char pad");
+
+// string already long enough: no change
+assert("hello".pad_end(3) == "hello", "pad_end no-op when long enough");
+
+// exact length: no change
+assert("abc".pad_end(3) == "abc", "pad_end no-op at exact length");
+
+// single char pad
+assert("x".pad_end(5, ".") == "x....", "pad_end single dot");
+
+// repeat
+
+// basic repeat
+assert("abc".repeat(3) == "abcabcabc", "repeat 3 times");
+
+// repeat 1: same string
+assert("hello".repeat(1) == "hello", "repeat 1 time");
+
+// repeat 0: empty string
+assert("hello".repeat(0) == "", "repeat 0 times");
+
+// repeat single char
+assert("-".repeat(10) == "----------", "repeat single char");
+
+// repeat multi-char
+assert("xy".repeat(4) == "xyxyxyxy", "repeat multi-char");
+
+// combined usage
+
+// number formatting with pad_start
+let num = to_string(42);
+assert(num.pad_start(5, "0") == "00042", "pad_start number formatting");
+
+// building a simple separator
+let sep = "=-".repeat(10);
+assert(sep.length() == 20, "repeat builds correct length");
+
+// chaining pad_start result into another method
+let padded = "hi".pad_start(10, ".");
+assert(padded.starts_with("........"), "pad_start result works with starts_with");
+assert(padded.ends_with("hi"), "pad_start result works with ends_with");
+
+// pad_end then check length
+let right = "go".pad_end(6, "!");
+assert(right.length() == 6, "pad_end produces correct length");
+assert(right == "go!!!!", "pad_end full value");
+
+// trim_start
+
+assert("  hello  ".trim_start() == "hello  ", "trim_start removes leading spaces");
+assert("\t\nhello".trim_start() == "hello", "trim_start removes leading whitespace");
+assert("hello".trim_start() == "hello", "trim_start no-op without whitespace");
+assert("   ".trim_start() == "", "trim_start all whitespace");
+
+// trim_end
+
+assert("  hello  ".trim_end() == "  hello", "trim_end removes trailing spaces");
+assert("hello\t\n".trim_end() == "hello", "trim_end removes trailing whitespace");
+assert("hello".trim_end() == "hello", "trim_end no-op without whitespace");
+assert("   ".trim_end() == "", "trim_end all whitespace");
+
+// from_char_code
+
+assert(from_char_code(65) == "A", "from_char_code 65 = A");
+assert(from_char_code(97) == "a", "from_char_code 97 = a");
+assert(from_char_code(48) == "0", "from_char_code 48 = 0");
+assert(from_char_code(32) == " ", "from_char_code 32 = space");
+
+// char_code_at + from_char_code roundtrip
+
+let ch = "Z".char_code_at(0);
+assert(from_char_code(ch) == "Z", "char_code_at/from_char_code roundtrip");
+
+// at (char_at with negative index)
+
+assert("hello".at(0) == "h", "at index 0");
+assert("hello".at(4) == "o", "at index 4");
+assert("hello".at(-1) == "o", "at negative -1 = last char");
+assert("hello".at(-2) == "l", "at negative -2");
+assert("hello".at(-5) == "h", "at negative -5 = first char");
+assert("hello".at(10) == "", "at out of bounds");
+
+// to_char_array
+
+let chars = "abc".to_char_array();
+assert(chars.length() == 3, "to_char_array length");
+assert(chars[0] == "a", "to_char_array[0]");
+assert(chars[1] == "b", "to_char_array[1]");
+assert(chars[2] == "c", "to_char_array[2]");
+
+let empty = "".to_char_array();
+assert(empty.length() == 0, "to_char_array empty string");
+
+// reverse a string via to_char_array
+let reversed = "hello".to_char_array().reverse().join("");
+assert(reversed == "olleh", "string reverse via to_char_array");
+
+print("All string method tests passed!");

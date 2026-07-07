@@ -18,39 +18,27 @@ skip_sanity_check = true
 [built-in options]
 c_args = [
     '-fdiagnostics-absolute-paths',
-    '-fexceptions',
-    '-Wno-unused-command-line-argument',
-    '-DNO_FFI',
-    '-DNO_OPENSSL']
+    '-O3',
+    '-Wno-unused-command-line-argument']
 
 cpp_args = [
     '-fdiagnostics-absolute-paths',
-    '-fexceptions',
+    '-O3',
     '-Wno-unused-variable',
     '-Wno-unused-lambda-capture',
-    '-Wno-unused-command-line-argument',
-    '-DNO_FFI',
-    '-DNO_OPENSSL']
+    '-Wno-unused-command-line-argument']
 
 c_link_args = [
     '-sALLOW_MEMORY_GROWTH=1',
-    '-fexceptions',
     '-sEXPORTED_RUNTIME_METHODS=["FS","callMain"]',
     '-sEXPORTED_FUNCTIONS=["_main"]',
     '-sNO_EXIT_RUNTIME=1',
-    '-sMODULARIZE=1',
-    '-sEXPORT_NAME="createModule"',
-    '-sINVOKE_RUN=0',
-    '-o', 'interpreter.html']
+    '-sINVOKE_RUN=0']
 
 cpp_link_args = [
     '-sALLOW_MEMORY_GROWTH=1',
-    '-fexceptions',
     '-sEXPORTED_RUNTIME_METHODS=["FS","callMain"]',
     '-sEXPORTED_FUNCTIONS=["_main"]',
     '-sNO_EXIT_RUNTIME=1',
-    '-sMODULARIZE=1',
-    '-sEXPORT_NAME="createModule"',
-    '-sINVOKE_RUN=0',
-    '-o', 'interpreter.html']
+    '-sINVOKE_RUN=0']
 

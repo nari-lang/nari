@@ -1,0 +1,91 @@
+func assert(cond, msg) {
+    if (!cond) { throw msg; }
+}
+
+// closure writes captured variable; outer scope must see the update
+func test_closure_writes_outer_reads() {
+    let x = 0;
+    let set_x = func() { x = 77; };
+    set_x();
+    assert(x == 77, "outer should see closure write, got " @ x);
+}
+test_closure_writes_outer_reads();
+
+// outer mutates variable after closure creation; closure must see the update
+func test_outer_mutates_closure_reads() {
+    let x = 0;
+    let get_x = func() { return x; };
+    x = 42;
+    let r = get_x();
+    assert(r == 42, "closure should see outer mutation, got " @ r);
+}
+test_outer_mutates_closure_reads();
+
+// two closures sharing the same captured variable stay in sync
+func test_two_closures_shared_var() {
+    let count = 0;
+    let inc = func() { count = count + 1; };
+    let get = func() { return count; };
+    inc(); inc(); inc();
+    let r = get();
+    assert(r == 3, "shared count should be 3, got " @ r);
+}
+test_two_closures_shared_var();
+
+// closure passed to another function still mutates the outer scope
+func call_it(f) { f(); f(); f(); }
+func test_pass_through() {
+    let count = 0;
+    let inc = func() { count = count + 1; };
+    call_it(inc);
+    assert(count == 3, "pass-through count should be 3, got " @ count);
+}
+test_pass_through();
+
+// inner closure created inside a closure mutates the outermost variable
+func test_nested_closures() {
+    let x = 0;
+    let outer_fn = func() {
+        let inner_fn = func() { x = x + 1; };
+        inner_fn();
+        inner_fn();
+    };
+    outer_fn();
+    assert(x == 2, "nested closure should update x to 2, got " @ x);
+}
+test_nested_closures();
+
+// classic counter object pattern
+func make_counter() {
+    let n = 0;
+    return {
+        inc: func() { n = n + 1; },
+        get: func() { return n; }
+    };
+}
+let c = make_counter();
+c.inc(); c.inc(); c.inc();
+assert(c.get() == 3, "counter should be 3, got " @ c.get());
+
+// returned closure retains its own independent state
+func make_adder(base) {
+    return func(n) { return base + n; };
+}
+let add10 = make_adder(10);
+let add20 = make_adder(20);
+assert(add10(5) == 15, "add10(5) should be 15");
+assert(add20(5) == 25, "add20(5) should be 25");
+assert(add10(0) == 10, "add10(0) should be 10");
+
+// combine mutation and outer-mutation-visibility
+func test_combined() {
+    let x = 5;
+    let bump = func() { x = x + 1; return x; };
+    x = 100;
+    let r1 = bump();
+    let r2 = bump();
+    assert(r1 == 101, "first bump should be 101, got " @ r1);
+    assert(r2 == 102, "second bump should be 102, got " @ r2);
+    assert(x == 102, "outer x should be 102 after two bumps, got " @ x);
+}
+test_combined();

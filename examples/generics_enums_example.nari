@@ -15,7 +15,7 @@ func safeDivide(a, b) {
 func parseNumber(str) {
     // Check if string contains only digits (and optionally a decimal point)
     let isValid = true;
-    let len = length(str);
+    let len = str.length();
 
     if (len == 0) {
         isValid = false;
@@ -23,7 +23,7 @@ func parseNumber(str) {
 
     // Simple validation: check first character is digit or minus
     if (isValid) {
-        let firstChar = charAt(str, 0);
+        let firstChar = str.char_at(0);
         if (firstChar != "0" && firstChar != "1" && firstChar != "2" &&
             firstChar != "3" && firstChar != "4" && firstChar != "5" &&
             firstChar != "6" && firstChar != "7" && firstChar != "8" &&
@@ -33,7 +33,7 @@ func parseNumber(str) {
     }
 
     if (isValid) {
-        let num = toNumber(str);
+        let num = to_number(str);
         let ok = Ok(num);
         return ok;
     }
@@ -55,7 +55,7 @@ func find(arr, predicate) {
 
 // Get value from object, returns Option<T>
 func getKey(obj, key) {
-    if (hasKey(obj, key)) {
+    if (has_key(obj, key)) {
         let some = Some(obj[key]);
         return some;
     }
@@ -67,7 +67,7 @@ func handleDivision(a, b) {
     let result = safeDivide(a, b);
 
     let message = match result {
-        Ok(value) => "Result: " @ toString(value),
+        Ok(value) => "Result: " @ to_string(value),
         Err(error) => "Error: " @ error
     };
 
@@ -77,7 +77,7 @@ func handleDivision(a, b) {
 // Handle Option with match expression
 func describeOption(opt) {
     return match opt {
-        Some(value) => "Got value: " @ toString(value),
+        Some(value) => "Got value: " @ to_string(value),
         None => "No value found"
     };
 }
@@ -144,12 +144,12 @@ let parseOk = parseNumber("42");
 let parseFail = parseNumber("abc");
 
 print(match parseOk {
-    Ok(n) => "Parsed: " @ toString(n),
+    Ok(n) => "Parsed: " @ to_string(n),
     Err(e) => "Parse error: " @ e
 });  // "Parsed: 42"
 
 print(match parseFail {
-    Ok(n) => "Parsed: " @ toString(n),
+    Ok(n) => "Parsed: " @ to_string(n),
     Err(e) => "Parse error: " @ e
 });  // "Parse error: Invalid number format"
 
@@ -183,7 +183,7 @@ print(classifyNumber(99));  // "other"
 // wildcard pattern
 let value = 42;
 let description = match value {
-    _ => "The value is " @ toString(value)
+    _ => "The value is " @ to_string(value)
 };
 print(description);  // "The value is 42"
 
@@ -205,18 +205,18 @@ let pct1 = calculatePercentage(25, 100);
 let pct2 = calculatePercentage(10, 0);
 
 match pct1 {
-    Ok(p) => print(`Percentage: {toString(p)}%`),
+    Ok(p) => print(`Percentage: {to_string(p)}%`),
     Err(e) => print(`Error: {e}`)
 };
 
 match pct2 {
-    Ok(p) => print(`Percentage: {toString(p)}%`),
+    Ok(p) => print(`Percentage: {to_string(p)}%`),
     Err(e) => print(`Error: {e}`)
 };
 
 func match_input(input) {
     return match input {
-        Ok(n) => print(`Valid input: {toString(n)}`),
+        Ok(n) => print(`Valid input: {to_string(n)}`),
         Err(e) => print(`Invalid input: {e}`)
     };
 }

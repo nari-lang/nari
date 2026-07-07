@@ -5,9 +5,9 @@ func start() {
     let c = "hello" @ " " @ "world";
     let d = (true ? 5 : 9) + 1;
     let e = (1 + 2) == 3;
-    print("a=" @ toString(a));
-    print("b=" @ toString(b));
+    print("a=" @ to_string(a));
+    print("b=" @ to_string(b));
     print("c=" @ c);
-    print("d=" @ toString(d));
-    print("e=" @ toString(e));
+    print("d=" @ to_string(d));
+    print("e=" @ to_string(e));
 }

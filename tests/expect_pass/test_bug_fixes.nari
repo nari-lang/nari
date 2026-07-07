@@ -1,0 +1,187 @@
+// Test bug fixes: modulo zero, foreach break, frozen IC, shift safety
+
+let assert = func(cond, msg) {
+    if (!cond) {
+        system.print("[FAIL] " @ msg);
+        throw "assertion failed: " @ msg;
+    }
+    system.print("[pass] " @ msg);
+};
+
+// === OP_MOD zero check (was: SIGFPE crash) ===
+let r1 = 10 % 0;
+assert(r1 != r1, "10 % 0 returns NaN");  // NaN != NaN
+
+let r2 = 7 % 1;
+assert(r2 == 0, "7 % 1 = 0");
+
+let r3 = 10 % 3;
+assert(r3 == 1, "10 % 3 = 1");
+
+// === INT_MIN % -1 and INT_MIN / -1 (was: UB/SIGFPE on x86 idiv) ===
+// Exercises both the interpreter and the JIT inline/slow paths.
+let INT_MIN = -9223372036854775807 - 1;  // INT64_MIN written so the parser accepts it
+let mod_intmin = INT_MIN % -1;
+assert(mod_intmin == 0, "INT_MIN % -1 == 0 (no SIGFPE)");
+// Call the same expression enough times to tier-up into JIT.
+let mm_iter = 0;
+while (mm_iter < 5000) {
+    let tmp = INT_MIN % -1;
+    mm_iter = mm_iter + 1;
+}
+assert((INT_MIN % -1) == 0, "INT_MIN % -1 == 0 after JIT tier-up");
+
+let div_intmin = INT_MIN / -1;
+// The correct result is 2^63, which does not fit in int64. Language promotes
+// to float, so we just check it's a very large positive number.
+assert(div_intmin > 9000000000000000000.0, "INT_MIN / -1 is large positive (promotes to float)");
+
+// === OP_POW integer overflow (was: silently wrapped to negative) ===
+// 2 ** 63 overflows int64 and must now promote to float, not wrap to INT_MIN.
+let two_to_63 = 2 ** 63;
+assert(two_to_63 > 9000000000000000000.0, "2 ** 63 promotes to float on overflow (not INT_MIN)");
+
+let two_to_62 = 2 ** 62;
+assert(two_to_62 == 4611686018427387904, "2 ** 62 stays int (no premature overflow)");
+
+let three_to_zero = 3 ** 0;
+assert(three_to_zero == 1, "3 ** 0 = 1");
+
+let neg_base_sq = (-3) ** 2;
+assert(neg_base_sq == 9, "(-3) ** 2 = 9 (sign-preserving squaring)");
+
+// === for-each break (was: stack corruption) ===
+let arr = [10, 20, 30, 40, 50];
+let found = -1;
+for (item in arr) {
+    if (item == 30) {
+        found = item;
+        break;
+    }
+}
+assert(found == 30, "foreach break found 30");
+
+// Make sure code after the loop works correctly (no stack corruption)
+let after_break = 42;
+assert(after_break == 42, "variable after foreach break correct");
+
+// Nested foreach with break
+let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+let sum = 0;
+for (row in matrix) {
+    for (val in row) {
+        if (val > 5) {
+            break;
+        }
+        sum = sum + val;
+    }
+}
+assert(sum == 1 + 2 + 3 + 4 + 5, "nested foreach break sum correct");
+
+// for-each break with key-value
+let obj = { a: 1, b: 2, c: 3, d: 4 };
+let firstKey = "";
+for (k, v in obj) {
+    firstKey = k;
+    break;
+}
+assert(firstKey == "a", "kv foreach break gets first key");
+let afterKV = 99;
+assert(afterKV == 99, "variable after kv foreach break correct");
+
+// === Frozen object IC bypass test ===
+let fobj = { x: 10, y: 20 };
+// Access x a few times to populate IC
+let tmp1 = fobj.x;
+let tmp2 = fobj.x;
+fobj.freeze();
+fobj.x = 999;  // should be silently ignored (even via IC hit)
+assert(fobj.x == 10, "frozen object IC bypass blocked");
+
+// === Shift safety (was: UB with large shifts) ===
+let s1 = 1 << 0;
+assert(s1 == 1, "1 << 0 = 1");
+
+let s2 = 1 << 10;
+assert(s2 == 1024, "1 << 10 = 1024");
+
+let s3 = 1024 >> 5;
+assert(s3 == 32, "1024 >> 5 = 32");
+
+// === GC: closure captures survive collection ===
+let make_holder = func() {
+    let data = [1, 2, 3, 4, 5];
+    return func() { return data; };
+};
+let get_data = make_holder();
+// data is only reachable through the closure's captures
+__gc_collect();
+__gc_collect();
+let held = get_data();
+assert(held.length() == 5, "closure-captured array survives GC");
+assert(held[0] == 1, "closure-captured array[0] correct");
+assert(held[4] == 5, "closure-captured array[4] correct");
+
+// More complex: nested closure captures
+let make_counter = func() {
+    let cobj = { count: 0, label: "counter" };
+    let inc = func() {
+        cobj.count = cobj.count + 1;
+        return cobj;
+    };
+    return inc;
+};
+let counter = make_counter();
+counter();
+counter();
+__gc_collect();
+__gc_collect();
+let result = counter();
+assert(result.count == 3, "closure-captured object survives GC, count=3");
+assert(result.label == "counter", "closure-captured object label preserved");
+
+// === OP_STR_APPEND_GLOBAL cache invalidation (was: stale read) ===
+let greeting = "Hello";
+greeting = greeting @ " World";
+assert(greeting == "Hello World", "global string append visible on next read");
+greeting = greeting @ "!";
+assert(greeting == "Hello World!", "second string append also visible");
+
+// === estimated_memory_usage decreases on collection ===
+// Create objects, record memory, collect, verify it dropped
+let pre_alloc = __gc_get_memory_usage();
+let garbage_arr = [];
+let i = 0;
+while (i < 100) {
+    garbage_arr.push([1, 2, 3, 4, 5]);
+    i = i + 1;
+}
+let post_alloc = __gc_get_memory_usage();
+// Memory should have increased from allocations
+assert(post_alloc > pre_alloc, "memory increases after allocations");
+// Drop all references & collect
+garbage_arr = [];
+__gc_collect();
+let post_gc = __gc_get_memory_usage();
+// Memory should have decreased (not stayed the same)
+assert(post_gc < post_alloc, "memory decreases after GC collection");
+
+// === Self-referencing closure cycle collection ===
+let pre_closure_stats = __gc_stats();
+let pre_closure_count = pre_closure_stats.tracked;
+let j = 0;
+while (j < 50) {
+    // Create a self-referencing closure that captures itself
+    let self_ref = func() {
+        return self_ref;
+    };
+    j = j + 1;
+}
+// The closures are now unreachable; GC should collect them
+__gc_collect();
+let post_closure_stats = __gc_stats();
+let post_closure_count = post_closure_stats.tracked;
+// Tracked count should not grow unboundedly
+assert(post_closure_count <= pre_closure_count + 5, "self-ref closures collected by GC");
+
+print("All bug fix tests passed!");

@@ -1,0 +1,10 @@
+export let local_answer = 42;
+export global global_answer = 99;
+export let [first_number, second_number] = [7, 8];
+export let {label: exported_label} = {label: "ok"};
+
+func read_values() {
+    return [local_answer, global_answer, first_number, second_number, exported_label];
+}
+
+export { read_values };

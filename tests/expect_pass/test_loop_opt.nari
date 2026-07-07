@@ -4,5 +4,5 @@ func start() {
     for (let i = 0; i < 1000000; i = i + 1) {
         count++;
     }
-    print("count = " @ toString(count));
+    print("count = " @ to_string(count));
 }

@@ -1,0 +1,23 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                // "/opt/esp-idf/components/**/include/",
+                // "/opt/esp-idf/components/freertos/FreeRTOS-Kernel/include/",
+                // "/opt/esp-idf/components/freertos/FreeRTOS-Kernel-SMP/portable/linux/include/",
+                // "/opt/esp-idf/components/freertos/config/include/freertos",
+                // "${workspaceFolder}/esp_idf_project/build/config",
+                // "/opt/esp-idf/components/freertos/config/linux/include",
+                // "/opt/esp-idf/components/freertos/FreeRTOS-Kernel-SMP/portable/linux/include/freertos"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c17",
+            "intelliSenseMode": "linux-clang-x64",
+            "cppStandard": "c++20"
+        }
+    ],
+    "version": 4
+}

@@ -144,7 +144,7 @@ let SIG_UNREGISTERHOTKEY = { returns: "bool", params: ["pointer", "int"] };
 let SIG_DESTROYWINDOW = { returns: "bool", params: ["pointer"] };
 let SIG_UPDATEWINDOW = { returns: "bool", params: ["pointer"] };
 let SIG_REGISTERCLASS_W = { returns: "u16", params: ["pointer"] };
-let SIG_REGISTERCLASSEX_W = { returns: "u16", params: [__ffi_membersof("WNDCLASSEXW")] };
+let SIG_REGISTERCLASSEX_W = { returns: "u16", params: [__ffi_membersof(WNDCLASSEXW)] };
 let SIG_UNREGISTERCLASS_W = { returns: "bool", params: ["pointer", "pointer"] };
 let SIG_DEFWINDOWPROC_W = { returns: "long", params: ["pointer", "u32", "u64", "i64"] };
 

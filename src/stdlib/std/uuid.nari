@@ -1,0 +1,28 @@
+// -- uuid --------------------------------------------------------------------
+// uuid.v4() -> RFC-4122 version-4 UUID string. Backed by the
+// non-cryptographic PRNG (math.rand / mt19937) - do NOT use for
+// security-sensitive tokens.
+//
+//  import { uuid } from "std/uuid";
+
+export let uuid = {
+  v4: func() {
+      let hex = "0123456789abcdef";
+      let s = "";
+      let i = 0;
+      while (i < 36) {
+          if (i == 8 || i == 13 || i == 18 || i == 23) {
+              s = s + "-";
+          } else if (i == 14) {
+              s = s + "4";
+          } else if (i == 19) {
+              // variant bits: one of 8, 9, a, b
+              s = s + hex.char_at(__math_floor(__math_rand() * 4) + 8);
+          } else {
+              s = s + hex.char_at(__math_floor(__math_rand() * 16));
+          }
+          i = i + 1;
+      }
+      return s;
+  }
+};

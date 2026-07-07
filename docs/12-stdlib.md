@@ -4,12 +4,16 @@ The Nari standard library provides high-level modules for common tasks. It is au
 
 ## system Module
 
+The `system` object bundles references to the other prelude modules plus a few
+extras: `version`, `print`, `math`, `fs`, `io`, `net`, `http`, `platform`,
+`json`, and `exec`.
+
 ### system.version
 
 Get the standard library version.
 
 ```nari
-print(system.version);  // "0.0.1"
+print(system.version);  // "0.0.3"
 ```
 
 ### system.print
@@ -20,25 +24,32 @@ Alias for the global `print` function.
 system.print("Hello!");
 ```
 
-### system.math
+### system.math / system.fs / system.io / system.net / system.http / system.platform / system.json
 
-Reference to the math module.
+References to the corresponding prelude modules.
 
 ```nari
 let result = system.math.sqrt(16);
+let files = system.fs.list_dir(".");
+let parsed = system.json.parse("{\"a\":1}");
 ```
 
-### system.fs
+### system.exec
 
-Reference to the file system module.
+Run a shell command and return its output.
 
 ```nari
-let content = system.fs.readFile("data.txt");
+let output = system.exec("echo hello");
 ```
 
 ## math Module
 
 Mathematical functions and utilities.
+
+### Constants
+
+- `math.PI` - 3.141592653589793
+- `math.E` - 2.718281828459045
 
 ### math.pow
 
@@ -98,6 +109,27 @@ math.max(5, 10);     // 10
 math.max(-3, 2);     // 2
 ```
 
+### Additional functions
+
+- `math.clamp(n, lo, hi)` - Constrain `n` to the range `[lo, hi]`.
+- `math.round(n)` - Round to the nearest integer.
+- `math.floor(n)` - Round down to the nearest integer.
+- `math.ceil(n)` - Round up to the nearest integer.
+- `math.rand()` - Random float in `[0, 1)`.
+- `math.sin(x)`, `math.cos(x)`, `math.tan(x)` - Trigonometric functions (radians).
+- `math.atan(x)`, `math.atan2(y, x)` - Inverse tangent functions.
+- `math.exp(x)` - `e` raised to the power `x`.
+- `math.log(x)` - Natural logarithm.
+- `math.log10(x)`, `math.log2(x)` - Base-10 and base-2 logarithms.
+
+```nari
+print(math.clamp(15, 0, 10));  // 10
+print(math.round(2.6));        // 3
+print(math.floor(2.9));        // 2
+print(math.ceil(2.1));         // 3
+print(math.log2(8));           // 3
+```
+
 ### Example: Using math module
 
 ```nari
@@ -115,66 +147,71 @@ print("Distance: " @ dist);  // 5
 
 File system operations.
 
-### fs.readFile
+> **Important:** Most `fs` operations are **asynchronous** and return an IO
+> handle rather than the value directly. Use `Spawn.await(...)` (or read
+> `.value`) to obtain the resolved result. The exceptions are `fs.is_directory`
+> and `fs.mkdir_all`, which are synchronous.
+
+### fs.read_file
 
 Read entire file contents.
 
 ```nari
-let content = fs.readFile("data.txt");
+let content = Spawn.await(fs.read_file("data.txt"));
 print(content);
 ```
 
 **Parameters:** `path` - File path  
-**Returns:** String (file contents) or null on error
+**Returns:** Handle resolving to the file contents (string), or an error on failure
 
-### fs.writeFile
+### fs.write_file
 
 Write content to a file (overwrites existing).
 
 ```nari
-fs.writeFile("output.txt", "Hello, World!");
+Spawn.await(fs.write_file("output.txt", "Hello, World!"));
 ```
 
 **Parameters:**
 - `path` - File path
 - `content` - Content to write
 
-**Returns:** None
+**Returns:** Handle (resolves when the write completes)
 
-### fs.appendFile
+### fs.append_file
 
 Append content to a file.
 
 ```nari
-fs.appendFile("log.txt", "New log entry\n");
+Spawn.await(fs.append_file("log.txt", "New log entry\n"));
 ```
 
 **Parameters:**
 - `path` - File path
 - `content` - Content to append
 
-**Returns:** None
+**Returns:** Handle (resolves when the append completes)
 
-### fs.fileExists
+### fs.file_exists / fs.exists
 
-Check if a file exists.
+Check if a file exists. `fs.exists` is an alias of `fs.file_exists`.
 
 ```nari
-if (fs.fileExists("config.json")) {
-    let config = fs.readFile("config.json");
+if (Spawn.await(fs.file_exists("config.json"))) {
+    let config = Spawn.await(fs.read_file("config.json"));
     print("Config loaded");
 }
 ```
 
 **Parameters:** `path`  
-**Returns:** Boolean
+**Returns:** Handle resolving to a boolean
 
-### fs.isDirectory
+### fs.is_directory
 
-Check if a path is a directory.
+Check if a path is a directory. **Synchronous** (returns a boolean directly).
 
 ```nari
-if (fs.isDirectory("/home/user/")) {
+if (fs.is_directory("/home/user/")) {
     print("It's a directory");
 }
 ```
@@ -182,33 +219,46 @@ if (fs.isDirectory("/home/user/")) {
 **Parameters:** `path`  
 **Returns:** Boolean
 
-### fs.deleteFile
+### fs.mkdir_all
+
+Recursively create a directory (and any missing parents). **Synchronous.**
+
+```nari
+fs.mkdir_all("/tmp/a/b/c");
+```
+
+**Parameters:** `path`  
+**Returns:** Boolean (success)
+
+### fs.delete_file
 
 Delete a file.
 
 ```nari
-fs.deleteFile("temp.txt");
+Spawn.await(fs.delete_file("temp.txt"));
 ```
 
 **Parameters:** `path`  
-**Returns:** None
+**Returns:** Handle (resolves when the delete completes)
 
-### fs.listDir
+### fs.list_dir
 
 List directory contents.
 
 ```nari
-let files = fs.listDir("/home/user/docs");
+let files = Spawn.await(fs.list_dir("/home/user/docs"));
 for (file in files) {
     print(file);
 }
 ```
 
 **Parameters:** `path` - Directory path  
-**Returns:** Array of filenames
+**Returns:** Handle resolving to an array of filenames
 
 ## IO Module
-### IO operations for reading from standard input (and soon other streams).
+
+IO operations for reading from standard input. Note: file operations live on
+the `fs` module, not `io`.
 
 ### io.stdin.read
 
@@ -221,13 +271,13 @@ print("You entered: " @ input);
 
 **Returns:** String
 
-### io.stdin.readLine
+### io.stdin.read_line
 
 Read a line from standard input.
 
 ```nari
 print("Enter your name: ");
-let name = io.stdin.readLine();
+let name = io.stdin.read_line();
 print("Hello, " @ name @ "!");
 ```
 
@@ -237,24 +287,55 @@ print("Hello, " @ name @ "!");
 
 ```nari
 func processLogFile(filename) {
-    if (!fs.fileExists(filename)) {
+    if (!Spawn.await(fs.file_exists(filename))) {
         print("File not found");
         return;
     }
     
-    let content = fs.readFile(filename);
+    let content = Spawn.await(fs.read_file(filename));
     let lines = content.split("\n");
     
     print("Processing " @ lines.length() @ " lines");
     
     for (line in lines) {
-        if (line.indexOf("ERROR") != -1) {
-            fs.appendFile("errors.log", line @ "\n");
+        if (line.index_of("ERROR") != -1) {
+            Spawn.await(fs.append_file("errors.log", line @ "\n"));
         }
     }
 }
 
 processLogFile("app.log");
+```
+
+## platform Module
+
+Information about the host platform.
+
+- `platform.arch` - CPU architecture (e.g. `"x86_64"`).
+- `platform.os` - Operating system (e.g. `"linux"`).
+- `platform.endianness` - `"little"` or `"big"`.
+- `platform.hostname` - The machine's hostname.
+- `platform.getenv(name)` - Read an environment variable (returns `null` if unset).
+
+```nari
+print(platform.os @ "/" @ platform.arch);
+let home = platform.getenv("HOME");
+```
+
+## process Module
+
+Process-level utilities.
+
+- `process.argc` - Number of command-line arguments.
+- `process.argv` - Array of command-line arguments.
+- `process.exit(code)` - Terminate the process with an exit code.
+
+```nari
+if (process.argc < 2) {
+    print("usage: script <arg>");
+    process.exit(1);
+}
+print(process.argv[1]);
 ```
 
 ## http Module
@@ -263,32 +344,61 @@ HTTP client functionality.
 
 ### http.get
 
-Perform an HTTP GET request.
+Perform an HTTP GET request. Accepts either a URL string or an options object
+`{ url, method?, headers?, body? }`. Returns a handle that resolves to the
+response, so await it before use.
 
 ```nari
-let response = http.get("https://api.example.com/data");
+let response = Spawn.await(http.get("https://api.example.com/data"));
 
-print("Status: " @ response.statusCode);
+print("Status: " @ response.status_code);
 print("Body: " @ response.body);
+
+// With an options object
+let posted = Spawn.await(http.get({
+    url: "https://api.example.com/items",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{\"name\":\"nari\"}"
+}));
 ```
 
-**Parameters:** `url` - URL to request  
-**Returns:** Response object with:
-- `statusCode` - HTTP status code
+**Parameters:** `url` - URL string or options object  
+**Returns:** Handle resolving to a response object with:
+- `status_code` - HTTP status code
 - `body` - Response body as string
+
+### http.request
+
+Perform an HTTP request described by an options object, invoking a callback with
+the result.
+
+```nari
+http.request({ url: "https://api.example.com/data", method: "GET" }, func(err, response) {
+    if (err) {
+        print("Request failed: " @ err);
+        return;
+    }
+    print("Status: " @ response.status_code);
+});
+```
+
+**Parameters:**
+- `options` - Request options `{ url, method?, headers?, body? }`
+- `callback` - `func(err, response)` invoked when the request completes
 
 ### Example: API Client
 
 ```nari
 func fetchUser(userId) {
-    let url = "https://api.example.com/users/" @ toString(userId);
+    let url = "https://api.example.com/users/" @ to_string(userId);
     
     let response = Spawn.await(http.get(url));
     
-    if (response.statusCode == 200) {
+    if (response.status_code == 200) {
         return response.body;
     } else {
-        throw "Failed to fetch user: " @ response.statusCode;
+        throw "Failed to fetch user: " @ response.status_code;
     }
 }
 
@@ -302,11 +412,35 @@ try {
 
 ## net Module
 
-Network server functionality.
+TCP and UDP networking.
 
-### net.createServer
+The modern API is non-blocking and handle-based:
 
-Create a TCP server.
+**TCP client/server:**
+- `net.connect(host, port)` - Connect to a TCP server. Returns a handle
+  resolving to a connection `{ fd, ip, port }`.
+- `net.listen(port)` - Create a TCP listener (pass `null`/`0` for an ephemeral
+  port). Returns a handle resolving to `{ fd, port }`.
+- `net.accept(server)` - Wait for one inbound connection. Returns a handle
+  resolving to a connection object. Loop to keep accepting.
+- `net.read(conn, cb)` - Read one chunk; `cb(err, data)`.
+- `net.write(conn, data, cb)` - Write data; `cb(err)`.
+- `net.close(conn)` - Close a connection.
+- `net.close_server(server)` - Close a listener.
+
+**UDP:**
+- `net.udp_socket(port)` - Bind a UDP socket (`null`/`0` for ephemeral). Returns
+  a handle resolving to `{ fd, port }`.
+- `net.udp_send(sock, host, port, data)` - Send a datagram. Resolves to bytes sent.
+- `net.udp_recv(sock, timeout_ms)` - Receive one datagram. Resolves to
+  `{ data, ip, port }`. `timeout_ms` is optional (`null`/`0` blocks until shutdown).
+- `net.udp_close(sock)` - Close a UDP socket.
+
+### net.create_server
+
+Create a TCP server. **Legacy blocking API** — it runs an internal accept/yield
+loop on the main task until shutdown is requested. Prefer `net.listen` +
+`net.accept` for new code.
 
 ```nari
 func handleConnection(conn) {
@@ -328,7 +462,7 @@ func handleConnection(conn) {
     });
 }
 
-net.createServer(8080, handleConnection);
+net.create_server(8080, handleConnection);
 print("Server listening on port 8080");```
 
 **Parameters:**
@@ -343,7 +477,7 @@ print("Server listening on port 8080");```
 ### Example: Echo Server
 
 ```nari
-func onConnection(conn) {
+func on_connection(conn) {
     conn.read(conn, func(err, data) {
         if (!err) {
             conn.write(conn, "Echo: " @ data, func(writeErr) {
@@ -356,12 +490,55 @@ func onConnection(conn) {
 }
 
 print("Echo server running on port 3000");
-net.createServer(3000, onConnection);
+net.create_server(3000, on_connection);
+```
+
+## JSON Module
+
+Parse and serialize JSON.
+
+### JSON.parse
+
+Parse a JSON string into a Nari value (object, array, string, number, bool, or
+null). Throws on malformed input.
+
+```nari
+let obj = JSON.parse("{\"name\": \"Alice\", \"age\": 30}");
+print(obj.name);  // "Alice"
+```
+
+### JSON.stringify
+
+Serialize a Nari value to a JSON string. An optional second `indent` argument
+(integer) enables pretty-printing.
+
+```nari
+print(JSON.stringify({ a: 1, b: [2, 3] }));       // {"a":1,"b":[2,3]}
+print(JSON.stringify({ a: 1 }, 2));                // pretty-printed with 2-space indent
 ```
 
 ## Spawn Module
 
 Asynchronous operation utilities. See [Asynchronous Programming](08-async.md) for details.
+
+### Spawn.await
+
+Wait for a single handle and return its resolved value (equivalent to reading
+`handle.value`).
+
+```nari
+let response = Spawn.await(http.get("https://example.com"));
+```
+
+### Spawn.try_await
+
+Wait for a single handle without throwing. Returns `{ ok: true, value }` on
+success or `{ ok: false, failed: true, error }` on failure.
+
+```nari
+let result = Spawn.try_await(http.get("https://example.com"));
+if (result.ok) { print(result.value.status_code); }
+```
 
 ### Spawn.map
 
@@ -398,12 +575,13 @@ Get the first successful handle.
 let firstSuccess = Spawn.any(handles);
 ```
 
-### Spawn.allSettled
+### Spawn.all_settled
 
-Get all results with status.
+Get all results with status. Each result is `{ index, duration, status, value? , error? }`
+where `status` is `"fulfilled"` or `"rejected"`.
 
 ```nari
-let settled = Spawn.allSettled(handles);
+let settled = Spawn.all_settled(handles);
 ```
 
 ## yield Function
@@ -428,21 +606,21 @@ func longTask() {
 print("sqrt(16) = " @ math.sqrt(16));
 print("5^2 = " @ math.pow(5, 2));
 
-// File I/O
-if (io.fileExists("data.txt")) {
-    let data = io.readFile("data.txt");
+// File I/O (fs operations are async - await them)
+if (Spawn.await(fs.file_exists("data.txt"))) {
+    let data = Spawn.await(fs.read_file("data.txt"));
     let lines = data.split("\n");
     print("File has " @ lines.length() @ " lines");
 }
 
 // HTTP request (async)
 spawn {
-    let response = http.get("https://api.example.com/status");
-    print("API Status: " @ response.statusCode);
+    let response = Spawn.await(http.get("https://api.example.com/status"));
+    print("API Status: " @ response.status_code);
 };
 
 // Keep event loop running
-setInterval(func() {
+set_interval(func() {
     print("Tick...");
 }, 5000);
 ```

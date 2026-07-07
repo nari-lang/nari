@@ -1,8 +1,10 @@
+# on a native Windows machine this file is optional. meson auto-detects MSVC.
+# but you can pass it explicitly to prefer clang-cl over MSVC:
+#   meson setup build --native-file toolchain/windows-clang-cl.txt
+
 [binaries]
 c = 'clang-cl'
 cpp = 'clang-cl'
-c_ld = 'lld-link'
-cpp_ld = 'lld-link'
 ar = 'llvm-lib'
 strip = 'llvm-strip'
 windres = 'llvm-rc'
@@ -13,36 +15,32 @@ cpu_family = 'x86_64'
 cpu = 'x86_64'
 endian = 'little'
 
-[properties]
-needs_exe_wrapper = true
-sys_root = '~/.xwin-cache/splat/'
-
 [built-in options]
 b_vscrt = 'from_buildtype'
 b_staticpic = false
 
 c_args = [
+    # Without an explicit target triple, clang-cl defaults to x86 regardless
+    # of [host_machine]. This is what actually tells the compiler to target x64
+    # and causes the Windows SDK to define _WIN64, SSIZE_T as __int64, etc.
+    '--target=x86_64-pc-windows-msvc',
     '/DNOMINMAX',
     '/DFFI_STATIC_BUILD',
-    '-fuse-ld=lld-link',
-    '--target=x86_64-pc-windows-msvc',
-    '/imsvc~/.xwin-cache/splat/crt/include',
-    '/imsvc~/.xwin-cache/splat/sdk/include/ucrt',
-    '/imsvc~/.xwin-cache/splat/sdk/include/um',
-    '/imsvc~/.xwin-cache/splat/sdk/include/shared',
-    '-fdiagnostics-absolute-paths',
-    '-Wno-unused-command-line-argument', '-Wno-deprecated-declarations']
+    '-Wno-unused-command-line-argument',
+    '-Wno-deprecated-declarations']
 
 cpp_args = [
-    '/DNOMINMAX',
-    '/DFFI_STATIC_BUILD',
-    '-fuse-ld=lld-link',
     '--target=x86_64-pc-windows-msvc',
-    '/imsvc~/.xwin-cache/splat/crt/include',
-    '/imsvc~/.xwin-cache/splat/sdk/include/ucrt',
-    '/imsvc~/.xwin-cache/splat/sdk/include/um',
-    '/imsvc~/.xwin-cache/splat/sdk/include/shared',
-    '-fdiagnostics-absolute-paths',
+    '/DNOMINMAX',
+    '/D_CRT_SECURE_NO_WARNINGS',
+    '/DFFI_STATIC_BUILD',
     '-Wno-unused-variable',
     '-Wno-unused-lambda-capture',
-    '-Wno-unused-command-line-argument', '-Wno-deprecated-declarations']
+    '-Wno-unused-command-line-argument',
+    '-Wno-deprecated-declarations']
+
+# Force x64 linking regardless of what meson auto-detected during setup.
+# Without this, a stale meson cache from a pre-VsVars64 run will pass
+# /MACHINE:x86 to the linker even when all .obj files are x64.
+c_link_args   = ['/MACHINE:X64']
+cpp_link_args = ['/MACHINE:X64']

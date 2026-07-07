@@ -16,7 +16,7 @@ class Character {
         if (this.health < 0) {
             this.health = 0;
         }
-        print(this.name @ " took " @ toString(damage) @ " damage! Health: " @ toString(this.health));
+        print(this.name @ " took " @ to_string(damage) @ " damage! Health: " @ to_string(this.health));
     }
 
     public heal(amount: number) {
@@ -24,12 +24,12 @@ class Character {
         if (this.health > this.maxHealth) {
             this.health = this.maxHealth;
         }
-        print(this.name @ " healed " @ toString(amount) @ " HP! Health: " @ toString(this.health));
+        print(this.name @ " healed " @ to_string(amount) @ " HP! Health: " @ to_string(this.health));
     }
 
     public gainExperience(xp: number) {
         this.experience = this.experience + xp;
-        print(this.name @ " gained " @ toString(xp) @ " XP!");
+        print(this.name @ " gained " @ to_string(xp) @ " XP!");
         
         // Level up at 100 XP
         if (this.experience >= 100) {
@@ -42,13 +42,13 @@ class Character {
         this.experience = this.experience - 100;
         this.maxHealth = this.maxHealth + 20;
         this.health = this.maxHealth;
-        print(this.name @ " leveled up to level " @ toString(this.level) @ "!");
+        print(this.name @ " leveled up to level " @ to_string(this.level) @ "!");
     }
 
     public getStatus() -> string {
-        return this.name @ " [Lv " @ toString(this.level) @ "] HP: " @ 
-               toString(this.health) @ "/" @ toString(this.maxHealth) @ 
-               " XP: " @ toString(this.experience) @ "/100";
+        return this.name @ " [Lv " @ to_string(this.level) @ "] HP: " @ 
+               to_string(this.health) @ "/" @ to_string(this.maxHealth) @ 
+               " XP: " @ to_string(this.experience) @ "/100";
     }
 
     public isAlive() -> bool {
@@ -73,4 +73,4 @@ hero.gainExperience(60);  // This should trigger level up!
 
 print("\n--- Final Status ---");
 print(hero.getStatus());
-print("Alive: " @ toString(hero.isAlive()));
+print("Alive: " @ to_string(hero.isAlive()));

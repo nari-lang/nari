@@ -1,4 +1,2 @@
-let req = http.get("https://example.com");
-
-let response = req.value;
+let response = await http.get("https://www.ssllabs.com/");
 print(response.body);

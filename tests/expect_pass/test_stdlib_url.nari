@@ -1,0 +1,174 @@
+// URL stdlib coverage. Covers percent-encoding, query parsing/formatting,
+// full URL parsing/round-trip, IPv6 hosts, mailto-style URIs, .with(), and
+// error catching.
+
+import { URL } from "std/url";
+
+func assert(cond, msg) {
+    if (!cond) {
+        print("FAIL:", msg);
+        __process_exit(1);
+    }
+}
+
+// -- encode / decode ---------------------------------------------------------
+assert(URL.encode("hello world") == "hello%20world", "encode space");
+assert(URL.encode("a/b:c@d") == "a%2Fb%3Ac%40d", "encode strict component");
+assert(URL.encode_path("/api/v1/users:1") == "/api/v1/users:1", "encode_path keeps reserved");
+assert(URL.encode("Hello, World!") == "Hello%2C%20World%21", "encode punctuation");
+assert(URL.encode("safe-_.~") == "safe-_.~", "unreserved untouched");
+
+// UTF-8 byte round-trip
+let utf8 = "café";
+let enc = URL.encode(utf8);
+assert(enc == "caf%C3%A9", "UTF-8 percent-encoded by byte");
+assert(URL.decode(enc) == utf8, "UTF-8 round-trips");
+
+// decode_form vs decode for '+'
+assert(URL.decode("a+b") == "a+b", "strict decode keeps '+'");
+assert(URL.decode_form("a+b") == "a b", "form decode treats '+' as space");
+assert(URL.decode("100%25") == "100%", "decode percent literal");
+
+// Error cases - both must throw URLError
+let caught1 = false;
+try { URL.decode("%2"); } catch (e) { caught1 = true; }
+assert(caught1, "truncated percent escape throws");
+
+let caught2 = false;
+try { URL.decode("%ZZ"); } catch (e) { caught2 = true; }
+assert(caught2, "invalid hex in percent escape throws");
+
+// -- parse_query / parse_query_all / format_query --------------------------------
+let q = URL.parse_query("a=1&b=hello%20world&c=&d");
+assert(q.a == "1", "query a=1");
+assert(q.b == "hello world", "query decoded");
+assert(q.c == "", "query empty value");
+assert(q.d == "", "query bare key gets empty value");
+
+// Leading '?' tolerated
+let qp = URL.parse_query("?x=10&y=20");
+assert(qp.x == "10" && qp.y == "20", "leading '?' is stripped");
+
+// Form-style '+' decoding
+let qf = URL.parse_query("name=John+Doe");
+assert(qf.name == "John Doe", "+ in query value becomes space");
+
+// Repeated keys - parse_query keeps last
+let qLast = URL.parse_query("k=a&k=b&k=c");
+assert(qLast.k == "c", "parse_query last-wins for duplicates");
+
+// Repeated keys - parse_query_all collects all
+let qAll = URL.parse_query_all("tag=red&tag=green&tag=blue&solo=one");
+assert(is_array(qAll.tag), "tag is array");
+assert(qAll.tag.length() == 3, "tag length 3");
+assert(qAll.tag[0] == "red" && qAll.tag[2] == "blue", "tag values in order");
+assert(qAll.solo == "one", "single-value key stays string");
+
+// Empty / null inputs
+assert(URL.parse_query("").keys().length() == 0, "empty query string -> empty object");
+assert(URL.parse_query(null).keys().length() == 0, "null query string -> empty object");
+assert(URL.format_query(null) == "", "format_query(null) is empty");
+assert(URL.format_query({}) == "", "format_query({}) is empty");
+
+// format_query: numbers, booleans, arrays, null skipped
+let qs = URL.format_query({ a: 1, b: "hi there", c: true, d: ["x", "y"], skipMe: null });
+assert(qs == "a=1&b=hi%20there&c=true&d=x&d=y", "format_query serializes mixed types");
+
+// Round-trip parse_query <- format_query
+let original = { name: "Jane Doe", role: "admin" };
+let rt = URL.parse_query(URL.format_query(original));
+assert(rt.name == "Jane Doe", "round-trip name");
+assert(rt.role == "admin", "round-trip role");
+
+// -- parse: full URL ---------------------------------------------------------
+let u = URL.parse("https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top");
+assert(u.protocol == "https", "protocol");
+assert(u.username == "alice", "username");
+assert(u.password == "s3cr3t", "password");
+assert(u.host == "example.com", "host");
+assert(u.port == "8443", "port");
+assert(u.pathname == "/a/b", "pathname");
+assert(u.search == "x=1&y=2", "search");
+assert(u.hash == "top", "hash");
+assert(u.params.x == "1", "auto-parsed params.x");
+assert(u.params.y == "2", "auto-parsed params.y");
+
+// Round-trip
+assert(u.to_string() == "https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top",
+       "full URL round-trip");
+
+// -- parse: simple http ------------------------------------------------------
+let s = URL.parse("http://example.com/path");
+assert(s.protocol == "http" && s.host == "example.com", "simple http");
+assert(s.username == "" && s.password == "" && s.port == "", "simple has no userinfo/port");
+assert(s.to_string() == "http://example.com/path", "simple round-trip");
+
+// -- parse: no path ----------------------------------------------------------
+let np = URL.parse("https://example.com");
+assert(np.pathname == "", "no path");
+assert(np.to_string() == "https://example.com", "no path round-trip");
+
+// -- parse: query only, no path ----------------------------------------------
+let qonly = URL.parse("https://example.com?foo=bar");
+assert(qonly.search == "foo=bar", "query without path");
+assert(qonly.params.foo == "bar", "params parsed");
+
+// -- parse: fragment with '?' inside -----------------------------------------
+let frag = URL.parse("https://example.com/x?a=1#h?z=2");
+assert(frag.search == "a=1", "search before fragment");
+assert(frag.hash == "h?z=2", "fragment keeps '?'");
+
+// -- parse: IPv6 host --------------------------------------------------------
+let v6 = URL.parse("http://[::1]:8080/x");
+assert(v6.host == "[::1]", "IPv6 host kept bracketed");
+assert(v6.port == "8080", "IPv6 port");
+assert(v6.pathname == "/x", "IPv6 path");
+
+let v6np = URL.parse("http://[2001:db8::1]/api");
+assert(v6np.host == "[2001:db8::1]", "longer IPv6");
+assert(v6np.port == "", "IPv6 without port");
+
+// -- parse: file:// (empty host) ---------------------------------------------
+let f = URL.parse("file:///etc/hosts");
+assert(f.protocol == "file", "file scheme");
+assert(f.host == "", "file empty host");
+assert(f.pathname == "/etc/hosts", "file path");
+
+// -- parse: opaque URI (no authority) ----------------------------------------
+let m = URL.parse("mailto:bob@example.com");
+assert(m.protocol == "mailto", "mailto scheme");
+assert(m.host == "", "mailto no host");
+assert(m.pathname == "bob@example.com", "mailto path holds address");
+
+// -- parse: username only (no password) --------------------------------------
+let uo = URL.parse("ftp://anon@ftp.example.org/pub");
+assert(uo.username == "anon", "ftp username only");
+assert(uo.password == "", "ftp no password");
+assert(uo.host == "ftp.example.org", "ftp host");
+
+// -- parse: percent-encoded userinfo decoded ---------------------------------
+let enc2 = URL.parse("https://us%40er:p%26ss@example.com/");
+assert(enc2.username == "us@er", "username decoded");
+assert(enc2.password == "p&ss", "password decoded");
+
+// -- .with() patches ---------------------------------------------------------
+let base = URL.parse("https://example.com/old?q=1");
+let next = base.with({ pathname: "/new", search: "q=2" });
+assert(next.pathname == "/new", "with pathname");
+assert(next.search == "q=2", "with search");
+assert(next.to_string() == "https://example.com/new?q=2", "with round-trip");
+
+// Base is unchanged
+assert(base.pathname == "/old", "base pathname untouched");
+assert(base.search == "q=1", "base search untouched");
+
+// -- parse: error cases -----------------------------------------------------
+let caughtNoScheme = false;
+try { URL.parse("just a string"); } catch (e) { caughtNoScheme = true; }
+assert(caughtNoScheme, "no scheme throws URLError");
+
+let caughtBadV6 = false;
+try { URL.parse("http://[::1/x"); } catch (e) { caughtBadV6 = true; }
+assert(caughtBadV6, "unterminated IPv6 throws");
+
+print("All URL tests passed.");

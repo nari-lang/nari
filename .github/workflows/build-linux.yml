@@ -1,0 +1,49 @@
+name: Build Linux
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang lld python3-pip ninja-build
+          pip install meson conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Install dependencies via Conan
+        run: |
+          mkdir -p build/conan
+          conan install . --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
+
+      - name: Configure
+        run: meson setup build/release --buildtype=release -Db_lto=true
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/build/conan
+
+      - name: Build
+        run: meson compile -C build/release
+
+      - name: Run tests
+        run: SKIP_NETWORK_TESTS=1 ./run_tests.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nari-linux-x64
+          path: |
+            build/release/interpreter
+            build/release/naric
+            build/release/nari-lsp

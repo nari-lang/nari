@@ -20,7 +20,7 @@ func start() {
     } finally {
         x = x + 1;
     }
-    print("x = " @ toString(x));
+    print("x = " @ to_string(x));
 
     try {
         print("no throw");
@@ -40,6 +40,6 @@ func start() {
     try {
         throw 5;
     } catch (e) {
-        print("num " @ toString(e));
+        print("num " @ to_string(e));
     }
 }

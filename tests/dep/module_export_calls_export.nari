@@ -1,0 +1,7 @@
+export func helper_value() {
+    return 42;
+}
+
+export func use_helper() {
+    return helper_value();
+}

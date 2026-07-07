@@ -55,14 +55,14 @@ import "/usr/local/lib/nari/stdlib.nari";
 
 ```
 project/
-  ├── main.nari
-  ├── lib/
-  │   ├── utils.nari
-  │   ├── helpers.nari
-  │   └── constants.nari
-  └── modules/
-      ├── user.nari
-      └── database.nari
+  +-- main.nari
+  +-- lib/
+  |   +-- utils.nari
+  |   +-- helpers.nari
+  |   +-- constants.nari
+  +-- modules/
+      +-- user.nari
+      +-- database.nari
 ```
 
 ### Module Pattern
@@ -85,13 +85,13 @@ global UserModule = {
         if (!user.name || user.name.length() < 3) {
             return false;
         }
-        if (user.email.indexOf("@") == -1) {
+        if (user.email.index_of("@") == -1) {
             return false;
         }
         return true;
     },
     
-    toString: func(user) {
+    to_string: func(user) {
         return user.name @ " <" @ user.email @ ">";
     }
 };
@@ -103,7 +103,7 @@ import "user_module.nari";
 
 let user = UserModule.create("Alice", "alice@example.com");
 if (UserModule.validate(user)) {
-    print(UserModule.toString(user));
+    print(UserModule.to_string(user));
 }
 ```
 
@@ -226,15 +226,15 @@ See [Standard Library](12-stdlib.md) for details.
 global StringUtils = {
     capitalize: func(str) {
         if (str.length() == 0) return str;
-        let first = str.charAt(0);
+        let first = str.char_at(0);
         let rest = str.substr(1, str.length());
-        return first.toUpper() @ rest;
+        return first.to_upper() @ rest;
     },
     
     reverse: func(str) {
         let result = "";
         for (let i = str.length() - 1; i >= 0; i--) {
-            result = result @ str.charAt(i);
+            result = result @ str.char_at(i);
         }
         return result;
     },
@@ -377,7 +377,7 @@ Make it clear what's exported:
 
 // Private helper
 func validateEmail(email) {
-    return email.indexOf("@") != -1;
+    return email.index_of("@") != -1;
 }
 
 // Public API

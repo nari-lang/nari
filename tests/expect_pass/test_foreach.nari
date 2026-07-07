@@ -5,7 +5,7 @@ func start() {
     for (item in arr) {
         total = total + item;
     }
-    print("sum = " @ toString(total));
+    print("sum = " @ to_string(total));
 
     let out = "";
     for (ch in ["a", "b", "c"]) {

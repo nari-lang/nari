@@ -39,79 +39,79 @@ typeof(null);        // "null"
 **Parameters:** `value` - Any value  
 **Returns:** String type name
 
-### isNumber
+### is_number
 
 Check if a value is a number.
 
 ```nari
-isNumber(42);        // true
-isNumber("42");      // false
-isNumber(3.14);      // true
+is_number(42);        // true
+is_number("42");      // false
+is_number(3.14);      // true
 ```
 
 **Parameters:** `value`  
 **Returns:** Boolean
 
-### isString
+### is_string
 
 Check if a value is a string.
 
 ```nari
-isString("hello");   // true
-isString(42);        // false
-isString("");        // true
+is_string("hello");   // true
+is_string(42);        // false
+is_string("");        // true
 ```
 
 **Parameters:** `value`  
 **Returns:** Boolean
 
-### isBool
+### is_bool
 
 Check if a value is a boolean.
 
 ```nari
-isBool(true);        // true
-isBool(false);       // true
-isBool(1);           // false
+is_bool(true);        // true
+is_bool(false);       // true
+is_bool(1);           // false
 ```
 
 **Parameters:** `value`  
 **Returns:** Boolean
 
-### isArray
+### is_array
 
 Check if a value is an array.
 
 ```nari
-isArray([1, 2, 3]);  // true
-isArray({});         // false
-isArray("array");    // false
+is_array([1, 2, 3]);  // true
+is_array({});         // false
+is_array("array");    // false
 ```
 
 **Parameters:** `value`  
 **Returns:** Boolean
 
-### isObject
+### is_object
 
 Check if a value is an object.
 
 ```nari
-isObject({a: 1});    // true
-isObject([1, 2]);    // false
-isObject(null);      // false
+is_object({a: 1});    // true
+is_object([1, 2]);    // false
+is_object(null);      // false
 ```
 
 **Parameters:** `value`  
 **Returns:** Boolean
 
-### isFunction
+### is_function
 
 Check if a value is a function.
 
 ```nari
-isFunction(func(){});           // true
-isFunction(print);              // true
-isFunction("not a function");   // false
+is_function(func(){});           // true
+is_function(print);              // true
+is_function("not a function");   // false
 ```
 
 **Parameters:** `value`  
@@ -119,47 +119,47 @@ isFunction("not a function");   // false
 
 ## Type Conversion
 
-### toNumber
+### to_number
 
 Convert a value to a number.
 
 ```nari
-toNumber("42");      // 42
-toNumber("3.14");    // 3.14
-toNumber(true);      // 1
-toNumber(false);     // 0
-toNumber("abc");     // 0 (invalid conversion)
+to_number("42");      // 42
+to_number("3.14");    // 3.14
+to_number(true);      // 1
+to_number(false);     // 0
+to_number("abc");     // 0 (invalid conversion)
 ```
 
 **Parameters:** `value`  
 **Returns:** Number
 
-### toString
+### to_string
 
 Convert a value to a string.
 
 ```nari
-toString(42);        // "42"
-toString(3.14);      // "3.14"
-toString(true);      // "true"
-toString([1, 2]);    // "[1, 2]"
-toString({a: 1});    // "{a: 1}"
+to_string(42);        // "42"
+to_string(3.14);      // "3.14"
+to_string(true);      // "true"
+to_string([1, 2]);    // "[1, 2]"
+to_string({a: 1});    // "{a: 1}"
 ```
 
 **Parameters:** `value`  
 **Returns:** String
 
-### toBool
+### to_bool
 
 Convert a value to a boolean.
 
 ```nari
-toBool(1);           // true
-toBool(0);           // false
-toBool("text");      // true
-toBool("");          // false
-toBool([]);          // false
-toBool([1]);         // true
+to_bool(1);           // true
+to_bool(0);           // false
+to_bool("text");      // true
+to_bool("");          // false
+to_bool([]);          // false
+to_bool([1]);         // true
 ```
 
 **Parameters:** `value`  
@@ -275,40 +275,40 @@ str.substr(7);       // "World!"
 
 **Returns:** String
 
-### charAt
+### char_at
 
 Get character at a specific index.
 
 ```nari
-"Hello".charAt(0);   // "H"
-"Hello".charAt(4);   // "o"
+"Hello".char_at(0);   // "H"
+"Hello".char_at(4);   // "o"
 ```
 
 **Parameters:** `index`
 
 **Returns:** String (single character)
 
-### indexOf
+### index_of
 
 Find the first occurrence of a substring.
 
 ```nari
-"Hello, World!".indexOf("o");     // 4
-"Hello, World!".indexOf("World"); // 7
-"Hello".indexOf("x");             // -1 (not found)
+"Hello, World!".index_of("o");     // 4
+"Hello, World!".index_of("World"); // 7
+"Hello".index_of("x");             // -1 (not found)
 ```
 
 **Parameters:** `searchString`
 
 **Returns:** Number (index, or -1 if not found)
 
-### lastIndexOf
+### last_index_of
 
 Find the last occurrence of a substring.
 
 ```nari
-"Hello, World!".lastIndexOf("o");  // 8
-"abcabc".lastIndexOf("a");         // 3
+"Hello, World!".last_index_of("o");  // 8
+"abcabc".last_index_of("a");         // 3
 ```
 
 **Parameters:** `searchString`
@@ -344,13 +344,13 @@ Replace the first occurrence of a substring.
 
 **Returns:** New string
 
-### replaceAll
+### replace_all
 
 Replace all occurrences of a substring.
 
 ```nari
-"abc abc abc".replaceAll("abc", "xyz");  // "xyz xyz xyz"
-"Hello".replaceAll("l", "L");            // "HeLLo"
+"abc abc abc".replace_all("abc", "xyz");  // "xyz xyz xyz"
+"Hello".replace_all("l", "L");            // "HeLLo"
 ```
 
 **Parameters:**
@@ -371,51 +371,51 @@ Remove whitespace from both ends.
 **Parameters:** None  
 **Returns:** Trimmed string
 
-### toUpper
+### to_upper
 
 Convert to uppercase.
 
 ```nari
-"hello".toUpper();     // "HELLO"
-"Hello!".toUpper();    // "HELLO!"
+"hello".to_upper();     // "HELLO"
+"Hello!".to_upper();    // "HELLO!"
 ```
 
 **Parameters:** None  
 **Returns:** Uppercase string
 
-### toLower
+### to_lower
 
 Convert to lowercase.
 
 ```nari
-"HELLO".toLower();     // "hello"
-"Hello!".toLower();    // "hello!"
+"HELLO".to_lower();     // "hello"
+"Hello!".to_lower();    // "hello!"
 ```
 
 **Parameters:** None  
 **Returns:** Lowercase string
 
-### startsWith
+### starts_with
 
 Check if string starts with a substring.
 
 ```nari
-"Hello, World!".startsWith("Hello");  // true
-"Hello".startsWith("Hi");             // false
+"Hello, World!".starts_with("Hello");  // true
+"Hello".starts_with("Hi");             // false
 ```
 
 **Parameters:** `prefix`
 
 **Returns:** Boolean
 
-### endsWith
+### ends_with
 
 Check if string ends with a substring.
 
 ```nari
-"Hello, World!".endsWith("World!");   // true
-"Hello".endsWith("o");                // true
-"Hello".endsWith("x");                // false
+"Hello, World!".ends_with("World!");   // true
+"Hello".ends_with("o");                // true
+"Hello".ends_with("x");                // false
 ```
 
 **Parameters:** `suffix`
@@ -450,14 +450,14 @@ obj.values();  // ["Alice", 30]
 **Parameters:** None  
 **Returns:** Array of values
 
-### hasKey
+### has_key
 
 Check if an object has a specific key.
 
 ```nari
 let obj = {name: "Alice"};
-obj.hasKey("name");   // true
-obj.hasKey("age");    // false
+obj.has_key("name");   // true
+obj.has_key("age");    // false
 ```
 
 **Parameters:** `key` - Property name (string)
@@ -466,12 +466,12 @@ obj.hasKey("age");    // false
 
 ## Timing Functions
 
-### setTimeout
+### set_timeout
 
 Execute a function after a delay.
 
 ```nari
-setTimeout(func() {
+set_timeout(func() {
     print("This runs after 2 seconds");
 }, 2000);
 ```
@@ -482,12 +482,12 @@ setTimeout(func() {
 
 **Returns:** Timer ID (for potential cancellation)
 
-### setInterval
+### set_interval
 
 Execute a function repeatedly at intervals.
 
 ```nari
-let intervalId = setInterval(func() {
+let intervalId = set_interval(func() {
     print("This runs every second");
 }, 1000);
 ```
@@ -498,44 +498,168 @@ let intervalId = setInterval(func() {
 
 **Returns:** Interval ID
 
-### clearInterval
+### clear_interval
 
 Stop a repeating interval.
 
 ```nari
-let id = setInterval(func() { print("tick"); }, 1000);
+let id = set_interval(func() { print("tick"); }, 1000);
 // Later...
-clearInterval(id);
+clear_interval(id);
 ```
 
-**Parameters:** `intervalId` - ID from setInterval  
+**Parameters:** `intervalId` - ID from set_interval  
 **Returns:** None
 
 ## Console Input
 
-### readLine
+### read_line
 
 Read a line from standard input.
 
 ```nari
-let name = readLine();
+let name = read_line();
 print("Hello, " @ name @ "!");
 ```
 
 **Parameters:** None  
 **Returns:** String (input line)
 
-### readAll
+### read_all
 
 Read all remaining input from stdin.
 
 ```nari
-let content = readAll();
+let content = read_all();
 print("You entered: " @ content);
 ```
 
 **Parameters:** None  
 **Returns:** String (all input)
+
+## Numeric and Utility Functions
+
+### parse_int
+
+Parse an integer from a string.
+
+```nari
+parse_int("42");       // 42
+parse_int("3.9");      // 3
+```
+
+**Parameters:** `value`  
+**Returns:** Number (integer)
+
+### parse_float
+
+Parse a floating-point number from a string.
+
+```nari
+parse_float("3.14");   // 3.14
+parse_float("10");     // 10
+```
+
+**Parameters:** `value`  
+**Returns:** Number
+
+### random
+
+Return a random float in the range `[0, 1)`.
+
+```nari
+let r = random();     // e.g. 0.4271...
+```
+
+**Parameters:** None  
+**Returns:** Number
+
+### range
+
+Generate an array of integers. Supports `range(stop)`, `range(start, stop)`, and
+`range(start, stop, step)`.
+
+```nari
+range(5);          // [0, 1, 2, 3, 4]
+range(2, 6);       // [2, 3, 4, 5]
+range(0, 10, 2);   // [0, 2, 4, 6, 8]
+```
+
+**Returns:** Array of numbers
+
+### contains
+
+Check whether an array contains a value.
+
+```nari
+contains([1, 2, 3], 2);   // true
+contains([1, 2, 3], 9);   // false
+```
+
+**Parameters:** `array`, `value`  
+**Returns:** Boolean
+
+### from_char_code
+
+Create a single-character string from a character code.
+
+```nari
+from_char_code(65);   // "A"
+from_char_code(97);   // "a"
+```
+
+**Parameters:** `code`  
+**Returns:** String (single character)
+
+### time
+
+Return the current time (seconds since the Unix epoch).
+
+```nari
+let now = time();
+```
+
+**Parameters:** None  
+**Returns:** Number
+
+## Delegates
+
+Delegates wrap a target object together with a handler, allowing method
+interception/proxying.
+
+### Delegate
+
+Create a delegate from a target and a handler.
+
+```nari
+let d = Delegate(target, handler);
+```
+
+**Parameters:** `target`, `handler`  
+**Returns:** Delegate
+
+### is_delegate
+
+Check whether a value is a delegate.
+
+```nari
+is_delegate(d);   // true
+```
+
+**Parameters:** `value`  
+**Returns:** Boolean
+
+### delegate_target / delegate_handler
+
+Retrieve the target object or handler from a delegate.
+
+```nari
+let t = delegate_target(d);
+let h = delegate_handler(d);
+```
+
+**Parameters:** `delegate`  
+**Returns:** The target object / handler
 
 ## Next Steps
 

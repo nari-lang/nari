@@ -131,22 +131,20 @@ func gc_stress() {
     // Final stats
     system.print("\nFinal Statistics");
     let finalStats = __gc_stats();
-    let totalFreed = finalStats.totalCollected + finalStats.refcountFreed;
+    let totalFreed = finalStats.totalCollected;
     system.print("Total allocations: " @ finalStats.totalAllocated);
     system.print("Total collections: " @ finalStats.totalCollections);
-    system.print("Cycles collected (GC): " @ finalStats.totalCollected);
-    system.print("Refcount freed (auto): " @ finalStats.refcountFreed);
+    system.print("Objects collected (GC): " @ finalStats.totalCollected);
     system.print("Total freed: " @ totalFreed @ " / " @ finalStats.totalAllocated);
     system.print("Peak tracked: " @ finalStats.peakTracked);
     system.print("Currently tracked: " @ finalStats.tracked);
     system.print("Overall freed: " @ (totalFreed * 100 / finalStats.totalAllocated) @ "%");
-    system.print("Cycle collection rate: " @ (finalStats.totalCollected * 100 / finalStats.totalAllocated) @ "%");
+    system.print("Collection rate: " @ (finalStats.totalCollected * 100 / finalStats.totalAllocated) @ "%");
 
     system.print("\nStress test completed!");
 }
 
 gc_stress();
 __gc_collect();
-
 
 

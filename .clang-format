@@ -1,0 +1,13 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+IndentCaseLabels: true
+Language: Cpp
+# Force pointers to the type for C++.
+DerivePointerAlignment: false
+PointerAlignment: Right
+InsertBraces: true
+
+ColumnLimit: 0
+Cpp11BracedListStyle: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None

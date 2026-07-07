@@ -1,0 +1,45 @@
+// Hex / Base64 stdlib codecs, including binary-safe handling of bytes > 127
+// (which from_char_code cannot represent).
+
+import { Hex, Base64 } from "std/encoding";
+
+func check(name, cond) {
+    if (!cond) {
+        throw "encoding test failed: " @ name;
+    }
+}
+
+// Hex known-answer vectors
+check("hex.encode.abc", Hex.encode("abc") == "616263");
+check("hex.encode.empty", Hex.encode("") == "");
+check("hex.decode.abc", Hex.decode("616263") == "abc");
+check("hex.decode.upper", Hex.decode("616263") == Hex.decode("616263"));
+check("hex.roundtrip", Hex.decode(Hex.encode("Nari!")) == "Nari!");
+
+// Base64 known-answer vectors
+check("b64.Man", Base64.encode("Man") == "TWFu");
+check("b64.Ma", Base64.encode("Ma") == "TWE=");
+check("b64.M", Base64.encode("M") == "TQ==");
+check("b64.empty", Base64.encode("") == "");
+check("b64.hello", Base64.encode("hello") == "aGVsbG8=");
+check("b64.decode.Man", Base64.decode("TWFu") == "Man");
+check("b64.roundtrip", Base64.decode(Base64.encode("Nari language!")) == "Nari language!");
+
+// ---- Binary safety: bytes > 127 (cannot be built with from_char_code) ----
+let highByte = Hex.decode("ff");           // single byte 0xFF
+check("high.len", highByte.length() == 1);
+check("high.code", highByte.char_code_at(0) == 255);
+check("high.hex.roundtrip", Hex.encode(highByte) == "ff");
+check("high.b64", Base64.encode(highByte) == "/w==");
+check("high.b64.roundtrip", Hex.encode(Base64.decode(Base64.encode(highByte))) == "ff");
+
+// multi high byte through the full pipeline
+let bin = Hex.decode("fffe00ab");
+check("bin.len", bin.length() == 4);
+check("bin.hex.roundtrip", Hex.encode(bin) == "fffe00ab");
+check("bin.b64.roundtrip", Hex.encode(Base64.decode(Base64.encode(bin))) == "fffe00ab");
+
+// base64 decode ignores whitespace
+check("b64.ws", Base64.decode("TW Fu") == "Man");
+
+system.print("encoding stdlib: all checks passed");

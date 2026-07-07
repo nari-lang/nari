@@ -1,0 +1,281 @@
+// -- URL ---------------------------------------------------------------------
+// Permissive parser/builder for URLs of the shape
+//  scheme://[user[:pass]@]host[:port][/path][?query][#fragment]
+// Parsing is intentionally lenient (does not enforce host syntax) so that
+// it works for HTTP, ws://, file://, custom schemes, etc. For strict
+// WHATWG-conformant parsing you would want a dedicated native parser; this
+// is the 95% case for stdlib consumers.
+//
+//  import { URL } from "std/url";
+//  let u = URL.parse("https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top");
+//  u.protocol; // "https"
+//  u.host;  // "example.com"
+//  u.params;  // { x: "1", y: "2" }
+//  u.to_string();
+//
+// Percent-encoding helpers:
+//  URL.encode(s) / URL.decode(s)  - strict component encoding
+//  (slashes encoded too).
+//  URL.encode_path(s)  - path-safe (keeps "/" ":").
+//  URL.parse_query(s) / URL.format_query(obj)  - `?k=v&k2=v2` <-> object.
+
+export let URL = {
+  // Component-encode a string (everything but unreserved is %XX).
+  // Use for query keys/values, username, password, fragment.
+  encode: func(s) { return __url_encode(s, "component"); },
+
+  // Path-safe encode (leaves "/" ":" "@" untouched). Use for path
+  // segments where slashes are meaningful.
+  encode_path: func(s) { return __url_encode(s, "path"); },
+
+  // Decode a percent-encoded string. Throws URLError on malformed input.
+  decode: func(s) { return __url_decode(s, false); },
+
+  // Decode as application/x-www-form-urlencoded ("+" -> space).
+  decode_form: func(s) { return __url_decode(s, true); },
+
+  // Parse a query string ("a=1&b=2" or "?a=1&b=2") into an object.
+  // Repeated keys collapse to the LAST value. Use parse_query_all for arrays.
+  parse_query: func(s) {
+      let out = {};
+      if (s == null || s == "") { return out; }
+      if (s.char_at(0) == "?") { s = s.substr(1); }
+      let pairs = s.split("&");
+      let i = 0;
+      while (i < pairs.length()) {
+          let p = pairs[i];
+          if (p != "") {
+              let eq = p.index_of("=");
+              let k = "";
+              let v = "";
+              if (eq < 0) {
+                  k = __url_decode(p, true);
+              } else {
+                  k = __url_decode(p.substr(0, eq), true);
+                  v = __url_decode(p.substr(eq + 1), true);
+              }
+              out[k] = v;
+          }
+          i = i + 1;
+      }
+      return out;
+  },
+
+  // Like parse_query but preserves all values for repeated keys.
+  // Single-value keys still map to a string; repeated keys map to an array.
+  parse_query_all: func(s) {
+      let out = {};
+      if (s == null || s == "") { return out; }
+      if (s.char_at(0) == "?") { s = s.substr(1); }
+      let pairs = s.split("&");
+      let i = 0;
+      while (i < pairs.length()) {
+          let p = pairs[i];
+          if (p != "") {
+              let eq = p.index_of("=");
+              let k = "";
+              let v = "";
+              if (eq < 0) {
+                  k = __url_decode(p, true);
+              } else {
+                  k = __url_decode(p.substr(0, eq), true);
+                  v = __url_decode(p.substr(eq + 1), true);
+              }
+              let existing = out[k];
+              if (existing == null) {
+                  out[k] = v;
+              } else {
+                  if (is_array(existing)) {
+                      existing.push(v);
+                  } else {
+                      out[k] = [existing, v];
+                  }
+              }
+          }
+          i = i + 1;
+      }
+      return out;
+  },
+
+  // Format an object as a query string. Values may be strings, numbers,
+  // bools, or arrays (each element emitted as a separate k=v pair).
+  // Null values are skipped. Output does NOT include a leading "?".
+  format_query: func(obj) {
+      if (obj == null) { return ""; }
+      let keys = obj.keys();
+      let parts = [];
+      let i = 0;
+      while (i < keys.length()) {
+          let k = keys[i];
+          let v = obj[k];
+          if (v != null) {
+              let ek = __url_encode(k, "component");
+              if (is_array(v)) {
+                  let j = 0;
+                  while (j < v.length()) {
+                      parts.push(ek @ "=" @ __url_encode("" @ v[j], "component"));
+                      j = j + 1;
+                  }
+              } else {
+                  parts.push(ek @ "=" @ __url_encode("" @ v, "component"));
+              }
+          }
+          i = i + 1;
+      }
+      return parts.join("&");
+  },
+
+  // Parse a full URL string. Returns an instance object with fields and
+  // helper methods. Throws URLError if the scheme is missing.
+  parse: func(s) {
+      if (s == null || typeof(s) != "string") {
+          throw "URLError: parse expects a string";
+      }
+      let rest = s;
+
+      // 1. fragment (#...) - split off first so it can contain '?'.
+      let hash = "";
+      let hi = rest.index_of("#");
+      if (hi >= 0) {
+          hash = rest.substr(hi + 1);
+          rest = rest.substr(0, hi);
+      }
+
+      // 2. query (?...)
+      let search = "";
+      let qi = rest.index_of("?");
+      if (qi >= 0) {
+          search = rest.substr(qi + 1);
+          rest = rest.substr(0, qi);
+      }
+
+      // 3. scheme:
+      let protocol = "";
+      let ci = rest.index_of(":");
+      if (ci < 0) {
+          throw "URLError: missing scheme in '" @ s @ "'";
+      }
+      protocol = rest.substr(0, ci);
+      rest = rest.substr(ci + 1);
+
+      // 4. authority (//user:pass@host:port)
+      let username = "";
+      let password = "";
+      let host = "";
+      let port = "";
+      let pathname = "";
+      if (rest.length() >= 2 && rest.substr(0, 2) == "//") {
+          rest = rest.substr(2);
+          // path begins at next '/' (if any).
+          let slash = rest.index_of("/");
+          let authority = rest;
+          if (slash >= 0) {
+              authority = rest.substr(0, slash);
+              pathname = rest.substr(slash);
+          }
+          // userinfo
+          let at = authority.last_index_of("@");
+          if (at >= 0) {
+              let userinfo = authority.substr(0, at);
+              authority = authority.substr(at + 1);
+              let colon = userinfo.index_of(":");
+              if (colon >= 0) {
+                  username = __url_decode(userinfo.substr(0, colon), false);
+                  password = __url_decode(userinfo.substr(colon + 1), false);
+              } else {
+                  username = __url_decode(userinfo, false);
+              }
+          }
+          // host[:port] - IPv6 bracketed addresses keep their ':' inside [].
+          if (authority.length() > 0 && authority.char_at(0) == "[") {
+              let close = authority.index_of("]");
+              if (close < 0) {
+                  throw "URLError: unterminated IPv6 host in '" @ s @ "'";
+              }
+              host = authority.substr(0, close + 1);
+              if (close + 1 < authority.length() && authority.char_at(close + 1) == ":") {
+                  port = authority.substr(close + 2);
+              }
+          } else {
+              let pcolon = authority.last_index_of(":");
+              if (pcolon >= 0) {
+                  host = authority.substr(0, pcolon);
+                  port = authority.substr(pcolon + 1);
+              } else {
+                  host = authority;
+              }
+          }
+      } else {
+          // No authority - treat the rest as the path (e.g. mailto:, data:).
+          pathname = rest;
+      }
+
+      let self = {
+          protocol: protocol,
+          username: username,
+          password: password,
+          host: host,
+          port: port,
+          pathname: pathname,
+          search: search,
+          hash: hash,
+          params: URL.parse_query(search)
+      };
+      self.to_string = func() { return URL.create(self); };
+      self.with = func(patch) {
+          // Shallow-merge `patch` into a copy of self and reparse.
+          let merged = {
+              protocol: self.protocol,
+              username: self.username,
+              password: self.password,
+              host: self.host,
+              port: self.port,
+              pathname: self.pathname,
+              search: self.search,
+              hash: self.hash
+          };
+          let pkeys = patch.keys();
+          let i = 0;
+          while (i < pkeys.length()) {
+              let k = pkeys[i];
+              merged[k] = patch[k];
+              i = i + 1;
+          }
+          return URL.parse(URL.create(merged));
+      };
+      return self;
+  },
+
+  // Build a URL string from an object of parts
+  create: func(parts) {
+      if (parts == null) { return ""; }
+      let proto = "";
+      if (parts.protocol != null) { proto = parts.protocol; }
+      let out = proto @ ":";
+      let has_host = (parts.host != null && parts.host != "");
+      if (has_host) {
+          out = out @ "//";
+          if (parts.username != null && parts.username != "") {
+              out = out @ __url_encode(parts.username, "component");
+              if (parts.password != null && parts.password != "") {
+                  out = out @ ":" @ __url_encode(parts.password, "component");
+              }
+              out = out @ "@";
+          }
+          out = out @ parts.host;
+          if (parts.port != null && parts.port != "") {
+              out = out @ ":" @ ("" @ parts.port);
+          }
+      }
+      if (parts.pathname != null && parts.pathname != "") {
+          out = out @ parts.pathname;
+      }
+      if (parts.search != null && parts.search != "") {
+          out = out @ "?" @ parts.search;
+      }
+      if (parts.hash != null && parts.hash != "") {
+          out = out @ "#" @ parts.hash;
+      }
+      return out;
+  }
+};

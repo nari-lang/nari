@@ -1,0 +1,78 @@
+// Random stdlib: seedable xorshift32 PRNG.
+
+import { Random } from "std/random";
+
+func check(name, cond) {
+    if (!cond) { throw "Random test failed: " @ name; }
+}
+
+// Determinism: same seed -> identical sequence
+let a = Random.create(12345);
+let b = Random.create(12345);
+let i = 0;
+while (i < 50) {
+    check("same seed step " @ i, a.next() == b.next());
+    i = i + 1;
+}
+
+// Different seeds -> different sequences (overwhelmingly likely)
+let c = Random.create(1);
+let d = Random.create(2);
+let differ = false;
+let j = 0;
+while (j < 10) {
+    if (c.next() != d.next()) { differ = true; }
+    j = j + 1;
+}
+check("different seeds differ", differ);
+
+// next() always non-negative and bounded
+let e = Random.create(99);
+let k = 0;
+while (k < 100) {
+    let v = e.next();
+    check("next non-negative", v >= 0);
+    check("next bounded", v < 2147483648);
+    k = k + 1;
+}
+
+// next_float in [0, 1)
+let f = Random.create(7);
+let n = 0;
+while (n < 100) {
+    let x = f.next_float();
+    check("float >= 0", x >= 0);
+    check("float < 1", x < 1);
+    n = n + 1;
+}
+
+// next_int in [lo, hi)
+let g = Random.create(11);
+let m = 0;
+while (m < 200) {
+    let x = g.next_int(10, 20);
+    check("next_int >= lo", x >= 10);
+    check("next_int < hi", x < 20);
+    m = m + 1;
+}
+
+// pick
+let h = Random.create(3);
+let arr = ["a", "b", "c"];
+let p = 0;
+while (p < 50) {
+    let v = h.pick(arr);
+    check("pick membership", v == "a" || v == "b" || v == "c");
+    p = p + 1;
+}
+check("pick empty", h.pick([]) == null);
+
+// seed=0 is rescued (xorshift cannot recover from 0)
+let z = Random.create(0);
+check("seed 0 rescued", z.next() != 0);
+
+// no-arg create uses math.rand for seeding; just check it doesn't crash
+let u = Random.create(null);
+let _ = u.next();
+
+print("Random stdlib OK");

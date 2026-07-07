@@ -1,0 +1,48 @@
+// -- spawn expression in bytecode mode ----------------------------------------
+
+// 1. spawn returns a handle
+let h = spawn { return 42 }
+if (typeof(h) != "handle") { throw "spawn should return a handle, got: " @ typeof(h) }
+
+// 2. .value resolves to the return value
+if (h.value != 42) { throw "spawn handle .value should be 42" }
+
+// 3. spawn with computation
+let h2 = spawn {
+    let x = 10
+    let y = 20
+    return x + y
+}
+if (h2.value != 30) { throw "spawn computation: expected 30, got " @ string(h2.value) }
+
+// 4. spawn with string return
+let h3 = spawn { return "hello" }
+if (h3.value != "hello") { throw "spawn string: expected 'hello'" }
+
+// 5. .ready is true after completion
+let h4 = spawn { return true }
+h4.value  // wait for completion
+if (!h4.ready) { throw "handle.ready should be true after .value access" }
+
+// 6. .failed is false on successful spawn
+let h5 = spawn { return 0 }
+h5.value  // wait
+if (h5.failed) { throw "handle.failed should be false on success" }
+
+// 7. spawn with no explicit return gives null
+let h6 = spawn { let x = 1 + 1 }
+if (h6.value != null) { throw "spawn with no return should give null" }
+
+// 8. multiple concurrent spawns sum correctly
+let a = spawn { return 1 }
+let b = spawn { return 2 }
+let c = spawn { return 3 }
+if (a.value + b.value + c.value != 6) { throw "multiple spawns: expected sum 6" }
+
+// 9. spawn captures outer variable
+let base = 100
+let hc = spawn { return base + 1 }
+if (hc.value != 101) { throw "spawn should capture outer variable, expected 101" }
+
+print("All spawn tests passed.")
+

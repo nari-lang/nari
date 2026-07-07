@@ -1,0 +1,228 @@
+name: Release
+
+# Tag-driven release pipeline. On tag push (vX.Y.Z) this builds the
+# `nari` runtime for all four host targets, packages them into tarballs,
+# and uploads them (with per-file .sha256 + a combined SHASUMS256.txt)
+# as a GitHub Release. install.sh / Homebrew tap / AUR all consume those
+# artifacts by URL + sha256.
+#
+# Manual dispatch is supported for dry-runs: it builds + uploads workflow
+# artifacts but does NOT create a Release.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to use for the dry-run artifact name (e.g. v0.0.0-dev)'
+        required: false
+        default: 'v0.0.0-dev'
+
+permissions:
+  contents: write   # required for softprops/action-gh-release
+
+jobs:
+  build:
+    name: Build ${{ matrix.os_label }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            os_label: linux
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            os_label: linux
+            arch: aarch64
+          - runner: macos-13
+            os_label: macos
+            arch: x86_64
+          - runner: macos-14
+            os_label: macos
+            arch: aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="${{ github.event.inputs.tag }}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building ${VERSION} for ${{ matrix.os_label }}-${{ matrix.arch }}"
+
+      # ----- Toolchain -----
+      - name: Install Linux build tools
+        if: matrix.os_label == 'linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang lld python3-pip ninja-build
+          pip install --break-system-packages meson conan
+
+      - name: Install macOS build tools
+        if: matrix.os_label == 'macos'
+        run: |
+          # macos runners ship Python; we just need meson + ninja + conan on top.
+          # Pin nothing here \u2014 latest stable is fine and we surface failures
+          # via the build job. Homebrew is preinstalled on the runner.
+          brew install ninja
+          python3 -m pip install --break-system-packages --user meson conan
+          echo "$HOME/Library/Python/3.*/bin" >> "$GITHUB_PATH"
+          # Some macos images put pip user bin elsewhere; add the common ones.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Install dependencies via Conan
+        run: |
+          mkdir -p build/conan
+          conan install . --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
+
+      # ----- Build -----
+      - name: Configure (release + LTO)
+        run: meson setup build/release --buildtype=release -Db_lto=true
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/build/conan
+
+      - name: Compile
+        run: meson compile -C build/release
+
+      - name: Smoke test interpreter
+        shell: bash
+        run: |
+          ./build/release/interpreter --help >/dev/null
+          printf 'print("hello from %s/%s");\n' "${{ matrix.os_label }}" "${{ matrix.arch }}" > /tmp/smoke.nari
+          ./build/release/interpreter /tmp/smoke.nari
+
+      # ----- Package -----
+      #
+      # Tarball layout (extracted):
+      #   nari-<version>-<os>-<arch>/
+      #     bin/
+      #       nari               (renamed from build/release/interpreter)
+      #       naric              (compiler frontend)
+      #       npkg               (shebang wrapper; relative-resolves lib/npkg)
+      #     lib/
+      #       npkg/              (Nari source tree: main.nari + lib/*.nari)
+      #     LICENSE
+      #     README.md
+      #
+      # The npkg wrapper finds its sibling `lib/npkg/main.nari` by walking
+      # `$0` and stripping `/bin/npkg`. This is portable across
+      # bash/dash/zsh and survives symlinks via the readlink loop.
+      - name: Stage release tree
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          NAME="nari-${VERSION}-${{ matrix.os_label }}-${{ matrix.arch }}"
+          STAGE="dist/${NAME}"
+          mkdir -p "${STAGE}/bin" "${STAGE}/lib/npkg"
+
+          # Strip + rename interpreter -> nari
+          cp build/release/interpreter "${STAGE}/bin/nari"
+          cp build/release/naric       "${STAGE}/bin/naric"
+          if command -v strip >/dev/null 2>&1; then
+            strip "${STAGE}/bin/nari" || true
+            strip "${STAGE}/bin/naric" || true
+          fi
+
+          # npkg script tree
+          cp -R npkg-frontend/npkg/. "${STAGE}/lib/npkg/"
+
+          # npkg shebang wrapper. Resolves its own dir, then invokes the
+          # sibling `nari` against `lib/npkg/main.nari`. POSIX sh-safe.
+          cat > "${STAGE}/bin/npkg" <<'WRAPPER'
+          #!/bin/sh
+          # nari package manager launcher (installed by nari release tarball)
+          # Resolves $0 through any symlinks so installs into ~/.nari/bin or
+          # /usr/local/bin both find the sibling lib tree.
+          self="$0"
+          while [ -L "$self" ]; do
+            link=$(readlink "$self")
+            case "$link" in
+              /*) self="$link" ;;
+              *)  self="$(dirname "$self")/$link" ;;
+            esac
+          done
+          bindir="$(cd "$(dirname "$self")" && pwd)"
+          root="$(dirname "$bindir")"
+          exec "$bindir/nari" "$root/lib/npkg/main.nari" "$@"
+          WRAPPER
+          chmod +x "${STAGE}/bin/npkg"
+
+          # Docs / license
+          cp LICENSE   "${STAGE}/LICENSE"   || true
+          cp README.md "${STAGE}/README.md" || true
+
+          # Tar + sha256. Use gnu tar features on linux, bsdtar on mac \u2014
+          # both accept these flags. Deterministic ordering keeps sha256
+          # stable across reruns of the same commit.
+          ( cd dist && tar --format=ustar -czf "${NAME}.tar.gz" "${NAME}" )
+          ( cd dist && shasum -a 256 "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256" )
+
+          echo "name=${NAME}"           >> "$GITHUB_OUTPUT"
+          echo "tarball=dist/${NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "sha256=dist/${NAME}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
+
+          ls -la dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.stage.outputs.name }}
+          path: |
+            ${{ steps.stage.outputs.tarball }}
+            ${{ steps.stage.outputs.sha256 }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    # Skip release publish on manual dispatch; artifacts are still available
+    # via the workflow run page for inspection.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Combined SHASUMS256.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          # Concatenate per-tarball sha256 lines into a single manifest
+          # consumed by install.sh / Homebrew formula generators.
+          : > SHASUMS256.txt
+          for f in *.tar.gz; do
+            shasum -a 256 "$f" >> SHASUMS256.txt
+          done
+          cat SHASUMS256.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+            dist/SHASUMS256.txt
