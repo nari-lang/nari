@@ -9,7 +9,10 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # Pinned to windows-2022 (VS2022): windows-latest moved to VS2026 (VS18),
+    # whose CMake generator "Visual Studio 18 2026" isn't recognized by the
+    # CMake used to build Conan deps (e.g. asmjit).
+    runs-on: windows-2022
 
     steps:
       - uses: actions/checkout@v4
