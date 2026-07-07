@@ -14,15 +14,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # pin SDK 10.0.22621 and the MSVC 14.36 (VS2022) toolset, since newer SDKs
-      # and vcruntime drop Win7 support. The WINVER/_WIN32_WINNT defines are
-      # applied by meson via in the Configure step.
+      # Modern-Windows sanity build. Win7-compatible binaries require the
+      # portable MSVC 14.36 + SDK 22621 toolchain (14.40+ vcruntime drops Win7
+      # support), which GitHub-hosted runners don't provide. Build those locally
+      # with ./build_wine.sh --win7 --sdk-version 22621 instead.
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-          sdk: 10.0.22621.0
-          toolset: 14.36
 
       - name: Install Meson, Ninja, and Conan
         run: pip install meson ninja conan
@@ -36,7 +35,7 @@ jobs:
           conan install . -s compiler.cppstd=17 --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
 
       - name: Configure
-        run: meson setup build/release --buildtype=release -Db_lto=true -Dwindows_win7_compat=true
+        run: meson setup build/release --buildtype=release -Db_lto=true
         env:
           PKG_CONFIG_PATH: ${{ github.workspace }}/build/conan
 
