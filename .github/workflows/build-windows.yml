@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies via Conan
         run: |
           mkdir -p build/conan
-          conan install . --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
+          conan install . -s compiler.cppstd=17 --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
 
       - name: Configure
         run: meson setup build/release --buildtype=release -Db_lto=true
