@@ -225,9 +225,7 @@ struct Value {
 };
 
 static_assert(sizeof(Value) == sizeof(uint64_t), "Value must stay NaN-boxed to 8 bytes!");
-// Keep Value trivially copyable so vector growth / call-frame setup relocate via
-// memcpy. If you add ownership (e.g. an intrusive refcount + destructor), this
-// breaks intentionally so the perf-relevant move semantics get re-reviewed.
+// Keep Value trivially copyable so vector growth / call-frame setup relocate via memcpy.
 static_assert(std::is_trivially_copyable<Value>::value, "Value must stay trivially copyable for memcpy relocation");
 
 struct StringObj : HeapHeader, PooledHeapObject<StringObj> {
@@ -239,11 +237,9 @@ struct StringObj : HeapHeader, PooledHeapObject<StringObj> {
     explicit StringObj(std::string v) : s(std::move(v)) {
         type_tag = ValueTag::String;
     }
-    // StringObj is by far the most churned heap object (toString / split tokens /
-    // concat temps). Every make_string() does one new StringObj and the GC sweep
-    // one delete. The PooledHeapObject free-list recycles just the fixed-size
-    // header block (the std::string is still constructed/destructed normally, so
-    // bytes are unchanged), removing the malloc/free round-trip on the hot path.
+    // StringObj is by far the most churned heap object (toString / split tokens / concat temps).
+    // Every make_string() does one new StringObj and the GC sweep one delete. 
+    // The PooledHeapObject free-list recycles just the fixed-size header block
 };
 
 struct ArrayObj : HeapHeader, PooledHeapObject<ArrayObj> {
@@ -251,9 +247,9 @@ struct ArrayObj : HeapHeader, PooledHeapObject<ArrayObj> {
     ArrayObj() {
         type_tag = ValueTag::Array;
     }
-    // Header free-list pool (see PooledHeapObject in core_types.cpp). Only the
-    // fixed-size header block is recycled; the std::vector is
-    // constructed/destructed normally, so bytes are unchanged.
+    // Header free-list pool (see PooledHeapObject in core_types.cpp). 
+    // Only the fixed-size header block is recycled. 
+    // The std::vector is constructed/destructed normally, so bytes are unchanged.
 };
 
 uint32_t intern_field(const std::string &name);
@@ -292,8 +288,8 @@ struct ObjectObj : HeapHeader, PooledHeapObject<ObjectObj> {
     bool dict_mode = false;
 
     ObjectObj();
-    // Header free-list pool (see PooledHeapObject in core_types.cpp). Only the
-    // fixed-size header block is recycled
+    // Header free-list pool (see PooledHeapObject in core_types.cpp).
+    // Only the fixed-size header block is recycled
     std::vector<std::string> get_keys() const;
     void clear_fields();
     Value *get_field(const std::string &name) noexcept;
@@ -329,8 +325,7 @@ struct FunctionData : HeapHeader {
     explicit FunctionData(std::string n) : name(std::move(n)) {
         type_tag = ValueTag::Function;
     }
-    FunctionData(std::string n, std::shared_ptr<nari::Function> ptr)
-        : name(std::move(n)), func_ptr(std::move(ptr)) {
+    FunctionData(std::string n, std::shared_ptr<nari::Function> ptr) : name(std::move(n)), func_ptr(std::move(ptr)) {
         type_tag = ValueTag::Function;
     }
 };

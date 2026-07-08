@@ -2,7 +2,13 @@
 #include <cmath>
 #include <cstdint>
 
+
+
 #include "compiler_support.h"
+
+#if COMPILER_IS_REAL_MSVC
+#include <intrin.h>
+#endif
 
 // portable overflow-checked 64-bit arithmetic
 // returns true if the operation overflowed; *out holds the result otherwise
