@@ -455,21 +455,6 @@ _No description._
 
 ### Spawn
 
-#### `await(handle)`
-
-_No description._
-
-#### `try_await(handle)`
-
-try_await: wait for a handle, but never throw. Returns an object:
-  { ok: true,  value: <result> }              on success
-  { ok: false, error: <error>, failed: true } on failure
-
-Useful for http/fs/tcp calls where the alternative is wrapping every
-call site in try/catch. The handle is drained by polling .ready so
-that .value (which throws on a Failed handle) is never touched on
-the failure path.
-
 #### `race(handles)`
 
 race: Returns the fastest completing handle

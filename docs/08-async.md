@@ -143,33 +143,6 @@ for (result in settled) {
 }
 ```
 
-### Spawn.await
-
-Wait for a single handle to complete and return its value (equivalent to
-reading `handle.value`, which throws if the operation failed):
-
-```nari
-let handle = spawn { return http.get("https://example.com"); };
-let response = Spawn.await(handle);
-print(response.status_code);
-```
-
-### Spawn.try_await
-
-Like `Spawn.await`, but never throws. It returns an object describing the
-outcome: `{ ok: true, value: ... }` on success, or
-`{ ok: false, failed: true, error: ... }` on failure:
-
-```nari
-let handle = spawn { return http.get("https://example.com"); };
-let result = Spawn.try_await(handle);
-if (result.ok) {
-    print(result.value.status_code);
-} else {
-    print("Failed: " @ result.error);
-}
-```
-
 ## Timers and Scheduling
 
 ### set_timeout
