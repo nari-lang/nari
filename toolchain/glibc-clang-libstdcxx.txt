@@ -16,6 +16,6 @@ needs_exe_wrapper = false
 
 [built-in options]
 c_args = ['-fdiagnostics-absolute-paths', '-Wno-unused-command-line-argument', '-march=native']
-cpp_args = ['-stdlib=libc++', '-fdiagnostics-absolute-paths', '-Wno-unused-variable', '-Wno-unused-lambda-capture', '-Wno-unused-command-line-argument', '-Wno-unused-function', '-march=native']
+cpp_args = ['-fdiagnostics-absolute-paths', '-Wno-unused-variable', '-Wno-unused-lambda-capture', '-Wno-unused-command-line-argument', '-Wno-unused-function', '-march=native']
 c_link_args = ['-fuse-ld=mold']
-cpp_link_args = ['-stdlib=libc++', '-fuse-ld=mold', '-Wl,--icf=safe', '-Wl,--gc-sections']
+cpp_link_args = ['-fuse-ld=mold', '-Wl,--icf=safe', '-Wl,--gc-sections']

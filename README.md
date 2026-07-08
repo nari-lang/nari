@@ -42,12 +42,12 @@ class Person {
   public name: string;
   public age: number;
   init(name, age) {
-  this.name = name;
-  this.age = age;
+      this.name = name;
+      this.age = age;
   }
   
   greet() {
-  print(`Hello, my name is {this.name}! I am {this.age} years old.`);
+      print(`Hello, my name is {this.name}! I am {this.age} years old.`);
   }
 }
 

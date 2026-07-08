@@ -11,13 +11,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # clang everywhere: conan profile detect and meson both honor CC/CXX.
+    # Required for -stdlib=libc++
+    env:
+      CC: clang
+      CXX: clang++
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Install build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y clang lld python3-pip ninja-build
+          sudo apt-get install -y clang lld libc++-dev libc++abi-dev python3-pip ninja-build
           pip install meson conan
 
       - name: Detect Conan profile
@@ -26,10 +32,12 @@ jobs:
       - name: Install dependencies via Conan
         run: |
           mkdir -p build/conan
-          conan install . --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
+          conan install . -s compiler.libcxx=libc++ --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
 
       - name: Configure
-        run: meson setup build/release --buildtype=release -Db_lto=true
+        # libc++ to match the local default (toolchain/glibc-clang.txt) and macOS.
+        # The sanitize workflow stays on GCC/libstdc++ so both STLs remain covered.
+        run: meson setup build/release --buildtype=release -Db_lto=true -Dcpp_args=-stdlib=libc++ '-Dcpp_link_args=-stdlib=libc++'
         env:
           PKG_CONFIG_PATH: ${{ github.workspace }}/build/conan
 

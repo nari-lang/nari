@@ -216,8 +216,8 @@ if /I not "%STATIC_CRT%"=="true" (
   echo Staging MSVC runtime DLLs into %BUILD_DIR%...
   for %%F in (msvcp140.dll vcruntime140.dll vcruntime140_1.dll) do (
   if exist "%RUNTIME_BIN_DIR%\%%F" (
-  copy /Y "%RUNTIME_BIN_DIR%\%%F" "%BUILD_DIR%\%%F" >nul
-  if errorlevel 1 exit /b %errorlevel%
+    copy /Y "%RUNTIME_BIN_DIR%\%%F" "%BUILD_DIR%\%%F" >nul
+    if errorlevel 1 exit /b %errorlevel%
   )
   )
 )

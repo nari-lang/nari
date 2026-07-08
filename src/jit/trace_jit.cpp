@@ -2,6 +2,7 @@
 #include "trace_jit.h"
 #include "bytecode.h"
 #include "core_types.h"
+#include "stl_layout.h"
 #include "trace_jit_asmjit.h"
 #include <cstdint>
 #include <cstdlib>
@@ -13,6 +14,9 @@ TraceJITBase *g_trace_jit = nullptr;
 
 void init_trace_jit() {
     if (getenv("NARI_DISABLE_TRACE_JIT")) {
+        return;
+    }
+    if (!stl_layouts_ok()) {
         return;
     }
     g_trace_jit = new TraceJITCompilerAsmJit();

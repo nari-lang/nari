@@ -7,6 +7,7 @@
 #include "jit_arch.h"
 #include "jit_helpers.h"
 #include "jit_layout.h"
+#include "stl_layout.h"
 
 #include "util.h"
 
@@ -221,9 +222,14 @@ static const int64_t HeapTypeTagOff = field_offset(&HeapHeader::type_tag);
 static const int64_t ObjShapeVersionOff = field_offset(&ObjectObj::shape_version);
 static const int64_t ObjShapeOff = field_offset(&ObjectObj::shape);
 static const int64_t ObjFieldsOff = field_offset(&ObjectObj::fields);
-// std::vector layout: { _M_start, _M_finish, _M_end_of_storage } back-to-back pointers
-static const int64_t ObjFieldsStartOff = ObjFieldsOff + 0;
-static const int64_t ObjFieldsFinishOff = ObjFieldsOff + 8;
+// std::vector internal {begin, end, cap} pointer offsets are PROBED at startup
+// (stl_layout.h), never assumed -- layouts differ across libstdc++/libc++/MSVC
+// (and MSVC debug iterators shift them). stl_layouts_ok() gates JIT creation.
+static const stl::VecOffsets kVecVal = stl::probe_vec<std::vector<Value>>();
+static const stl::VecOffsets kVecFrame = stl::probe_vec<std::vector<CallFrame>>();
+static const stl::VecOffsets kVecByte = stl::probe_vec<std::vector<uint8_t>>();
+static const int64_t ObjFieldsStartOff = ObjFieldsOff + kVecVal.begin;
+static const int64_t ObjFieldsFinishOff = ObjFieldsOff + kVecVal.end;
 static const int64_t ObjFrozenOff = field_offset(&ObjectObj::frozen);
 static const int64_t ObjDictModeOff = field_offset(&ObjectObj::dict_mode);
 static const int64_t FDCapturesOff = field_offset(&FunctionData::captures);
@@ -234,32 +240,28 @@ static const int64_t FDInlineKindOff = field_offset(&FunctionData::jit_inline_ki
 static const int64_t FDNativeKindOff = field_offset(&FunctionData::jit_native_kind);
 static const int64_t FDInlineImmOff = field_offset(&FunctionData::jit_inline_imm);
 static const int64_t FDCapture0RawOff = field_offset(&FunctionData::jit_capture0_raw);
-static const int64_t StringStdOff = field_offset(&StringObj::s);
-// libc++ std::string layout in long-string mode: {cap_word, size, data}.
-static const int64_t StringCapWordOff = StringStdOff;
-static const int64_t StringSizeOff = StringStdOff + 8;
-static const int64_t StringDataOff = StringStdOff + 16;
-static const int64_t FMCodeDataOff = field_offset(&FunctionMeta::code);
+// (std::string layout constants used to live here -- they were dead code and
+// assumed a specific STL; string access goes through helpers instead.)
+static const int64_t FMCodeDataOff = field_offset(&FunctionMeta::code) + kVecByte.begin;
 static const int64_t VMCapturesRawOff = field_offset(&VM::jit_captures_raw);
 
-// VM::stack vector internal pointers (stack is the first VM field)
-static const int64_t VMStackStartOff = field_offset(&VM::stack);
-static const int64_t VMStackFinishOff = VMStackStartOff + 8;
-static const int64_t VMStackCapacityOff = VMStackStartOff + 16;
-static const int64_t VMGlobalCacheStartOff = field_offset(&VM::global_cache);
-// static const int64_t VMGlobalCacheFinishOff = VMGlobalCacheStartOff + 8;
-static const int64_t VMGlobalCacheValidStartOff = field_offset(&VM::global_cache_valid);
-static const int64_t VMGlobalCacheValidFinishOff = VMGlobalCacheValidStartOff + 8;
+// VM::stack vector internal pointers (offsets within the vector are probed)
+static const int64_t VMStackStartOff = field_offset(&VM::stack) + kVecVal.begin;
+static const int64_t VMStackFinishOff = field_offset(&VM::stack) + kVecVal.end;
+static const int64_t VMStackCapacityOff = field_offset(&VM::stack) + kVecVal.cap;
+static const int64_t VMGlobalCacheStartOff = field_offset(&VM::global_cache) + kVecVal.begin;
+static const int64_t VMGlobalCacheValidStartOff = field_offset(&VM::global_cache_valid) + kVecByte.begin;
+static const int64_t VMGlobalCacheValidFinishOff = field_offset(&VM::global_cache_valid) + kVecByte.end;
 
-// std::vector<Value> layout inside ArrayObj.
-static const int64_t ArrayVecStartOff = field_offset(&ArrayObj::v);
-static const int64_t ArrayVecFinishOff = ArrayVecStartOff + 8;
-static const int64_t ArrayVecCapacityOff = ArrayVecStartOff + 16;
+// std::vector<Value> pointers inside ArrayObj.
+static const int64_t ArrayVecStartOff = field_offset(&ArrayObj::v) + kVecVal.begin;
+static const int64_t ArrayVecFinishOff = field_offset(&ArrayObj::v) + kVecVal.end;
+static const int64_t ArrayVecCapacityOff = field_offset(&ArrayObj::v) + kVecVal.cap;
 
 // VM::frames vector internal pointers
-static const int64_t FramesStartOff = field_offset(&VM::frames);
-static const int64_t FramesFinishOff = field_offset(&VM::frames) + static_cast<int64_t>(sizeof(void *));
-static const int64_t VMFramesCapacityOff = FramesFinishOff + 8;
+static const int64_t FramesStartOff = field_offset(&VM::frames) + kVecFrame.begin;
+static const int64_t FramesFinishOff = field_offset(&VM::frames) + kVecFrame.end;
+static const int64_t VMFramesCapacityOff = field_offset(&VM::frames) + kVecFrame.cap;
 
 // CallFrame field offsets
 static const int64_t FrameSize = static_cast<int64_t>(sizeof(CallFrame));

@@ -1,5 +1,6 @@
 // #ifndef DISABLE_JIT
 #include "trace_jit_asmjit.h"
+#include "stl_layout.h"
 #include "asmjit_jit.h"
 #include "bytecode.h"
 #include "core_types.h"
@@ -119,45 +120,36 @@ static SignedDivMagic sdiv_magic(int64_t d) {
 static const int64_t ValSize = sizeof(Value);
 
 // NaN-boxing: tag is upper 2 bytes (offset 6) of 8-byte Value
-static const int64_t tagWordOff = 6;             // offset of NaN-box tag word within Value
-static const int64_t tagInt = (int64_t)0xFFFC;   // upper16 for Int
+static const int64_t tagWordOff = 6; // offset of NaN-box tag word within Value
+static const int64_t tagInt = (int64_t)0xFFFC; // upper16 for Int
 static const int64_t tagFloat = (int64_t)0x0000; // floats: upper16 < 0xFFFB
 static const int64_t tagBool = (int64_t)0xFFFE;
 static const int64_t FrameSize = sizeof(nari::bytecode::CallFrame);
 static const int64_t SlotBaseOff = field_offset(&nari::bytecode::CallFrame::slot_base);
 static const int64_t kIpOff = field_offset(&nari::bytecode::CallFrame::ip);
 
-// VM::frames._M_finish at +sizeof(void*) (libstdc++ 3-pointer vector layout).
-// Same trick as VM::stack._M_finish in asmjit_jit.cpp; 
-// TODO: both must update together if porting to libc++/MSVC STL! This is bad.
-static const int64_t FramesFinishOff = jit::field_offset(&nari::bytecode::VM::frames) + static_cast<int64_t>(sizeof(void *));
+// std::vector internal {begin, end, cap} pointer offsets are probed at startup, jit disabled if not found
+static const jit::stl::VecOffsets kVecVal = jit::stl::probe_vec<std::vector<Value>>();
+static const jit::stl::VecOffsets kVecFrame = jit::stl::probe_vec<std::vector<nari::bytecode::CallFrame>>();
+static const int64_t FramesFinishOff = jit::field_offset(&nari::bytecode::VM::frames) + kVecFrame.end;
 
 // VM::trace_last_iters, a compiled trace writes its loop iteration count here before returning.
 static const int64_t kVmTraceItersOff = jit::field_offset(&nari::bytecode::VM::trace_last_iters);
 
-// ObjectObj::fields is a std::vector<Value>. Its first word is _M_start
-// (pointer to the flat field storage). We reload this fresh on every property
-// access so the trace stays correct even if the backing buffer is reallocated.
+// ObjectObj::fields is a std::vector<Value>, so we need to probe it also
 static const int64_t HeapTypeTagOff = jit::field_offset(&::HeapHeader::type_tag);
 static const int64_t ObjShapeVersionOff = jit::field_offset(&::ObjectObj::shape_version);
 static const int64_t ObjShapeOff = jit::field_offset(&::ObjectObj::shape);
-static const int64_t ObjFieldsStartOff = jit::field_offset(&::ObjectObj::fields);
+static const int64_t ObjFieldsStartOff = jit::field_offset(&::ObjectObj::fields) + kVecVal.begin;
 static const int64_t ObjFrozenOff = jit::field_offset(&::ObjectObj::frozen);
 static const int64_t ObjDictModeOff = jit::field_offset(&::ObjectObj::dict_mode);
 
-// ArrayObj::v is a std::vector<Value>; its first word is _M_start (pointer to
-// the flat element storage), second word is _M_finish (one-past-last element).
-// (finish - start) in bytes = size in bytes; we guard on that instead of adding
-// a per-array version counter, and abort the trace on any op that could grow
-// the array so the recorded size stays valid for the whole trace body.
-static const int64_t ArrayVDataOff = nari::jit::field_offset(&::ArrayObj::v);
+// ArrayObj::v is a std::vector<Value>, also need to probe it
+static const int64_t ArrayVBeginOff = nari::jit::field_offset(&::ArrayObj::v) + kVecVal.begin;
+static const int64_t ArrayVEndOff = nari::jit::field_offset(&::ArrayObj::v) + kVecVal.end;
 
-// VM operand stack (std::vector<Value>). VM::stack is the first VM field, so
-// its _M_start / _M_finish pointers live at offsets 0 / 8. Trace side-exits
-// that hand control back to the interpreter mid-instruction (e.g. array
-// bounds-check failure) must materialize [Array, Int, ...] onto this stack
-// so the interpreter can re-execute the fallback opcode.
-static const int64_t VMStackFinishOff = 8;
+// same as above with VM operand stack
+static const int64_t VMStackFinishOff = jit::field_offset(&nari::bytecode::VM::stack) + kVecVal.end;
 static const int64_t FDInlineKindOff = nari::jit::field_offset(&::FunctionData::jit_inline_kind);
 static const int64_t FDInlineImmOff = nari::jit::field_offset(&::FunctionData::jit_inline_imm);
 static const int64_t FDCapture0RawOff = nari::jit::field_offset(&::FunctionData::jit_capture0_raw);
@@ -170,7 +162,6 @@ static asmjit::x86::Mem gs_qword_ptr(int32_t offset) {
 }
 #endif
 
-// constructor / destructor
 TraceJITCompilerAsmJit::TraceJITCompilerAsmJit() {
 }
 TraceJITCompilerAsmJit::~TraceJITCompilerAsmJit() {
@@ -640,11 +631,11 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 cc.mov(expected_arr, (int64_t)(intptr_t)ait->second.expected_arr);
                 arch::cmp_jcc(cc, raw_ptr, expected_arr, arch::CC::kNE, lbl_guardfail);
 
-                // size-in-bytes = *(ArrayObj + ArrayVDataOff + 8) - *(ArrayObj + ArrayVDataOff + 0)
+                // size-in-bytes = *(ArrayObj + ArrayVEndOff) - *(ArrayObj + ArrayVBeginOff)
                 arch::Gp start_p = cc.new_gp64();
                 arch::Gp finish_p = cc.new_gp64();
-                arch::load(cc, start_p, arch::ptr(raw_ptr, (int)ArrayVDataOff));
-                arch::load(cc, finish_p, arch::ptr(raw_ptr, (int)(ArrayVDataOff + (int64_t)sizeof(void *))));
+                arch::load(cc, start_p, arch::ptr(raw_ptr, (int)ArrayVBeginOff));
+                arch::load(cc, finish_p, arch::ptr(raw_ptr, (int)ArrayVEndOff));
                 arch::sub2(cc, finish_p, start_p); // finish_p = size_bytes
                 arch::Gp expected_sz = cc.new_gp64();
                 cc.mov(expected_sz, (int64_t)ait->second.expected_size_bytes);
@@ -691,8 +682,8 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 #endif
             arch::Gp start_r = arr_data_start_reg.at(lv.slot);
             arch::Gp size_r = arr_size_bytes_reg.at(lv.slot);
-            arch::load(cc, start_r, arch::ptr(vr, (int)ArrayVDataOff));
-            arch::load(cc, size_r, arch::ptr(vr, (int)(ArrayVDataOff + (int64_t)sizeof(void *))));
+            arch::load(cc, start_r, arch::ptr(vr, (int)ArrayVBeginOff));
+            arch::load(cc, size_r, arch::ptr(vr, (int)ArrayVEndOff));
             arch::sub2(cc, size_r, start_r); // size_r = size in bytes
         } else if (lv.type == TraceType::Function) {
             // Closure call steps reload the function value from the stack slot.

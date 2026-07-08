@@ -4,6 +4,7 @@
 #include "int_overflow.h"
 #include "io.h"
 #include "parser_api.h"
+#include "stl_layout.h"
 #include <cerrno>
 #include <chrono>
 #include <cmath>
@@ -1340,11 +1341,32 @@ void jit_check_type(VM *vm, uint32_t type_str_idx, uint32_t packed) {
 namespace nari {
 namespace jit {
 
+// One-time probe of every container layout the generated code touches
+// failure causes the jit to be disabled
+bool stl_layouts_ok() {
+    static const bool ok = [] {
+        bool good = stl::probe_vec<std::vector<Value>>().ok &&
+                    stl::probe_vec<std::vector<nari::bytecode::CallFrame>>().ok &&
+                    stl::probe_vec<std::vector<uint8_t>>().ok &&
+                    stl::null_is_all_zero<std::shared_ptr<Value>>() &&
+                    stl::null_is_all_zero<CapturesList>() &&
+                    sizeof(CapturesList) == 2 * sizeof(void *);
+        if (!good) {
+            fprintf(stderr, "nari: STL container layout probe failed; JIT disabled (interpreter only)\n");
+        }
+        return good;
+    }();
+    return ok;
+}
+
 MethodJITBase *g_jit_compiler = nullptr;
 
 void init_jit() {
     // Allow disabling JIT for debugging via env var.
     if (getenv("NARI_DISABLE_JIT")) {
+        return;
+    }
+    if (!stl_layouts_ok()) {
         return;
     }
     if (!g_jit_compiler) {

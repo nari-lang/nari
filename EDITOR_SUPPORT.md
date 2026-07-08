@@ -13,7 +13,6 @@ lsp/extension/  # VS Code extension
 lsp/extension/src/extension.ts  # VS Code extension entrypoint
 lsp/extension/syntaxes/  # TextMate grammar for .nari files
 lsp/extension/package.json  # VS Code contribution metadata
-.zed/debug.json  # Repository-local Zed debug configuration
 .vscode/  # Repository-local VS Code workspace settings
 ```
 
@@ -107,14 +106,12 @@ Leave the path settings empty to use auto-discovery.
 
 ## Zed
 
-This repo currently contains a repository-local `.zed/debug.json` for debugger configuration, but it does not contain a packaged top-level Zed extension directory.
-
 If you use Zed, point its language-server/debugger configuration at the built binaries:
 
 - `build/debug/nari-lsp` or `build/release/nari-lsp`
 - `build/debug/interpreter` or `build/release/interpreter`
 
-The roadmap still tracks publishing and packaging a clean Zed extension as future work.
+I'm still working on finishing a Zed extension, currently it's not 100% functional, so I haven't packaged it yet.
 
 ## LSP Logging
 
