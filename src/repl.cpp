@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <string>
 
 #ifdef _WIN32
@@ -231,6 +232,13 @@ static bool env_equals(const char *name, const char *value) {
     const char *env = std::getenv(name);
     return env && std::strcmp(env, value) == 0;
 }
+
+#ifdef _WIN32
+static bool running_under_wine() {
+    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    return ntdll != nullptr && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+}
+#endif
 
 static bool supports_ansi_output() {
 #ifndef _WIN32
@@ -525,6 +533,66 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
 }
 #endif // DISABLE_REPL
 
+#if defined(_WIN32) && !defined(DISABLE_PARSER)
+// plain repl in cases where there's issues
+static void run_repl_plain(const std::string &stdlib_src, bool tty, bool use_color, int argc, char **argv) {
+    std::string accumulated;
+    std::string pending;
+    if (tty) {
+        printf("Nari REPL | 'exit' / Ctrl+D to quit\n");
+    }
+    for (;;) {
+        if (tty) {
+            fputs(pending.empty() ? ">> " : "... ", stdout);
+            fflush(stdout);
+        }
+        std::string line;
+        if (!std::getline(std::cin, line)) {
+            if (tty) {
+                printf("\n");
+            }
+            break;
+        }
+        rtrim(line);
+
+        if (line == "clear" || line == "clear()") {
+            if (tty) {
+                fputs("\x1b[2J\x1b[H", stdout);
+                fflush(stdout);
+            }
+            pending.clear();
+            continue;
+        }
+        if (pending.empty() && (line == "exit" || line == "exit()")) {
+            break;
+        }
+
+        if (!pending.empty()) {
+            pending += '\n';
+        }
+        pending += line;
+        if (!line.empty() && count_unmatched(pending) > 0) {
+            continue;
+        }
+
+        std::string input = pending;
+        pending.clear();
+        if (input.empty()) {
+            continue;
+        }
+
+        bool aprint = !should_accumulate(input) && input.find('\n') == std::string::npos;
+        bool ran_ok = compile_and_run(stdlib_src, accumulated, input, aprint, use_color, argc, argv);
+        if (ran_ok && should_accumulate(input)) {
+            if (!accumulated.empty() && accumulated.back() != '\n') {
+                accumulated += '\n';
+            }
+            accumulated += input;
+        }
+    }
+}
+#endif // _WIN32 && !DISABLE_PARSER
+
 void run_repl(int argc, char **argv) {
 #ifdef DISABLE_PARSER
     // no parser, which means no repl :(
@@ -537,6 +605,13 @@ void run_repl(int argc, char **argv) {
     std::string pending;
     const bool tty = is_tty();
     const bool use_color = supports_ansi_output();
+
+#ifdef _WIN32
+    if (running_under_wine()) {
+        run_repl_plain(stdlib_src, tty, use_color, argc, argv);
+        return;
+    }
+#endif
 
 #ifndef DISABLE_REPL
     replxx::Replxx replxx;
