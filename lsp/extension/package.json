@@ -20,13 +20,21 @@
     "languages": [
       {
         "id": "nari",
-        "aliases": ["Nari", "nari"],
-        "extensions": [".nari"],
+        "aliases": [
+          "Nari",
+          "nari"
+        ],
+        "extensions": [
+          ".nari"
+        ],
         "configuration": "./language-configuration.json",
         "icon": {
           "light": "./media/nari-icon.png",
           "dark": "./media/nari-icon.png"
         }
+      },
+      {
+        "id": "nari-injection"
       }
     ],
     "grammars": [
@@ -34,19 +42,37 @@
         "language": "nari",
         "scopeName": "source.nari",
         "path": "./syntaxes/nari.tmLanguage.json"
+      },
+      {
+        "language": "nari-injection",
+        "scopeName": "markdown.nari.codeblock",
+        "path": "./syntaxes/nari.codeblock.json",
+        "injectTo": [
+          "text.html.markdown"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.nari": "nari"
+        }
       }
     ],
+    "markdown.markdownItPlugins": true,
     "breakpoints": [
-      { "language": "nari" }
+      {
+        "language": "nari"
+      }
     ],
     "debuggers": [
       {
         "type": "nari",
         "label": "Nari Debugger",
-        "languages": ["nari"],
+        "languages": [
+          "nari"
+        ],
         "configurationAttributes": {
           "launch": {
-            "required": ["program"],
+            "required": [
+              "program"
+            ],
             "properties": {
               "program": {
                 "type": "string",
@@ -61,7 +87,9 @@
               "args": {
                 "type": "array",
                 "description": "Arguments forwarded to the program.",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "default": []
               }
             }
@@ -123,9 +151,13 @@
     "watch": "tsc -watch -p ./"
   },
   "dependencies": {
+    "@shikijs/markdown-it": "^4.3.1",
+    "markdown-it": "^14.3.0",
+    "shiki": "^4.3.1",
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",
     "typescript": "^5.0.0"
