@@ -17,10 +17,7 @@ let obj = { h: spawn { return [1, 2, 3] } }
 let arr = await obj.h
 if (arr.length() != 3 || arr[0] != 1) { throw "await on member access failed" }
 
-// 5. Spawn.await(...) still works, `await` is a valid identifier in property position
-if (Spawn.await(spawn { return 99 }) != 99) { throw "Spawn.await() regressed" }
-
-// 6. nested awaits
+// 5. nested awaits
 let n = await spawn { return await spawn { return 7 } }
 if (n != 7) { throw "nested await failed" }
 

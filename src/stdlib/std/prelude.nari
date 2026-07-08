@@ -614,34 +614,6 @@ global yield = func() {
 };
 
 global Spawn = {
-    await: func(handle) {
-        return handle.value;
-    },
-
-    // try_await: wait for a handle, but never throw. Returns an object:
-    //  { ok: true,  value: <result> }  on success
-    //  { ok: false, error: <error>, failed: true } on failure
-    //
-    // Useful for http/fs/tcp calls where the alternative is wrapping every
-    // call site in try/catch. The handle is drained by polling .ready so
-    // that .value (which throws on a Failed handle) is never touched on
-    // the failure path.
-    try_await: func(handle) {
-        while (handle.ready == false) {
-            yield();
-        }
-        let result = {};
-        if (handle.failed) {
-            result.ok = false;
-            result.failed = true;
-            result.error = handle.error;
-        } else {
-            result.ok = true;
-            result.value = handle.value;
-        }
-        return result;
-    },
-
     // race: Returns the fastest completing handle
     race: func(handles) {
         let i = 0;

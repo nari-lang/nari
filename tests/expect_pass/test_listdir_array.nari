@@ -2,7 +2,7 @@
 system.print("Testing list_dir Array Return\n");
 
 // Get files in tests directory
-let files = Spawn.await(fs.list_dir("tests"));
+let files = await fs.list_dir("tests");
 
 system.print("Type check:");
 system.print("\ttypeof(files) = " @ typeof(files));

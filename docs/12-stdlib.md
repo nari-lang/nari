@@ -148,7 +148,7 @@ print("Distance: " @ dist);  // 5
 File system operations.
 
 > **Important:** Most `fs` operations are **asynchronous** and return an IO
-> handle rather than the value directly. Use `Spawn.await(...)` (or read
+> handle rather than the value directly. Use `await (...)` (or read
 > `.value`) to obtain the resolved result. The exceptions are `fs.is_directory`
 > and `fs.mkdir_all`, which are synchronous.
 
@@ -157,7 +157,7 @@ File system operations.
 Read entire file contents.
 
 ```nari
-let content = Spawn.await(fs.read_file("data.txt"));
+let content = await fs.read_file("data.txt");
 print(content);
 ```
 
@@ -169,7 +169,7 @@ print(content);
 Write content to a file (overwrites existing).
 
 ```nari
-Spawn.await(fs.write_file("output.txt", "Hello, World!"));
+await fs.write_file("output.txt", "Hello, World!");
 ```
 
 **Parameters:**
@@ -183,7 +183,7 @@ Spawn.await(fs.write_file("output.txt", "Hello, World!"));
 Append content to a file.
 
 ```nari
-Spawn.await(fs.append_file("log.txt", "New log entry\n"));
+await fs.append_file("log.txt", "New log entry\n");
 ```
 
 **Parameters:**
@@ -197,8 +197,8 @@ Spawn.await(fs.append_file("log.txt", "New log entry\n"));
 Check if a file exists. `fs.exists` is an alias of `fs.file_exists`.
 
 ```nari
-if (Spawn.await(fs.file_exists("config.json"))) {
-    let config = Spawn.await(fs.read_file("config.json"));
+if ((await fs.file_exists("config.json"))) {
+    let config = await fs.read_file("config.json");
     print("Config loaded");
 }
 ```
@@ -235,7 +235,7 @@ fs.mkdir_all("/tmp/a/b/c");
 Delete a file.
 
 ```nari
-Spawn.await(fs.delete_file("temp.txt"));
+await fs.delete_file("temp.txt");
 ```
 
 **Parameters:** `path`  
@@ -246,7 +246,7 @@ Spawn.await(fs.delete_file("temp.txt"));
 List directory contents.
 
 ```nari
-let files = Spawn.await(fs.list_dir("/home/user/docs"));
+let files = await fs.list_dir("/home/user/docs");
 for (file in files) {
     print(file);
 }
@@ -287,19 +287,19 @@ print("Hello, " @ name @ "!");
 
 ```nari
 func processLogFile(filename) {
-    if (!Spawn.await(fs.file_exists(filename))) {
+    if (!(await fs.file_exists(filename))) {
         print("File not found");
         return;
     }
     
-    let content = Spawn.await(fs.read_file(filename));
+    let content = await fs.read_file(filename);
     let lines = content.split("\n");
     
     print("Processing " @ lines.length() @ " lines");
     
     for (line in lines) {
         if (line.index_of("ERROR") != -1) {
-            Spawn.await(fs.append_file("errors.log", line @ "\n"));
+            await fs.append_file("errors.log", line @ "\n");
         }
     }
 }
@@ -349,18 +349,18 @@ Perform an HTTP GET request. Accepts either a URL string or an options object
 response, so await it before use.
 
 ```nari
-let response = Spawn.await(http.get("https://api.example.com/data"));
+let response = await http.get("https://api.example.com/data");
 
 print("Status: " @ response.status_code);
 print("Body: " @ response.body);
 
 // With an options object
-let posted = Spawn.await(http.get({
+let posted = await http.get({
     url: "https://api.example.com/items",
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{\"name\":\"nari\"}"
-}));
+});
 ```
 
 **Parameters:** `url` - URL string or options object  
@@ -393,7 +393,7 @@ http.request({ url: "https://api.example.com/data", method: "GET" }, func(err, r
 func fetchUser(userId) {
     let url = "https://api.example.com/users/" @ to_string(userId);
     
-    let response = Spawn.await(http.get(url));
+    let response = await http.get(url);
     
     if (response.status_code == 200) {
         return response.body;
@@ -521,25 +521,6 @@ print(JSON.stringify({ a: 1 }, 2));                // pretty-printed with 2-spac
 
 Asynchronous operation utilities. See [Asynchronous Programming](08-async.md) for details.
 
-### Spawn.await
-
-Wait for a single handle and return its resolved value (equivalent to reading
-`handle.value`).
-
-```nari
-let response = Spawn.await(http.get("https://example.com"));
-```
-
-### Spawn.try_await
-
-Wait for a single handle without throwing. Returns `{ ok: true, value }` on
-success or `{ ok: false, failed: true, error }` on failure.
-
-```nari
-let result = Spawn.try_await(http.get("https://example.com"));
-if (result.ok) { print(result.value.status_code); }
-```
-
 ### Spawn.map
 
 Create spawn handles from an array.
@@ -607,15 +588,15 @@ print("sqrt(16) = " @ math.sqrt(16));
 print("5^2 = " @ math.pow(5, 2));
 
 // File I/O (fs operations are async - await them)
-if (Spawn.await(fs.file_exists("data.txt"))) {
-    let data = Spawn.await(fs.read_file("data.txt"));
+if (await fs.file_exists("data.txt")) {
+    let data = await fs.read_file("data.txt");
     let lines = data.split("\n");
     print("File has " @ lines.length() @ " lines");
 }
 
 // HTTP request (async)
 spawn {
-    let response = Spawn.await(http.get("https://api.example.com/status"));
+    let response = await http.get("https://api.example.com/status");
     print("API Status: " @ response.status_code);
 };
 
