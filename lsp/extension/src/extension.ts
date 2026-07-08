@@ -1,5 +1,5 @@
-import * as path from 'path';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as os from 'os';
 import {
     workspace,
@@ -22,6 +22,7 @@ import {
     ServerOptions,
     TransportKind,
 } from 'vscode-languageclient/node';
+import { getExtendMarkdownIt } from './markdown-plugin';
 
 let client: LanguageClient | undefined;
 
@@ -145,7 +146,7 @@ class NariDebugConfigProvider implements DebugConfigurationProvider {
     }
 }
 
-export function activate(context: ExtensionContext): void {
+export function activate(context: ExtensionContext) {
     // Debugger registration happens unconditionally,
     // however there's no real cost until the user actually uses it
     context.subscriptions.push(
@@ -219,6 +220,10 @@ export function activate(context: ExtensionContext): void {
     );
 
     client.start();
+
+    return {
+		extendMarkdownIt: getExtendMarkdownIt(context),
+	};
 }
 
 export function deactivate(): Thenable<void> | undefined {
