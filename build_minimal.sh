@@ -3,6 +3,8 @@
 # Build Nari with FFI and HTTP disabled (minimal build)
 # This is useful for embedded targets or reducing binary size
 
+set -euo pipefail
+
 echo "Building Nari with FFI and HTTP disabled..."
 
 # Clean previous build

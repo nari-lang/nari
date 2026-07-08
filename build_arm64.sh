@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# Build and optionally run Nari for AArch64 (ARM64) using QEMU user-mode emulation.
-#
-# Usage:
-#  ./build_arm64.sh  # build only
-#  ./build_arm64.sh run FILE  # build + run FILE under qemu-aarch64
-#  ./build_arm64.sh test  # build + run test suite under qemu-aarch64
-#  ./build_arm64.sh clean  # wipe build directory
-#
-# Requirements (Arch Linux):
-#  pacman -S qemu-user aarch64-linux-gnu-gcc aarch64-linux-gnu-glibc
 
 set -euo pipefail
 cd "$(dirname "$0")"

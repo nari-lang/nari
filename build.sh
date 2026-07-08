@@ -1,3 +1,5 @@
+set -euo pipefail
+
 BUILD_TYPE=debug
 RECONFIGURE=false
 WIPE=false

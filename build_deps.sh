@@ -1,5 +1,6 @@
 #!/bin/bash
-set -e
+
+set -euo pipefail
 
 OPENSSL_VERSION="3.6.1"
 LIBFFI_VERSION="3.5.2"

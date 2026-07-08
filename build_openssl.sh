@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Detect target (default to linux)
 TARGET=${TARGET:-linux}

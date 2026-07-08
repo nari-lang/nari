@@ -3,11 +3,8 @@
 #
 # Prerequisites:
 #  osxcross installed at /opt/osxcross with macOS SDK 14.0+
-#
-# Usage:
-#  ./build_macos.sh [build|clean]
 
-set -e
+set -euo pipefail
 
 PROJ_ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$PROJ_ROOT/build/macos-arm64"
