@@ -1,0 +1,98 @@
+// Regression test: `continue` inside a C-style for must jump to the INCREMENT
+// clause, not the condition. The bytecode compiler previously set the
+// continue target after compiling the body, so continues jumped to a stale
+// target (function offset 0) and the loop re-ran init forever.
+
+func expect(cond, msg) {
+  if (cond == false) {
+    throw "FAILED: " + msg;
+  }
+}
+
+func t1() { // the doc example that used to hang
+  let out = [];
+  for (let i = 0; i < 6; i = i + 1) {
+    if (i % 2 == 0) { continue; }
+    out.push(i);
+  }
+  return `{out}`;
+}
+func t2() { // while: continue jumps to condition (unchanged semantics)
+  let out = [];
+  let i = 0;
+  while (i < 6) {
+    i = i + 1;
+    if (i == 3) { continue; }
+    out.push(i);
+  }
+  return `{out}`;
+}
+func t3() { // for-in (desugared index loop)
+  let out = [];
+  for (x in [10, 20, 30, 40]) {
+    if (x == 20) { continue; }
+    out.push(x);
+  }
+  return `{out}`;
+}
+func t4() { // key/value for-in (iterator opcodes)
+  let out = [];
+  for (k, v in {a: 1, b: 2, c: 3}) {
+    if (v == 2) { continue; }
+    out.push(`{k}={v}`);
+  }
+  return `{out}`;
+}
+func t5() { // nested fors: inner continue must not touch outer loop
+  let out = [];
+  for (let i = 0; i < 3; i = i + 1) {
+    for (let j = 0; j < 3; j = j + 1) {
+      if (j == 1) { continue; }
+      out.push(i * 10 + j);
+    }
+  }
+  return `{out}`;
+}
+func t6() { // continue inside try within for: try frame must be popped
+  let out = [];
+  for (let i = 0; i < 5; i = i + 1) {
+    try {
+      if (i == 2) { continue; }
+      if (i == 3) { throw "x"; }
+      out.push(i);
+    } catch (e) {
+      out.push(99);
+    }
+  }
+  return `{out}`;
+}
+func t7() { // break and continue coexist
+  let out = [];
+  for (let i = 0; i < 10; i = i + 1) {
+    if (i == 1) { continue; }
+    if (i == 4) { break; }
+    out.push(i);
+  }
+  return `{out}`;
+}
+func t8() { // ++ increment form, hot enough for the JIT tiers
+  let s = 0;
+  for (let i = 0; i < 1000; i++) {
+    if (i % 3 == 0) { continue; }
+    s = s + i;
+  }
+  return s;
+}
+
+// run repeatedly so the second+ iterations hit JIT-compiled code
+for (let r = 0; r < 3; r = r + 1) {
+  expect(t1() == "[1, 3, 5]", "continue in C-style for must run the increment");
+  expect(t2() == "[1, 2, 4, 5, 6]", "continue in while");
+  expect(t3() == "[10, 30, 40]", "continue in for-in");
+  expect(t4() == `["a=1", "c=3"]`, "continue in k/v for-in");
+  expect(t5() == "[0, 2, 10, 12, 20, 22]", "nested for continue");
+  expect(t6() == "[0, 1, 99, 4]", "continue inside try");
+  expect(t7() == "[0, 2, 3]", "break alongside continue");
+  expect(t8() == 332667, "continue with ++ increment");
+}
+print("continue-for-increment: ok");

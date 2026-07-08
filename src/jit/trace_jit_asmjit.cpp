@@ -1161,6 +1161,17 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                         arch::imul_wide_hi(cc, mul_hi, mul_lo, magic);
                         arch::Gp q = cc.new_gp64();
                         cc.mov(q, mul_hi);
+                        // Hacker's Delight 10-3: when the magic constant wraps
+                        // negative as int64 (most divisors), the quotient
+                        // estimate needs +n before the shift, else q is one
+                        // whole step low (n % d would return n + d).
+                        if (dm.magic < 0) {
+#if NARI_JIT_ARM64
+                            cc.add(q, q, a.gp);
+#else
+                            cc.add(q, a.gp);
+#endif
+                        }
                         if (dm.shift > 0) {
 #if NARI_JIT_ARM64
                             cc.asr(q, q, asmjit::Imm(dm.shift));

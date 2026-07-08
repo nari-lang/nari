@@ -114,8 +114,12 @@ class Compiler {
     CompilerContext *parent_ctx; // for closure capture detection
     // stack of { break_patches, continue_target } for nested loops
     struct LoopInfo {
+        // continue_target == kContinueForward means the target isn't known yet
+        // (C-style for: continue lands on the post clause, which is emitted after the body)
+        static constexpr size_t kContinueForward = SIZE_MAX;
         std::vector<size_t> break_patches;
-        size_t continue_target;
+        std::vector<size_t> continue_patches;
+        size_t continue_target = 0;
         int outer_try_depth; // try_depth at the point the loop was entered
     };
     std::vector<LoopInfo> loop_stack;
@@ -1377,12 +1381,14 @@ void Compiler::compile_stmt(const Stmt *stmt) {
 
         loop_stack.push_back(LoopInfo());
         loop_stack.back().outer_try_depth = this->try_depth;
-        size_t continue_target = ctx->function->code.size(); // will be updated after body
+        // continue must land on the post clause, whose position isn't known until the body is compiled
+        loop_stack.back().continue_target = LoopInfo::kContinueForward;
 
         compile_stmt(for_stmt->body.get());
 
-        continue_target = ctx->function->code.size();
-        loop_stack.back().continue_target = continue_target;
+        for (size_t cp : loop_stack.back().continue_patches) {
+            ctx->patch_jump(cp);
+        }
 
         if (for_stmt->post) {
             compile_stmt(for_stmt->post.get());
@@ -1570,10 +1576,16 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             for (int i = 0; i < frames_to_pop; i++) {
                 ctx->emit_op(OpCode::OP_POP_TRY);
             }
-            size_t current_pos = ctx->function->code.size();
-            int32_t offset = loop_stack.back().continue_target - current_pos - 3;
-            ctx->emit_op(OpCode::OP_JUMP);
-            ctx->emit_short(static_cast<uint16_t>(offset));
+            if (loop_stack.back().continue_target == LoopInfo::kContinueForward) {
+                // C-style for: target (post clause) not emitted yet
+                size_t patch = ctx->emit_jump(OpCode::OP_JUMP);
+                loop_stack.back().continue_patches.push_back(patch);
+            } else {
+                size_t current_pos = ctx->function->code.size();
+                int32_t offset = loop_stack.back().continue_target - current_pos - 3;
+                ctx->emit_op(OpCode::OP_JUMP);
+                ctx->emit_short(static_cast<uint16_t>(offset));
+            }
         }
         return;
     }

@@ -1,0 +1,48 @@
+// regression test for the trace-JIT constant-modulo miscompiling.
+// The 'Hacker's Delight' magic-multiply code was missing the +n correction
+// required when the magic constant wraps negative as int64, so `n % d` returned n + d.
+// this only triggers when trace-jit kicks in
+
+func expect(cond, msg) {
+  if (cond == false) {
+    throw "FAILED: " + msg;
+  }
+}
+
+func mod_chain(n, d) {
+  let s = 12345;
+  for (let i = 1; i < n; i = i + 1) {
+    s = (s * i + 1) % d;
+  }
+  return s;
+}
+
+func mod_identity(n, d) {
+  // every i is < d, so i % d must equal i
+  let acc = 0;
+  for (let i = 1; i < n; i = i + 1) {
+    acc = acc + i % d;
+  }
+  return acc;
+}
+
+func mod_negative(n, d) {
+  let acc = 0;
+  let s = -500000;
+  for (let i = 0; i < n; i = i + 1) {
+    acc = (acc * 31 + s % d) % 1000000007;
+    s = s + 7919;
+  }
+  return acc;
+}
+
+// call everything twice: the second call runs the recorded/compiled trace
+for (let round = 0; round < 2; round = round + 1) {
+  expect(mod_chain(100000, 999983) == 232968, "mod_chain(100000, 999983)");
+  expect(mod_chain(50000, 101) == 65, "mod_chain(50000, 101)");
+  expect(mod_identity(100000, 999983) == 4999950000, "mod_identity should sum 1..n-1");
+  expect(mod_identity(100000, 1000000007) == 4999950000, "mod_identity, large divisor");
+  expect(mod_negative(50000, 999983) == -641334602, "negative dividends");
+  expect(mod_negative(50000, 65536) == -932838022, "negative dividends, pow2 divisor");
+}
+print("trace-jit const-mod: ok");
