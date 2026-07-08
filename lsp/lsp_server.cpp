@@ -1279,15 +1279,14 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
                 if (param.type) {
                     param_detail += ": " + param.type->to_string();
                 }
-                SymInfo paramInfo{
-                    .name = param.name,
-                    .detail = param_detail,
-                    .kind = CK_Variable,
-                    .line = fn->line,
-                    .col = resolve_identifier_col(source_lines, param.name, fn->line, fn_col,
-                                                  fn_param_search_from),
-                    .source_file = fn->filename
-                };
+                SymInfo paramInfo;
+                paramInfo.name = param.name;
+                paramInfo.detail = param_detail;
+                paramInfo.kind = CK_Variable;
+                paramInfo.line = fn->line;
+                paramInfo.col = resolve_identifier_col(source_lines, param.name, fn->line, fn_col,
+                                                       fn_param_search_from);
+                paramInfo.source_file = fn->filename;
                 paramInfo.scope_fn_line = fn->line;
                 paramInfo.inferred_type = infer_annotation_type(param.type.get());
                 out.push_back(std::move(paramInfo));

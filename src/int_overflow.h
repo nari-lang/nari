@@ -83,8 +83,7 @@ inline bool mul_overflow_i48(int64_t a, int64_t b, void* out) {
     int128_t wide = (int128_t)a * (int128_t)b;
     low = (uint64_t)wide;
     high = (int64_t)(wide >> 64);
-    unsigned long long dummy;
-    high = __builtin_addcll(high, 0, __builtin_add_overflow(low, 0x800000000000ull, &adc_low), &dummy);
+    high += (int64_t)__builtin_add_overflow(low, 0x800000000000ull, &adc_low);
 #endif
     if (NARI_EXPECT(!(adc_low >> 48 | high), true)) {
         *(int64_t*)out = low;
