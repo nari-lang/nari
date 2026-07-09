@@ -149,9 +149,10 @@ jobs:
           fi
           cp LICENSE   "${STAGE}/LICENSE"   || true
           cp README.md "${STAGE}/README.md" || true
+          sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
           # Deterministic ordering keeps the sha256 stable across reruns.
           ( cd dist && tar --format=ustar -czf "${NAME}.tar.gz" "${NAME}" )
-          ( cd dist && shasum -a 256 "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256" )
+          ( cd dist && sha256 "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256" )
           rm -rf "${STAGE}"
           ls -la dist/
 
@@ -207,9 +208,10 @@ jobs:
           shopt -s nullglob
           # One manifest of every published archive, consumed by install.sh /
           # Homebrew formula generators.
+          sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
           : > SHASUMS256.txt
           for f in *.tar.gz *.zip; do
-            shasum -a 256 "$f" >> SHASUMS256.txt
+            sha256 "$f" >> SHASUMS256.txt
           done
           cat SHASUMS256.txt
 
