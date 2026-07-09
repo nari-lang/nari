@@ -125,7 +125,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Post-process the Wasm binary with wasm-opt if available
 if ($Emscripten) {
-  $WasmFile = "$BuildPath\interpreter.wasm"
+  $WasmFile = "$BuildPath\nari.wasm"
   if (Get-Command wasm-opt -ErrorAction SilentlyContinue) {
   Write-Host "Running wasm-opt on $WasmFile..."
   wasm-opt --generate-global-effects --monomorphize --pass-arg=monomorphize-min-benefit@75 -O4 --enable-bulk-memory --enable-sign-ext --gufa --closed-world -O4 --strip-toolchain-annotations --flatten --rereloop -O4 -O4 -o $WasmFile $WasmFile

@@ -327,7 +327,7 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
 
 int main(int argc, char **argv) {
     const char *usage = {
-        "Usage: interpreter [--repl] [--dap] [--dump-ast=<file>] "
+        "Usage: nari [--repl] [--dap] [--dump-ast=<file>] "
         "[--trace-level=<none|error|info|debug>] [--tree-walk] "
         "<script.nari | compiled.naric> [script args...]\n"
     };

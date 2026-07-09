@@ -139,8 +139,8 @@ ninja -C "$BUILD_DIR"
 case "$action" in
   build)
   echo ""
-  echo "Build complete: $BUILD_DIR/interpreter"
-  echo "Run with: $QEMU $QEMU_FLAGS $BUILD_DIR/interpreter <file.nari>"
+  echo "Build complete: $BUILD_DIR/nari"
+  echo "Run with: $QEMU $QEMU_FLAGS $BUILD_DIR/nari <file.nari>"
   ;;
   run)
   shift
@@ -148,7 +148,7 @@ case "$action" in
   shift || true
   echo ""
   echo "=== Running under QEMU (ARM64) ==="
-  $QEMU $QEMU_FLAGS "$BUILD_DIR/interpreter" "$file" "$@"
+  $QEMU $QEMU_FLAGS "$BUILD_DIR/nari" "$file" "$@"
   ;;
   test)
   echo ""
@@ -158,7 +158,7 @@ case "$action" in
   skip=0
   for t in tests/expect_pass/*.nari; do
   name=$(basename "$t")
-  if output=$($QEMU $QEMU_FLAGS "$BUILD_DIR/interpreter" "$t" 2>&1); then
+  if output=$($QEMU $QEMU_FLAGS "$BUILD_DIR/nari" "$t" 2>&1); then
   echo "  PASS  $name"
   pass=$((pass + 1))
   else
@@ -169,7 +169,7 @@ case "$action" in
   done
   for t in tests/expect_fail/*.nari; do
   name=$(basename "$t")
-  if $QEMU $QEMU_FLAGS "$BUILD_DIR/interpreter" "$t" >/dev/null 2>&1; then
+  if $QEMU $QEMU_FLAGS "$BUILD_DIR/nari" "$t" >/dev/null 2>&1; then
   echo "  FAIL  $name (expected failure but passed)"
   fail=$((fail + 1))
   else

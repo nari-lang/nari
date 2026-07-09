@@ -69,6 +69,33 @@ let len = __ffi_call(libc, "strlen", str_sig, ["Hello, World!"])
 print("Length: " @ len @ "\n")  // Output: Length: 13
 ```
 
+## Installation
+
+### Linux and macOS
+
+Install the latest release with the bootstrap script (never uses sudo; installs
+into `~/.nari` and adds it to your `PATH`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/wearrrrr/Nari/main/install.sh | sh
+```
+
+Pass `--with-npkg` to also install the [npkg](https://github.com/nari-lang/npkg)
+package manager. To uninstall, run `uninstall.sh` from the same location.
+
+### Windows (manual)
+
+There's no Windows installer yet, so install from the release archive:
+
+1. Download `nari-<version>-windows-x86_64.zip` (or `-aarch64.zip` on ARM) from
+   the [Releases page](https://github.com/wearrrrr/Nari/releases).
+2. Extract it somewhere stable, e.g. `C:\Program Files\Nari`.
+3. Add that folder's `bin\` directory to your `PATH` so `nari` and `naric` are
+   available from any terminal.
+
+> A proper Windows installer (NSIS or similar) is planned to replace this manual
+> step.
+
 ## Building from Source
 
 ### Prerequisites
@@ -88,7 +115,7 @@ print("Length: " @ len @ "\n")  // Output: Length: 13
 
 By default this creates a debug build in `build/debug/`:
 
-* `build/debug/interpreter`
+* `build/debug/nari`
 * `build/debug/naric`
 * `build/debug/nari-lsp` when LSP support is enabled
 
@@ -99,6 +126,37 @@ For a release build:
 ```
 
 Release artifacts are placed in `build/release/`.
+
+### System Dependencies (Distro Packaging)
+
+To build against distro packages instead of Conan:
+
+```bash
+./build.sh --system-deps --release
+```
+
+Dependencies are resolved via pkg-config / the default linker paths, and the
+build uses the system toolchain and standard library.
+
+Required packages:
+- `libcurl`
+- `mbedtls`
+- `libffi`
+- `libarchive`
+- `asmjit`
+- `replxx` (plus their headers).
+
+`asmjit` and `replxx` are optional: configure with
+`-Ddisable_jit=true` / `-Ddisable_repl=true` if your distro doesn't package them.
+
+Packaging scripts can also call Meson directly:
+
+```bash
+meson setup build --buildtype=release -Dsystem_deps=true
+meson compile -C build
+```
+
+Artifacts land in `build/sysdeps-release/` when using `build.sh`.
 
 ### Minimal Build (Embedded Systems)
 
@@ -133,15 +191,15 @@ This creates a WebAssembly build suitable for running in web browsers.
 Execute a Nari script file with whichever build you created:
 
 ```bash
-./build/debug/interpreter script.nari
-./build/release/interpreter script.nari
+./build/debug/nari script.nari
+./build/release/nari script.nari
 ```
 
 Compile a script to bytecode:
 
 ```bash
 ./build/release/naric script.nari -o script.naric
-./build/release/interpreter script.naric
+./build/release/nari script.naric
 ```
 
 Run the test suite:

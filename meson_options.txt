@@ -1,23 +1,63 @@
-option('mimalloc', type: 'combo', choices: ['auto', 'enabled', 'disabled'], value: 'auto',
-  description: 'Link mimalloc to override glibc malloc (faster on allocation-heavy code)')
+option(
+    'mimalloc',
+    type: 'combo',
+    choices: ['auto', 'enabled', 'disabled'],
+    value: 'auto',
+    description: 'Link mimalloc to override glibc malloc (faster on allocation-heavy code)',
+)
 
-option('disable_ffi', type: 'boolean', value: false,
-  description: 'Disable FFI (Foreign Function Interface) support')
+option(
+    'disable_ffi',
+    type: 'boolean',
+    value: false,
+    description: 'Disable FFI (Foreign Function Interface) support',
+)
 
-option('disable_http', type: 'boolean', value: false,
-  description: 'Disable HTTP/HTTPS networking support')
+option(
+    'disable_http',
+    type: 'boolean',
+    value: false,
+    description: 'Disable HTTP/HTTPS networking support',
+)
 
-option('disable_jit', type: 'boolean', value: false,
-  description: 'Disable JIT compiler support')
+option(
+    'disable_jit',
+    type: 'boolean',
+    value: false,
+    description: 'Disable JIT compiler support',
+)
 
-option('disable_repl', type: 'boolean', value: false,
-  description: 'Disable the built-in REPL (disables replxx dependency)')
+option(
+    'disable_repl',
+    type: 'boolean',
+    value: false,
+    description: 'Disable the built-in REPL (disables replxx dependency)',
+)
 
-option('disable_lsp', type: 'boolean', value: false,
-  description: 'Disable building the LSP server')
+option(
+    'disable_lsp',
+    type: 'boolean',
+    value: false,
+    description: 'Disable building the LSP server',
+)
 
-option('target_mcu', type: 'boolean', value: false,
-  description: 'Target microcontroller (e.g. ESP32): bytecode-only mode, no threads, no FFI/HTTP/JIT/REPL. Scripts must be pre-compiled to .naric with the naric tool.')
+option(
+    'target_mcu',
+    type: 'boolean',
+    value: false,
+    description: 'Target microcontroller (e.g. ESP32): bytecode-only mode, no threads, no FFI/HTTP/JIT/REPL. Scripts must be pre-compiled to .naric with the naric tool.',
+)
 
-option('windows_win7_compat', type: 'boolean', value: false,
-  description: 'Use Win7-safe filesystem shims instead of the MSVC std::filesystem runtime on Windows.')
+option(
+    'windows_win7_compat',
+    type: 'boolean',
+    value: false,
+    description: 'Use Win7-safe filesystem shims instead of the MSVC std::filesystem runtime on Windows.',
+)
+
+option(
+    'system_deps',
+    type: 'boolean',
+    value: false,
+    description: 'Resolve dependencies from the system (pkg-config / default linker paths) instead of the Conan deploy folder. For distro packaging; no Conan required.',
+)

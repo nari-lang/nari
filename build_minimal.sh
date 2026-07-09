@@ -27,7 +27,7 @@ meson compile -C build/minimal
 
 echo ""
 echo "Minimal build complete!"
-echo "Binary: build/minimal/interpreter"
+echo "Binary: build/minimal/nari"
 echo ""
 echo "Disabled features:"
 echo "  - FFI (Foreign Function Interface)"

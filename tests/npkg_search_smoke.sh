@@ -19,7 +19,7 @@ set -uo pipefail
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 NPKG="$REPO_ROOT/npkg-frontend/npkg/main.nari"
-INTERPRETER="$REPO_ROOT/build/release/interpreter"
+INTERPRETER="$REPO_ROOT/build/release/nari"
 
 if [ ! -f "$NPKG" ] || [ ! -x "$INTERPRETER" ]; then
   echo "[skip] npkg search smoke: interpreter or entry script missing"

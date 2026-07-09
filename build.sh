@@ -6,6 +6,7 @@ WIPE=false
 MUSL=false
 EMSCRIPTEN=false
 SANITIZE=false
+SYSTEM_DEPS=false
 CROSS_FILE="glibc-clang.txt"
 MESON_OPTS=""
 
@@ -45,15 +46,30 @@ for arg in "$@"; do
   # Disable mimalloc: it overrides malloc, which clashes with ASan's malloc
   # interceptors (both want to own the allocator).
   EXTRA_ARGS="$EXTRA_ARGS -Db_sanitize=address,undefined -Db_lundef=false -Dmimalloc=disabled"
+  elif [ "$arg" = "--system-deps" ]; then
+  # Distro-packaging mode: no Conan; link system packages via pkg-config / default linker paths, and build with the system toolchain
+
+  echo "Building against system dependencies (no Conan)..."
+  SYSTEM_DEPS=true
+  MESON_OPTS="$MESON_OPTS -Dsystem_deps=true"
   elif [ "$arg" = "--wipe" ]; then
   echo "Wiping build directory..."
   WIPE=true
   RECONFIGURE=true
+  else
+  case "$arg" in
+  -D*)
+  # forward meson -D options (e.g. -Ddisable_jit=true) untouched
+  MESON_OPTS="$MESON_OPTS $arg"
+  ;;
+  esac
   fi
 done
 
 if [ "$SANITIZE" = true ]; then
   BUILD_DIR="sanitize"
+elif [ "$SYSTEM_DEPS" = true ]; then
+  BUILD_DIR="sysdeps-$BUILD_TYPE"
 elif [ "$MUSL" = true ]; then
   BUILD_DIR="musl-$BUILD_TYPE"
 elif [ "$EMSCRIPTEN" = true ]; then
@@ -67,7 +83,7 @@ if [ ! -d build/$BUILD_DIR ]; then
 fi
 
 # run conan, but only if not using emscripten, since emscripten provides everything we need
-if [ "$EMSCRIPTEN" != true ]; then
+if [ "$EMSCRIPTEN" != true ] && [ "$SYSTEM_DEPS" != true ]; then
   echo "Installing dependencies via conan..."
   mkdir -p build/conan
   # Build deps against libc++ to match toolchain/glibc-clang.txt. The two MUST
@@ -86,14 +102,19 @@ if [ "$RECONFIGURE" = true ]; then
   if [ "$WIPE" = true ]; then
   MESON_SETUP_FLAGS="--wipe"
   fi
+  if [ "$SYSTEM_DEPS" = true ]; then
+  # no cross file (system toolchain + system STL) and no conan native file
+  meson setup $MESON_SETUP_FLAGS build/$BUILD_DIR/ --buildtype=$BUILD_TYPE $EXTRA_ARGS $MESON_OPTS
+  else
   meson setup $MESON_SETUP_FLAGS build/$BUILD_DIR/ --cross-file toolchain/$CROSS_FILE --native-file build/conan/conan_meson_native.ini --buildtype=$BUILD_TYPE $EXTRA_ARGS $MESON_OPTS
+  fi
 fi
 
 meson compile -C build/$BUILD_DIR/
 
 # Post-process the Wasm binary with wasm-opt if available
 if [ "$EMSCRIPTEN" = true ]; then
-  WASM_FILE="build/$BUILD_DIR/interpreter.wasm"
+  WASM_FILE="build/$BUILD_DIR/nari.wasm"
   if command -v wasm-opt >/dev/null 2>&1; then
   echo "Running wasm-opt on $WASM_FILE..."
   wasm-opt --generate-global-effects --monomorphize --pass-arg=monomorphize-min-benefit@75 -O4 --enable-bulk-memory --enable-sign-ext --gufa --closed-world -O4 --strip-toolchain-annotations --flatten --rereloop -O4 -O4 -o "$WASM_FILE" "$WASM_FILE"

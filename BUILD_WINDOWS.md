@@ -50,7 +50,7 @@ meson setup build\release --native-file build\conan\conan_meson_native.ini --bui
 meson compile -C build\release
 ```
 
-Output: `build\release\interpreter.exe` and `build\release\naric.exe`.
+Output: `build\release\nari.exe` and `build\release\naric.exe`.
 
 ## Using clang-cl instead of MSVC
 
@@ -109,5 +109,5 @@ Notes:
 ## CI
 
 The GitHub Actions workflow (`.github/workflows/build-windows.yml`) runs on
-`windows-latest` and uploads `interpreter.exe` + `naric.exe` as build
+`windows-latest` and uploads `nari.exe` + `naric.exe` as build
 artifacts on every push to `main`.

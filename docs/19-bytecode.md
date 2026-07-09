@@ -4,7 +4,7 @@ Nari source files can be compiled to bytecode with `naric` and later executed by
 
 ```bash
 ./build/release/naric script.nari -o script.naric
-./build/release/interpreter script.naric
+./build/release/nari script.naric
 ```
 
 The `.naric` format is currently an internal/runtime format rather than a long-term stable ABI. It is useful for faster startup, bytecode-only builds, embedded targets, and compiled module imports.

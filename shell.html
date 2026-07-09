@@ -124,7 +124,7 @@
   const stopBtn  = document.getElementById('stop-btn');
 
   // URL of the emscripten JS glue, resolved relative to this page.
-  const interpreterJsUrl = new URL('interpreter.js', location.href).href;
+  const interpreterJsUrl = new URL('nari.js', location.href).href;
 
   // Main-page Module: loads the wasm silently just to show "Interpreter ready".
   // All user code execution happens in a separate Worker so the main thread
@@ -185,7 +185,7 @@ self.onmessage = function(e) {
   if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
   self.postMessage({ type: 'printErr', text: text + '\\n' });
   },
-  // Resolve .wasm relative to interpreter.js (not the blob worker URL).
+  // Resolve .wasm relative to nari.js (not the blob worker URL).
   locateFile: function(path) {
   return new URL(path, scriptUrl).href;
   },
@@ -266,7 +266,7 @@ self.onmessage = function(e) {
   });
   </script>
 
-  <!-- Loads interpreter.js on the main thread for the initial "ready" signal only.
+  <!-- Loads nari.js on the main thread for the initial "ready" signal only.
   Each user code run happens inside a fresh Worker; the main thread never blocks. -->
   {{{ SCRIPT }}}
 </body>

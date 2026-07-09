@@ -175,7 +175,7 @@ XEOF
   ninja -C "$BUILD_DIR"
   echo ""
   echo "=== Build complete ==="
-  file "$BUILD_DIR/interpreter"
+  file "$BUILD_DIR/nari"
 }
 
 case "${1:-build}" in

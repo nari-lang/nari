@@ -9,22 +9,26 @@ on:
 
 jobs:
   build:
-    # Pinned to windows-2022 (VS2022): windows-latest moved to VS2026 (VS18),
-    # whose CMake generator "Visual Studio 18 2026" isn't recognized by the
-    # CMake used to build Conan deps (e.g. asmjit).
-    runs-on: windows-2022
+    name: Build windows-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            arch: x64
+            msvc_arch: x64
+          - runner: windows-11-arm
+            arch: arm64
+            msvc_arch: arm64
 
     steps:
       - uses: actions/checkout@v4
 
-      # Modern-Windows sanity build. Win7-compatible binaries require the
-      # portable MSVC 14.36 + SDK 22621 toolchain (14.40+ vcruntime drops Win7
-      # support), which GitHub-hosted runners don't provide. Build those locally
-      # with ./build_wine.sh --win7 --sdk-version 22621 instead.
       - name: Set up MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
-          arch: x64
+          arch: ${{ matrix.msvc_arch }}
 
       - name: Install Meson, Ninja, and Conan
         run: pip install meson ninja conan
@@ -48,8 +52,8 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nari-windows-x64
+          name: nari-windows-${{ matrix.arch }}
           path: |
-            build/release/interpreter.exe
+            build/release/nari.exe
             build/release/naric.exe
             build/release/nari-lsp.exe

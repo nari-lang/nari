@@ -64,8 +64,8 @@ function findServerBinary(_context: ExtensionContext): string | undefined {
 }
 
 /* 
-    Locate the interpreter binary used for --dap debug sessions.
-        Same search order as the LSP server but looking for `interpreter` instead of
+    Locate the nari binary used for --dap debug sessions.
+        Same search order as the LSP server but looking for `nari` instead of
         `nari-lsp`. `nari.debug.interpreterPath` is used to override auto-detection.
  */
 function findInterpreterBinary(): string | undefined {
@@ -77,10 +77,10 @@ function findInterpreterBinary(): string | undefined {
 
     for (const folder of workspace.workspaceFolders ?? []) {
         const candidates = [
-            path.join(folder.uri.fsPath, 'build', 'release', 'interpreter'),
-            path.join(folder.uri.fsPath, 'build', 'debug', 'interpreter'),
-            path.join(folder.uri.fsPath, 'build', 'release', 'interpreter.exe'),
-            path.join(folder.uri.fsPath, 'build', 'debug', 'interpreter.exe'),
+            path.join(folder.uri.fsPath, 'build', 'release', 'nari'),
+            path.join(folder.uri.fsPath, 'build', 'debug', 'nari'),
+            path.join(folder.uri.fsPath, 'build', 'release', 'nari.exe'),
+            path.join(folder.uri.fsPath, 'build', 'debug', 'nari.exe'),
         ];
         for (const c of candidates) {
             if (fs.existsSync(c)) return c;
@@ -89,7 +89,7 @@ function findInterpreterBinary(): string | undefined {
 
     const pathDirs = (process.env.PATH ?? '').split(path.delimiter);
     for (const dir of pathDirs) {
-        const bin = path.join(dir, os.platform() === 'win32' ? 'interpreter.exe' : 'interpreter');
+        const bin = path.join(dir, os.platform() === 'win32' ? 'nari.exe' : 'nari');
         if (fs.existsSync(bin)) return bin;
     }
 
@@ -98,7 +98,7 @@ function findInterpreterBinary(): string | undefined {
 
 /*
     Debug adapter descriptor factory for the `nari` debug type.
-    Spawns `interpreter --dap` per session. Communication is stdin/stdout
+    Spawns `nari --dap` per session. Communication is stdin/stdout
     framed with Content-Length headers, identical to LSP format.
  */
 class NariDebugAdapterFactory implements DebugAdapterDescriptorFactory {
@@ -109,7 +109,7 @@ class NariDebugAdapterFactory implements DebugAdapterDescriptorFactory {
         const bin = findInterpreterBinary();
         if (!bin) {
             window.showErrorMessage(
-                'Nari Debugger: could not find the interpreter binary. ' +
+                'Nari Debugger: could not find the nari binary. ' +
                 'Build the project or set "nari.debug.interpreterPath" in settings.',
             );
             return undefined;

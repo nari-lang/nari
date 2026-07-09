@@ -27,9 +27,9 @@ Requirements: a C++17 compiler (clang recommended), Meson, Ninja, mbedtls,
 libarchive, and (for the JIT) AsmJit.
 
 ```sh
-./build.sh  # debug build  -> build/debug/interpreter
-./build.sh --release  # release + LTO -> build/release/interpreter
-./build.sh --sanitize  # AddressSanitizer + UBSan -> build/sanitize/interpreter
+./build.sh  # debug build  -> build/debug/nari
+./build.sh --release  # release + LTO -> build/release/nari
+./build.sh --sanitize  # AddressSanitizer + UBSan -> build/sanitize/nari
 ./build.sh --reconfigure  # force meson to reconfigure
 ```
 

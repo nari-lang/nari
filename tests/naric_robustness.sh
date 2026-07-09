@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Regression tests for .naric deserializer hardening.
-# Feeds the interpreter malformed / truncated / oversized .naric files and
-# verifies it rejects them cleanly (nonzero exit, no crash, no hang).
+# Feeds the interpreter malformed / truncated / oversized .naric files and verifies it rejects them cleanly
 
 set -u
 
-INTERP="${INTERP:-build/release/interpreter}"
+INTERP="${INTERP:-build/release/nari}"
 NARIC="${NARIC:-build/release/naric}"
 
 if [ ! -x "$INTERP" ] || [ ! -x "$NARIC" ]; then
@@ -22,7 +21,7 @@ FAIL=0
 check() {
   local name="$1"
   local file="$2"
-  # Exit code 0 (success) or 139 (segfault) means the hardening failed.
+  # exit code 0 (success) or 139 (segfault) means the hardening failed.
   timeout 5 "$INTERP" "$file" >/dev/null 2>&1
   local rc=$?
   if [ $rc -eq 0 ]; then
@@ -40,7 +39,7 @@ check() {
   fi
 }
 
-# Valid baseline: a real compiled file should still work.
+# a real compiled file should still work.
 cat > "$TMP/ok.nari" <<'EOF'
 func start() { print("hello"); }
 EOF
@@ -125,8 +124,7 @@ check_verifier() {
   fi
 }
 
-# Verifier-level tests: crafted semantically-invalid opcodes that pass the
-# structural deserializer but must be rejected by BytecodeVerifier.
+# crafted semantically-invalid opcodes that pass the structural deserializer but must be rejected by BytecodeVerifier.
 check_verifier "unknown opcode" "bad_opcode" "unknown opcode 254"
 check_verifier "constant idx out of range" "huge_const_idx" "constant index out of range"
 check_verifier "string idx out of range" "huge_str_idx" "name/string index out of range"

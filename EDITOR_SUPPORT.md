@@ -30,10 +30,10 @@ A normal native build can produce three useful binaries:
 Debug build outputs are under `build/debug/` and release build outputs are under `build/release/`:
 
 ```text
-build/debug/interpreter  # Nari interpreter and DAP server via --dap
+build/debug/nari  # Nari interpreter and DAP server via --dap
 build/debug/naric  # bytecode compiler
 build/debug/nari-lsp  # language server
-build/release/interpreter
+build/release/nari
 build/release/naric
 build/release/nari-lsp
 ```
@@ -50,7 +50,7 @@ The VS Code extension lives in `lsp/extension/`.
 - Language configuration: brackets, comments, quotes, and related editor behavior.
 - `nari-lsp` integration over stdio.
 - Completion, hover, diagnostics, go-to-definition, references, document/workspace symbols, signature help, semantic tokens, code actions, and inlay hints as implemented by `lsp/lsp_server.cpp`.
-- Debugging through the interpreter's DAP mode: `interpreter --dap`.
+- Debugging through the interpreter's DAP mode: `nari --dap`.
 - Breakpoint support for `.nari` files.
 
 ### Development Setup
@@ -70,11 +70,11 @@ The extension looks for `nari-lsp` in this order:
 2. `build/debug/nari-lsp` or `build/release/nari-lsp` under any workspace folder.
 3. `nari-lsp` on `PATH`.
 
-The debugger looks for `interpreter` in this order:
+The debugger looks for `nari` in this order:
 
 1. The `nari.debug.interpreterPath` setting.
-2. `build/release/interpreter` or `build/debug/interpreter` under any workspace folder.
-3. `interpreter` on `PATH`.
+2. `build/release/nari` or `build/debug/nari` under any workspace folder.
+3. `nari` on `PATH`.
 
 On Windows, the `.exe` variants are also checked.
 
@@ -85,7 +85,7 @@ On Windows, the `.exe` variants are also checked.
   "nari.lsp.enable": true,
   "nari.lsp.serverPath": "/absolute/path/to/nari-lsp",
   "nari.lsp.inlayHints": false,
-  "nari.debug.interpreterPath": "/absolute/path/to/interpreter"
+  "nari.debug.interpreterPath": "/absolute/path/to/nari"
 }
 ```
 
@@ -109,7 +109,7 @@ Leave the path settings empty to use auto-discovery.
 If you use Zed, point its language-server/debugger configuration at the built binaries:
 
 - `build/debug/nari-lsp` or `build/release/nari-lsp`
-- `build/debug/interpreter` or `build/release/interpreter`
+- `build/debug/nari` or `build/release/nari`
 
 I'm still working on finishing a Zed extension, currently it's not 100% functional, so I haven't packaged it yet.
 

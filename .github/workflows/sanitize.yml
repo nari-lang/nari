@@ -7,12 +7,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# AddressSanitizer + UndefinedBehaviorSanitizer build of the interpreter, run
-# against the full test suite. Targets use-after-free / out-of-bounds / integer
-# and shift UB (e.g. the JIT codegen paths). Uses the default GCC toolchain to
-# avoid ABI surprises. Leak detection and container-overflow detection are off
-# (the JIT writes vm->stack's end pointer directly, bypassing libc++ container
-# annotations); see run_tests.sh for the full rationale.
+# AddressSanitizer + UndefinedBehaviorSanitizer build of the interpreter, run against the full test suite.
 jobs:
   sanitize:
     runs-on: ubuntu-latest

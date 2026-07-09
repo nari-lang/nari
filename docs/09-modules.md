@@ -423,10 +423,8 @@ import "validation.nari";
 
 Current module system limitations:
 
-1. **No selective imports**: Can't import specific symbols
-2. **No aliases**: Can't rename imports
-3. **No dynamic imports**: Must be static at top level
-4. **Global namespace**: All exports go to global scope
+1. **No aliases**: Can't rename imports
+2. **No dynamic imports**: Must be static at top level
 
 ## Next Steps
 

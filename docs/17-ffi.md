@@ -206,7 +206,7 @@ for (num in numbers) {
 Nari ships with a small header-to-FFI generator written in Nari itself:
 
 ```bash
-./build/debug/interpreter tools/ffi_bindgen.nari \
+./build/debug/nari tools/ffi_bindgen.nari \
   --input /path/to/header.h \
   --output bindings.nari
 ```
@@ -214,7 +214,7 @@ Nari ships with a small header-to-FFI generator written in Nari itself:
 For more complex headers, a Clang AST backend is also available:
 
 ```bash
-./build/debug/interpreter tools/ffi_bindgen.nari \
+./build/debug/nari tools/ffi_bindgen.nari \
   --backend clang-json \
   --cc clang \
   --input /path/to/header.h \
@@ -224,7 +224,7 @@ For more complex headers, a Clang AST backend is also available:
 For Win32 or other MSVC-style headers, prefer `clang-cl`:
 
 ```bash
-./build/debug/interpreter tools/ffi_bindgen.nari \
+./build/debug/nari tools/ffi_bindgen.nari \
   --backend clang-json \
   --cc clang-cl \
   --input /path/to/header.h \
@@ -238,7 +238,7 @@ the Windows SDK + MSVC CRT into `~/.xwin-cache/splat`, the simplest invocation
 is just:
 
 ```bash
-./build/debug/interpreter tools/ffi_bindgen.nari \
+./build/debug/nari tools/ffi_bindgen.nari \
   --output win_bindings.nari \
   --xwin ~/.xwin-cache/splat
 ```
@@ -250,7 +250,7 @@ just call `Win32.MessageBoxA(...)`, `Win32.CreateWindowExW(...)`, etc.
 You can also point `--input` at a specific Win32 sub-header by short name:
 
 ```bash
-./build/debug/interpreter tools/ffi_bindgen.nari \
+./build/debug/nari tools/ffi_bindgen.nari \
   --input shellapi.h \
   --output shell_bindings.nari \
   --xwin ~/.xwin-cache/splat
@@ -265,7 +265,7 @@ header in a tiny shim that does `#include <windows.h>` first, so things like
 You can still pass a full filesystem path if you prefer:
 
 ```bash
-./build/debug/interpreter tools/ffi_bindgen.nari \
+./build/debug/nari tools/ffi_bindgen.nari \
   --input ~/.xwin-cache/splat/sdk/include/um/Windows.h \
   --output bindings.nari \
   --xwin ~/.xwin-cache/splat
@@ -315,7 +315,7 @@ package instead of a single `.nari` file. Pass `--package-name <name>` and
 point `--output` at a directory:
 
 ```bash
-./build/debug/interpreter tools/ffi_bindgen.nari \
+./build/debug/nari tools/ffi_bindgen.nari \
   --output ./packages/win32 \
   --xwin ~/.xwin-cache/splat \
   --package-name "@ffi/win32" \
@@ -380,7 +380,7 @@ On Linux, Windows SDK headers may still need a small case-normalizing include ov
 Optional flags:
 
 ```bash
-./build/debug/interpreter tools/ffi_bindgen.nari \
+./build/debug/nari tools/ffi_bindgen.nari \
   --input win32.h \
   --output win32_bindings.nari \
   --cc x86_64-w64-mingw32-gcc \

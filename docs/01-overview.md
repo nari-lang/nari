@@ -125,7 +125,7 @@ Nari source files use the `.nari` extension.
 ## Running Programs
 
 ```bash
-./interpreter program.nari
+./nari program.nari
 ```
 
 ## Next Steps

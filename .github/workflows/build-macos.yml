@@ -1,4 +1,4 @@
-name: Build Linux
+name: Build macOS
 
 on:
   push:
@@ -9,31 +9,24 @@ on:
 
 jobs:
   build:
-    name: Build linux-${{ matrix.arch }}
+    name: Build macos-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-24.04
+          - runner: macos-13
             arch: x64
-          - runner: ubuntu-24.04-arm
+          - runner: macos-14
             arch: arm64
-
-    # clang everywhere: conan profile detect and meson both honor CC/CXX.
-    # Required for -stdlib=libc++
-    env:
-      CC: clang
-      CXX: clang++
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install build tools
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y clang lld libc++-dev libc++abi-dev python3-pip ninja-build
-          pip install meson conan
+          brew install ninja
+          python3 -m pip install --break-system-packages meson conan
 
       - name: Detect Conan profile
         run: conan profile detect --force
@@ -41,10 +34,10 @@ jobs:
       - name: Install dependencies via Conan
         run: |
           mkdir -p build/conan
-          conan install . -s compiler.libcxx=libc++ --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
+          conan install . --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
 
       - name: Configure
-        run: meson setup build/release --buildtype=release -Db_lto=true -Dcpp_args=-stdlib=libc++ '-Dcpp_link_args=-stdlib=libc++'
+        run: meson setup build/release --buildtype=release -Db_lto=true
         env:
           PKG_CONFIG_PATH: ${{ github.workspace }}/build/conan
 
@@ -57,7 +50,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nari-linux-${{ matrix.arch }}
+          name: nari-macos-${{ matrix.arch }}
           path: |
             build/release/nari
             build/release/naric
