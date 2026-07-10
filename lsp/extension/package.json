@@ -4,6 +4,7 @@
   "description": "Language support for the Nari scripting language (.nari)",
   "version": "0.1.0",
   "publisher": "nari",
+  "icon": "./media/nari-dark.png",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -16,7 +17,7 @@
     "onDebugDynamicConfigurations:nari"
   ],
   "main": "./out/extension.js",
-  "contributes": {
+  "contributes": {    
     "languages": [
       {
         "id": "nari",
@@ -29,8 +30,8 @@
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./media/nari-icon.png",
-          "dark": "./media/nari-icon.png"
+          "light": "./media/nari-light.png",
+          "dark": "./media/nari-dark.png"
         }
       },
       {
