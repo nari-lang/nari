@@ -18,7 +18,7 @@ Please **do not** open a public GitHub issue for security-sensitive reports.
 Instead, file a private vulnerability report through GitHub's built-in
 advisory workflow:
 
-1. Go to <https://github.com/wearrrrr/Nari/security/advisories>.
+1. Go to <https://github.com/nari-lang/nari/security/advisories>.
 2. Click **Report a vulnerability**.
 3. Include:
   * a description of the issue and the impact you believe it has,

@@ -78,7 +78,7 @@ Install the latest release with the bootstrap script (never uses sudo; installs
 into `~/.nari` and adds it to your `PATH`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/wearrrrr/Nari/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nari-lang/nari/main/install.sh | sh
 ```
 
 Pass `--with-npkg` to also install the [npkg](https://github.com/nari-lang/npkg)
@@ -89,7 +89,7 @@ package manager. To uninstall, run `uninstall.sh` from the same location.
 There's no Windows installer yet, so install from the release archive:
 
 1. Download `nari-<version>-windows-x86_64.zip` (or `-arm64.zip` on ARM) from
-   the [Releases page](https://github.com/wearrrrr/Nari/releases).
+   the [Releases page](https://github.com/nari-lang/nari/releases).
 2. Extract it somewhere stable, e.g. `C:\Program Files\Nari`.
 3. Add that folder's `bin\` directory to your `PATH` so `nari` and `naric` are
    available from any terminal.

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Nari uninstaller.
-#   curl -fsSL https://raw.githubusercontent.com/wearrrrr/Nari/main/uninstall.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/nari-lang/nari/main/uninstall.sh | sh
 set -eu
 
 NARI_HOME="${NARI_HOME:-$HOME/.nari}"
