@@ -1,8 +1,8 @@
 [requires]
 asmjit/cci.20251209
-mbedtls/3.5.0
+mbedtls/3.6.6
 zlib/[>=1.2]
-libcurl/8.19.0
+libcurl/8.21.0
 libffi/[>=3.4]
 replxx/0.0.4
 libarchive/3.8.7

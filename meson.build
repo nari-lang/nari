@@ -41,13 +41,13 @@ system_deps = get_option('system_deps')
 conan_deploy = meson.get_external_property('conan_deploy_dir', 'build/conan/direct_deploy')
 conan_deploy_abs = meson.project_source_root() / conan_deploy
 
-conan_asmjit_libdir = is_darwin ? [] : [conan_deploy_abs / 'asmjit' / 'lib']
-conan_mbedtls_libdir = is_darwin ? [] : [conan_deploy_abs / 'mbedtls' / 'lib']
-conan_zlib_libdir = is_darwin ? [] : [conan_deploy_abs / 'zlib' / 'lib']
-conan_curl_libdir = is_darwin ? [] : [conan_deploy_abs / 'libcurl' / 'lib']
-conan_ffi_libdir = is_darwin ? [] : [conan_deploy_abs / 'libffi' / 'lib']
-conan_replxx_libdir = is_darwin ? [] : [conan_deploy_abs / 'replxx' / 'lib']
-conan_libarchive_libdir = is_darwin ? [] : [conan_deploy_abs / 'libarchive' / 'lib']
+conan_asmjit_libdir = [conan_deploy_abs / 'asmjit' / 'lib']
+conan_mbedtls_libdir = [conan_deploy_abs / 'mbedtls' / 'lib']
+conan_zlib_libdir = [conan_deploy_abs / 'zlib' / 'lib']
+conan_curl_libdir = [conan_deploy_abs / 'libcurl' / 'lib']
+conan_ffi_libdir = [conan_deploy_abs / 'libffi' / 'lib']
+conan_replxx_libdir = [conan_deploy_abs / 'replxx' / 'lib']
+conan_libarchive_libdir = [conan_deploy_abs / 'libarchive' / 'lib']
 
 # Probe for replxx early so we can add -DDISABLE_REPL to cpp_args if it is unavailable
 have_replxx = false
