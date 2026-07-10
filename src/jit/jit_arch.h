@@ -14,6 +14,18 @@
 #if defined(__aarch64__) || defined(_M_ARM64)
 #define NARI_JIT_ARM64 1
 #include <asmjit/a64.h>
+#if defined(_MSC_VER)
+// microsoft please.
+#undef mvn
+#undef mvni
+#undef movi
+#undef orr
+#undef orn
+#undef eor
+#undef bic
+#undef neg
+#undef tst
+#endif
 #else
 #define NARI_JIT_X86 1
 #include <asmjit/x86.h>
