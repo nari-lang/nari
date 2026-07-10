@@ -42,12 +42,10 @@ for arg in "$@"; do
   SANITIZE=true
   BUILD_TYPE=debug
   # -Db_lundef=false lets the sanitizer runtime's undefined symbols
-  # resolve at link time (required with LTO off).
-  # Disable mimalloc: it overrides malloc, which clashes with ASan's malloc
-  # interceptors (both want to own the allocator).
+  # resolve at link time (required with LTO off), also disable mimalloc.
   EXTRA_ARGS="$EXTRA_ARGS -Db_sanitize=address,undefined -Db_lundef=false -Dmimalloc=disabled"
   elif [ "$arg" = "--system-deps" ]; then
-  # Distro-packaging mode: no Conan; link system packages via pkg-config / default linker paths, and build with the system toolchain
+  # Distro-packaging mode, don't use conan
 
   echo "Building against system dependencies (no Conan)..."
   SYSTEM_DEPS=true

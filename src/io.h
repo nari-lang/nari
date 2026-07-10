@@ -1067,10 +1067,12 @@ class IOThreadPool {
     }
 
     void shutdown() {
-        // already stopped?
-        bool expected = false;
-        if (!stop.compare_exchange_strong(expected, true)) {
-            return;
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            bool expected = false;
+            if (!stop.compare_exchange_strong(expected, true)) {
+                return; // already stopped
+            }
         }
         cv.notify_all();
         for (auto &worker : workers) {
