@@ -94,7 +94,7 @@ Run the full suite (`./run_tests.sh`) before opening a PR.
 ## Reporting bugs and requesting features
 
 Use the GitHub issue templates under
-[Issues](https://github.com/wearrrrr/Nari/issues/new/choose).
+[Issues](https://github.com/nari-lang/nari/issues/new/choose).
 
 ## License
 

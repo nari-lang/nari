@@ -1,9 +1,9 @@
 #!/bin/sh
 # Nari installer.
-#   curl -fsSL https://raw.githubusercontent.com/wearrrrr/Nari/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/nari-lang/nari/main/install.sh | sh
 set -eu
 
-REPO="wearrrrr/Nari"
+REPO="nari-lang/nari"
 NPKG_REPO="nari-lang/npkg"
 NARI_HOME="${NARI_HOME:-$HOME/.nari}"
 VERSION="${NARI_VERSION:-}"
@@ -34,7 +34,7 @@ Environment:
   NPKG_VERSION      Same as --npkg-version.
 
 The installer never uses sudo. To uninstall:
-  curl -fsSL https://raw.githubusercontent.com/wearrrrr/Nari/main/uninstall.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/nari-lang/nari/main/uninstall.sh | sh
 EOF
 }
 
