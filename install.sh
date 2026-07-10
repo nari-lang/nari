@@ -92,8 +92,8 @@ case "$(uname -s)" in
 esac
 case "$(uname -m)" in
     x86_64|amd64) ARCH=x86_64 ;;
-    aarch64|arm64) ARCH=aarch64 ;;
-    *) die "unsupported architecture: $(uname -m) (x86_64 and aarch64 only)" ;;
+    aarch64|arm64) ARCH=arm64 ;;
+    *) die "unsupported architecture: $(uname -m) (x86_64 and arm64 only)" ;;
 esac
 log "Detected platform: ${OS}-${ARCH}"
 

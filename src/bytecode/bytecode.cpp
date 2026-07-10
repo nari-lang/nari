@@ -3654,6 +3654,10 @@ bool VM::run(Chunk *compiled_chunk) {
         return call_function_value_sync(func_val, args);
     };
 
+    runtime->external_global_lookup = [&](const std::string &name) -> Value {
+        return get_global(name);
+    };
+
     // call __stdlib_init__() if it exists to populate the system object
     auto stdlib_init_it = func_indices.find("__stdlib_init__");
     if (stdlib_init_it != func_indices.end()) {

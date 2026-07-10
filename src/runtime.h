@@ -315,9 +315,11 @@ class ScriptRuntime {
 
     // callback for dispatching function calls to the bytecode VM (for FFI callbacks)
     std::function<Value(const Value &, const std::vector<Value> &)> external_call_function_value;
-    // Optional stdout sink used by the DAP server to surface script output.
+    // resolve a global by name from the active execution tier
+    std::function<Value(const std::string &)> external_global_lookup;
+    // optional stdout sink used by the DAP server
     std::function<void(const std::string &)> stdout_writer;
-    // Optional statement hook used by the bytecode debugger for AST-dispatched code.
+    // optional statement hook used by the bytecode debugger
     std::function<void(const Stmt *)> debug_stmt_hook;
 
     // Raise a script-catchable throw from a builtin. Sets flags.throw_flag +
@@ -450,16 +452,50 @@ class ScriptRuntime {
         return Value::none();
     }
 
-    // --- Delegate (Proxy-like) trap dispatch --------------------------------
-    // Shared by all three execution tiers (AST interpreter, bytecode VM, JIT
-    // helpers). Each is entered only after a value has been confirmed to be a
-    // Delegate (heap tag 11), so the object shape / property inline caches on
-    // the fast paths are never touched. When the corresponding handler trap is
-    // absent, the operation falls through to the wrapped target's normal
-    // behavior. Handler traps are invoked via call_function_value (the same
-    // path map/filter use), so they work identically under the AST interpreter
-    // and the VM. All heap Values held across the trap call (a safe-point) are
-    // rooted with GcTempRoot.
+    // resolve a global by name from whichever execution tier is active
+    Value resolve_global(const std::string &name) {
+        if (external_global_lookup) {
+            return external_global_lookup(name);
+        }
+        auto it = globals.find(name);
+        if (it != globals.end()) {
+            return it->second;
+        }
+        return Value::none();
+    }
+
+    Value make_ok(const Value &value) {
+        return construct_variant("Ok", "Result", { value }, true);
+    }
+    Value make_err(const Value &error) {
+        return construct_variant("Err", "Result", { error }, true);
+    }
+    Value make_some(const Value &value) {
+        return construct_variant("Some", "Option", { value }, true);
+    }
+    Value make_none() {
+        return construct_variant("None", "Option", {}, false);
+    }
+
+  private:
+    Value construct_variant(const char *variant, const char *enum_name, std::vector<Value> args, bool has_data) {
+        Value ctor = resolve_global(variant);
+        if (ctor.is_function()) {
+            return call_function_value(ctor, args);
+        }
+        // fallback to building a lite variant object so at least pattern matching keeps working
+        // this will have no methods attached
+        Value obj = Value::make_object();
+        auto *o = obj.get_obj_ptr();
+        o->set_field("__variant", Value::make_string(variant));
+        o->set_field("__enum", Value::make_string(enum_name));
+        if (has_data && !args.empty()) {
+            o->set_field("__data", args[0]);
+        }
+        return obj;
+    }
+
+  public:
     Value delegate_get(const Value &del, const Value &key);
     void delegate_set(const Value &del, const Value &key, const Value &val);
     bool delegate_has(const Value &del, const Value &key);
@@ -468,21 +504,11 @@ class ScriptRuntime {
                                std::vector<Value> args);
 
     // Reusable scratch storage for the fixed-arity trap argument lists
-    // (get/has: {target,key}; set: {target,key,val}; call: {target,argsArr}).
-    // Building a fresh std::vector<Value> per trap call heap-allocs+frees its
-    // backing store every invocation (~3.4% of proxy_delegate cycles in
-    // operator new[]/delete[]). invoke_trap() reuses this one buffer instead:
-    // the callee (call_user_function) copies the args onto the VM stack / into
-    // AST locals BEFORE executing any script, so the buffer is dead by the time
-    // a trap body could re-enter another delegate op. trap_scratch_busy_ guards
-    // the (benchmark-absent, chained-delegate) re-entrant case: if the buffer is
-    // still borrowed, we fall back to a fresh heap vector, so correctness never
-    // depends on the copy-before-execute invariant.
+    // (get/has: {target,key}; set: {target,key,val}; call: {target,argsArr})
     std::vector<Value> trap_scratch_;
     bool trap_scratch_busy_ = false;
     Value invoke_trap(const Value &trap, const Value &a0, const Value &a1);
-    Value invoke_trap(const Value &trap, const Value &a0, const Value &a1,
-                      const Value &a2);
+    Value invoke_trap(const Value &trap, const Value &a0, const Value &a1, const Value &a2);
     // Default (no-trap) behavior against the wrapped target; also used directly
     // by the trap dispatchers.
     Value delegate_default_get(const Value &target, const Value &key);
@@ -511,10 +537,9 @@ class ScriptRuntime {
     // builtins per call site (method inline cache).
     using BuiltinFn = Value (ScriptRuntime::*)(const Value *, size_t, const CallExpr *);
 
-    // Resolve a builtin name to its member-function pointer (global table first,
-    // then method-only table). Returns nullptr if `name` is not a member builtin
-    // (e.g. an extension builtin, which keeps using the slow path). Lets the VM
-    // build a per-name_idx inline cache that skips the per-call hash lookups.
+    // Resolve a builtin name to its member-function pointer (global table first, then method-only table).
+    // Returns nullptr if `name` is not a member builtin (e.g. an extension builtin).
+    // Lets the VM build a per-name_idx inline cache that skips the per-call hash lookups.
     BuiltinFn lookup_builtin_member(const std::string &name) const {
         const auto &gt = get_global_builtin_table();
         auto it = gt.find(name);

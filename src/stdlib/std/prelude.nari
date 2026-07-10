@@ -24,6 +24,7 @@ func __stdlib_init__() {
   global Ok = func(value) {
       return {
           __variant: "Ok",
+          __enum: "Result",
           __data: value,
           is_ok: func() {
               return true;
@@ -58,6 +59,7 @@ func __stdlib_init__() {
   global Err = func(error) {
       return {
           __variant: "Err",
+          __enum: "Result",
           __data: error,
           is_ok: func() {
               return false;
@@ -93,6 +95,7 @@ func __stdlib_init__() {
   global Some = func(value) {
       return {
           __variant: "Some",
+          __enum: "Option",
           __data: value,
           is_some: func() {
               return true;
@@ -128,6 +131,7 @@ func __stdlib_init__() {
   global None = func() {
       return {
           __variant: "None",
+          __enum: "Option",
           is_some: func() {
               return false;
           },
