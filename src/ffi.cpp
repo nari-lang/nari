@@ -318,7 +318,7 @@ static intptr_t value_to_gp(const Value &v, FFIType t) {
             }
             return 0;
         case FFIType::Pointer:
-            return v.is_int() ? v.get_int() : 0; // string case handled by caller
+            return v.is_int() ? static_cast<intptr_t>(v.get_ptr_bits()) : 0; // string case handled by caller
         default:                                 // all integer types
             return v.is_int() ? v.get_int() : (intptr_t)v.get_float();
     }
@@ -579,7 +579,7 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
                     string_storage.push_back(arg.get_string());
                     ptr = (char *)string_storage.back().c_str();
                 } else if (arg.is_int()) {
-                    ptr = (void *)arg.get_int();
+                    ptr = arg.get_ptr();
                 }
                 pointer_storage.push_back(ptr);
                 arg_pointers.push_back(&pointer_storage.back());
@@ -773,7 +773,7 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
                                 string_storage.push_back(field_val.get_string());
                                 ptr = (void *)string_storage.back().c_str();
                             } else if (field_val.is_int()) {
-                                ptr = (void *)field_val.get_int();
+                                ptr = field_val.get_ptr();
                             }
                             memcpy(struct_buf + offset, &ptr, sizeof(void *));
                             offset += sizeof(void *);
@@ -1086,7 +1086,7 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
                     string_storage.push_back(arg.get_string());
                     ptr = (char *)string_storage.back().c_str();
                 } else if (arg.is_int()) {
-                    ptr = (void *)arg.get_int();
+                    ptr = arg.get_ptr();
                 }
                 pointer_storage.push_back(ptr);
                 arg_pointers.push_back(&pointer_storage.back());
@@ -1775,7 +1775,7 @@ void write_struct_to_memory(void *ptr, const std::string &type_name, const Value
             case FFIType::Pointer: {
                 void *ptr_val = nullptr;
                 if (field_val.is_int()) {
-                    ptr_val = reinterpret_cast<void *>(field_val.get_int());
+                    ptr_val = field_val.get_ptr();
                 }
                 memcpy(struct_buf + offset, &ptr_val, sizeof(void *));
                 offset += sizeof(void *);
@@ -1945,7 +1945,7 @@ void FFICallbackManager::callback_trampoline(ffi_cif *cif, void *ret, void **arg
             break;
         case FFIType::Pointer:
             if (result.is_int()) {
-                *static_cast<void **>(ret) = reinterpret_cast<void *>(result.get_int());
+                *static_cast<void **>(ret) = result.get_ptr();
             } else {
                 *static_cast<void **>(ret) = nullptr;
             }

@@ -191,6 +191,9 @@ struct Value {
     bool is_mutable_heap_string() const;
 
     int64_t get_int() const;
+    // Raw 48-bit payload, ZERO-extended.
+    uintptr_t get_ptr_bits() const;
+    void *get_ptr() const;
     double get_float() const;
     bool get_bool() const;
     const std::string &get_string() const;
@@ -658,6 +661,12 @@ inline bool Value::is_mutable_heap_string() const {
 inline int64_t Value::get_int() const {
     int64_t v = static_cast<int64_t>(_raw & PTR_MASK);
     return (v << 16) >> 16;
+}
+inline uintptr_t Value::get_ptr_bits() const {
+    return static_cast<uintptr_t>(_raw & PTR_MASK);
+}
+inline void *Value::get_ptr() const {
+    return reinterpret_cast<void *>(static_cast<uintptr_t>(_raw & PTR_MASK));
 }
 inline double Value::get_float() const {
     double d;

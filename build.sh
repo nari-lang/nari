@@ -86,15 +86,12 @@ fi
 if [ "$EMSCRIPTEN" != true ] && [ "$SYSTEM_DEPS" != true ]; then
   echo "Installing dependencies via conan..."
   mkdir -p build/conan
-  # Build deps against libc++ to match toolchain/glibc-clang.txt. The two MUST
-  # agree: a libc++ replxx linked into a libstdc++ binary is a mixed-runtime build
-  # that links against both .so's and fails intermittently. -s compiler.libcxx
-  # overrides only that one setting on top of the detected default profile.
-  CONAN_LIBCXX_ARG=""
+  CONAN_ARGS=""
   if [ "$CROSS_FILE" = "glibc-clang.txt" ]; then
-  CONAN_LIBCXX_ARG="-s compiler.libcxx=libc++"
+  CC=clang CXX=clang++ conan profile detect --name nari-clang --force >/dev/null
+  CONAN_ARGS="-pr:a nari-clang -s compiler.libcxx=libc++"
   fi
-  conan install . $CONAN_LIBCXX_ARG --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
+  conan install . $CONAN_ARGS --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
 fi
 
 if [ "$RECONFIGURE" = true ]; then

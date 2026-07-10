@@ -180,7 +180,7 @@ Value ScriptRuntime::builtin_ffi_get_symbol(const Value *argvals, size_t argc, c
         return Value::none();
     }
 
-    int64_t handle_int = lib_oobj_gs->get_field("__ffi_handle__")->get_int();
+    uintptr_t handle_int = lib_oobj_gs->get_field("__ffi_handle__")->get_ptr_bits();
     auto *lib = reinterpret_cast<FFILibrary *>(handle_int);
 
     void *symbol = lib->get_symbol(symbol_name);
@@ -333,7 +333,7 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
         return Value::none();
     }
 
-    int64_t handle_int = handle_v->get_int();
+    uintptr_t handle_int = handle_v->get_ptr_bits();
     auto *lib = reinterpret_cast<FFILibrary *>(handle_int);
 
     void *func_ptr = lib->get_symbol(func_name);
@@ -638,7 +638,7 @@ Value ScriptRuntime::builtin_ffi_utf16_read(const Value *argvals, size_t argc, c
         return Value::make_string("");
     }
 
-    auto *ptr = reinterpret_cast<const char16_t *>(argvals[0].get_int());
+    auto *ptr = reinterpret_cast<const char16_t *>(argvals[0].get_ptr_bits());
     if (!ptr) {
         return Value::make_string("");
     }
@@ -675,7 +675,7 @@ Value ScriptRuntime::builtin_ffi_free(const Value *argvals, size_t argc, const n
         return Value::none();
     }
 
-    int64_t ptr_value = argvals[0].get_int();
+    uintptr_t ptr_value = argvals[0].get_ptr_bits();
     if (ptr_value != 0) {
         std::free(reinterpret_cast<void *>(ptr_value));
     }
@@ -714,7 +714,7 @@ Value ScriptRuntime::builtin_ffi_read_struct(const Value *argvals, size_t argc, 
         return Value::none();
     }
 
-    int64_t ptr_value = argvals[0].get_int();
+    uintptr_t ptr_value = argvals[0].get_ptr_bits();
     std::string type_name = argvals[1].get_string();
 
     if (ptr_value == 0) {
@@ -733,7 +733,7 @@ Value ScriptRuntime::builtin_ffi_write_struct(const Value *argvals, size_t argc,
         return Value::none();
     }
 
-    int64_t ptr_value = argvals[0].get_int();
+    uintptr_t ptr_value = argvals[0].get_ptr_bits();
     std::string type_name = argvals[1].get_string();
     const Value &obj = argvals[2];
 
@@ -852,7 +852,7 @@ Value ScriptRuntime::builtin_ffi_free_callback(const Value *argvals, size_t argc
         return Value::none();
     }
 
-    int64_t ptr_value = argvals[0].get_int();
+    uintptr_t ptr_value = argvals[0].get_ptr_bits();
     if (ptr_value != 0) {
         void *callback_ptr = reinterpret_cast<void *>(ptr_value);
         FFICallbackManager::instance().free_callback(callback_ptr);
