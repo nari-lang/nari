@@ -175,6 +175,7 @@ jobs:
           if command -v strip >/dev/null 2>&1; then
             strip "${STAGE}/bin/nari" || true
             strip "${STAGE}/bin/naric" || true
+            strip "${STAGE}/bin/nari-lsp" || true
           fi
           cp LICENSE   "${STAGE}/LICENSE"   || true
           cp README.md "${STAGE}/README.md" || true
@@ -194,7 +195,7 @@ jobs:
           $STAGE = "dist/$NAME"
           New-Item -ItemType Directory -Force -Path "$STAGE/bin" | Out-Null
           Copy-Item build/release/nari.exe  "$STAGE/bin/nari.exe"
-          Copy-Item build/release/nari-lsp "$STAGE/bin/nari-lsp.exe"
+          Copy-Item build/release/nari-lsp.exe "$STAGE/bin/nari-lsp.exe"
           Copy-Item build/release/naric.exe "$STAGE/bin/naric.exe"
           Copy-Item LICENSE   "$STAGE/LICENSE"   -ErrorAction SilentlyContinue
           Copy-Item README.md "$STAGE/README.md" -ErrorAction SilentlyContinue
