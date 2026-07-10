@@ -137,19 +137,27 @@ jobs:
         if: matrix.os_label != 'windows'
         run: SKIP_BUILD=1 SKIP_NETWORK_TESTS=1 ./run_tests.sh
 
+      - name: "Smoke test (Unix)"
+        if: matrix.os_label != 'windows'
+        shell: bash
+        run: |
+          ./build/release/nari --help >/dev/null
+          printf 'print("hello from %s-%s");\n' "${{ matrix.os_label }}" "${{ matrix.arch }}" > smoke.nari
+          ./build/release/nari smoke.nari
+
       - name: Smoke test (Windows)
         if: matrix.os_label == 'windows'
         shell: bash
         run: |
           ./build/release/nari.exe --help >/dev/null
-          printf 'print("hello from %s/%s");\n' "${{ matrix.os_label }}" "${{ matrix.arch }}" > smoke.nari
+          printf 'print("hello from %s-%s");\n' "${{ matrix.os_label }}" "${{ matrix.arch }}" > smoke.nari
           ./build/release/nari.exe smoke.nari
 
       # package
       #
       # Extracted layout (both formats):
       #   nari-<version>-<os>-<arch>/
-      #     bin/{nari,naric}[.exe]   the Nari runtime + compiler frontend
+      #     bin/{nari,naric,nari-lsp}[.exe]   the Nari runtime + compiler frontend
       #     LICENSE
       #     README.md
       - name: Package (Unix)
@@ -162,6 +170,7 @@ jobs:
           STAGE="dist/${NAME}"
           mkdir -p "${STAGE}/bin"
           cp build/release/nari  "${STAGE}/bin/nari"
+          cp build/release/nari-lsp  "${STAGE}/bin/nari-lsp"
           cp build/release/naric "${STAGE}/bin/naric"
           if command -v strip >/dev/null 2>&1; then
             strip "${STAGE}/bin/nari" || true
@@ -185,6 +194,7 @@ jobs:
           $STAGE = "dist/$NAME"
           New-Item -ItemType Directory -Force -Path "$STAGE/bin" | Out-Null
           Copy-Item build/release/nari.exe  "$STAGE/bin/nari.exe"
+          Copy-Item build/release/nari-lsp "$STAGE/bin/nari-lsp.exe"
           Copy-Item build/release/naric.exe "$STAGE/bin/naric.exe"
           Copy-Item LICENSE   "$STAGE/LICENSE"   -ErrorAction SilentlyContinue
           Copy-Item README.md "$STAGE/README.md" -ErrorAction SilentlyContinue
