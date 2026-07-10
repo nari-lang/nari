@@ -60,7 +60,8 @@ fi
 # npkg tests depend on the workspace/npkg tree, which is not committed, so they
 # are excluded here (they fail in CI with unresolved imports otherwise).
 echo "Running success tests with $INTERP..."
-mapfile -t SUCCESS_TESTS < <(find tests/expect_pass -name "*.nari" -not -name "*npkg*" | sort)
+SUCCESS_TESTS=()
+while IFS= read -r _t; do SUCCESS_TESTS+=("$_t"); done < <(find tests/expect_pass -name "*.nari" -not -name "*npkg*" | sort)
 
 # SKIP_NETWORK_TESTS=1 drops tests that reach external hosts (which are flaky in CI).
 # currently just test_spawn_methods.nari
@@ -107,7 +108,8 @@ for t in "${SUCCESS_TESTS[@]}"; do
 done
 
 echo "Running expected-failure tests..."
-mapfile -t FAIL_TESTS < <(find tests/expect_fail -name "*.nari" | sort)
+FAIL_TESTS=()
+while IFS= read -r _t; do FAIL_TESTS+=("$_t"); done < <(find tests/expect_fail -name "*.nari" | sort)
 
 for t in "${FAIL_TESTS[@]}"; do
     if [[ -f "$t" ]]; then

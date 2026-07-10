@@ -18,6 +18,8 @@ jobs:
           - runner: windows-2022
             arch: x64
             msvc_arch: x64
+          # relies on the locally-patched mbedtls recipe in conan/recipes/mbedtls
+          # to get past mbedtls 3.5.0's aesce.c not compiling under MSVC/ARM64.
           - runner: windows-11-arm
             arch: arm64
             msvc_arch: arm64
@@ -35,6 +37,12 @@ jobs:
 
       - name: Detect Conan profile
         run: conan profile detect --force
+
+      # ARM64 only: force the patched mbedtls (still 3.5.0, so libcurl's pin
+      # holds) so aesce.c is skipped under MSVC. See conan/recipes/mbedtls.
+      - name: Export patched mbedtls (ARM64)
+        if: matrix.arch == 'arm64'
+        run: conan export conan/recipes/mbedtls --version 3.5.0
 
       - name: Install dependencies via Conan
         run: |

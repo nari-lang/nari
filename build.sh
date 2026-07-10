@@ -88,7 +88,9 @@ if [ "$EMSCRIPTEN" != true ] && [ "$SYSTEM_DEPS" != true ]; then
   mkdir -p build/conan
   CONAN_ARGS=""
   if [ "$CROSS_FILE" = "glibc-clang.txt" ]; then
-  CC=clang CXX=clang++ conan profile detect --name nari-clang --force >/dev/null
+  export CC=clang
+  export CXX=clang++
+  conan profile detect --name nari-clang --force >/dev/null
   CONAN_ARGS="-pr:a nari-clang -s compiler.libcxx=libc++"
   fi
   conan install . $CONAN_ARGS --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing

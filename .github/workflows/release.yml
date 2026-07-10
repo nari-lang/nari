@@ -47,6 +47,9 @@ jobs:
             exe_suffix: .exe
             conan_extra: -s compiler.cppstd=17
             experimental: true
+          # Experimental: uses the patched mbedtls recipe (conan/recipes/mbedtls)
+          # to build under MSVC/ARM64. Downstream deps unproven; continue-on-error
+          # keeps it from blocking the release.
           - runner: windows-11-arm
             os_label: windows
             arch: aarch64
@@ -100,6 +103,12 @@ jobs:
 
       - name: Detect Conan profile
         run: conan profile detect --force
+
+      # Windows/ARM64 only: force the patched mbedtls (still 3.5.0, so libcurl's
+      # pin holds) so aesce.c is skipped under MSVC. See conan/recipes/mbedtls.
+      - name: Export patched mbedtls (Windows ARM64)
+        if: matrix.os_label == 'windows' && matrix.arch == 'aarch64'
+        run: conan export conan/recipes/mbedtls --version 3.5.0
 
       - name: Install dependencies via Conan
         shell: bash
