@@ -1,6 +1,6 @@
 [requires]
 asmjit/cci.20251209
-mbedtls/3.6.6
+mbedtls/3.5.0
 zlib/[>=1.2]
 libcurl/8.21.0
 libffi/[>=3.4]
@@ -31,9 +31,7 @@ libcurl*:with_telnet=False
 libcurl*:with_tftp=False
 libcurl*:with_ntlm_wb=False
 libffi*:shared=False
-# libarchive: static, tar + gzip + zip only. zip support is built-in (no extra
-# dep); gzip needs zlib (already required). Disable everything else to keep
-# the dependency tree small and the binary lean.
+# libarchive: static, tar + gzip + zip only.
 libarchive*:shared=False
 libarchive*:with_zlib=True
 libarchive*:with_bzip2=False
