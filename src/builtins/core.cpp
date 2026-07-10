@@ -167,18 +167,18 @@ Value ScriptRuntime::builtin_fs_readFile(const Value *argvals, size_t argc, cons
 
         // The callback captures `handle`, keeping the HandleData alive until the
         // IO completes; the GC reclaims it once nothing references it.
-        io_op->callback = [handle, io_op]() {
+        io_op->callback = [this, handle, io_op]() {
             handle->end_time = std::chrono::steady_clock::now();
             if (io_op->success) {
                 if (io_op->result.type == FileOperation::Result::Type::String) {
-                    handle->result = Value::make_string(io_op->result.str_value);
+                    handle->result = ScriptRuntime::make_ok(Value::make_string(io_op->result.str_value));
                 } else if (io_op->result.type == FileOperation::Result::Type::Bool) {
-                    handle->result = Value::make_bool(io_op->result.bool_value);
+                    handle->result = ScriptRuntime::make_ok(Value::make_bool(io_op->result.bool_value));
                 }
                 handle->state = HandleData::Completed;
             } else {
-                handle->error = Value::make_string(io_op->error_msg);
-                handle->state = HandleData::Failed;
+                handle->result = ScriptRuntime::make_err(Value::make_string(io_op->error_msg));
+                handle->state = HandleData::Completed;
             }
         };
 
@@ -202,14 +202,14 @@ Value ScriptRuntime::builtin_fs_writeFile(const Value *argvals, size_t argc, con
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [handle, io_op]() {
+        io_op->callback = [this, handle, io_op]() {
             handle->end_time = std::chrono::steady_clock::now();
             if (io_op->success) {
-                handle->result = Value::none();
+                handle->result = ScriptRuntime::make_ok(Value::none());
                 handle->state = HandleData::Completed;
             } else {
-                handle->error = Value::make_string(io_op->error_msg);
-                handle->state = HandleData::Failed;
+                handle->result = ScriptRuntime::make_err(Value::make_string(io_op->error_msg));
+                handle->state = HandleData::Completed;
             }
         };
 
@@ -234,14 +234,14 @@ Value ScriptRuntime::builtin_fs_appendFile(const Value *argvals, size_t argc, co
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [handle, io_op]() {
+        io_op->callback = [this, handle, io_op]() {
             handle->end_time = std::chrono::steady_clock::now();
             if (io_op->success) {
-                handle->result = Value::none();
+                handle->result = ScriptRuntime::make_ok(Value::none());
                 handle->state = HandleData::Completed;
             } else {
-                handle->error = Value::make_string(io_op->error_msg);
-                handle->state = HandleData::Failed;
+                handle->result = ScriptRuntime::make_err(Value::make_string(io_op->error_msg));
+                handle->state = HandleData::Completed;
             }
         };
 
@@ -263,7 +263,7 @@ Value ScriptRuntime::builtin_fs_fileExists(const Value *argvals, size_t argc, co
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [handle, io_op]() {
+        io_op->callback = [this, handle, io_op]() {
             handle->end_time = std::chrono::steady_clock::now();
             handle->result = Value::make_bool(io_op->result_bool);
             handle->state = HandleData::Completed;
@@ -314,14 +314,14 @@ Value ScriptRuntime::builtin_fs_deleteFile(const Value *argvals, size_t argc, co
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [handle, io_op]() {
+        io_op->callback = [this, handle, io_op]() {
             handle->end_time = std::chrono::steady_clock::now();
             if (io_op->success) {
-                handle->result = Value::make_bool(io_op->result_bool);
+                handle->result = ScriptRuntime::make_ok(Value::make_bool(io_op->result_bool));
                 handle->state = HandleData::Completed;
             } else {
-                handle->error = Value::make_string(io_op->error_msg);
-                handle->state = HandleData::Failed;
+                handle->result = ScriptRuntime::make_err(Value::make_string(io_op->error_msg));
+                handle->state = HandleData::Completed;
             }
         };
 
@@ -343,24 +343,24 @@ Value ScriptRuntime::builtin_fs_listDir(const Value *argvals, size_t argc, const
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [handle, io_op]() {
+        io_op->callback = [this, handle, io_op]() {
             handle->end_time = std::chrono::steady_clock::now();
             if (io_op->success) {
                 if (io_op->result.type == FileOperation::Result::Type::String) {
-                    handle->result = Value::make_string(io_op->result.str_value);
+                    handle->result = ScriptRuntime::make_ok(Value::make_string(io_op->result.str_value));
                 } else if (io_op->result.type == FileOperation::Result::Type::Array) {
                     std::vector<Value> arr;
                     for (const auto &item : io_op->result.array_value) {
                         arr.push_back(Value::make_string(item));
                     }
-                    handle->result = Value::make_array(std::move(arr));
+                    handle->result = ScriptRuntime::make_ok(Value::make_array(std::move(arr)));
                 } else if (io_op->result.type == FileOperation::Result::Type::Bool) {
-                    handle->result = Value::make_bool(io_op->result.bool_value);
+                    handle->result = ScriptRuntime::make_ok(Value::make_bool(io_op->result.bool_value));
                 }
                 handle->state = HandleData::Completed;
             } else {
-                handle->error = Value::make_string(io_op->error_msg);
-                handle->state = HandleData::Failed;
+                handle->result = ScriptRuntime::make_err(Value::make_string(io_op->error_msg));
+                handle->state = HandleData::Completed;
             }
         };
 
@@ -572,14 +572,14 @@ Value ScriptRuntime::builtin_net_connect(const Value *argvals, size_t argc, cons
 
     auto handle = Value::make_handle_ptr();
     handle->state = HandleData::Running;
-    connect_op->callback = [handle, connect_op, host, port]() {
+    connect_op->callback = [this, handle, connect_op, host, port]() {
         handle->end_time = std::chrono::steady_clock::now();
         if (connect_op->success) {
-            handle->result = build_conn_object(connect_op->socket_fd, host, port);
+            handle->result = ScriptRuntime::make_ok(build_conn_object(connect_op->socket_fd, host, port));
             handle->state = HandleData::Completed;
         } else {
-            handle->error = Value::make_string(connect_op->error_msg);
-            handle->state = HandleData::Failed;
+            handle->result = ScriptRuntime::make_err(Value::make_string(connect_op->error_msg));
+            handle->state = HandleData::Completed;
         }
     };
 
@@ -602,18 +602,18 @@ Value ScriptRuntime::builtin_net_listen(const Value *argvals, size_t argc, const
 
     auto handle = Value::make_handle_ptr();
     handle->state = HandleData::Running;
-    listen_op->callback = [handle, listen_op]() {
+    listen_op->callback = [this, handle, listen_op]() {
         handle->end_time = std::chrono::steady_clock::now();
         if (listen_op->success) {
             auto server_obj = Value::make_object();
             ObjectObj *o = server_obj.get_obj_ptr();
             o->set_field("fd", Value::make_int(listen_op->socket_fd));
             o->set_field("port", Value::make_int(listen_op->port));
-            handle->result = server_obj;
+            handle->result = ScriptRuntime::make_ok(server_obj);
             handle->state = HandleData::Completed;
         } else {
-            handle->error = Value::make_string(listen_op->error_msg);
-            handle->state = HandleData::Failed;
+            handle->result = ScriptRuntime::make_err(Value::make_string(listen_op->error_msg));
+            handle->state = HandleData::Completed;
         }
     };
 
@@ -640,15 +640,15 @@ Value ScriptRuntime::builtin_net_accept(const Value *argvals, size_t argc, const
 
     auto handle = Value::make_handle_ptr();
     handle->state = HandleData::Running;
-    accept_op->callback = [handle, accept_op]() {
+    accept_op->callback = [this, handle, accept_op]() {
         handle->end_time = std::chrono::steady_clock::now();
         if (accept_op->success) {
-            handle->result = build_conn_object(
-                accept_op->client_fd, accept_op->client_ip, accept_op->client_port);
+            handle->result = ScriptRuntime::make_ok(build_conn_object(
+                accept_op->client_fd, accept_op->client_ip, accept_op->client_port));
             handle->state = HandleData::Completed;
         } else {
-            handle->error = Value::make_string(accept_op->error_msg);
-            handle->state = HandleData::Failed;
+            handle->result = ScriptRuntime::make_err(Value::make_string(accept_op->error_msg));
+            handle->state = HandleData::Completed;
         }
     };
 
@@ -702,14 +702,14 @@ Value ScriptRuntime::builtin_udp_bind(const Value *argvals, size_t argc, const n
 
     auto handle = Value::make_handle_ptr();
     handle->state = HandleData::Running;
-    bind_op->callback = [handle, bind_op]() {
+    bind_op->callback = [this, handle, bind_op]() {
         handle->end_time = std::chrono::steady_clock::now();
         if (bind_op->success) {
-            handle->result = build_udp_socket_object(bind_op->socket_fd, bind_op->bound_port);
+            handle->result = ScriptRuntime::make_ok(build_udp_socket_object(bind_op->socket_fd, bind_op->bound_port));
             handle->state = HandleData::Completed;
         } else {
-            handle->error = Value::make_string(bind_op->error_msg);
-            handle->state = HandleData::Failed;
+            handle->result = ScriptRuntime::make_err(Value::make_string(bind_op->error_msg));
+            handle->state = HandleData::Completed;
         }
     };
 
@@ -743,14 +743,14 @@ Value ScriptRuntime::builtin_udp_send(const Value *argvals, size_t argc, const n
 
     auto handle = Value::make_handle_ptr();
     handle->state = HandleData::Running;
-    send_op->callback = [handle, send_op]() {
+    send_op->callback = [this, handle, send_op]() {
         handle->end_time = std::chrono::steady_clock::now();
         if (send_op->success) {
-            handle->result = Value::make_int(static_cast<int64_t>(send_op->data.size()));
+            handle->result = ScriptRuntime::make_ok(Value::make_int(static_cast<int64_t>(send_op->data.size())));
             handle->state = HandleData::Completed;
         } else {
-            handle->error = Value::make_string(send_op->error_msg);
-            handle->state = HandleData::Failed;
+            handle->result = ScriptRuntime::make_err(Value::make_string(send_op->error_msg));
+            handle->state = HandleData::Completed;
         }
     };
 
@@ -784,7 +784,7 @@ Value ScriptRuntime::builtin_udp_recv(const Value *argvals, size_t argc, const n
 
     auto handle = Value::make_handle_ptr();
     handle->state = HandleData::Running;
-    recv_op->callback = [handle, recv_op]() {
+    recv_op->callback = [this, handle, recv_op]() {
         handle->end_time = std::chrono::steady_clock::now();
         if (recv_op->success) {
             auto result = Value::make_object();
@@ -792,11 +792,11 @@ Value ScriptRuntime::builtin_udp_recv(const Value *argvals, size_t argc, const n
             o->set_field("data", Value::make_string(recv_op->result_string));
             o->set_field("ip", Value::make_string(recv_op->from_ip));
             o->set_field("port", Value::make_int(recv_op->from_port));
-            handle->result = result;
+            handle->result = ScriptRuntime::make_ok(result);
             handle->state = HandleData::Completed;
         } else {
-            handle->error = Value::make_string(recv_op->error_msg);
-            handle->state = HandleData::Failed;
+            handle->result = ScriptRuntime::make_err(Value::make_string(recv_op->error_msg));
+            handle->state = HandleData::Completed;
         }
     };
 
@@ -903,7 +903,7 @@ Value ScriptRuntime::builtin_http_fetch(const Value *argvals, size_t argc, const
     auto handle = Value::make_handle_ptr();
     handle->state = HandleData::Running;
 
-    http_op->callback = [handle, http_op]() {
+    http_op->callback = [this, handle, http_op]() {
         handle->end_time = std::chrono::steady_clock::now();
         if (http_op->success) {
             auto response = Value::make_object();
@@ -916,11 +916,11 @@ Value ScriptRuntime::builtin_http_fetch(const Value *argvals, size_t argc, const
                 hdrs_oobj->set_field(k, Value::make_string(v));
             }
             resp_oobj->set_field("headers", resp_headers);
-            handle->result = response;
+            handle->result = ScriptRuntime::make_ok(response);
             handle->state = HandleData::Completed;
         } else {
-            handle->error = Value::make_string(http_op->error_msg);
-            handle->state = HandleData::Failed;
+            handle->result = ScriptRuntime::make_err(Value::make_string(http_op->error_msg));
+            handle->state = HandleData::Completed;
         }
         // Free large response data; process_completed_io will null this
         // callback to break the shared_ptr retain cycle.
