@@ -328,6 +328,11 @@ elif not is_emscripten and not disable_http
         ]
             http_sys += [cc.find_library(syslib, required: true)]
         endforeach
+    elif is_darwin
+        http_sys += dependency(
+            'appleframeworks',
+            modules: ['CoreFoundation', 'SystemConfiguration', 'Security'],
+        )
     endif
     http_dep = declare_dependency(
         dependencies: [curl_lib, mbedtls_lib, mbedx509_lib, mbedcrypto_lib] + http_sys,
