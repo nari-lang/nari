@@ -80,7 +80,7 @@ jobs:
         if: matrix.os_label == 'linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y clang lld libc++-dev libc++abi-dev python3-pip ninja-build
+          sudo apt-get install -y clang lld libc++-dev libc++abi-dev python3-pip ninja-build patchelf
           pip install --break-system-packages meson conan
           # clang so conan profile detect + meson build with libc++ (static_libcxx).
           echo "CC=clang"   >> "$GITHUB_ENV"
@@ -124,6 +124,14 @@ jobs:
 
       - name: Compile
         run: meson compile -C build/release
+
+      # Ubuntu leaves a dangling NEEDED entry for libunwind.so.1 even though --unwindlib=libgcc routes the real symbols to libgcc_s.
+      - name: Strip dangling libunwind dep (Linux)
+        if: matrix.os_label == 'linux'
+        run: |
+          for b in build/release/nari build/release/naric build/release/nari-lsp; do
+            [ -f "$b" ] && patchelf --remove-needed libunwind.so.1 "$b" || true
+          done
 
       - name: Run tests
         if: matrix.os_label != 'windows'
