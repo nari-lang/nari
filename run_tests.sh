@@ -87,10 +87,19 @@ FAILED_LIST=()
 # but a few (e.g. tests/expect_pass/test_spawn_methods.nari) can run for longer, since it uses real endpoints
 TEST_TIMEOUT="${TEST_TIMEOUT:-30}"
 
+TIMEOUT_PREFIX=""
+if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_PREFIX="timeout $TEST_TIMEOUT"
+elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_PREFIX="gtimeout $TEST_TIMEOUT"
+else
+    echo "Warning: no 'timeout'/'gtimeout'; running without a per-test timeout (try: brew install coreutils)" >&2
+fi
+
 for t in "${SUCCESS_TESTS[@]}"; do
     if [[ -f "$t" ]]; then
         echo "[expected_ok] $t"
-        if timeout "$TEST_TIMEOUT" "$INTERP" ${FLAGS[@]+"${FLAGS[@]}"} "$t"; then
+        if $TIMEOUT_PREFIX "$INTERP" ${FLAGS[@]+"${FLAGS[@]}"} "$t"; then
             ((PASSED_TESTS += 1))
         else
             exit_code=$?
@@ -114,7 +123,7 @@ while IFS= read -r _t; do FAIL_TESTS+=("$_t"); done < <(find tests/expect_fail -
 for t in "${FAIL_TESTS[@]}"; do
     if [[ -f "$t" ]]; then
         echo "[expected_fail] $t"
-        if timeout "$TEST_TIMEOUT" "$INTERP" ${FLAGS[@]+"${FLAGS[@]}"} "$t"; then
+        if $TIMEOUT_PREFIX "$INTERP" ${FLAGS[@]+"${FLAGS[@]}"} "$t"; then
             echo "Unexpected success for $t" >&2
             FAILED_LIST+=("$t")
             ((FAILED_TESTS += 1))
