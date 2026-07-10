@@ -33,13 +33,13 @@ jobs:
             arch: x86_64
           - runner: ubuntu-24.04-arm
             os_label: linux
-            arch: aarch64
-          - runner: macos-13
+            arch: arm64
+          - runner: macos-26-intel
             os_label: macos
             arch: x86_64
-          - runner: macos-14
+          - runner: macos-26-arm
             os_label: macos
-            arch: aarch64
+            arch: arm64
           - runner: windows-2022
             os_label: windows
             arch: x86_64
@@ -47,12 +47,9 @@ jobs:
             exe_suffix: .exe
             conan_extra: -s compiler.cppstd=17
             experimental: true
-          # Experimental: uses the patched mbedtls recipe (conan/recipes/mbedtls)
-          # to build under MSVC/ARM64. Downstream deps unproven; continue-on-error
-          # keeps it from blocking the release.
           - runner: windows-11-arm
             os_label: windows
-            arch: aarch64
+            arch: arm64
             msvc_arch: arm64
             exe_suffix: .exe
             conan_extra: -s compiler.cppstd=17
@@ -86,9 +83,7 @@ jobs:
         run: |
           # macos runners ship Python; we just need meson + ninja + conan on top.
           brew install ninja
-          python3 -m pip install --break-system-packages --user meson conan
-          echo "$HOME/Library/Python/3.*/bin" >> "$GITHUB_PATH"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          python3 -m pip install --break-system-packages meson conan
 
       # windows-2022 is VS2022, windows-latest is VS2026 which isn't ready yet
       - name: Set up MSVC environment
@@ -107,7 +102,7 @@ jobs:
       # Windows/ARM64 only: force the patched mbedtls (still 3.5.0, so libcurl's
       # pin holds) so aesce.c is skipped under MSVC. See conan/recipes/mbedtls.
       - name: Export patched mbedtls (Windows ARM64)
-        if: matrix.os_label == 'windows' && matrix.arch == 'aarch64'
+        if: matrix.os_label == 'windows' && matrix.arch == 'arm64'
         run: conan export conan/recipes/mbedtls --version 3.5.0
 
       - name: Install dependencies via Conan
@@ -133,7 +128,7 @@ jobs:
           printf 'print("hello from %s/%s");\n' "${{ matrix.os_label }}" "${{ matrix.arch }}" > smoke.nari
           ./build/release/nari${{ matrix.exe_suffix }} smoke.nari
 
-      # ----- Package -----
+      # Package
       #
       # Extracted layout (both formats):
       #   nari-<version>-<os>-<arch>/
@@ -230,7 +225,6 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           generate_release_notes: true
-          # TODO: i'm not certain if the windows run will succeed, so let's not kill the whole run if it does fail.
           fail_on_unmatched_files: false
           files: |
             dist/*.tar.gz
