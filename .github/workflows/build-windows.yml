@@ -1,0 +1,67 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build windows-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            arch: x64
+            msvc_arch: x64
+          # relies on the locally-patched mbedtls recipe in conan/recipes/mbedtls
+          # to get past mbedtls 3.5.0's aesce.c not compiling under MSVC/ARM64.
+          - runner: windows-11-arm
+            arch: arm64
+            msvc_arch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: Install Meson, Ninja, and Conan
+        run: pip install meson ninja conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      # ARM64 only: force the patched mbedtls (still 3.5.0, so libcurl's pin
+      # holds) so aesce.c is skipped under MSVC. See conan/recipes/mbedtls.
+      - name: Export patched mbedtls (ARM64)
+        if: matrix.arch == 'arm64'
+        run: conan export conan/recipes/mbedtls --version 3.5.0
+
+      - name: Install dependencies via Conan
+        run: |
+          mkdir -p build/conan
+          conan install . -s compiler.cppstd=17 --output-folder=build/conan --deployer=direct_deploy --deployer-folder=build/conan --build=missing
+
+      - name: Configure
+        run: meson setup build/release --buildtype=release -Db_lto=true
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/build/conan
+
+      - name: Build
+        run: meson compile -C build/release
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nari-windows-${{ matrix.arch }}
+          path: |
+            build/release/nari.exe
+            build/release/naric.exe
+            build/release/nari-lsp.exe
