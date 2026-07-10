@@ -476,7 +476,7 @@ Note: Returns fastest successful, not necessarily first to succeed
 #### `map(items, fn)`
 
 map: Apply async operation to array of items
-Usage: Spawn.map(urls, func(url) { return http.get(url); })
+Usage: Spawn.map(urls, func(url) { return http.fetch(url); })
 
 ---
 

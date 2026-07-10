@@ -9,7 +9,7 @@ let urls = [
 // Spawn.map - Create handles from array
 print("Spawn.map - Creating handles from URLs...");
 let handles = Spawn.map(urls, func(url) {
-    return http.get(url);
+    return http.fetch(url);
 });
 print(`   Created {handles.length()} handles`);
 print("");
@@ -23,7 +23,7 @@ print("");
 
 // Spawn.all - Get all results
 print("Spawn.all - Getting all results...");
-let handles2 = Spawn.map(urls, func(url) { return http.get(url); });
+let handles2 = Spawn.map(urls, func(url) { return http.fetch(url); });
 let all_results = Spawn.all(handles2);
 print(`   Got {all_results.length()} results`);
 let i = 0;
@@ -35,7 +35,7 @@ print("");
 
 // Spawn.all_settled - Get results with status
 print("Spawn.all_settled - Getting detailed results...");
-let handles3 = Spawn.map(urls, func(url) { return http.get(url); });
+let handles3 = Spawn.map(urls, func(url) { return http.fetch(url); });
 let settled = Spawn.all_settled(handles3);
 i = 0;
 while (i < settled.length()) {
@@ -47,7 +47,7 @@ print("");
 
 // Spawn.any - Get first successful
 print("Spawn.any - Getting first successful...");
-let handles4 = Spawn.map(urls, func(url) { return http.get(url); });
+let handles4 = Spawn.map(urls, func(url) { return http.fetch(url); });
 let any_result = Spawn.any(handles4);
 print(`   First successful: URL {urls[any_result.index]}`);
 print(`   Duration: {any_result.duration}ms`);

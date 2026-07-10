@@ -342,24 +342,25 @@ print(process.argv[1]);
 
 HTTP client functionality.
 
-### http.get
+### http.fetch
 
-Perform an HTTP GET request. Accepts either a URL string or an options object
-`{ url, method?, headers?, body? }`. Returns a handle that resolves to the
+Perform an HTTP GET request. Accepts either a URL string and an optional options object
+`{ method?, headers?, body? }`. Returns a handle that resolves to the
 response, so await it before use.
 
 ```nari
-let response = await http.get("https://api.example.com/data");
+let response = await http.fetch("https://api.example.com/data");
 
 print("Status: " @ response.status_code);
 print("Body: " @ response.body);
 
 // With an options object
-let posted = await http.get({
-    url: "https://api.example.com/items",
+let posted = await http.fetch("https://api.example.com/items", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: "{\"name\":\"nari\"}"
+    body: JSON.stringify({
+        name: "nari"
+    });
 });
 ```
 
@@ -368,32 +369,13 @@ let posted = await http.get({
 - `status_code` - HTTP status code
 - `body` - Response body as string
 
-### http.request
-
-Perform an HTTP request described by an options object, invoking a callback with
-the result.
-
-```nari
-http.request({ url: "https://api.example.com/data", method: "GET" }, func(err, response) {
-    if (err) {
-        print("Request failed: " @ err);
-        return;
-    }
-    print("Status: " @ response.status_code);
-});
-```
-
-**Parameters:**
-- `options` - Request options `{ url, method?, headers?, body? }`
-- `callback` - `func(err, response)` invoked when the request completes
-
 ### Example: API Client
 
 ```nari
 func fetchUser(userId) {
     let url = "https://api.example.com/users/" @ to_string(userId);
     
-    let response = await http.get(url);
+    let response = await http.fetch(url);
     
     if (response.status_code == 200) {
         return response.body;
@@ -528,7 +510,7 @@ Create spawn handles from an array.
 ```nari
 let urls = ["https://api1.com", "https://api2.com"];
 let handles = Spawn.map(urls, func(url) {
-    return http.get(url);
+    return http.fetch(url);
 });
 ```
 
@@ -596,7 +578,7 @@ if (await fs.file_exists("data.txt")) {
 
 // HTTP request (async)
 spawn {
-    let response = await http.get("https://api.example.com/status");
+    let response = await http.fetch("https://api.example.com/status");
     print("API Status: " @ response.status_code);
 };
 

@@ -28,7 +28,8 @@ print("Hello, World!");
 
 ```nari
 let handle = spawn {
-  let response = http.get("https://example.com/data");
+  let response = await http.fetch("https://example.com/data");
+  print(response)
   return response.body;
 };
 

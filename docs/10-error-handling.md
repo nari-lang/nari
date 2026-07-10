@@ -240,7 +240,7 @@ try {
 ```nari
 let handle = spawn {
     try {
-        let response = http.get("https://invalid-url.com");
+        let response = http.fetch("https://invalid-url.com");
         return response;
     } catch (e) {
         return { error: true, message: e };
@@ -259,7 +259,7 @@ if (result.error) {
 func fetchWithFallback(urls) {
     for (url in urls) {
         try {
-            let response = http.get(url);
+            let response = http.fetch(url);
             return response;
         } catch (e) {
             print("Failed to fetch from " @ url @ ": " @ e);
@@ -415,7 +415,7 @@ func retry(operation, maxAttempts) {
 // Usage
 try {
     let result = retry(func() {
-        return http.get("https://unreliable-api.com");
+        return http.fetch("https://unreliable-api.com");
     }, 3);
     print("Success!");
 } catch (e) {

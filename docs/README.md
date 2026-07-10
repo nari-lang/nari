@@ -54,7 +54,7 @@ func greet(person: Person) {
 ### Async HTTP Request
 ```nari
 let handle = spawn {
-    let response = http.get("https://example.com");
+    let response = await http.fetch("https://example.com");
     return response.status_code;
 };
 
