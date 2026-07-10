@@ -37,7 +37,7 @@ jobs:
           - runner: macos-26-intel
             os_label: macos
             arch: x86_64
-          - runner: macos-26-arm
+          - runner: macos-26
             os_label: macos
             arch: arm64
           - runner: windows-2022
