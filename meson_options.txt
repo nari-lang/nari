@@ -61,3 +61,9 @@ option(
     value: false,
     description: 'Resolve dependencies from the system (pkg-config / default linker paths) instead of the Conan deploy folder. For distro packaging; no Conan required.',
 )
+option(
+    'static_libcxx',
+    type: 'boolean',
+    value: false,
+    description: 'Statically link libc++ and libc++abi (unwinder stays libgcc_s) so release binaries carry no libc++/libc++abi/libunwind runtime deps. Linux + clang only.',
+)

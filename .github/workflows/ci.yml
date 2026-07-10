@@ -25,17 +25,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # linux builds use clang + libc++ to match the primary toolchain
+          # linux: clang + libc++, linked statically (static_libcxx)
           - runner: ubuntu-24.04
             os_label: linux
             arch: x86_64
             conan_extra: -s compiler.libcxx=libc++
-            meson_extra: -Dcpp_args=-stdlib=libc++ -Dcpp_link_args=-stdlib=libc++
+            meson_extra: -Dcpp_args=-stdlib=libc++ -Dstatic_libcxx=true
           - runner: ubuntu-24.04-arm
             os_label: linux
             arch: arm64
             conan_extra: -s compiler.libcxx=libc++
-            meson_extra: -Dcpp_args=-stdlib=libc++ -Dcpp_link_args=-stdlib=libc++
+            meson_extra: -Dcpp_args=-stdlib=libc++ -Dstatic_libcxx=true
           - runner: macos-26-intel
             os_label: macos
             arch: x86_64
@@ -82,7 +82,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y clang lld libc++-dev libc++abi-dev python3-pip ninja-build
           pip install --break-system-packages meson conan
-          # clang for conan profile detect + meson (needed for libc++).
+          # clang so conan profile detect + meson build with libc++ (static_libcxx).
           echo "CC=clang"   >> "$GITHUB_ENV"
           echo "CXX=clang++" >> "$GITHUB_ENV"
 

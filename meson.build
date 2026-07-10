@@ -89,6 +89,14 @@ endif
 
 cpp_args = []
 link_args = []
+
+# link the libc++ runtime statically so the result depends only on glibc + libgcc_s
+if get_option('static_libcxx')
+    if not (cc.get_id() == 'clang' and host_machine.system() == 'linux')
+        error('static_libcxx is only supported with clang on Linux')
+    endif
+    link_args += ['-nostdlib++', '-l:libc++.a', '-l:libc++abi.a', '--unwindlib=libgcc']
+endif
 if target_mcu
     # NARI_MCU: top-level gate for all MCU-specific code paths.
     # NO_THREADS: forces IOThreadPool to the synchronous stub (no pthreads).
