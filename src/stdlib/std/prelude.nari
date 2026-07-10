@@ -554,26 +554,17 @@ func __stdlib_init__() {
 
 if (platform.os == "emscripten") {
     global http = {
-        get: func(url) {
+        fetch: func(url, options) {
             throw "HTTP requests not supported in Emscripten environment!";
         },
-        request: func(options, callback) {
-            throw "HTTP requests not supported in Emscripten environment!";
-        }
     };
 } else {
     // accepts either a plain URL string or an options object: { url, method?, headers?, body? }
     // returns a handle
     global http = {
-        get: func(url) {
-            if (typeof(url) == "object") {
-                return __http_fetch(url);
-            }
-            return __http_get(url);
+        fetch: func(url, options) {
+            return __http_fetch(url, options);
         },
-        request: func(options, callback) {
-            return __http_request(options, callback);
-        }
     };
 }
 

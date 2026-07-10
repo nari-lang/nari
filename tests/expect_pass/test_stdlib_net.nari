@@ -1,6 +1,6 @@
 // Self-contained TCP + UDP loopback test.
 //
-// Networking primitives return raw IO handles (like fs.read_file / http.get).
+// Networking primitives return raw IO handles (like fs.read_file / http.fetch).
 // To avoid deadlocking the synchronous-spawn event loop in a single-process
 // client+server test, we issue the accept handle BEFORE awaiting the connect
 // handle, so both ops run concurrently on the IO threadpool.

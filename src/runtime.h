@@ -71,9 +71,7 @@ void runtime_log(TraceLevel level, const std::string &msg);
     X("__udp_send", builtin_udp_send)                 \
     X("__udp_recv", builtin_udp_recv)                 \
     X("__udp_close", builtin_udp_close)               \
-    X("__http_get", builtin_http_get)                 \
-    X("__http_fetch", builtin_http_fetch)             \
-    X("__http_request", builtin_http_request)
+    X("__http_fetch", builtin_http_fetch)             
 #else
 #define BUILTIN_HTTP_LIST(X)
 #endif

@@ -45,7 +45,7 @@ func makeCounter() {
 ### Asynchronous Programming
 ```nari
 let handle = spawn {
-    let data = http.get("https://api.example.com/data");
+    let data = http.fetch("https://api.example.com/data");
     return data;
 };
 

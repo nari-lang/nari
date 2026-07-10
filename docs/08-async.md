@@ -22,7 +22,7 @@ print(result);  // 42
 
 ```nari
 let handle = spawn {
-    let response = http.get("https://example.com");
+    let response = http.fetch("https://example.com");
     return response.status_code;
 };
 
@@ -35,12 +35,12 @@ print("Status code: " @ status);
 
 ```nari
 let handle1 = spawn {
-    let data = http.get("https://api1.com/data");
+    let data = http.fetch("https://api1.com/data");
     return data;
 };
 
 let handle2 = spawn {
-    let data = http.get("https://api2.com/data");
+    let data = http.fetch("https://api2.com/data");
     return data;
 };
 
@@ -63,7 +63,7 @@ let urls = [
 ];
 
 let handles = Spawn.map(urls, func(url) {
-    return http.get(url);
+    return http.fetch(url);
 });
 
 print("Created " @ handles.length() @ " handles");
@@ -76,7 +76,7 @@ Wait for all operations to complete:
 ```nari
 let urls = ["https://example.com", "https://api.example.com"];
 let handles = Spawn.map(urls, func(url) { 
-    return http.get(url); 
+    return http.fetch(url); 
 });
 
 let results = Spawn.all(handles);
@@ -99,7 +99,7 @@ let urls = [
 ];
 
 let handles = Spawn.map(urls, func(url) { 
-    return http.get(url); 
+    return http.fetch(url); 
 });
 
 let winner = Spawn.race(handles);
@@ -114,7 +114,7 @@ Get the first successful operation:
 
 ```nari
 let handles = Spawn.map(urls, func(url) { 
-    return http.get(url); 
+    return http.fetch(url); 
 });
 
 let firstSuccess = Spawn.any(handles);
@@ -129,7 +129,7 @@ Get all results with their status. Each result is an object with fields
 
 ```nari
 let handles = Spawn.map(urls, func(url) { 
-    return http.get(url); 
+    return http.fetch(url); 
 });
 
 let settled = Spawn.all_settled(handles);
@@ -252,7 +252,7 @@ spawn {
 ### HTTP GET
 
 ```nari
-let response = http.get("https://api.example.com/data");
+let response = http.fetch("https://api.example.com/data");
 print("Status: " @ response.status_code);
 print("Body: " @ response.body);
 ```
@@ -260,13 +260,15 @@ print("Body: " @ response.body);
 ### HTTP POST/Custom Requests
 
 ```nari
-let response = http.request({
+let response = http.fetch("https://api.example.com/users", {
     method: "POST",
-    url: "https://api.example.com/users",
     headers: {
         "Content-Type": "application/json"
     },
-    body: "{\"name\":\"Alice\",\"age\":30}"
+    body: JSON.stringify({
+        name: "Alice",
+        age: 30
+    })
 });
 
 print("Status: " @ response.status_code);
@@ -336,7 +338,7 @@ set_interval(func() {}, 1000);
 ```nari
 func fetchData(url) {
     return spawn {
-        return http.get(url);
+        return http.fetch(url);
     };
 }
 
@@ -368,7 +370,7 @@ func processItem(item) {
 ```nari
 let handle = spawn {
     try {
-        let response = http.get("https://invalid-url.com");
+        let response = http.fetch("https://invalid-url.com");
         return response;
     } catch (e) {
         print("Request failed: " @ e);

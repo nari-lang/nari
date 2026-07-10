@@ -1,2 +1,2 @@
-let response = await http.get("https://www.ssllabs.com/");
+let response = await http.fetch("https://httpbin.org/get");
 print(response.body);
