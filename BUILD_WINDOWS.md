@@ -1,7 +1,7 @@
 # Building for Windows
 
 Windows builds run natively on Windows. CI is handled automatically by the
-GitHub Actions workflow at `.github/workflows/build-windows.yml`.
+unified GitHub Actions workflow at `.github/workflows/ci.yml`.
 
 ## Prerequisites
 
@@ -108,6 +108,6 @@ Notes:
 
 ## CI
 
-The GitHub Actions workflow (`.github/workflows/build-windows.yml`) runs on
-`windows-latest` and uploads `nari.exe` + `naric.exe` as build
-artifacts on every push to `main`.
+The unified workflow (`.github/workflows/ci.yml`) builds Windows on
+`windows-2022` (x64) on every push, PR, and release tag, packaging
+`nari.exe` + `naric.exe` into a zip artifact.
