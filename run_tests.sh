@@ -90,7 +90,7 @@ TEST_TIMEOUT="${TEST_TIMEOUT:-30}"
 for t in "${SUCCESS_TESTS[@]}"; do
     if [[ -f "$t" ]]; then
         echo "[expected_ok] $t"
-        if timeout "$TEST_TIMEOUT" "$INTERP" "${FLAGS[@]}" "$t"; then
+        if timeout "$TEST_TIMEOUT" "$INTERP" ${FLAGS[@]+"${FLAGS[@]}"} "$t"; then
             ((PASSED_TESTS += 1))
         else
             exit_code=$?
@@ -114,7 +114,7 @@ while IFS= read -r _t; do FAIL_TESTS+=("$_t"); done < <(find tests/expect_fail -
 for t in "${FAIL_TESTS[@]}"; do
     if [[ -f "$t" ]]; then
         echo "[expected_fail] $t"
-        if timeout "$TEST_TIMEOUT" "$INTERP" "${FLAGS[@]}" "$t"; then
+        if timeout "$TEST_TIMEOUT" "$INTERP" ${FLAGS[@]+"${FLAGS[@]}"} "$t"; then
             echo "Unexpected success for $t" >&2
             FAILED_LIST+=("$t")
             ((FAILED_TESTS += 1))
