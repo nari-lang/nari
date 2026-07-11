@@ -614,7 +614,7 @@ global Spawn = {
         let i = 0;
         let len = handles.length();
         while (i < len) {
-            let dummy = handles[i].value;
+            let dummy = handles[i].await;
             i = i + 1;
         }
 
@@ -634,7 +634,7 @@ global Spawn = {
         let result = {};
         result.index = fastest_index;
         result.handle = handles[fastest_index];
-        result.value = handles[fastest_index].value;
+        result.value = handles[fastest_index].await;
         result.duration = handles[fastest_index].duration;
         return result;
     },
@@ -645,34 +645,8 @@ global Spawn = {
         let i = 0;
         let len = handles.length();
         while (i < len) {
-            let val = handles[i].value;
+            let val = handles[i].await;
             results = results.concat([val]);
-            i = i + 1;
-        }
-        return results;
-    },
-
-    // all_settled: Wait for all handles, return results including failures
-    // Returns array of { status, value?, error?, duration }
-    all_settled: func(handles) {
-        let results = [];
-        let i = 0;
-        let len = handles.length();
-        while (i < len) {
-            let dummy = handles[i].value;
-            let result = {};
-            result.index = i;
-            result.duration = handles[i].duration;
-
-            if (handles[i].failed) {
-                result.status = "rejected";
-                result.error = handles[i].error;
-            } else {
-                result.status = "fulfilled";
-                result.value = handles[i].value;
-            }
-
-            results = results.concat([result]);
             i = i + 1;
         }
         return results;
@@ -685,7 +659,7 @@ global Spawn = {
         let len = handles.length();
 
         while (i < len) {
-            let dummy = handles[i].value;
+            let dummy = handles[i].await;
             i = i + 1;
         }
 
@@ -709,7 +683,7 @@ global Spawn = {
 
         let result = {};
         result.index = best_index;
-        result.value = handles[best_index].value;
+        result.value = handles[best_index].await;
         result.duration = handles[best_index].duration;
         return result;
     },

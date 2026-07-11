@@ -1,5 +1,7 @@
-fs.write_file("__test_temp__.txt", "test content").value
-let content = fs.read_file("__test_temp__.txt").value
+fs.write_file("__test_temp__.txt", "test content").await
+let content = fs.read_file("__test_temp__.txt")
+    .await
+    .unwrap()
 
 if (content == "test content") {
     system.print("Read/write successful")
@@ -8,8 +10,10 @@ if (content == "test content") {
     throw `Read/write failed: got {content}`
 }
 
-fs.append_file("__test_temp__.txt", " appended").value
-let appended = fs.read_file("__test_temp__.txt").value
+fs.append_file("__test_temp__.txt", " appended").await
+let appended = fs.read_file("__test_temp__.txt")
+    .await
+    .unwrap()
 
 if (appended == "test content appended") {
     system.print("Append successful")
@@ -18,7 +22,9 @@ if (appended == "test content appended") {
     throw `Append failed: got {appended}`
 }
 
-let exists = fs.file_exists("__test_temp__.txt").value
+let exists = fs.file_exists("__test_temp__.txt")
+    .await
+
 if (exists) {
     system.print("File exists check successful")
 } else {
@@ -26,15 +32,19 @@ if (exists) {
     throw "File should exist"
 }
 
-let files = fs.list_dir(".").value
+let files = fs.list_dir(".")
+    .await
+    .unwrap()
+
 if (files.length() > 0) {
     system.print("List directory successful")
 } else {
     system.print("List directory failed")
 }
 
-fs.delete_file("__test_temp__.txt").value
-let stillExists = fs.file_exists("__test_temp__.txt").value
+fs.delete_file("__test_temp__.txt").await
+let stillExists = fs.file_exists("__test_temp__.txt")
+    .await
 
 if (!stillExists) {
     system.print("Delete successful")

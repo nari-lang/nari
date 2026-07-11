@@ -2,7 +2,7 @@
 system.print("Testing list_dir Array Return\n");
 
 // Get files in tests directory
-let files = await fs.list_dir("tests");
+let files = fs.list_dir("tests").await;
 
 system.print("Type check:");
 system.print("\ttypeof(files) = " @ typeof(files));
