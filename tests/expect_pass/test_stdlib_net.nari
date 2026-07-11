@@ -7,7 +7,9 @@
 
 // --- TCP ---------------------------------------------------------------
 
-let server = await net.listen(0);
+let server = net.listen(0)
+    .await
+    .unwrap();
 if (server == null) { throw "net.listen returned null"; }
 if (server.port <= 0) { throw "expected ephemeral port > 0, got " @ server.port; }
 
@@ -17,22 +19,26 @@ if (server.port <= 0) { throw "expected ephemeral port > 0, got " @ server.port;
 let accept_h = net.accept(server);
 
 // Issue connect. Both ops are now in flight on the IO threadpool.
-let client = await net.connect("127.0.0.1", server.port);
+let client = net.connect("127.0.0.1", server.port)
+    .await
+    .unwrap();
+
 if (client == null) { throw "connect returned null"; }
 if (client.fd <= 0) { throw "expected client.fd > 0, got " @ client.fd; }
 
 // Now drain the accept handle -- the connect above unblocks it.
-let conn = await accept_h;
+let conn = accept_h
+    .await
+    .unwrap();
+
 if (conn == null) { throw "accept returned null"; }
 if (conn.ip != "127.0.0.1") { throw "accept got unexpected ip: " @ conn.ip; }
 
 // Client sends, server reads.
-let send_done = false;
-net.write(client, "hello tcp", func(err) {
-    if (err != null) { throw "client write err: " @ err; }
-    send_done = true;
-});
-while (!send_done) { __yield(); }
+print("fuck")
+net.write(client, "hello tcp")
+.await
+.unwrap();
 
 let server_received = null;
 net.read(conn, func(err, data) {
@@ -46,12 +52,9 @@ if (server_received != "hello tcp") {
 }
 
 // Server echoes back uppercased.
-let server_wrote = false;
-net.write(conn, server_received.to_upper(), func(err) {
-    if (err != null) { throw "server write err: " @ err; }
-    server_wrote = true;
-});
-while (!server_wrote) { __yield(); }
+net.write(conn, server_received.to_upper())
+.await
+.unwrap();
 
 // Client reads reply.
 let reply = null;
@@ -73,19 +76,27 @@ print("tcp loopback: ok");
 
 // --- UDP ---------------------------------------------------------------
 
-let udp_server = await net.udp_socket(0);
+let udp_server = net.udp_socket(0)
+.await
+.unwrap();
 if (udp_server == null) { throw "udp_socket(0) returned null for server"; }
 if (udp_server.port <= 0) { throw "udp server got bad port " @ udp_server.port; }
 
-let udp_client = await net.udp_socket(0);
+let udp_client = net.udp_socket(0)
+.await
+.unwrap();
 if (udp_client == null) { throw "udp_socket(0) returned null for client"; }
 
 // Issue server recv first (queues on IO worker), then send from client.
 let recv_h = net.udp_recv(udp_server, 5000);
 
-await net.udp_send(udp_client, "127.0.0.1", udp_server.port, "ping");
+net.udp_send(udp_client, "127.0.0.1", udp_server.port, "ping")
+.await
+.unwrap();
 
-let pkt = await recv_h;
+let pkt = recv_h
+.await
+.unwrap();
 if (pkt == null) { throw "udp server recv timed out"; }
 if (pkt.data != "ping") {
     throw "udp server got wrong payload: '" @ pkt.data @ "'";
@@ -93,9 +104,13 @@ if (pkt.data != "ping") {
 
 // Server replies; client receives.
 let client_recv_h = net.udp_recv(udp_client, 5000);
-await net.udp_send(udp_server, pkt.ip, pkt.port, "pong");
+net.udp_send(udp_server, pkt.ip, pkt.port, "pong")
+.await
+.unwrap();
 
-let resp = await client_recv_h;
+let resp = client_recv_h
+.await
+.unwrap();
 if (resp == null) { throw "udp client recv timed out"; }
 if (resp.data != "pong") {
     throw "udp client got wrong reply: '" @ resp.data @ "'";

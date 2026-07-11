@@ -18,7 +18,7 @@ print("");
 print("Spawn.race - Finding fastest...");
 let winner = Spawn.race(handles);
 print(`   Winner: URL {urls[winner.index]} ({winner.duration}ms)`);
-print("   Status:", winner.value.status_code);
+print("   Status:", winner.handle.await.status_code);
 print("");
 
 // Spawn.all - Get all results
@@ -28,19 +28,7 @@ let all_results = Spawn.all(handles2);
 print(`   Got {all_results.length()} results`);
 let i = 0;
 while (i < all_results.length()) {
-    print(`   Result {i} - Status: {all_results[i].status_code}`);
-    i = i + 1;
-}
-print("");
-
-// Spawn.all_settled - Get results with status
-print("Spawn.all_settled - Getting detailed results...");
-let handles3 = Spawn.map(urls, func(url) { return http.fetch(url); });
-let settled = Spawn.all_settled(handles3);
-i = 0;
-while (i < settled.length()) {
-    let s = settled[i];
-    print(`   [{i}] {s.status} - {s.duration}ms`);
+    print(`   Result {i} - Status: {all_results[i]}`);
     i = i + 1;
 }
 print("");

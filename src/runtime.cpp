@@ -2016,7 +2016,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     runtime_fatal("Member access on null handle", memExpr);
                 }
 
-                if (memExpr->member == "value") {
+                if (memExpr->member == "await") {
                     // process tasks and IO cooperatively until this handle completes
                     while (handle->state == HandleData::Running) {
                         bool did_work = false;

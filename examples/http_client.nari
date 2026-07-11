@@ -1,2 +1,5 @@
-let response = await http.fetch("https://httpbin.org/get");
-print(response.body);
+let response = http.fetch("https://httpbin.org/get").await;
+match response {
+    Ok(resp) => print("Success: " + resp.body),
+    Err(err) => print("Error: " + err.to_string())
+}

@@ -795,7 +795,7 @@ static bool resolve_member_value(const Value &base, const std::string &member, V
             out = handle->error;
             return true;
         }
-        if (member == "value") {
+        if (member == "await") {
             out = handle->result;
             return true;
         }

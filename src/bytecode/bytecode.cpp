@@ -2052,7 +2052,7 @@ bool VM::execute_instruction() {
                     const auto &handle = obj.get_handle();
                     if (!handle) {
                         VM::push(Value::none());
-                    } else if (name == "value") {
+                    } else if (name == "await") {
                         // wait for handle to complete
                         while (handle->state == HandleData::Running) {
                             runtime->process_completed_io();
