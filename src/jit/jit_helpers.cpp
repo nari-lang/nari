@@ -1127,7 +1127,7 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
         const auto &handle = obj.get_handle();
         if (!handle) {
             vm->push(Value::none());
-        } else if (name == "value") {
+        } else if (name == "await") {
             while (handle->state == HandleData::Running) {
                 vm->process_completed_io_for_jit();
                 if (handle->state == HandleData::Running) {
