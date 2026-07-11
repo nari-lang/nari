@@ -263,7 +263,7 @@ Value ScriptRuntime::builtin_fs_fileExists(const Value *argvals, size_t argc, co
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [this, handle, io_op]() {
+        io_op->callback = [handle, io_op]() {
             handle->end_time = std::chrono::steady_clock::now();
             handle->result = Value::make_bool(io_op->result_bool);
             handle->state = HandleData::Completed;
@@ -494,32 +494,34 @@ Value ScriptRuntime::builtin_net_conn_read(const Value *argvals, size_t argc, co
 }
 
 Value ScriptRuntime::builtin_net_conn_write(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if (argc >= 3 && argvals[0].is_object()) {
+    if (argc >= 2 && argvals[0].is_object()) {
         const ObjectObj *conn = argvals[0].get_obj_ptr();
 
         const Value *fd2_v = conn->get_field("fd");
         if (fd2_v && fd2_v->is_int()) {
             int fd = static_cast<int>(fd2_v->get_int());
             std::string data = argvals[1].to_string();
-            Value callback_val = argvals[2];
 
+            auto handle = Value::make_handle_ptr();
+            handle->state = HandleData::Running;
             auto write_op = std::make_shared<TcpOperation>(IOOperation::Type::TcpWrite);
             write_op->socket_fd = fd;
             write_op->data = data;
-            write_op->callback = [this, callback_val, write_op]() {
-                if (callback_val.is_function()) {
-                    if (write_op->success) {
-                        call_function_value(callback_val, { Value::none() });
-                    } else {
-                        call_function_value(callback_val, { Value::make_string(write_op->error_msg) });
-                    }
+            write_op->callback = [this, handle, write_op]() {
+                if (write_op->success) {
+                    handle->result = ScriptRuntime::make_ok(Value::none());
+                    handle->state = HandleData::Completed;
+                } else {
+                    handle->result = ScriptRuntime::make_err(Value::make_string(write_op->error_msg));
+                    handle->state = HandleData::Completed;
                 }
             };
 
             if (io_pool) {
-                async_root_set(write_op.get(), { callback_val });
                 io_pool->submit(write_op);
             }
+            
+            return Value::make_handle(handle);
         }
     }
     return Value::none();

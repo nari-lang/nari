@@ -515,9 +515,9 @@ func __stdlib_init__() {
         return __net_conn_read(conn, cb);
     },
     
-    // Write data to a TCP conn. cb(err).
-    write: func(conn, data, cb) {
-        return __net_conn_write(conn, data, cb);
+    // Write data to a TCP conn.
+    write: func(conn, data) {
+        return __net_conn_write(conn, data);
     },
     
     // Close a TCP conn.
