@@ -127,7 +127,9 @@ func build_response(status_code, status_text, content_type, body) {
 
 // Generate directory listing HTML
 func generate_directory_listing(dir_path, request_path) {
-    let files_arr = (await fs.list_dir(dir_path)).unwrap();
+    let files_arr = fs.list_dir(dir_path)
+        .await
+        .unwrap();
 
     let base_path = request_path;
     if (base_path.length() > 0 && base_path[base_path.length() - 1] != "/") {
@@ -181,7 +183,7 @@ func handle_request(conn) {
         // special handling for directory listing
         if (request.path == "/") {
             let index_path = root_dir + "index.html";
-            let index_exists = await fs.file_exists(index_path);
+            let index_exists = fs.file_exists(index_path).await;
 
             if (!index_exists) {
                 let dir_html = generate_directory_listing(root_dir, request.path);
@@ -193,7 +195,8 @@ func handle_request(conn) {
         }
 
         let file_path = sanitize_path(request.path);
-        let exists = await fs.file_exists(file_path);
+        let exists = fs.file_exists(file_path).await;
+
         if (!exists) {
             let body = "404 Not Found\n\nThe requested file '" + request.path + "' was not found.";
             let response404 = build_response("404", "Not Found", "text/plain", body);
@@ -205,9 +208,9 @@ func handle_request(conn) {
         let is_dir = fs.is_directory(file_path);
         if (is_dir) {
             // serve index.html if it exists
-            let index_exists = await fs.file_exists(file_path + "/index.html");
+            let index_exists = fs.file_exists(file_path + "/index.html").await;
             if (index_exists) {
-                let file = await fs.read_file(index_path);
+                let file = fs.read_file(index_path).await;
                 let dir_response = build_response("200", "OK", "text/html", content);
                 print("  -> 200 OK (text/html)");
                 conn.write(conn, dir_response);
@@ -222,7 +225,7 @@ func handle_request(conn) {
             return;
         }
 
-        let file = await fs.read_file(file_path);
+        let file = fs.read_file(file_path).await;
         if (file.is_err()) {
             let body500 = "500 Internal Server Error\nError reading file: " + file;
             let response500 = build_response("500", "Internal Server Error", "text/plain", body500);
