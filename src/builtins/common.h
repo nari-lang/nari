@@ -29,7 +29,7 @@
 #include "io.h"
 #endif
 #ifndef DISABLE_FFI
-#include "ffi.h"
+#include "nari_ffi.h"
 #endif
 #include "parser_api.h"
 

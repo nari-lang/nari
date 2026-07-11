@@ -139,16 +139,30 @@ To build against distro packages instead of Conan:
 Dependencies are resolved via pkg-config / the default linker paths, and the
 build uses the system toolchain and standard library.
 
-Required packages:
+Preferred (system) packages:
 - `libcurl`
 - `mbedtls`
 - `libffi`
 - `libarchive`
+- `zlib`
 - `asmjit`
 - `replxx` (plus their headers).
 
-`asmjit` and `replxx` are optional: configure with
-`-Ddisable_jit=true` / `-Ddisable_repl=true` if your distro doesn't package them.
+Any dependency not found on the system is fetched and built automatically from
+a Meson [wrap](https://mesonbuild.com/Wrap-dependency-system-manual.html) in
+`subprojects/` (WrapDB for curl/zlib/libffi/libarchive; pinned Git + CMake for
+asmjit/replxx/mbedtls). A normal `--system-deps` build therefore succeeds even
+on distros that do not package `asmjit` or `replxx`.
+
+`asmjit` and `replxx` are also optional at the feature level: configure with
+`-Ddisable_jit=true` / `-Ddisable_repl=true` to drop them entirely.
+
+Packagers who need reproducible, network-isolated builds can control the
+fallback with Meson's `--wrap-mode`:
+- `--wrap-mode=nofallback` — never build subprojects; require system copies
+  (missing `asmjit` errors, missing `replxx` just disables the REPL).
+- `--wrap-mode=nodownload` — only use sources already vendored under
+  `subprojects/` / `subprojects/packagecache/` (no network fetch).
 
 Packaging scripts can also call Meson directly:
 

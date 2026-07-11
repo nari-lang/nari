@@ -1,0 +1,9 @@
+[wrap-git]
+url = https://github.com/asmjit/asmjit.git
+# asmjit is rolling release with no version tags upstream
+revision = 0bd5787b54b575ed94bf32ac452153b34385c514
+depth = 1
+method = cmake
+
+[provide]
+dependency_names = asmjit

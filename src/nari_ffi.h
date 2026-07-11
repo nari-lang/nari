@@ -463,5 +463,4 @@ class FFIRegistry {
 };
 
 } // namespace nari
-
 #endif // DISABLE_FFI

@@ -1,0 +1,7 @@
+# Only track wrap definitions (and any vendored packagecache), never the
+# downloaded/extracted subproject sources. Meson repopulates them from the
+# *.wrap files during setup.
+*
+!*.wrap
+!.gitignore
+!packagecache/

@@ -1,6 +1,6 @@
 #include "runtime.h"
 #include "ast.h"
-#include "ffi.h" // no-op when DISABLE_FFI; provides FFICallbackManager root scan
+#include "nari_ffi.h"
 #include "int_overflow.h"
 #include "parser_api.h"
 #include "util.h"
@@ -390,11 +390,6 @@ void ScriptRuntime::run_event_loop() {
     collect_garbage();
 }
 
-// --- Delegate (Proxy-like) trap dispatch ---------------------------------
-// See runtime.h for the design contract. These are the single source of truth
-// for Delegate semantics; all three execution tiers funnel into them so the
-// behavior (and therefore the checksums) is identical regardless of which tier
-// executed the operation.
 
 // Default get: behave like a normal property/index read on the wrapped target.
 Value ScriptRuntime::delegate_default_get(const Value &target, const Value &key) {
@@ -462,10 +457,12 @@ bool ScriptRuntime::delegate_default_has(const Value &target, const Value &key) 
 // per-access intern_field() string hash that dominated proxy_delegate (~9% of
 // cycles). Resolved lazily on first use to avoid a static-init ordering
 // dependency on field_intern_map().
-enum class TrapId { Get,
-                    Set,
-                    Has,
-                    Call };
+enum class TrapId {
+    Get,
+    Set,
+    Has,
+    Call
+};
 static uint32_t trap_field_id(TrapId which) {
     static const uint32_t ids[4] = {
         intern_field("get"),
@@ -487,19 +484,8 @@ static Value delegate_trap(const Value &del, TrapId which) {
     return (t && t->is_function()) ? *t : Value::none();
 }
 
-// Invoke a resolved trap function with a fixed-arity argument list, reusing the
-// per-runtime trap_scratch_ buffer to avoid a heap alloc+free of the args vector
-// on every trap call. Safe because call_user_function (both the VM and AST
-// implementations) copies the args onto its own stack/locals BEFORE running any
-// script, so the scratch buffer is no longer referenced once the trap body could
-// re-enter a delegate op. If the buffer is already borrowed (a trap body that
-// re-enters another trap on a chained delegate), we fall back to a fresh vector
-// so correctness never relies on that invariant.
-// RAII guard for the scratch-buffer borrow flag: restores it even if
-// call_function_value propagates a C++ exception (matching GcTempRoot's
-// discipline). On a stack-overflow longjmp neither this nor GcTempRoot unwinds
-// -- a pre-existing, accepted gap; the only effect here is that the flag stays
-// set, which merely disables the optimization (safe fresh-vector path) after.
+// Invoke a resolved trap function with a fixed-arity argument list
+// use a scratch vector to avoid heap alloc on every trap call.
 namespace {
 struct ScratchBorrow {
     bool &flag;
@@ -514,38 +500,36 @@ struct ScratchBorrow {
 };
 } // namespace
 
-Value ScriptRuntime::invoke_trap(const Value &trap, const Value &a0,
-                                 const Value &a1) {
-    GcTempRoot _gr(*this);
-    _gr.add(&trap);
+Value ScriptRuntime::invoke_trap(const Value &trap, const Value &a, const Value &b) {
+    GcTempRoot gcRoot(*this);
+    gcRoot.add(&trap);
     if (trap_scratch_busy_) {
-        std::vector<Value> args = { a0, a1 };
-        _gr.add_vec(&args);
+        std::vector<Value> args = { a, b };
+        gcRoot.add_vec(&args);
         return call_function_value(trap, args);
     }
-    ScratchBorrow _b(trap_scratch_busy_);
+    ScratchBorrow busy(trap_scratch_busy_);
     trap_scratch_.clear();
-    trap_scratch_.push_back(a0);
-    trap_scratch_.push_back(a1);
-    _gr.add_vec(&trap_scratch_);
+    trap_scratch_.push_back(a);
+    trap_scratch_.push_back(b);
+    gcRoot.add_vec(&trap_scratch_);
     return call_function_value(trap, trap_scratch_);
 }
 
-Value ScriptRuntime::invoke_trap(const Value &trap, const Value &a0,
-                                 const Value &a1, const Value &a2) {
-    GcTempRoot _gr(*this);
-    _gr.add(&trap);
+Value ScriptRuntime::invoke_trap(const Value &trap, const Value &a, const Value &b, const Value &c) {
+    GcTempRoot gcRoot(*this);
+    gcRoot.add(&trap);
     if (trap_scratch_busy_) {
-        std::vector<Value> args = { a0, a1, a2 };
-        _gr.add_vec(&args);
+        std::vector<Value> args = { a, b, c };
+        gcRoot.add_vec(&args);
         return call_function_value(trap, args);
     }
-    ScratchBorrow _b(trap_scratch_busy_);
+    ScratchBorrow busy(trap_scratch_busy_);
     trap_scratch_.clear();
-    trap_scratch_.push_back(a0);
-    trap_scratch_.push_back(a1);
-    trap_scratch_.push_back(a2);
-    _gr.add_vec(&trap_scratch_);
+    trap_scratch_.push_back(a);
+    trap_scratch_.push_back(b);
+    trap_scratch_.push_back(c);
+    gcRoot.add_vec(&trap_scratch_);
     return call_function_value(trap, trap_scratch_);
 }
 
@@ -600,22 +584,22 @@ Value ScriptRuntime::delegate_call(const Value &del, const std::vector<Value> &a
     Value target = d->target;
     Value trap = delegate_trap(del, TrapId::Call);
     if (trap.is_function()) {
-        GcTempRoot _gr(*this);
-        _gr.add(&target);
-        _gr.add(&trap);
+        GcTempRoot gcRoot(*this);
+        gcRoot.add(&target);
+        gcRoot.add(&trap);
         std::vector<Value> args_arr = args;
-        _gr.add_vec(&args_arr);
-        // The trap receives the call args as a Nari array; that allocation is
-        // inherent. invoke_trap then avoids the extra {target, arr} vector.
+        gcRoot.add_vec(&args_arr);
+        // The trap receives the call args as a Nari array
+        // that allocation is inherent. invoke_trap then avoids the extra {target, arr} vector.
         Value arr = Value::make_array(std::move(args_arr));
-        _gr.add(&arr);
+        gcRoot.add(&arr);
         // trap(target, argsArray)
         return invoke_trap(trap, target, arr);
     }
     // No call trap: forward to the target if it is itself callable.
     if (target.is_function()) {
-        GcTempRoot _gr(*this);
-        _gr.add(&target);
+        GcTempRoot gcRoot(*this);
+        gcRoot.add(&target);
         return call_function_value(target, args);
     }
     if (target.is_delegate()) {
@@ -624,16 +608,12 @@ Value ScriptRuntime::delegate_call(const Value &del, const std::vector<Value> &a
     return Value::none();
 }
 
-// Method call on a delegate: resolve the member via the get trap, then invoke
-// the resulting callable with the given args. This matches Proxy semantics
-// (a.b() is get(a,"b") followed by a call) and means no separate "apply"-style
-// trap is needed for method dispatch.
-Value ScriptRuntime::delegate_call_method(const Value &del, const std::string &method,
-                                          std::vector<Value> args) {
+// Method call on a delegate: resolve the member via the get trap, then invoke the resulting callable with the given args.
+Value ScriptRuntime::delegate_call_method(const Value &del, const std::string &method, std::vector<Value> args) {
     Value callee = delegate_get(del, Value::make_string(method));
-    GcTempRoot _gr(*this);
-    _gr.add(&callee);
-    _gr.add_vec(&args);
+    GcTempRoot gcRoot(*this);
+    gcRoot.add(&callee);
+    gcRoot.add_vec(&args);
     if (callee.is_function()) {
         return call_function_value(callee, args);
     }

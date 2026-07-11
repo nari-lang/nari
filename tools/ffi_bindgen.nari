@@ -1,0 +1,3567 @@
+func usage() {
+    print("Usage: ffi_bindgen.nari --input <header.h> --output <bindings.nari> [options]")
+    print("Options:")
+    print("  --cc <compiler>        C preprocessor driver to use (default: cc)")
+    print("  --backend <legacy|clang-json>  Parser backend to use (default: legacy)")
+    print("                                 clang-json expects clang or clang-cl in --cc")
+    print("  --abi <lp64|llp64|ilp32>  ABI model for ambiguous C integer types")
+    print("  --module-name <Name>   Name of the generated wrapper object (default: pascal-cased basename)")
+    print("  --libs <a,b,c>         Comma-separated DLL/.so/.dylib names to load. The generated loader tries")
+    print("                         each in order and lazily routes calls to whichever lib exports the symbol.")
+    print("                         (Defaults to a single library derived from the input filename.)")
+    print("  --npkg <name>          Emit an npkg package instead of a single .nari file.")
+    print("                         <name> is the package name (e.g. 'ffi/mathlib'). Requires --output")
+    print("                         to point at a directory (the package root is created there).")
+    print("  --npkg-version <v>     Package version string (default: 0.1.0).")
+    print("  --cppflags <flags>     Extra flags passed directly to the preprocessor")
+    print("  --keep-pp              Keep the intermediate preprocessed file")
+    print("  --help                 Show this help")
+}
+
+func die(message) {
+    throw "ffi_bindgen: " @ message
+}
+
+func shellQuote(text) {
+    return "'" @ text.replace_all("'", "'\"'\"'") @ "'"
+}
+
+func compilerBasename(cc) {
+    let slash = cc.last_index_of("/")
+    let backslash = cc.last_index_of("\\")
+    let cut = slash > backslash ? slash : backslash
+    return (cut >= 0 ? cc.substr(cut + 1) : cc).to_lower()
+}
+
+func isClangClCompiler(cc) {
+    let base = compilerBasename(cc)
+    return base == "clang-cl" || base == "clang-cl.exe"
+}
+
+func pathJoin(base, name) {
+    if (base == null || base == "") return name
+    if (name == null || name == "") return base
+    let last = base.char_at(base.length() - 1)
+    if (last == "/" || last == "\\") {
+        return base @ name
+    }
+    return base @ "/" @ name
+}
+
+// fs.exists is async (returns a Spawn handle), so always await it.
+func pathExists(path) {
+    return (await fs.exists(path)) == true
+}
+
+func is_whitespace(ch) {
+    return ch == " " || ch == "\t" || ch == "\n" || ch == "\r"
+}
+
+func isAlpha(ch) {
+    let c = ch.char_code_at(0)
+    return ((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || ch == "_")
+}
+
+func isDigit(ch) {
+    let c = ch.char_code_at(0)
+    return c >= 48 && c <= 57
+}
+
+func isAlnum(ch) {
+    return isAlpha(ch) || isDigit(ch)
+}
+
+func isQualifier(tok) {
+    return tok == "const" || tok == "volatile" || tok == "restrict" || tok == "__restrict" ||
+        tok == "__restrict__" || tok == "register" ||
+        tok == "extern" || tok == "static" || tok == "inline" || tok == "__inline" ||
+        tok == "__inline__" || tok == "__stdcall" || tok == "__cdecl" || tok == "__fastcall" ||
+        tok == "__attribute__" || tok == "__extension__"
+}
+
+func trim(text) {
+    return text.trim()
+}
+
+func basenameNoExt(path) {
+    let slash = path.last_index_of("/")
+    let backslash = path.last_index_of("\\")
+    let cut = slash > backslash ? slash : backslash
+    let name = cut >= 0 ? path.substr(cut + 1) : path
+    let dot = name.last_index_of(".")
+    if (dot > 0) {
+        return name.substr(0, dot)
+    }
+    return name
+}
+
+func dirBasename(path) {
+    let slash = path.last_index_of("/")
+    let backslash = path.last_index_of("\\")
+    let cut = slash > backslash ? slash : backslash
+    if (cut < 0) return ""
+    let dir = path.substr(0, cut)
+    let s2 = dir.last_index_of("/")
+    let b2 = dir.last_index_of("\\")
+    let cut2 = s2 > b2 ? s2 : b2
+    return cut2 >= 0 ? dir.substr(cut2 + 1) : dir
+}
+
+func sanitizeIdentifier(text) {
+    let out = ""
+    let i = 0
+    while (i < text.length()) {
+        let ch = text.char_at(i)
+        if (isAlnum(ch)) {
+            out = out @ ch
+        } else {
+            out = out @ "_"
+        }
+        i = i + 1
+    }
+    if (out == "") {
+        return "_"
+    }
+    if (!isAlpha(out.char_at(0))) {
+        out = "_" @ out
+    }
+    return out
+}
+
+// Nari reserved words that can't be used as plain identifiers.
+// C parameter names sometimes collide with these (e.g. a parameter literally named `func`),
+// so we suffix any such name with an underscore.
+func isNariKeyword(word) {
+    let kw = {
+        "func": true, "async": true, "await": true, "let": true, "global": true,
+        "return": true, "if": true, "else": true, "for": true, "while": true,
+        "in": true, "break": true, "continue": true, "class": true, "type": true,
+        "enum": true, "new": true, "import": true, "export": true, "true": true,
+        "false": true, "not": true, "try": true, "catch": true, "finally": true,
+        "throw": true, "const": true, "var": true, "foreach": true, "match": true,
+        "and": true, "or": true, "null": true
+    }
+    return kw.has_key(word)
+}
+
+func safeParamName(name) {
+    let ident = sanitizeIdentifier(name)
+    if (isNariKeyword(ident)) {
+        return ident @ "_"
+    }
+    return ident
+}
+
+func pascalCaseName(text) {
+    let clean = sanitizeIdentifier(text)
+    let parts = clean.split("_")
+    let out = ""
+    for (part in parts) {
+        if (part == "") continue
+        let head = part.char_at(0).to_upper()
+        let tail = part.length() > 1 ? part.substr(1) : ""
+        out = out @ head @ tail
+    }
+    return out == "" ? "Bindings" : out
+}
+
+func tokenize(text) {
+    let tokens = []
+    let i = 0
+    let len = text.length()
+
+    while (i < len) {
+        let ch = text.char_at(i)
+
+        if (is_whitespace(ch)) {
+            i = i + 1
+            continue
+        }
+
+        if (ch == "/" && i + 1 < len && text.char_at(i + 1) == "/") {
+            i = i + 2
+            while (i < len && text.char_at(i) != "\n") {
+                i = i + 1
+            }
+            continue
+        }
+
+        if (ch == "/" && i + 1 < len && text.char_at(i + 1) == "*") {
+            i = i + 2
+            while (i + 1 < len) {
+                if (text.char_at(i) == "*" && text.char_at(i + 1) == "/") {
+                    i = i + 2
+                    break
+                }
+                i = i + 1
+            }
+            continue
+        }
+
+        if (ch == "\"") {
+            let j = i + 1
+            while (j < len) {
+                let cur = text.char_at(j)
+                if (cur == "\\") {
+                    j = j + 2
+                    continue
+                }
+                if (cur == "\"") {
+                    j = j + 1
+                    break
+                }
+                j = j + 1
+            }
+            tokens.push(text.substr(i, j - i))
+            i = j
+            continue
+        }
+
+        if (isAlpha(ch)) {
+            let j = i + 1
+            while (j < len && isAlnum(text.char_at(j))) {
+                j = j + 1
+            }
+            tokens.push(text.substr(i, j - i))
+            i = j
+            continue
+        }
+
+        if (isDigit(ch)) {
+            let j = i + 1
+            while (j < len && (isAlnum(text.char_at(j)) || text.char_at(j) == ".")) {
+                j = j + 1
+            }
+            tokens.push(text.substr(i, j - i))
+            i = j
+            continue
+        }
+
+        if (ch == "." && i + 2 < len && text.char_at(i + 1) == "." && text.char_at(i + 2) == ".") {
+            tokens.push("...")
+            i = i + 3
+            continue
+        }
+
+        if (i + 1 < len) {
+            let pair = text.substr(i, 2)
+            if (pair == "<<" || pair == ">>" || pair == "==" || pair == "!=" ||
+                pair == "<=" || pair == ">=" || pair == "&&" || pair == "||" ||
+                pair == "->") {
+                tokens.push(pair)
+                i = i + 2
+                continue
+            }
+        }
+        if (ch == "<" || ch == ">") {
+            tokens.push(ch)
+            i = i + 1
+            continue
+        }
+
+        if (ch == "{" || ch == "}" || ch == "(" || ch == ")" || ch == "[" || ch == "]" ||
+            ch == ";" || ch == "," || ch == "*" || ch == "=" || ch == "+" || ch == "-" ||
+            ch == "!" || ch == "~" || ch == "&" || ch == "|" || ch == "^" || ch == "/" ||
+            ch == "%") {
+            tokens.push(ch)
+            i = i + 1
+            continue
+        }
+
+        i = i + 1
+    }
+
+    return tokens
+}
+
+func arrayInner(value) {
+    if (value == null || typeof(value) != "array") {
+        return []
+    }
+    return value
+}
+
+func objectProp(obj, key) {
+    if (obj == null || typeof(obj) != "object") {
+        return null
+    }
+    let value = null
+    try {
+        value = obj[key]
+    } catch (e) {
+        value = null
+    }
+    return value
+}
+
+func joinTokens(tokens, sep) {
+    if (tokens.length() == 0) {
+        return ""
+    }
+
+    let out = tokens[0]
+    let i = 1
+    while (i < tokens.length()) {
+        out = out @ sep @ tokens[i]
+        i = i + 1
+    }
+    return out
+}
+
+func removeQualifiers(tokens) {
+    let out = []
+    for (tok in tokens) {
+        if (!isQualifier(tok)) {
+            out.push(tok)
+        }
+    }
+    return out
+}
+
+func splitTopLevel(tokens, sep) {
+    let groups = []
+    let current = []
+    let paren = 0
+    let brace = 0
+    let bracket = 0
+
+    for (tok in tokens) {
+        if (tok == "(") {
+            paren = paren + 1
+        } else if (tok == ")") {
+            paren = paren - 1
+        } else if (tok == "{") {
+            brace = brace + 1
+        } else if (tok == "}") {
+            brace = brace - 1
+        } else if (tok == "[") {
+            bracket = bracket + 1
+        } else if (tok == "]") {
+            bracket = bracket - 1
+        }
+
+        if (tok == sep && paren == 0 && brace == 0 && bracket == 0) {
+            groups.push(current)
+            current = []
+        } else {
+            current.push(tok)
+        }
+    }
+
+    if (current.length() > 0) {
+        groups.push(current)
+    }
+
+    return groups
+}
+
+func collectDeclarations(text) {
+    let decls = []
+    let current = []
+    let paren = 0
+    let brace = 0
+    let bracket = 0
+
+    for (tok in tokenize(text)) {
+        current.push(tok)
+
+        if (tok == "(") {
+            paren = paren + 1
+        } else if (tok == ")") {
+            paren = paren - 1
+        } else if (tok == "{") {
+            brace = brace + 1
+        } else if (tok == "}") {
+            brace = brace - 1
+        } else if (tok == "[") {
+            bracket = bracket + 1
+        } else if (tok == "]") {
+            bracket = bracket - 1
+        }
+
+        if (paren == 0 && brace == 0 && bracket == 0) {
+            if (tok == ";") {
+                decls.push(current)
+                current = []
+            } else if (tok == "}") {
+                let startsStruct = current.length() >= 2 && current[0] == "typedef" && current[1] == "struct"
+                let startsPlainStruct = current.length() >= 1 && current[0] == "struct"
+                let startsEnum = current.length() >= 2 && current[0] == "typedef" && current[1] == "enum"
+                let startsPlainEnum = current.length() >= 1 && current[0] == "enum"
+                if (!startsStruct && !startsPlainStruct && !startsEnum && !startsPlainEnum) {
+                    decls.push(current)
+                    current = []
+                }
+            }
+        }
+    }
+
+    if (current.length() > 0) {
+        decls.push(current)
+    }
+
+    return decls
+}
+
+func primitiveNariType(baseTokens, abi) {
+    let text = joinTokens(baseTokens, " ")
+
+    if (text == "void") return "void"
+    if (text == "char" || text == "signed char") return "i8"
+    if (text == "unsigned char") return "u8"
+    if (text == "short" || text == "short int" || text == "signed short" || text == "signed short int") return "i16"
+    if (text == "unsigned short" || text == "unsigned short int") return "u16"
+    if (text == "int" || text == "signed" || text == "signed int") return "i32"
+    if (text == "unsigned" || text == "unsigned int") return "u32"
+    if (text == "long long" || text == "long long int" || text == "signed long long" || text == "signed long long int") return "i64"
+    if (text == "unsigned long long" || text == "unsigned long long int") return "u64"
+    if (text == "float") return "f32"
+    if (text == "double") return "f64"
+    if (text == "bool" || text == "_Bool") return "bool"
+
+    if (text == "long" || text == "long int" || text == "signed long" || text == "signed long int") {
+        if (abi == "lp64") return "i64"
+        return "i32"
+    }
+
+    if (text == "unsigned long" || text == "unsigned long int") {
+        if (abi == "lp64") return "u64"
+        return "u32"
+    }
+
+    return null
+}
+
+func ffiStringForPrimitive(nariType) {
+    if (nariType == "void") return "void"
+    if (nariType == "i8") return "i8"
+    if (nariType == "u8") return "u8"
+    if (nariType == "i16") return "i16"
+    if (nariType == "u16") return "u16"
+    if (nariType == "i32") return "int"
+    if (nariType == "u32") return "u32"
+    if (nariType == "i64") return "i64"
+    if (nariType == "u64") return "u64"
+    if (nariType == "f32") return "float"
+    if (nariType == "f64") return "double"
+    if (nariType == "bool") return "bool"
+    if (nariType == "pointer") return "pointer"
+    return nariType
+}
+
+func hexDigitValue(ch) {
+    let code = ch.char_code_at(0)
+    if (code >= 48 && code <= 57) return code - 48
+    if (code >= 65 && code <= 70) return code - 55
+    if (code >= 97 && code <= 102) return code - 87
+    return -1
+}
+
+func parseIntegerLiteral(tok) {
+    if (tok == null || tok == "") return null
+    let end = tok.length()
+    while (end > 0) {
+        let ch = tok.char_at(end - 1)
+        if (ch == "u" || ch == "U" || ch == "l" || ch == "L") {
+            end = end - 1
+        } else {
+            break
+        }
+    }
+    if (end == 0) return null
+    let core = tok.substr(0, end)
+    if (core.length() >= 3 && core.char_at(0) == "0" && (core.char_at(1) == "x" || core.char_at(1) == "X")) {
+        let value = 0
+        let i = 2
+        while (i < core.length()) {
+            let digit = hexDigitValue(core.char_at(i))
+            if (digit < 0) return null
+            value = value * 16 + digit
+            i = i + 1
+        }
+        return value
+    }
+    let i = 0
+    while (i < core.length()) {
+        if (!isDigit(core.char_at(i))) return null
+        i = i + 1
+    }
+    return to_number(core)
+}
+
+func stripNumericSuffix(tok) {
+    if (tok == null || tok == "") return tok
+    // C numeric literals can have any combination of u/U/l/L/f/F suffixes,
+    // and MSVC also accepts i8/i16/i32/i64/ui8/ui16/ui32/ui64 ("1ui64", "0xFFi64", ...).
+    //
+    // hex literals (0x...) legitimately end in A-F digits, so stripping
+    // any trailing F unconditionally would munch the value (e.g. "0xFFFF" -> "0x").
+    // Detect a hex prefix and only allow stripping u/U/l/L (never f/F) in that case.
+    let isHex = false
+    if (tok.length() >= 3 && tok.char_at(0) == "0" && (tok.char_at(1) == "x" || tok.char_at(1) == "X")) {
+        isHex = true
+    }
+    let end = tok.length()
+    // strip the MSVC `i8` / `i16` / `i32` / `i64` (optionally preceded
+    // by `u`/`U`) suffix in one go.
+    let lower = tok.to_lower()
+    let msSuffixes = ["ui64", "ui32", "ui16", "ui8", "i64", "i32", "i16", "i8"]
+    for (suf in msSuffixes) {
+        if (lower.ends_with(suf)) {
+            end = end - suf.length()
+            break
+        }
+    }
+    // then strip any remaining u/U/l/L (and f/F for non-hex).
+    while (end > 0) {
+        let ch = tok.char_at(end - 1)
+        let isSuffix = (ch == "u" || ch == "U" || ch == "l" || ch == "L")
+        if (!isHex && (ch == "f" || ch == "F")) {
+            isSuffix = true
+        }
+        if (isSuffix) {
+            end = end - 1
+        } else {
+            break
+        }
+    }
+    return end == 0 ? tok : tok.substr(0, end)
+}
+
+// Strip C-style casts from a token stream: `( type ) value` and `( type * ) value`.
+// Used by the macro renderer so common patterns like `((HWND)-1)` or `((void*)0)`
+// come through as `-1` and `0` instead of mangled syntax that won't parse as Nari.
+func looksLikeCTypeName(tok, typeNames) {
+    if (tok == null || tok == "") return false
+    if (!isAlpha(tok.char_at(0))) return false
+    // Known typedef / struct names from the header (e.g. Sint8, Uint32).
+    if (typeNames != null && typeNames.has_key(tok)) return true
+    // C keywords / well-known primitives.
+    let known = {
+        "void": true, "char": true, "short": true, "int": true, "long": true,
+        "float": true, "double": true, "signed": true, "unsigned": true,
+        "_Bool": true, "bool": true
+    }
+    if (known.has_key(tok)) return true
+    if (tok.char_at(0) == "_") return true
+    if (tok.ends_with("_t")) return true
+    // All-uppercase (with optional digits / underscores)? Treat as type.
+    let allUpper = true
+    let i = 0
+    while (i < tok.length()) {
+        let ch = tok.char_at(i)
+        let c = ch.char_code_at(0)
+        let isUpper = (c >= 65 && c <= 90)
+        let isDigit = (c >= 48 && c <= 57)
+        if (!isUpper && !isDigit && ch != "_") {
+            allUpper = false
+            break
+        }
+        i = i + 1
+    }
+    if (allUpper) return true
+    return false
+}
+
+func canStartExpression(tok) {
+    if (tok == null) return false
+    if (tok == "(" || tok == "-" || tok == "+" || tok == "!" || tok == "~") return true
+    if (tok.length() == 0) return false
+    let c = tok.char_at(0)
+    let code = c.char_code_at(0)
+    if (code >= 48 && code <= 57) return true // digit -> number literal
+    if (isAlpha(c)) return true // identifier (might be the value)
+    if (c == "\"") return true // string literal
+    return false
+}
+
+func stripCStyleCasts(tokens, typeNames) {
+    // walk through tokens, collapsing `( <typename> [*]* )` cast expressions.
+    let out = []
+    let i = 0
+    while (i < tokens.length()) {
+        if (tokens[i] == "(" && i + 1 < tokens.length() && looksLikeCTypeName(tokens[i + 1], typeNames)) {
+            // try to match a complete cast: ( <typename> [*]* )
+            let j = i + 2
+            // allow extra type modifiers like 'const', 'unsigned', or additional typedef-y identifiers.
+            while (j < tokens.length() && (looksLikeCTypeName(tokens[j], typeNames) || tokens[j] == "const" || tokens[j] == "unsigned" || tokens[j] == "signed")) {
+                j = j + 1
+            }
+            // eat any number of trailing '*' for pointer types.
+            while (j < tokens.length() && tokens[j] == "*") {
+                j = j + 1
+            }
+            if (j < tokens.length() && tokens[j] == ")") {
+                // the `(TYPE)` group needs to be followed by something that a value-expression can start with
+                // otherwise we likely misinterpreted a parenthesized constant as a cast.
+                let next = j + 1 < tokens.length() ? tokens[j + 1] : null
+                if (canStartExpression(next)) {
+                    // it's a cast - drop the entire `( type [*]* )` group.
+                    i = j + 1
+                    continue
+                }
+            }
+        }
+        out.push(tokens[i])
+        i = i + 1
+    }
+    return out
+}
+
+func renderedMacroBodyLooksValid(tokens) {
+    if (tokens == null || tokens.length() == 0) return false
+    let depth = 0
+    let i = 0
+    while (i < tokens.length()) {
+        let tok = tokens[i]
+        if (tok == "{" || tok == "}") {
+            // braces in an object-like macro mean a C aggregate literal, which we can't emit in Nari. Reject the whole macro.
+            return false
+        }
+        if (tok == "(") {
+            depth = depth + 1
+        } else if (tok == ")") {
+            depth = depth - 1
+            if (depth < 0) return false
+        } else if (tok == "->") {
+            // C struct-pointer member access - not Nari syntax.
+            return false
+        } else if (tok == "*") {
+            // the renderer keeps `*` only for multiplication. A leading or
+            // post-paren-open `*` means dereference, which we can't emit.
+            let prev = i == 0 ? null : tokens[i - 1]
+            if (prev == null || prev == "(" || prev == "," || prev == "*" ||
+                prev == "+" || prev == "-" || prev == "!" || prev == "~" ||
+                prev == "&" || prev == "|" || prev == "^" || prev == "/" ||
+                prev == "%" || prev == "=" || prev == "<" || prev == ">" ||
+                prev == "==" || prev == "!=" || prev == "<=" || prev == ">=" ||
+                prev == "&&" || prev == "||" || prev == "<<" || prev == ">>") {
+                return false
+            }
+        } else if (tok == "&") {
+            // same idea: `&x` (address-of) at the start or after an opener
+            // isn't expressible.
+            let prev = i == 0 ? null : tokens[i - 1]
+            if (prev == null || prev == "(" || prev == ",") {
+                return false
+            }
+        }
+        i = i + 1
+    }
+    if (depth != 0) return false
+    // reject empty parens `( )` which usually came from a function-like
+    // helper that took no arguments.
+    let j = 0
+    while (j + 1 < tokens.length()) {
+        if (tokens[j] == "(" && tokens[j + 1] == ")") return false
+        j = j + 1
+    }
+    // reject bodies that end in a binary operator (dangling syntax).
+    let last = tokens[tokens.length() - 1]
+    if (last == "+" || last == "-" || last == "*" || last == "/" ||
+        last == "%" || last == "&" || last == "|" || last == "^" ||
+        last == "<<" || last == ">>" || last == "==" || last == "!=" ||
+        last == "<" || last == ">" || last == "<=" || last == ">=" ||
+        last == "&&" || last == "||" || last == "=" || last == ",") {
+        return false
+    }
+    // reject adjacent value operands with no operator between them,
+    // e.g. C string-literal concatenation like `PREFIX "d"` or `"a" "b"`, which is not valid Nari.
+    let k = 0
+    while (k + 1 < tokens.length()) {
+        if (isMacroOperandToken(tokens[k]) && isMacroOperandToken(tokens[k + 1])) {
+            return false
+        }
+        k = k + 1
+    }
+    return true
+}
+
+// A "value operand" token is a literal or identifier (as opposed to an operator or bracket).
+// Two of them in a row means an implicit concatenation we can't render.
+func isMacroOperandToken(tok) {
+    if (tok == null || tok == "") return false
+    let c = tok.char_at(0)
+    if (c == "\"") return true
+    if (isAlpha(c)) return true
+    if (isDigit(c)) return true
+    return false
+}
+
+func renderMacroExprTokens(tokens, typeNames, valueIdents) {
+    let processed = stripCStyleCasts(tokens, typeNames)
+    if (!renderedMacroBodyLooksValid(processed)) {
+        return null
+    }
+    let out = []
+    for (tok in processed) {
+        let rendered = tok
+        if (tok.length() >= 2 && tok.char_at(0) == "\"" && tok.char_at(tok.length() - 1) == "\"") {
+            rendered = tok
+        } else if (isAlpha(tok.char_at(0))) {
+            // a bare identifier must resolve to another value we emit
+            if (valueIdents == null || !valueIdents.has_key(tok)) {
+                return null
+            }
+            rendered = tok
+        } else {
+            let stripped = stripNumericSuffix(tok)
+            if (parseIntegerLiteral(tok) != null) {
+                rendered = stripped
+            } else if (stripped != tok) {
+                let dot = false
+                let i = 0
+                while (i < stripped.length()) {
+                    if (stripped.char_at(i) == ".") {
+                        dot = true
+                        break
+                    }
+                    i = i + 1
+                }
+                if (dot || parseIntegerLiteral(stripped) != null) {
+                    rendered = stripped
+                }
+            }
+        }
+        out.push(rendered)
+    }
+    return joinTokens(out, " ")
+}
+
+func evalEnumExpr(tokens, values) {
+    if (tokens == null || tokens.length() == 0) {
+        return null
+    }
+
+    let pos = 0
+    let parseBitOr = null
+
+    let parsePrimary = func() {
+        if (pos >= tokens.length()) return null
+        let tok = tokens[pos]
+        if (tok == "(") {
+            pos = pos + 1
+            let value = parseBitOr()
+            if (value == null || pos >= tokens.length() || tokens[pos] != ")") {
+                return null
+            }
+            pos = pos + 1
+            return value
+        }
+        let num = parseIntegerLiteral(tok)
+        if (num != null) {
+            pos = pos + 1
+            return num
+        }
+        if (values.has_key(tok)) {
+            pos = pos + 1
+            return values[tok]
+        }
+        return null
+    }
+
+    let parseUnary = func() {
+        if (pos >= tokens.length()) return null
+        let tok = tokens[pos]
+        if (tok == "+") {
+            pos = pos + 1
+            return parseUnary()
+        }
+        if (tok == "-") {
+            pos = pos + 1
+            let value = parseUnary()
+            return value == null ? null : -value
+        }
+        if (tok == "!") {
+            pos = pos + 1
+            let value = parseUnary()
+            return value == null ? null : (value == 0 ? 1 : 0)
+        }
+        if (tok == "~") {
+            pos = pos + 1
+            let value = parseUnary()
+            return value == null ? null : ~value
+        }
+        return parsePrimary()
+    }
+
+    let parseMul = func() {
+        let left = parseUnary()
+        if (left == null) return null
+        while (pos < tokens.length()) {
+            let op = tokens[pos]
+            if (op != "*" && op != "/" && op != "%") break
+            pos = pos + 1
+            let right = parseUnary()
+            if (right == null) return null
+            if (op == "*") left = left * right
+            else if (op == "/") left = left / right
+            else left = left % right
+        }
+        return left
+    }
+
+    let parseAdd = func() {
+        let left = parseMul()
+        if (left == null) return null
+        while (pos < tokens.length()) {
+            let op = tokens[pos]
+            if (op != "+" && op != "-") break
+            pos = pos + 1
+            let right = parseMul()
+            if (right == null) return null
+            if (op == "+") left = left + right
+            else left = left - right
+        }
+        return left
+    }
+
+    let parseShift = func() {
+        let left = parseAdd()
+        if (left == null) return null
+        while (pos < tokens.length()) {
+            let op = tokens[pos]
+            if (op != "<<" && op != ">>") break
+            pos = pos + 1
+            let right = parseAdd()
+            if (right == null) return null
+            if (op == "<<") left = left << right
+            else left = left >> right
+        }
+        return left
+    }
+
+    let parseBitAnd = func() {
+        let left = parseShift()
+        if (left == null) return null
+        while (pos < tokens.length() && tokens[pos] == "&") {
+            pos = pos + 1
+            let right = parseShift()
+            if (right == null) return null
+            left = left & right
+        }
+        return left
+    }
+
+    let parseBitXor = func() {
+        let left = parseBitAnd()
+        if (left == null) return null
+        while (pos < tokens.length() && tokens[pos] == "^") {
+            pos = pos + 1
+            let right = parseBitAnd()
+            if (right == null) return null
+            left = left ^ right
+        }
+        return left
+    }
+
+    parseBitOr = func() {
+        let left = parseBitXor()
+        if (left == null) return null
+        while (pos < tokens.length() && tokens[pos] == "|") {
+            pos = pos + 1
+            let right = parseBitXor()
+            if (right == null) return null
+            left = left | right
+        }
+        return left
+    }
+
+    let value = parseBitOr()
+    if (value == null || pos != tokens.length()) {
+        return null
+    }
+    return value
+}
+
+func parseEnumDecl(tokens, globalEnumValues) {
+    let isTypedef = tokens.length() > 0 && tokens[0] == "typedef"
+    let pos = isTypedef ? 1 : 0
+    if (pos >= tokens.length() || tokens[pos] != "enum") {
+        return null
+    }
+    pos = pos + 1
+
+    let tagName = null
+    if (pos < tokens.length() && tokens[pos] != "{") {
+        tagName = tokens[pos]
+        pos = pos + 1
+    }
+    if (pos >= tokens.length() || tokens[pos] != "{") {
+        return { kind: "skip", reason: "opaque enum declaration" }
+    }
+
+    let braceStart = pos
+    let depth = 0
+    let i = pos
+    let braceEnd = -1
+    while (i < tokens.length()) {
+        if (tokens[i] == "{") depth = depth + 1
+        if (tokens[i] == "}") {
+            depth = depth - 1
+            if (depth == 0) {
+                braceEnd = i
+                break
+            }
+        }
+        i = i + 1
+    }
+    if (braceEnd < 0) {
+        return { kind: "skip", reason: "unbalanced enum braces" }
+    }
+
+    let bodyTokens = []
+    i = braceStart + 1
+    while (i < braceEnd) {
+        bodyTokens.push(tokens[i])
+        i = i + 1
+    }
+
+    let aliasTokens = []
+    i = braceEnd + 1
+    while (i < tokens.length() && tokens[i] != ";") {
+        aliasTokens.push(tokens[i])
+        i = i + 1
+    }
+
+    let aliasNames = []
+    for (tok in aliasTokens) {
+        if (isAlpha(tok.char_at(0))) {
+            aliasNames.push(tok)
+        }
+    }
+
+    let enumName = null
+    if (aliasNames.length() > 0) {
+        enumName = aliasNames[0]
+    } else {
+        enumName = tagName
+    }
+
+    let groups = splitTopLevel(bodyTokens, ",")
+    let entries = []
+    let localValues = {}
+    let nextValue = 0
+    for (group in groups) {
+        if (group.length() == 0) continue
+        let name = group[0]
+        if (!isAlpha(name.char_at(0))) {
+            return { kind: "skip", reason: "unsupported enum member" }
+        }
+        let value = nextValue
+        if (group.length() >= 3 && group[1] == "=") {
+            let exprTokens = []
+            let j = 2
+            while (j < group.length()) {
+                exprTokens.push(group[j])
+                j = j + 1
+            }
+            let scope = {}
+            for (key in globalEnumValues.keys()) {
+                scope[key] = globalEnumValues[key]
+            }
+            for (key in localValues.keys()) {
+                scope[key] = localValues[key]
+            }
+            let explicitValue = evalEnumExpr(exprTokens, scope)
+            if (explicitValue == null) {
+                return { kind: "skip", reason: "unsupported enum value for " @ name }
+            }
+            value = explicitValue
+        } else if (group.length() != 1) {
+            return { kind: "skip", reason: "unsupported enum member declarator" }
+        }
+
+        entries.push({ name: name, value: value })
+        localValues[name] = value
+        nextValue = value + 1
+    }
+
+    return {
+        kind: "enum",
+        name: enumName,
+        aliases: aliasNames,
+        entries: entries
+    }
+}
+
+func enumAliasInfo(tokens) {
+    let isTypedef = tokens.length() > 0 && tokens[0] == "typedef"
+    let pos = isTypedef ? 1 : 0
+    if (pos >= tokens.length() || tokens[pos] != "enum") {
+        return { name: null, aliases: [] }
+    }
+    pos = pos + 1
+
+    let tagName = null
+    if (pos < tokens.length() && tokens[pos] != "{") {
+        tagName = tokens[pos]
+        pos = pos + 1
+    }
+    if (pos >= tokens.length() || tokens[pos] != "{") {
+        return { name: tagName, aliases: tagName == null ? [] : [tagName] }
+    }
+
+    let depth = 0
+    let braceEnd = -1
+    let i = pos
+    while (i < tokens.length()) {
+        if (tokens[i] == "{") depth = depth + 1
+        if (tokens[i] == "}") {
+            depth = depth - 1
+            if (depth == 0) {
+                braceEnd = i
+                break
+            }
+        }
+        i = i + 1
+    }
+    if (braceEnd < 0) {
+        return { name: tagName, aliases: tagName == null ? [] : [tagName] }
+    }
+
+    let aliases = []
+    i = braceEnd + 1
+    while (i < tokens.length() && tokens[i] != ";") {
+        if (isAlpha(tokens[i].char_at(0))) {
+            aliases.push(tokens[i])
+        }
+        i = i + 1
+    }
+    if (aliases.length() == 0 && tagName != null) {
+        aliases.push(tagName)
+    }
+    return { name: aliases.length() > 0 ? aliases[0] : tagName, aliases: aliases }
+}
+
+func stripLineComment(text) {
+    let inString = false
+    let i = 0
+    while (i + 1 < text.length()) {
+        let ch = text.char_at(i)
+        if (ch == "\"") {
+            let escaped = i > 0 && text.char_at(i - 1) == "\\"
+            if (!escaped) {
+                inString = !inString
+            }
+        }
+        if (!inString && ch == "/" && text.char_at(i + 1) == "/") {
+            return text.substr(0, i).trim()
+        }
+        i = i + 1
+    }
+    return text.trim()
+}
+
+func collectObjectMacros(text) {
+    let macros = []
+    let lines = text.split("\n")
+    for (line in lines) {
+        let trimmed = line.trim()
+        if (!trimmed.starts_with("#define ")) {
+            continue
+        }
+        if (trimmed.ends_with("\\")) {
+            continue
+        }
+        let rest = trimmed.substr(8).trim()
+        if (rest == "") {
+            continue
+        }
+
+        let split = -1
+        let i = 0
+        while (i < rest.length()) {
+            let ch = rest.char_at(i)
+            if (isWhitespace(ch)) {
+                split = i
+                break
+            }
+            i = i + 1
+        }
+
+        let name = split < 0 ? rest : rest.substr(0, split)
+        let body = split < 0 ? "" : stripLineComment(rest.substr(split + 1).trim())
+        if (name.index_of("(") >= 0 || body == "") {
+            continue
+        }
+
+        macros.push({ name: name, body: body })
+    }
+    return macros
+}
+
+// collect every object-like #define from a preprocessor defines dump.
+// this pulls in macros transitively from every #include the preprocessor expanded.
+func parseLineMarkerPath(trimmed) {
+    if (!trimmed.starts_with("# ")) return null
+    let q1 = trimmed.index_of("\"")
+    if (q1 < 0) return null
+    // scan for the closing quote manually: the builtin index_of ignores a
+    // start offset, so we can't call index_of("\"", q1 + 1).
+    let i = q1 + 1
+    while (i < trimmed.length()) {
+        if (trimmed.char_at(i) == "\"") {
+            return trimmed.substr(q1 + 1, i - q1 - 1)
+        }
+        i = i + 1 
+    }
+    return null
+}
+
+// decide whether a macro from `origin` belongs to the library being bound.
+// `wantedDir` is the directory basename of the user's input header
+func macroOriginWanted(origin, wantedDir, inputPath) {
+    if (origin == null) return true
+    if (origin == inputPath) return true
+    if (origin.starts_with("<")) return false
+    if (wantedDir != "" && origin.index_of("/" @ wantedDir @ "/") >= 0) return true
+    if (wantedDir != "" && origin.index_of("\\" @ wantedDir @ "\\") >= 0) return true
+    if (wantedDir != "") return false
+    // keep anything that isn't an obvious system path.
+    if (origin.starts_with("/usr/")) return false
+    if (origin.index_of("/lib/gcc/") >= 0) return false
+    return true
+}
+
+func collectObjectMacrosFromDefs(text, wantedDir, inputPath) {
+    let macros = []
+    if (text == null || text == "") return macros
+    let lines = text.split("\n")
+    let origin = inputPath
+    for (line in lines) {
+        let trimmed = line.trim()
+        let markerPath = parseLineMarkerPath(trimmed)
+        if (markerPath != null) {
+            origin = markerPath
+            continue
+        }
+        if (!trimmed.starts_with("#define ")) continue
+        if (trimmed.ends_with("\\")) continue
+        if (!macroOriginWanted(origin, wantedDir, inputPath)) continue
+        let rest = trimmed.substr(8).trim()
+        if (rest == "") continue
+
+        let split = -1
+        let i = 0
+        while (i < rest.length()) {
+            let ch = rest.char_at(i)
+            if (is_whitespace(ch)) {
+                split = i
+                break
+            }
+            if (ch == "(") {
+                // Function-like macro - skip entirely. ObjectMacros only.
+                split = -2
+                break
+            }
+            i = i + 1
+        }
+        if (split == -2) continue
+        let name = split < 0 ? rest : rest.substr(0, split)
+        if (name == "") continue
+        // Skip compiler / CRT / SAL internals - they're never the API
+        // the user is reaching for and their bodies are full of
+        // implementation-detail invocations we can't safely render.
+        if (name.char_at(0) == "_") continue
+        let body = split < 0 ? "" : stripLineComment(rest.substr(split + 1).trim())
+        if (body == "") continue
+        macros.push({ name: name, body: body })
+    }
+    return macros
+}
+
+// Scan a preprocessor-defines dump for `#define <name> ...` lines, marking
+// any name in `wantedMacros` (a dict of user-declared macros) as a survivor
+// in the `survived` dict. Avoids materializing a names-of-everything dict.
+func scanDefsForMacroSurvivors(text, wantedMacros, survived) {
+    let lines = text.split("\n")
+    for (line in lines) {
+        let trimmed = line.trim()
+        if (!trimmed.starts_with("#define ")) {
+            continue
+        }
+        let rest = trimmed.substr(8).trim()
+        if (rest == "") {
+            continue
+        }
+        // Find the name terminator: whitespace or '(' (for function-like
+        // macros, but those are skipped at the rawMacros stage anyway).
+        let split = -1
+        let i = 0
+        while (i < rest.length()) {
+            let ch = rest.char_at(i)
+            if (is_whitespace(ch) || ch == "(") {
+                split = i
+                break
+            }
+            i = i + 1
+        }
+        let name = split < 0 ? rest : rest.substr(0, split)
+        if (name == "") continue
+        if (wantedMacros.has_key(name)) {
+            survived[name] = true
+        }
+    }
+}
+
+func collectMacroNames(text) {
+    let names = {}
+    let lines = text.split("\n")
+    for (line in lines) {
+        let trimmed = line.trim()
+        if (!trimmed.starts_with("#define ")) {
+            continue
+        }
+        let rest = trimmed.substr(8).trim()
+        if (rest == "") {
+            continue
+        }
+
+        let split = -1
+        let i = 0
+        while (i < rest.length()) {
+            if (is_whitespace(rest.char_at(i))) {
+                split = i
+                break
+            }
+            i = i + 1
+        }
+        let name = split < 0 ? rest : rest.substr(0, split)
+        if (name.index_of("(") >= 0) {
+            let paren = name.index_of("(")
+            if (paren > 0) {
+                name = name.substr(0, paren)
+            }
+        }
+        if (name != "") {
+            names[name] = true
+        }
+    }
+    return names
+}
+
+func renderStructMacroLiteral(typeName, innerTokens, structMap, typeNames, valueIdents) {
+    if (!structMap.has_key(typeName)) {
+        return null
+    }
+    let st = structMap[typeName]
+    let valueGroups = splitTopLevel(innerTokens, ",")
+    if (valueGroups.length() != st.fields.length()) {
+        return null
+    }
+    let parts = []
+    let i = 0
+    while (i < st.fields.length()) {
+        let rendered = renderMacroExprTokens(valueGroups[i], typeNames, valueIdents)
+        if (rendered == null) return null
+        parts.push(st.fields[i].name @ ": " @ rendered)
+        i = i + 1
+    }
+    return "{ " @ joinTokens(parts, ", ") @ " }"
+}
+
+func classifyMacroValue(body, structMap, functionNames, typeNames, valueIdents) {
+    let tokens = tokenize(body)
+    if (tokens.length() == 0) {
+        return null
+    }
+
+    if (tokens.length() == 1 && isAlpha(tokens[0].char_at(0)) && functionNames.has_key(tokens[0])) {
+        return { kind: "function_alias", target: tokens[0] }
+    }
+
+    if (tokens[0] == "CLITERAL" && tokens.length() >= 6 && tokens[1] == "(") {
+        let close = -1
+        let i = 2
+        while (i < tokens.length()) {
+            if (tokens[i] == ")") {
+                close = i
+                break
+            }
+            i = i + 1
+        }
+        if (close > 2 && close + 1 < tokens.length() && tokens[close + 1] == "{") {
+            let typeTokens = []
+            i = 2
+            while (i < close) {
+                typeTokens.push(tokens[i])
+                i = i + 1
+            }
+            let braceStart = close + 1
+            let depth = 0
+            let braceEnd = -1
+            i = braceStart
+            while (i < tokens.length()) {
+                if (tokens[i] == "{") depth = depth + 1
+                if (tokens[i] == "}") {
+                    depth = depth - 1
+                    if (depth == 0) {
+                        braceEnd = i
+                        break
+                    }
+                }
+                i = i + 1
+            }
+            if (braceEnd > braceStart) {
+                let inner = []
+                i = braceStart + 1
+                while (i < braceEnd) {
+                    inner.push(tokens[i])
+                    i = i + 1
+                }
+                let rendered = renderStructMacroLiteral(joinTokens(typeTokens, " "), inner, structMap, typeNames, valueIdents)
+                if (rendered != null) {
+                    return { kind: "value", expr: rendered }
+                }
+            }
+        }
+    }
+
+    let rendered = renderMacroExprTokens(tokens, typeNames, valueIdents)
+    if (rendered == null) return null
+    return { kind: "value", expr: rendered }
+}
+
+func makeUnsupportedType(text) {
+    return ["unsupported", text]
+}
+
+func parseTypeSpec(tokens, abi) {
+    let cleaned = removeQualifiers(tokens)
+    let pointerCount = 0
+    let base = []
+    let unsupported = false
+
+    for (tok in cleaned) {
+        if (tok == "*") {
+            pointerCount = pointerCount + 1
+        } else if (tok == "[" || tok == "]" || tok == "=") {
+            unsupported = true
+        } else {
+            base.push(tok)
+        }
+    }
+
+    if (unsupported || base.length() == 0) {
+        return makeUnsupportedType(joinTokens(tokens, " "))
+    }
+
+    if (pointerCount > 0) {
+        if (base.length() >= 2 && base[0] == "struct") {
+            return makePointerType(makeStructType(base[1]))
+        }
+        if (base.length() == 1) {
+            return makePointerType(makeNamedType(base[0]))
+        }
+        let primitivePtr = primitiveNariType(base, abi)
+        if (primitivePtr != null) {
+            return makePointerType(makePrimitiveType(primitivePtr))
+        }
+        return makePointerType(makeNamedType(joinTokens(base, " ")))
+    }
+
+    if (base.length() >= 2 && base[0] == "struct") {
+        return makeStructType(base[1])
+    }
+
+    let primitive = primitiveNariType(base, abi)
+    if (primitive != null) {
+        return makePrimitiveType(primitive)
+    }
+
+    if (base.length() == 1) {
+        return makeNamedType(base[0])
+    }
+
+    return makeUnsupportedType(joinTokens(tokens, " "))
+}
+
+func cloneType(typeRef) {
+    if (typeRef == null) return null
+    return JSON.parse(JSON.stringify(typeRef))
+}
+
+func makePrimitiveType(value) {
+    return ["primitive", value]
+}
+
+func makeNamedType(value) {
+    return ["named", value]
+}
+
+func makeStructType(value) {
+    return ["struct", value]
+}
+
+func makePointerType(target) {
+    return ["pointer", target]
+}
+
+func typeTag(typeRef) {
+    if (typeRef == null || typeof(typeRef) != "array" || typeRef.length() == 0) {
+        return null
+    }
+    return typeRef[0]
+}
+
+func typeValue(typeRef) {
+    if (typeRef == null || typeof(typeRef) != "array" || typeRef.length() < 2) {
+        return null
+    }
+    return typeRef[1]
+}
+
+func normalizeTypeRef(typeRef) {
+    if (typeRef == null) {
+        return null
+    }
+
+    let ty = typeof(typeRef)
+    if (ty == "array") {
+        let tag = typeTag(typeRef)
+        if (tag == "pointer") {
+            return makePointerType(normalizeTypeRef(typeValue(typeRef)))
+        }
+        if ((tag == "primitive" || tag == "named" || tag == "struct" || tag == "unsupported") && typeValue(typeRef) != null) {
+            return [tag, typeValue(typeRef)]
+        }
+        return null
+    }
+
+    if (ty != "object") {
+        if (ty == "string") {
+            if (typeRef == "void" || typeRef == "pointer" || typeRef == "bool" ||
+                typeRef == "i8" || typeRef == "u8" || typeRef == "i16" || typeRef == "u16" ||
+                typeRef == "i32" || typeRef == "u32" || typeRef == "i64" || typeRef == "u64" ||
+                typeRef == "f32" || typeRef == "f64") {
+                return makePrimitiveType(typeRef)
+            }
+            return makeNamedType(typeRef)
+        }
+        return null
+    }
+
+    let kind = null
+    try {
+        kind = typeRef.kind
+    } catch (e) {
+        return null
+    }
+
+    if (kind == "pointer") {
+        let target = null
+        try {
+            target = normalizeTypeRef(typeRef.target)
+        } catch (e) {
+            target = null
+        }
+        return makePointerType(target)
+    }
+
+    if (kind == "primitive" || kind == "named" || kind == "struct") {
+        let value = null
+        try {
+            value = typeRef.value
+        } catch (e) {
+            value = null
+        }
+        if (value == null) {
+            return null
+        }
+        return [kind, value]
+    }
+
+    if (kind == "unsupported") {
+        let text = null
+        try {
+            text = typeRef.text
+        } catch (e) {
+            text = null
+        }
+        return makeUnsupportedType(text == null ? "" : text)
+    }
+
+    return typeRef
+}
+
+func safeName(obj, fallback) {
+    if (obj == null || typeof(obj) != "object") {
+        return fallback
+    }
+    let name = null
+    try {
+        name = obj.name
+    } catch (e) {
+        name = null
+    }
+    return name == null ? fallback : name
+}
+
+func resolveAlias(typeRef, aliases, seen) {
+    let normalized = normalizeTypeRef(typeRef)
+    if (normalized == null) return null
+
+    if (typeTag(normalized) == "named") {
+        let key = typeValue(normalized)
+        if (key == null) {
+            return null
+        }
+        if (aliases.has_key(key)) {
+            if (seen.has_key(key)) {
+                return normalized
+            }
+            seen[key] = true
+            return resolveAlias(aliases[key], aliases, seen)
+        }
+        return normalized
+    }
+    if (typeTag(normalized) == "pointer") {
+        return makePointerType(resolveAlias(typeValue(normalized), aliases, seen))
+    }
+    return normalized
+}
+
+func toNariTypeName(typeRef, aliases) {
+    let resolved = resolveAlias(typeRef, aliases, {})
+    if (resolved == null) {
+        return null
+    }
+
+    if (typeTag(resolved) == "primitive") {
+        return typeValue(resolved)
+    }
+    if (typeTag(resolved) == "pointer") {
+        return "pointer"
+    }
+    if (typeTag(resolved) == "struct") {
+        return typeValue(resolved)
+    }
+    if (typeTag(resolved) == "named") {
+        return typeValue(resolved)
+    }
+    return null
+}
+
+func toFfiExpr(typeRef, aliases) {
+    let resolved = resolveAlias(typeRef, aliases, {})
+    if (resolved == null) {
+        return null
+    }
+
+    if (typeTag(resolved) == "primitive") {
+        let primitiveName = typeValue(resolved)
+        if (primitiveName == null) {
+            return null
+        }
+        return "\"" @ ffiStringForPrimitive(primitiveName) @ "\""
+    }
+    if (typeTag(resolved) == "pointer") {
+        let targetNorm = normalizeTypeRef(typeValue(resolved))
+        if (targetNorm != null && typeTag(targetNorm) == "struct") {
+            let targetName = typeValue(targetNorm)
+            if (targetName == null) {
+                return "\"pointer\""
+            }
+            return "\"" @ targetName @ "*\""
+        }
+        return "\"pointer\""
+    }
+    if (typeTag(resolved) == "struct") {
+        let structName = typeValue(resolved)
+        if (structName == null) {
+            return null
+        }
+        return "__ffi_membersof(\"" @ structName @ "\")"
+    }
+    if (typeTag(resolved) == "named") {
+        return null
+    }
+    return null
+}
+
+func parseNamedDeclarator(tokens, abi) {
+    let cleaned = removeQualifiers(tokens)
+    if (cleaned.length() == 0) return null
+
+    let nameIndex = -1
+    let i = cleaned.length() - 1
+    while (i >= 0) {
+        let tok = cleaned[i]
+        if (tok == "]") {
+            return null
+        }
+        if (tok == ")" || tok == "(") {
+            return null
+        }
+        if (isAlpha(tok.char_at(0))) {
+            nameIndex = i
+            break
+        }
+        i = i - 1
+    }
+
+    if (nameIndex < 0) return null
+
+    let name = cleaned[nameIndex]
+    let typeTokens = []
+    let j = 0
+    while (j < nameIndex) {
+        typeTokens.push(cleaned[j])
+        j = j + 1
+    }
+
+    let typeRef = parseTypeSpec(typeTokens, abi)
+    return [name, typeRef]
+}
+
+func parseFixedArrayDims(tokens) {
+    let dims = []
+    let i = 0
+    while (i < tokens.length()) {
+        if (tokens[i] != "[") {
+            i = i + 1
+            continue
+        }
+        if (i + 2 >= tokens.length() || tokens[i + 2] != "]") {
+            return null
+        }
+        let sizeTok = tokens[i + 1]
+        if (sizeTok.length() == 0) {
+            return null
+        }
+        let j = 0
+        while (j < sizeTok.length()) {
+            if (!isDigit(sizeTok.char_at(j))) {
+                return null
+            }
+            j = j + 1
+        }
+        dims.push(to_number(sizeTok))
+        i = i + 3
+    }
+    return dims
+}
+
+func parseFieldPart(tokens, abi) {
+    let cleaned = removeQualifiers(tokens)
+    if (cleaned.length() == 0) {
+        return null
+    }
+
+    let nameIndex = -1
+    let i = cleaned.length() - 1
+    while (i >= 0) {
+        let tok = cleaned[i]
+        if (tok == ")") {
+            return null
+        }
+        if (isAlpha(tok.char_at(0))) {
+            nameIndex = i
+            break
+        }
+        i = i - 1
+    }
+
+    if (nameIndex < 0) {
+        return null
+    }
+
+    let fieldName = cleaned[nameIndex]
+    let typeTokens = []
+    i = 0
+    while (i < nameIndex) {
+        typeTokens.push(cleaned[i])
+        i = i + 1
+    }
+
+    let suffixTokens = []
+    i = nameIndex + 1
+    while (i < cleaned.length()) {
+        suffixTokens.push(cleaned[i])
+        i = i + 1
+    }
+
+    let arrayDims = parseFixedArrayDims(suffixTokens)
+    if (arrayDims == null && suffixTokens.length() > 0) {
+        return null
+    }
+
+    let fieldType = normalizeTypeRef(parseTypeSpec(typeTokens, abi))
+    if (fieldType == null || typeTag(fieldType) == "unsupported") {
+        return null
+    }
+
+    let fields = []
+    if (arrayDims == null || arrayDims.length() == 0) {
+        fields.push({ name: fieldName, type: fieldType })
+        return fields
+    }
+
+    let total = 1
+    for (dim in arrayDims) {
+        total = total * dim
+    }
+    let idx = 0
+    while (idx < total) {
+        fields.push({ name: fieldName @ "_" @ to_string(idx), type: cloneType(fieldType) })
+        idx = idx + 1
+    }
+    return fields
+}
+
+func parseParamType(tokens, abi) {
+    let cleaned = removeQualifiers(tokens)
+    if (cleaned.length() == 0) {
+        return null
+    }
+
+    if (cleaned.length() == 1 && cleaned[0] == "void") {
+        return ["void"]
+    }
+
+    let parenCount = 0
+    for (tok in cleaned) {
+        if (tok == "(" || tok == ")") {
+            parenCount = parenCount + 1
+        }
+    }
+    if (parenCount > 0) {
+        return ["unsupported"]
+    }
+
+    let decl = parseNamedDeclarator(cleaned, abi)
+    if (decl != null) {
+        let name = decl[0]
+        let typeRef = normalizeTypeRef(decl[1])
+        if (typeRef != null && typeTag(typeRef) != "unsupported" && name != null && name != cleaned[0]) {
+            return ["param", name, typeRef]
+        }
+    }
+
+    return ["param", null, parseTypeSpec(cleaned, abi)]
+}
+
+func parseFieldDecl(tokens, abi) {
+    let parts = splitTopLevel(tokens, ",")
+    let fields = []
+    let sharedBase = null
+    let partIndex = 0
+    for (part in parts) {
+        let working = part
+        if (partIndex > 0 && sharedBase != null) {
+            working = sharedBase.concat(part)
+        }
+
+        let parsed = parseFieldPart(working, abi)
+        if (parsed == null) {
+            return null
+        }
+
+        if (partIndex == 0) {
+            let cleaned = removeQualifiers(part)
+            let nameIndex = -1
+            let i = cleaned.length() - 1
+            while (i >= 0) {
+                if (isAlpha(cleaned[i].char_at(0))) {
+                    nameIndex = i
+                    break
+                }
+                i = i - 1
+            }
+            if (nameIndex > 0) {
+                sharedBase = []
+                i = 0
+                while (i < nameIndex) {
+                    if (cleaned[i] != "*") {
+                        sharedBase.push(cleaned[i])
+                    }
+                    i = i + 1
+                }
+            }
+        }
+
+        for (field in parsed) {
+            fields.push(field)
+        }
+        partIndex = partIndex + 1
+    }
+    return fields
+}
+
+func parseStructDecl(tokens, abi) {
+    let isTypedef = tokens.length() > 0 && tokens[0] == "typedef"
+    let pos = isTypedef ? 1 : 0
+    if (pos >= tokens.length() || tokens[pos] != "struct") {
+        return null
+    }
+    pos = pos + 1
+
+    let tagName = null
+    if (pos < tokens.length() && tokens[pos] != "{") {
+        tagName = tokens[pos]
+        pos = pos + 1
+    }
+
+    if (pos >= tokens.length()) {
+        return null
+    }
+
+    let parseStructAliasDecls = func(aliasTokens) {
+        let result = []
+        if (aliasTokens.length() == 0) {
+            return result
+        }
+        let aliasGroups = splitTopLevel(aliasTokens, ",")
+        for (part in aliasGroups) {
+            let name = null
+            let pointerCount = 0
+            for (tok in part) {
+                if (tok == "*") {
+                    pointerCount = pointerCount + 1
+                } else if (isAlpha(tok.char_at(0))) {
+                    name = tok
+                }
+            }
+            if (name != null) {
+                result.push({ name: name, pointerCount: pointerCount })
+            }
+        }
+        return result
+    }
+
+    if (tokens[pos] != "{") {
+        if (!isTypedef) {
+            return { kind: "skip", reason: "opaque struct declaration" }
+        }
+
+        let aliasTokens = []
+        while (pos < tokens.length() && tokens[pos] != ";") {
+            aliasTokens.push(tokens[pos])
+            pos = pos + 1
+        }
+
+        return { kind: "opaque_typedef", tag: tagName, aliases: parseStructAliasDecls(aliasTokens) }
+    }
+
+    let braceStart = pos
+    let depth = 0
+    let i = pos
+    let braceEnd = -1
+    while (i < tokens.length()) {
+        if (tokens[i] == "{") depth = depth + 1
+        if (tokens[i] == "}") {
+            depth = depth - 1
+            if (depth == 0) {
+                braceEnd = i
+                break
+            }
+        }
+        i = i + 1
+    }
+
+    if (braceEnd < 0) {
+        return { kind: "skip", reason: "unbalanced struct braces" }
+    }
+
+    let bodyTokens = []
+    i = braceStart + 1
+    while (i < braceEnd) {
+        bodyTokens.push(tokens[i])
+        i = i + 1
+    }
+
+    let fieldGroups = splitTopLevel(bodyTokens, ";")
+    let fields = []
+    for (group in fieldGroups) {
+        if (group.length() == 0) continue
+        let parsed = parseFieldDecl(group, abi)
+        if (parsed == null) {
+            return { kind: "skip", reason: "unsupported struct field in " @ (tagName == null ? "<anonymous>" : tagName) }
+        }
+        for (field in parsed) {
+            fields.push(field)
+        }
+    }
+
+    let aliasTokens = []
+    i = braceEnd + 1
+    while (i < tokens.length() && tokens[i] != ";") {
+        aliasTokens.push(tokens[i])
+        i = i + 1
+    }
+
+    let aliasDecls = parseStructAliasDecls(aliasTokens)
+
+    let structName = null
+    for (decl in aliasDecls) {
+        if (decl == null || decl.name == null) {
+            continue
+        }
+        if (decl.pointerCount == 0) {
+            structName = safeName(decl, null)
+            break
+        }
+    }
+    if (structName == null) {
+        structName = tagName
+    }
+
+    if (structName == null) {
+        return { kind: "skip", reason: "anonymous struct without usable typedef name" }
+    }
+
+    return {
+        kind: "struct",
+        name: structName,
+        fields: fields,
+        aliasDecls: aliasDecls,
+        tag: tagName
+    }
+}
+
+func parseTypedef(tokens, abi) {
+    if (tokens.length() < 3 || tokens[0] != "typedef") {
+        return null
+    }
+
+    if (tokens[1] == "struct") {
+        return parseStructDecl(tokens, abi)
+    }
+
+    let core = []
+    let i = 1
+    while (i < tokens.length() && tokens[i] != ";") {
+        core.push(tokens[i])
+        i = i + 1
+    }
+
+    let parts = splitTopLevel(core, ",")
+    if (parts.length() == 0) return null
+
+    let fpOpen = core.index_of("(")
+    if (fpOpen >= 0 && fpOpen + 3 < core.length() && core[fpOpen + 1] == "*" && isAlpha(core[fpOpen + 2].char_at(0)) && core[fpOpen + 3] == ")") {
+        let callbackName = core[fpOpen + 2]
+        return {
+            kind: "typedef",
+            baseType: makePrimitiveType("pointer"),
+            aliases: [{ name: callbackName, type: makePrimitiveType("pointer") }]
+        }
+    }
+
+    let first = parts[0]
+    let firstDecl = parseNamedDeclarator(first, abi)
+    if (firstDecl == null) {
+        return { kind: "skip", reason: "unsupported typedef declarator" }
+    }
+
+    let aliases = []
+    aliases.push({ name: firstDecl[0], type: firstDecl[1] })
+
+    let baseTokens = []
+    let j = 0
+    while (j < first.length()) {
+        let firstDeclName = firstDecl[0]
+        if (firstDeclName != null && first[j] == firstDeclName) {
+            break
+        }
+        baseTokens.push(first[j])
+        j = j + 1
+    }
+
+    let baseType = parseTypeSpec(baseTokens, abi)
+    let normalizedBaseType = normalizeTypeRef(baseType)
+    if (normalizedBaseType == null || typeTag(normalizedBaseType) == "unsupported") {
+        return { kind: "skip", reason: "unsupported typedef base type" }
+    }
+    baseType = normalizedBaseType
+
+    let k = 1
+    while (k < parts.length()) {
+        let decl = parseNamedDeclarator(baseTokens.concat(parts[k]), abi)
+        if (decl != null) {
+            aliases.push({ name: decl[0], type: decl[1] })
+        }
+        k = k + 1
+    }
+
+    return { kind: "typedef", baseType: baseType, aliases: aliases }
+}
+
+func parseFunction(tokens, abi) {
+    if (tokens.length() == 0) return null
+
+    let filtered = []
+    for (tok in tokens) {
+        if (tok != ";") filtered.push(tok)
+    }
+
+    let openIndex = -1
+    let depth = 0
+    let i = 0
+    while (i < filtered.length()) {
+        if (filtered[i] == "(") {
+            if (depth == 0) {
+                openIndex = i
+                break
+            }
+            depth = depth + 1
+        }
+        i = i + 1
+    }
+
+    if (openIndex <= 0) {
+        return null
+    }
+
+    let closeIndex = -1
+    depth = 0
+    i = openIndex
+    while (i < filtered.length()) {
+        if (filtered[i] == "(") depth = depth + 1
+        if (filtered[i] == ")") {
+            depth = depth - 1
+            if (depth == 0) {
+                closeIndex = i
+                break
+            }
+        }
+        i = i + 1
+    }
+
+    if (closeIndex < 0) {
+        return { kind: "skip", reason: "unbalanced function declarator" }
+    }
+
+    let before = []
+    i = 0
+    while (i < openIndex) {
+        before.push(filtered[i])
+        i = i + 1
+    }
+
+    if (before.length() == 0) {
+        return null
+    }
+
+    let name = before[before.length() - 1]
+    if (!isAlpha(name.char_at(0))) {
+        return { kind: "skip", reason: "unsupported function declarator" }
+    }
+
+    let returnTokens = []
+    i = 0
+    while (i < before.length() - 1) {
+        returnTokens.push(before[i])
+        i = i + 1
+    }
+    let returnType = parseTypeSpec(returnTokens, abi)
+    returnType = normalizeTypeRef(returnType)
+    if (returnType == null || typeTag(returnType) == "unsupported") {
+        return { kind: "skip", reason: "unsupported return type for " @ name }
+    }
+
+    let paramTokens = []
+    i = openIndex + 1
+    while (i < closeIndex) {
+        paramTokens.push(filtered[i])
+        i = i + 1
+    }
+
+    let paramGroups = splitTopLevel(paramTokens, ",")
+    let params = []
+    let paramNames = []
+    let variadic = false
+    let fixedCount = 0
+
+    if (!(paramGroups.length() == 1 && paramGroups[0].length() == 1 && paramGroups[0][0] == "void")) {
+        for (group in paramGroups) {
+            if (group.length() == 0) continue
+            if (group.length() == 1 && group[0] == "...") {
+                variadic = true
+                continue
+            }
+            let parsed = parseParamType(group, abi)
+            let parsedTag = parsed == null ? null : parsed[0]
+            let parsedType = parsed == null || parsedTag != "param" ? null : normalizeTypeRef(parsed[2])
+            if (parsed == null || parsedTag == "unsupported" || (parsedTag == "param" && (parsedType == null || typeTag(parsedType) == "unsupported"))) {
+                return { kind: "skip", reason: "unsupported parameter type for " @ name }
+            }
+            if (parsedTag == "param") {
+                params.push(parsedType)
+                paramNames.push(parsed[1])
+                fixedCount = fixedCount + 1
+            }
+        }
+    }
+
+    return {
+        kind: "function",
+        name: name,
+        returnType: returnType,
+        params: params,
+        paramNames: paramNames,
+        variadic: variadic,
+        fixedCount: fixedCount
+    }
+}
+
+func preprocessHeader(inputPath, ppPath, cc, cppflags) {
+    if (isClangClCompiler(cc)) {
+        let defs = [
+            "/D__attribute__(x)=",
+            "/D__extension__=",
+            "/D__restrict=",
+            "/D__restrict__=",
+        ]
+
+        let cmd = shellQuote(cc) @ " /nologo /TC /EP"
+        for (flag in defs) {
+            cmd = cmd @ " " @ shellQuote(flag)
+        }
+        if (cppflags != "") {
+            cmd = cmd @ " " @ cppflags
+        }
+        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(ppPath)
+        return system.exec(cmd)
+    } else {
+        let defs = [
+            "-D__attribute__(x)=",
+            "-D__declspec(x)=",
+            "-D__stdcall=",
+            "-D__cdecl=",
+            "-D__fastcall=",
+            "-DWINAPI=",
+            "-DCALLBACK=",
+            "-DAPIENTRY=",
+            "-DNTAPI=",
+            "-D__extension__=",
+            "-D__inline=",
+            "-D__inline__=",
+            "-D__restrict=",
+            "-D__restrict__=",
+        ]
+
+        let cmd = shellQuote(cc) @ " -E -P"
+        for (flag in defs) {
+            cmd = cmd @ " " @ shellQuote(flag)
+        }
+        if (cppflags != "") {
+            cmd = cmd @ " " @ cppflags
+        }
+        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(ppPath)
+
+        return system.exec(cmd)
+    }
+}
+
+func preprocessDefines(inputPath, defsPath, cc, cppflags) {
+    if (isClangClCompiler(cc)) {
+        let defs = [
+            "/D__attribute__(x)=",
+            "/D__extension__=",
+            "/D__restrict=",
+            "/D__restrict__=",
+        ]
+
+        let cmd = shellQuote(cc) @ " /nologo /TC /EP /d1PP"
+        for (flag in defs) {
+            cmd = cmd @ " " @ shellQuote(flag)
+        }
+        if (cppflags != "") {
+            cmd = cmd @ " " @ cppflags
+        }
+        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(defsPath)
+        return system.exec(cmd)
+    } else {
+        let defs = [
+            "-D__attribute__(x)=",
+            "-D__declspec(x)=",
+            "-D__stdcall=",
+            "-D__cdecl=",
+            "-D__fastcall=",
+            "-DWINAPI=",
+            "-DCALLBACK=",
+            "-DAPIENTRY=",
+            "-DNTAPI=",
+            "-D__extension__=",
+            "-D__inline=",
+            "-D__inline__=",
+            "-D__restrict=",
+            "-D__restrict__=",
+        ]
+
+        // Keep line markers (no -P) so each #define can be attributed to its
+        // origin header and system/libc macros can be filtered out.
+        let cmd = shellQuote(cc) @ " -dD -E"
+        for (flag in defs) {
+            cmd = cmd @ " " @ shellQuote(flag)
+        }
+        if (cppflags != "") {
+            cmd = cmd @ " " @ cppflags
+        }
+        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(defsPath)
+
+        return system.exec(cmd)
+    }
+}
+
+func dumpClangJsonAst(inputPath, astPath, cc, cppflags) {
+    if (isClangClCompiler(cc)) {
+        let defs = [
+            "/D__attribute__(x)=",
+            "/D__extension__=",
+            "/D__restrict=",
+            "/D__restrict__=",
+        ]
+
+        let cmd = shellQuote(cc) @ " /nologo /TC /Zs /clang:-Xclang /clang:-ast-dump=json"
+        for (flag in defs) {
+            cmd = cmd @ " " @ shellQuote(flag)
+        }
+        if (cppflags != "") {
+            cmd = cmd @ " " @ cppflags
+        }
+        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(astPath)
+        return system.exec(cmd)
+    } else {
+        let defs = [
+            "-D__attribute__(x)=",
+            "-D__declspec(x)=",
+            "-D__stdcall=",
+            "-D__cdecl=",
+            "-D__fastcall=",
+            "-DWINAPI=",
+            "-DCALLBACK=",
+            "-DAPIENTRY=",
+            "-DNTAPI=",
+            "-D__extension__=",
+            "-D__inline=",
+            "-D__inline__=",
+            "-D__restrict=",
+            "-D__restrict__=",
+        ]
+
+        let cmd = shellQuote(cc) @ " -Xclang -ast-dump=json -fsyntax-only"
+        for (flag in defs) {
+            cmd = cmd @ " " @ shellQuote(flag)
+        }
+        if (cppflags != "") {
+            cmd = cmd @ " " @ cppflags
+        }
+        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(astPath)
+
+        return system.exec(cmd)
+    }
+}
+
+func signatureReturnCode(typeRef, aliases) {
+    let resolved = resolveAlias(typeRef, aliases, {})
+    if (resolved == null) {
+        return null
+    }
+
+    if (typeTag(resolved) == "primitive") {
+        let name = typeValue(resolved)
+        if (name == "void") return "VOID"
+        if (name == "bool") return "BOOL"
+        if (name == "i8") return "I8"
+        if (name == "u8") return "U8"
+        if (name == "i16") return "I16"
+        if (name == "u16") return "U16"
+        if (name == "i32") return "INT"
+        if (name == "u32") return "U32"
+        if (name == "i64") return "I64"
+        if (name == "u64") return "U64"
+        if (name == "f32") return "FLOAT"
+        if (name == "f64") return "DOUBLE"
+        return name == null ? null : name.to_upper()
+    }
+
+    if (typeTag(resolved) == "pointer") {
+        return "PTR"
+    }
+
+    if (typeTag(resolved) == "struct") {
+        let name = typeValue(resolved)
+        return name == null ? null : name.to_upper()
+    }
+
+    return null
+}
+
+func signatureParamCode(typeRef, aliases) {
+    let resolved = resolveAlias(typeRef, aliases, {})
+    if (resolved == null) {
+        return null
+    }
+
+    if (typeTag(resolved) == "primitive") {
+        let name = typeValue(resolved)
+        if (name == "void") return "VOID"
+        if (name == "bool") return "B"
+        if (name == "i8") return "I8"
+        if (name == "u8") return "U8"
+        if (name == "i16") return "I16"
+        if (name == "u16") return "U16"
+        if (name == "i32") return "I"
+        if (name == "u32") return "U32"
+        if (name == "i64") return "L"
+        if (name == "u64") return "U64"
+        if (name == "f32") return "F"
+        if (name == "f64") return "D"
+        return name == null ? null : name.to_upper()
+    }
+
+    if (typeTag(resolved) == "pointer") {
+        return "P"
+    }
+
+    if (typeTag(resolved) == "struct") {
+        let name = typeValue(resolved)
+        return name == null ? null : name.to_upper()
+    }
+
+    return null
+}
+
+func buildSignatureName(returnType, paramTypes, variadic, fixedCount, aliases) {
+    let retCode = signatureReturnCode(returnType, aliases)
+    if (retCode == null) {
+        return null
+    }
+
+    let paramCodes = []
+    for (paramType in paramTypes) {
+        let code = signatureParamCode(paramType, aliases)
+        if (code == null) {
+            return null
+        }
+        paramCodes.push(code)
+    }
+
+    let paramPart = paramCodes.length() == 0 ? "NONE" : joinTokens(paramCodes, "")
+    let name = "SIG_" @ retCode @ "_" @ paramPart
+    if (variadic) {
+        name = name @ "_VAR" @ to_string(fixedCount)
+    }
+    return name
+}
+
+func qualTypeText(typeObj) {
+    if (typeObj == null || typeof(typeObj) != "object") {
+        return null
+    }
+    let qual = objectProp(typeObj, "qualType")
+    if (qual != null) {
+        return qual
+    }
+    return objectProp(typeObj, "desugaredQualType")
+}
+
+func parseAstTypeString(text, abi) {
+    if (text == null || text == "") {
+        return null
+    }
+    if (text.index_of("(*)") >= 0 || text.index_of("(*") >= 0) {
+        return makePrimitiveType("pointer")
+    }
+    if (text.index_of("[") >= 0) {
+        return makeUnsupportedType(text)
+    }
+    return normalizeTypeRef(parseTypeSpec(tokenize(text), abi))
+}
+
+func parseAstFieldQualType(name, qualText, abi) {
+    if (qualText == null || qualText == "") {
+        return null
+    }
+    let tokens = tokenize(qualText)
+    let bracketIndex = tokens.index_of("[")
+    let baseTokens = tokens
+    let suffixTokens = []
+    if (bracketIndex >= 0) {
+        baseTokens = []
+        let i = 0
+        while (i < bracketIndex) {
+            baseTokens.push(tokens[i])
+            i = i + 1
+        }
+        i = bracketIndex
+        while (i < tokens.length()) {
+            suffixTokens.push(tokens[i])
+            i = i + 1
+        }
+    }
+
+    let baseType = normalizeTypeRef(parseTypeSpec(baseTokens, abi))
+    if (baseType == null || typeTag(baseType) == "unsupported") {
+        return null
+    }
+
+    if (suffixTokens.length() == 0) {
+        return [{ name: name, type: baseType }]
+    }
+
+    let dims = parseFixedArrayDims(suffixTokens)
+    if (dims == null) {
+        return null
+    }
+
+    let total = 1
+    for (dim in dims) {
+        total = total * dim
+    }
+    let fields = []
+    let idx = 0
+    while (idx < total) {
+        fields.push({ name: name @ "_" @ to_string(idx), type: cloneType(baseType) })
+        idx = idx + 1
+    }
+    return fields
+}
+
+func findAstChildrenByKind(node, kind) {
+    let result = []
+    for (child in arrayInner(objectProp(node, "inner"))) {
+        if (objectProp(child, "kind") == kind) {
+            result.push(child)
+        }
+    }
+    return result
+}
+
+func collectAstNodes(node, out) {
+    if (node == null || typeof(node) != "object") {
+        return
+    }
+    out.push(node)
+    for (child in arrayInner(objectProp(node, "inner"))) {
+        collectAstNodes(child, out)
+    }
+}
+
+func parseClangJsonAst(astRoot, abi) {
+    let aliases = {}
+    let enumAliasNames = []
+    let enumAliasSeen = {}
+    let enums = []
+    let enumDeclsById = {}
+    let structs = []
+    let structNames = {}
+    let functions = []
+    let skipped = []
+
+    let nodes = []
+    collectAstNodes(astRoot, nodes)
+
+    for (node in nodes) {
+        let kind = objectProp(node, "kind")
+        let nodeId = objectProp(node, "id")
+        if (kind == "EnumDecl" && nodeId != null) {
+            enumDeclsById[nodeId] = node
+        }
+    }
+
+    for (node in nodes) {
+        let kind = objectProp(node, "kind")
+        let isImplicit = objectProp(node, "isImplicit") == true
+        if (isImplicit) {
+            continue
+        }
+
+        if (kind == "RecordDecl") {
+            if (objectProp(node, "tagUsed") != "struct" || objectProp(node, "completeDefinition") != true) {
+                continue
+            }
+            let name = objectProp(node, "name")
+            if (name == null || name == "" || structNames.has_key(name)) {
+                continue
+            }
+            let fields = []
+            let ok = true
+            for (fieldNode in findAstChildrenByKind(node, "FieldDecl")) {
+                let fieldName = objectProp(fieldNode, "name")
+                let qual = qualTypeText(objectProp(fieldNode, "type"))
+                let parsedFields = parseAstFieldQualType(fieldName, qual, abi)
+                if (fieldName == null || parsedFields == null) {
+                    ok = false
+                    break
+                }
+                for (field in parsedFields) {
+                    fields.push(field)
+                }
+            }
+            if (!ok) {
+                skipped.push("unsupported struct field in " @ name)
+                continue
+            }
+            structs.push({ name: name, fields: fields })
+            structNames[name] = true
+            aliases[name] = makeStructType(name)
+            continue
+        }
+
+        if (kind == "EnumDecl") {
+            let entries = []
+            let nextValue = 0
+            for (entryNode in findAstChildrenByKind(node, "EnumConstantDecl")) {
+                let entryName = objectProp(entryNode, "name")
+                let value = nextValue
+                let constExprs = findAstChildrenByKind(entryNode, "ConstantExpr")
+                if (constExprs.length() > 0) {
+                    let explicitValue = objectProp(constExprs[0], "value")
+                    if (explicitValue != null) {
+                        value = to_number(explicitValue)
+                    }
+                }
+                entries.push({ name: entryName, value: value })
+                nextValue = value + 1
+            }
+            if (entries.length() > 0) {
+                enums.push({ entries: entries })
+            }
+            continue
+        }
+
+        if (kind == "TypedefDecl") {
+            let name = objectProp(node, "name")
+            let qual = qualTypeText(objectProp(node, "type"))
+            if (name == null || qual == null) {
+                continue
+            }
+
+            let enumTypeChildren = findAstChildrenByKind(node, "EnumType")
+            if (enumTypeChildren.length() > 0) {
+                aliases[name] = makePrimitiveType("i32")
+                if (!enumAliasSeen.has_key(name) && name != "bool") {
+                    enumAliasSeen[name] = true
+                    enumAliasNames.push(name)
+                }
+                continue
+            }
+
+            let aliasType = parseAstTypeString(qual, abi)
+            if (aliasType != null && typeTag(aliasType) != "unsupported") {
+                aliases[name] = aliasType
+            }
+            continue
+        }
+
+        if (kind == "FunctionDecl") {
+            let name = objectProp(node, "name")
+            let qual = qualTypeText(objectProp(node, "type"))
+            if (name == null || qual == null) {
+                continue
+            }
+            let open = qual.index_of("(")
+            let close = qual.last_index_of(")")
+            if (open < 0 || close < open) {
+                skipped.push("unsupported function type for " @ name)
+                continue
+            }
+            let returnText = trim(qual.substr(0, open))
+            let returnType = parseAstTypeString(returnText, abi)
+            if (returnType == null || typeTag(returnType) == "unsupported") {
+                skipped.push("unsupported return type for " @ name)
+                continue
+            }
+
+            let params = []
+            let paramNames = []
+            let variadic = false
+            let fixedCount = 0
+            for (paramNode in findAstChildrenByKind(node, "ParmVarDecl")) {
+                let paramQual = qualTypeText(objectProp(paramNode, "type"))
+                let paramType = parseAstTypeString(paramQual, abi)
+                if (paramType == null || typeTag(paramType) == "unsupported") {
+                    params = null
+                    break
+                }
+                params.push(paramType)
+                paramNames.push(objectProp(paramNode, "name"))
+                fixedCount = fixedCount + 1
+            }
+            if (params == null) {
+                skipped.push("unsupported parameter type for " @ name)
+                continue
+            }
+            if (qual.index_of("...") >= 0) {
+                variadic = true
+            }
+
+            functions.push({
+                kind: "function",
+                name: name,
+                returnType: returnType,
+                params: params,
+                paramNames: paramNames,
+                variadic: variadic,
+                fixedCount: fixedCount
+            })
+        }
+    }
+
+    return {
+        aliases: aliases,
+        enumAliasNames: enumAliasNames,
+        enums: enums,
+        structs: structs,
+        functions: functions,
+        skipped: skipped
+    }
+}
+
+func libBaseName(libName) {
+    // Strip the platform extension/prefix to derive a stable identifier.
+    let name = libName
+    if (name.starts_with("lib")) {
+        name = name.substr(3)
+    }
+    let dot = name.last_index_of(".")
+    if (dot > 0) {
+        name = name.substr(0, dot)
+    }
+    return sanitizeIdentifier(name)
+}
+
+// Returns true if `text` is a syntactically valid Nari type identifier
+// (alphanumeric / underscore, doesn't start with a digit). Used as a final
+// safety net before emitting struct field types so we don't write something
+// like `field: (;` if the upstream type parser produced garbage.
+func isValidNariTypeName(text) {
+    if (text == null || text == "") return false
+    let i = 0
+    while (i < text.length()) {
+        let ch = text.char_at(i)
+        let ok = isAlnum(ch)
+        if (!ok) return false
+        i = i + 1
+    }
+    return isAlpha(text.char_at(0))
+}
+
+func quoteString(text) {
+    let out = "\""
+    let i = 0
+    while (i < text.length()) {
+        let ch = text.char_at(i)
+        if (ch == "\\" || ch == "\"") {
+            out = out @ "\\" @ ch
+        } else {
+            out = out @ ch
+        }
+        i = i + 1
+    }
+    return out @ "\""
+}
+
+func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macros, skipped, exportOut) {
+    let inputPath = opts.input
+    let abi = opts.abi
+    let lines = []
+    let moduleBase = sanitizeIdentifier(basenameNoExt(inputPath))
+    let dylibBase = basenameNoExt(inputPath)
+
+    // Resolve module/wrapper name.
+    let wrapperName = null
+    if (opts.module_name != null && opts.module_name != "") {
+        wrapperName = opts.module_name
+    } else {
+        wrapperName = pascalCaseName(moduleBase)
+    }
+
+    let loaderName = "load_" @ sanitizeIdentifier(wrapperName)
+    let loaderVar = sanitizeIdentifier(wrapperName) @ "_loader"
+    let callHelperName = sanitizeIdentifier(wrapperName) @ "_call"
+
+    // In package mode we emit an `export { ... }` block so the generated
+    // module can be consumed via named imports. exportNames collects every
+    // top-level value that should be re-exported.
+    let wantExports = opts.package_name != null && opts.package_name != ""
+    let exportNames = []
+
+    // Resolve which native libs to import. With no --libs, fall back to a
+    // single lib derived from the input filename (per-platform naming).
+    let libs = null
+    if (opts.libs != null && opts.libs.length() > 0) {
+        libs = opts.libs
+    }
+    let structMap = {}
+    for (st in structs) {
+        structMap[st.name] = st
+    }
+    let functionNames = {}
+    for (fn in functions) {
+        functionNames[fn.name] = true
+    }
+    lines.push("// Generated by tools/ffi_bindgen.nari")
+    lines.push("// Source header: " @ inputPath)
+    lines.push("// ABI model: " @ abi)
+    lines.push("")
+
+    if (skipped.length() > 0) {
+        lines.push("// Skipped declarations:")
+        for (item in skipped) {
+            lines.push("// - " @ item)
+        }
+        lines.push("")
+    }
+
+    if (structs.length() > 0) {
+        lines.push("// Struct definitions")
+        for (st in structs) {
+            let structName = safeName(st, "AnonymousStruct")
+            lines.push("type " @ structName @ " {")
+            for (field in st.fields) {
+                let fieldName = safeName(field, "field")
+                let fieldType = null
+                try {
+                    fieldType = toNariTypeName(field.type, aliases)
+                } catch (e) {
+                    fieldType = null
+                }
+                if (fieldType == null || fieldType == "void" || !isValidNariTypeName(fieldType)) {
+                    // Field types that we can't resolve cleanly (anonymous
+                    // unions, inline sub-structs from typedefs, flexible
+                    // arrays of complex aggregates, etc.) get treated as
+                    // opaque `pointer` so the generated bindings stay
+                    // parseable. Layout-sensitive code will need to write
+                    // the struct by hand.
+                    fieldType = "pointer"
+                }
+                lines.push("    " @ fieldName @ ": " @ fieldType @ ";")
+            }
+            lines.push("}")
+            lines.push("")
+        }
+    }
+
+    let aliasNames = aliases.keys()
+    aliasNames.sort()
+    if (aliasNames.length() > 0) {
+        let enumAliasSet = {}
+        for (enumName in enumAliasNames) {
+            enumAliasSet[enumName] = true
+        }
+        lines.push("// Typedef aliases")
+        for (name in aliasNames) {
+            if (enumAliasSet.has_key(name)) {
+                continue
+            }
+            let aliasType = null
+            try {
+                aliasType = toNariTypeName(aliases[name], aliases)
+            } catch (e) {
+                aliasType = null
+            }
+            if (aliasType != null && aliasType != name) {
+                lines.push("type " @ name @ " " @ aliasType @ ";")
+            }
+        }
+        lines.push("")
+    }
+
+    if (enums.length() > 0) {
+        lines.push("// Enum constants")
+        for (en in enums) {
+            for (entry in en.entries) {
+                lines.push("global " @ entry.name @ " = " @ to_string(entry.value) @ ";")
+                exportNames.push(entry.name)
+            }
+        }
+        lines.push("")
+    }
+
+    // Type names usable as C cast targets in macro bodies: known typedef
+    // aliases, struct tags, and the primitive keywords.
+    let typeNames = {}
+    for (aliasName in aliases.keys()) {
+        typeNames[aliasName] = true
+    }
+    for (st in structs) {
+        typeNames[st.name] = true
+    }
+    for (kw in ["void", "char", "short", "int", "long", "float", "double",
+                "signed", "unsigned", "_Bool", "bool"]) {
+        typeNames[kw] = true
+    }
+
+    // Identifiers a macro body may reference and still resolve at load time:
+    // emitted enum constants and function symbols. Macro names are added as
+    // they prove emittable (fixpoint below), so macros referencing earlier
+    // macros resolve too.
+    let valueIdents = {}
+    for (en in enums) {
+        for (entry in en.entries) {
+            valueIdents[entry.name] = true
+        }
+    }
+    for (fnName in functionNames.keys()) {
+        valueIdents[fnName] = true
+    }
+
+    let macroValueNames = []
+    let macroValueExprs = {}
+    let macroValueConflicts = {}
+    let macroFunctionAliasNames = []
+    let macroFunctionTargets = {}
+    let macroFunctionConflicts = {}
+    let classified = {}
+    let changed = true
+    while (changed) {
+        changed = false
+        for (macro in macros) {
+            if (classified.has_key(macro.name)) {
+                continue
+            }
+            let rendered = classifyMacroValue(macro.body, structMap, functionNames, typeNames, valueIdents)
+            if (rendered == null) {
+                continue
+            }
+            classified[macro.name] = true
+            changed = true
+            if (rendered.kind == "value") {
+                if (!macroValueExprs.has_key(macro.name) && !macroValueConflicts.has_key(macro.name)) {
+                    macroValueExprs[macro.name] = rendered.expr
+                    macroValueNames.push(macro.name)
+                    valueIdents[macro.name] = true
+                } else if (macroValueExprs.has_key(macro.name) && macroValueExprs[macro.name] != rendered.expr) {
+                    macroValueConflicts[macro.name] = true
+                }
+            } else if (rendered.kind == "function_alias") {
+                if (!macroFunctionTargets.has_key(macro.name) && !macroFunctionConflicts.has_key(macro.name)) {
+                    macroFunctionTargets[macro.name] = rendered.target
+                    macroFunctionAliasNames.push(macro.name)
+                    valueIdents[macro.name] = true
+                } else if (macroFunctionTargets.has_key(macro.name) && macroFunctionTargets[macro.name] != rendered.target) {
+                    macroFunctionConflicts[macro.name] = true
+                }
+            }
+        }
+    }
+    let emittedMacroValues = 0
+    if (macroValueNames.length() > 0) {
+        lines.push("// Macro constants")
+        for (name in macroValueNames) {
+            if (macroValueConflicts.has_key(name)) {
+                continue
+            }
+            lines.push("global " @ name @ " = " @ macroValueExprs[name] @ ";")
+            exportNames.push(name)
+            emittedMacroValues = emittedMacroValues + 1
+        }
+        if (emittedMacroValues > 0) {
+            lines.push("")
+        } else {
+            lines.pop()
+        }
+    }
+
+    if (functions.length() > 0) {
+        let signaturePool = {}
+        let signatureOrder = []
+        let usedSignatureNames = {}
+        let wrapperEntries = []
+
+        for (fn in functions) {
+            let fnName = safeName(fn, "anonymous_function")
+            let returnExpr = null
+            let sigName = null
+            try {
+                returnExpr = toFfiExpr(fn.returnType, aliases)
+                sigName = buildSignatureName(fn.returnType, fn.params, fn.variadic, fn.fixedCount, aliases)
+            } catch (e) {
+                returnExpr = null
+                sigName = null
+            }
+            if (returnExpr == null || sigName == null) {
+                continue
+            }
+
+            let paramExprs = []
+            let okay = true
+            for (paramType in fn.params) {
+                let expr = null
+                try {
+                    expr = toFfiExpr(paramType, aliases)
+                } catch (e) {
+                    expr = null
+                }
+                if (expr == null) {
+                    okay = false
+                    break
+                }
+                paramExprs.push(expr)
+            }
+
+            if (!okay) {
+                continue
+            }
+
+            let key = JSON.stringify({
+                returns: returnExpr,
+                params: paramExprs,
+                variadic: fn.variadic,
+                fixed: fn.fixedCount
+            })
+
+            if (!signaturePool.has_key(key)) {
+                let uniqueName = sigName
+                let suffix = 2
+                while (usedSignatureNames.has_key(uniqueName)) {
+                    uniqueName = sigName @ "_" @ to_string(suffix)
+                    suffix = suffix + 1
+                }
+
+                signaturePool[key] = {
+                    name: uniqueName,
+                    returns: returnExpr,
+                    params: paramExprs,
+                    variadic: fn.variadic,
+                    fixed: fn.fixedCount
+                }
+                usedSignatureNames[uniqueName] = true
+                signatureOrder.push(key)
+            }
+
+            let paramDecls = []
+            let argExprs = []
+            let paramIndex = 0
+            for (paramType in fn.params) {
+                let rawName = null
+                if (fn.paramNames != null && paramIndex < fn.paramNames.length()) {
+                    rawName = fn.paramNames[paramIndex]
+                }
+                let paramName = safeParamName(rawName == null ? "arg" @ to_string(paramIndex) : rawName)
+                paramDecls.push(paramName)
+                argExprs.push(paramName)
+                paramIndex = paramIndex + 1
+            }
+
+            if (fn.variadic) {
+                paramDecls.push("varargs")
+            }
+
+            // the actual call expression depends on whether we're in single-lib
+            // or multi-lib mode; we fill `callPrefix` / `callSuffix` later.
+            let sigVar = signaturePool[key].name
+            let wrapperLines = []
+            wrapperLines.push("    " @ fnName @ ": func (" @ joinTokens(paramDecls, ", ") @ ") {")
+            let callTarget = null
+            if (libs == null) {
+                // single-lib: direct call.
+                callTarget = "__ffi_call(" @ sanitizeIdentifier(wrapperName) @ "_lib, \"" @ fnName @ "\", " @ sigVar @ ", "
+            } else {
+                // multi-lib: route through the cached call helper.
+                callTarget = callHelperName @ "(\"" @ fnName @ "\", " @ sigVar @ ", "
+            }
+            if (fn.variadic) {
+                wrapperLines.push("        let argList = [" @ joinTokens(argExprs, ", ") @ "]")
+                wrapperLines.push("        if (varargs != null) {")
+                wrapperLines.push("            let len = varargs.length()")
+                wrapperLines.push("            for (let i = 0; i < len; i = i + 1) {")
+                wrapperLines.push("                argList.push(varargs[i])")
+                wrapperLines.push("            }")
+                wrapperLines.push("        }")
+                wrapperLines.push("        return " @ callTarget @ "argList)")
+            } else {
+                wrapperLines.push("        return " @ callTarget @ "[" @ joinTokens(argExprs, ", ") @ "])")
+            }
+            wrapperLines.push("    },")
+            wrapperEntries.push(wrapperLines.join("\n"))
+        }
+
+        // loader / call helper
+        if (libs == null) {
+            // single-library path: used when --libs is not passed.
+            let libVar = sanitizeIdentifier(wrapperName) @ "_lib"
+            lines.push("func " @ loaderName @ "() {")
+            lines.push("    if (platform.os == \"windows\") {")
+            lines.push("        import lib from \"" @ dylibBase @ ".dll\"")
+            lines.push("        return lib;")
+            lines.push("    } else if (platform.os == \"macos\") {")
+            lines.push("        import lib from \"lib" @ dylibBase @ ".dylib\"")
+            lines.push("        return lib;")
+            lines.push("    } else {")
+            lines.push("        import lib from \"lib" @ dylibBase @ ".so\"")
+            lines.push("        return lib;")
+            lines.push("    }")
+            lines.push("}")
+            lines.push("")
+            lines.push("global " @ libVar @ " = " @ loaderName @ "();")
+            lines.push("if (!" @ libVar @ ") {")
+            lines.push("    throw \"Failed to load shared library: " @ dylibBase @ "\";")
+            lines.push("}")
+            lines.push("")
+        } else {
+            // multi-library loader: imports each lib statically (so the parser sees string literals),
+            // then exposes a call helper that resolves symbols lazily.
+            let libIdents = []
+            let usedIdents = {}
+            for (lib in libs) {
+                let baseId = "lib_" @ libBaseName(lib)
+                let ident = baseId
+                let counter = 2
+                while (usedIdents.has_key(ident)) {
+                    ident = baseId @ "_" @ to_string(counter)
+                    counter = counter + 1
+                }
+                usedIdents[ident] = true
+                libIdents.push(ident)
+            }
+
+            lines.push("func " @ loaderName @ "() {")
+            lines.push("    let entries = []")
+            let li = 0
+            while (li < libs.length()) {
+                let libName = libs[li]
+                let ident = libIdents[li]
+                lines.push("    import " @ ident @ " from " @ quoteString(libName))
+                lines.push("    entries.push({ name: " @ quoteString(libName) @ ", lib: " @ ident @ " })")
+                li = li + 1
+            }
+            lines.push("    let loaded = []")
+            lines.push("    let failed = []")
+            lines.push("    for (entry in entries) {")
+            lines.push("        let lib = entry.lib")
+            lines.push("        if (lib != null && lib.loaded == true) {")
+            lines.push("            loaded.push(entry)")
+            lines.push("        } else {")
+            lines.push("            failed.push(entry.name)")
+            lines.push("        }")
+            lines.push("    }")
+            lines.push("    if (loaded.length() == 0) {")
+            lines.push("        throw \"" @ wrapperName @ ": failed to load any native library (tried: \" @ JSON.stringify(failed) @ \")\"")
+            lines.push("    }")
+            lines.push("    return {")
+            lines.push("        libs: loaded,")
+            lines.push("        failed: failed,")
+            lines.push("        cache: {}")
+            lines.push("    }")
+            lines.push("}")
+            lines.push("")
+            lines.push("global " @ loaderVar @ " = " @ loaderName @ "()")
+            lines.push("")
+            lines.push("func " @ callHelperName @ "(name, sig, args) {")
+            lines.push("    let lib = " @ loaderVar @ ".cache[name]")
+            lines.push("    if (lib == null) {")
+            lines.push("        for (entry in " @ loaderVar @ ".libs) {")
+            lines.push("            if (__ffi_get_symbol(entry.lib, name) != null) {")
+            lines.push("                lib = entry.lib")
+            lines.push("                " @ loaderVar @ ".cache[name] = lib")
+            lines.push("                break")
+            lines.push("            }")
+            lines.push("        }")
+            lines.push("        if (lib == null) {")
+            lines.push("            throw \"" @ wrapperName @ ": symbol '\" @ name @ \"' is not exported by any loaded library\"")
+            lines.push("        }")
+            lines.push("    }")
+            lines.push("    return __ffi_call(lib, name, sig, args)")
+            lines.push("}")
+            lines.push("")
+        }
+
+        lines.push("// FFI signatures")
+        for (key in signatureOrder) {
+            let sig = signaturePool[key]
+            let sigLine = "global " @ sig.name @ " = { returns: " @ sig.returns @ ", params: [" @ joinTokens(sig.params, ", ") @ "]"
+            if (sig.variadic) {
+                sigLine = sigLine @ ", variadic: " @ to_string(sig.fixed)
+            }
+            sigLine = sigLine @ " };"
+            lines.push(sigLine)
+        }
+        lines.push("")
+        lines.push("global " @ wrapperName @ " = {")
+        for (entry in wrapperEntries) {
+            lines.push(entry)
+        }
+        lines.push("}")
+        lines.push("")
+        exportNames.push(wrapperName)
+        let emittedMacroAliases = 0
+        if (macroFunctionAliasNames.length() > 0) {
+            lines.push("// Macro function aliases")
+            for (name in macroFunctionAliasNames) {
+                if (macroFunctionConflicts.has_key(name)) {
+                    continue
+                }
+                lines.push("global " @ name @ " = " @ wrapperName @ "." @ macroFunctionTargets[name] @ ";")
+                exportNames.push(name)
+                emittedMacroAliases = emittedMacroAliases + 1
+            }
+            if (emittedMacroAliases > 0) {
+                lines.push("")
+            } else {
+                lines.pop()
+            }
+        }
+    }
+
+    if (wantExports && exportNames.length() > 0) {
+        let seen = {}
+        let uniqueExports = []
+        for (name in exportNames) {
+            if (!seen.has_key(name)) {
+                seen[name] = true
+                uniqueExports.push(name)
+            }
+        }
+        lines.push("// Package exports")
+        lines.push("export {")
+        let idx = 0
+        while (idx < uniqueExports.length()) {
+            let sep = idx + 1 < uniqueExports.length() ? "," : ""
+            lines.push("    " @ uniqueExports[idx] @ sep)
+            idx = idx + 1
+        }
+        lines.push("}")
+        lines.push("")
+        if (exportOut != null) {
+            for (name in uniqueExports) {
+                exportOut.push(name)
+            }
+        }
+    }
+
+    return lines.join("\n")
+}
+
+// emit a single-module npkg package: nari.toml + src/<module>.nari.
+// The module file is the same output as single-file mode, but with an `export { ... }` block so it can be consumed by named imports.
+func emitPackage(opts, aliases, enumAliasNames, enums, structs, functions, macros, skipped) {
+    let outDir = opts.output
+    let srcDir = pathJoin(outDir, "src")
+    fs.mkdir_all(srcDir)
+
+    // module filename: last segment of the package name, else the header base.
+    let moduleName = null
+    let pkgTail = opts.package_name
+    let lastSlash = pkgTail.last_index_of("/")
+    if (lastSlash >= 0) {
+        pkgTail = pkgTail.substr(lastSlash + 1)
+    }
+    if (pkgTail != "") {
+        moduleName = sanitizeIdentifier(pkgTail).to_lower()
+    } else {
+        moduleName = sanitizeIdentifier(basenameNoExt(opts.input)).to_lower()
+    }
+
+    let exportNames = []
+    let moduleText = emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macros, skipped, exportNames)
+    let modulePath = "src/" @ moduleName @ ".nari"
+    let _wroteModule = fs.write_file(pathJoin(srcDir, moduleName @ ".nari"), moduleText).value
+
+    let manifest = []
+    manifest.push("packageFormat = 1")
+    manifest.push("name = " @ quoteString(opts.package_name))
+    manifest.push("version = " @ quoteString(opts.package_version))
+    manifest.push("")
+    manifest.push("[exports]")
+    manifest.push(quoteString(".") @ " = " @ quoteString(modulePath))
+    for (name in exportNames) {
+        manifest.push(quoteString(name) @ " = " @ quoteString(modulePath))
+    }
+    manifest.push("")
+    let _wroteManifest = fs.write_file(pathJoin(outDir, "nari.toml"), manifest.join("\n")).value
+
+    print("Package written to " @ outDir)
+    print("  manifest: nari.toml (" @ opts.package_name @ "@" @ opts.package_version @ ")")
+    print("  module: " @ modulePath @ " (" @ to_string(exportNames.length()) @ " exports)")
+    print("  structs: " @ to_string(structs.length()) @ ", typedefs: " @ to_string(aliases.keys().length()) @ ", functions: " @ to_string(functions.length()))
+}
+
+func parseArgs(argv) {
+    let opts = {
+        input: null,
+        output: null,
+        cc: "cc",
+        backend: "legacy",
+        abi: null,
+        module_name: null,
+        libs: null,
+        package_name: null,
+        package_version: "0.1.0",
+        cppflags: "",
+        keep_pp: false
+    }
+
+    let i = 1
+    while (i < argv.length()) {
+        let arg = argv[i]
+        if (arg == "--help" || arg == "-h") {
+            usage()
+            process.exit(0)
+        } else if (arg == "--input" && i + 1 < argv.length()) {
+            opts.input = argv[i + 1]
+            i = i + 2
+            continue
+        } else if (arg == "--output" && i + 1 < argv.length()) {
+            opts.output = argv[i + 1]
+            i = i + 2
+            continue
+        } else if (arg == "--cc" && i + 1 < argv.length()) {
+            opts.cc = argv[i + 1]
+            i = i + 2
+            continue
+        } else if (arg == "--backend" && i + 1 < argv.length()) {
+            opts.backend = argv[i + 1]
+            i = i + 2
+            continue
+        } else if (arg == "--abi" && i + 1 < argv.length()) {
+            opts.abi = argv[i + 1]
+            i = i + 2
+            continue
+        } else if (arg == "--module-name" && i + 1 < argv.length()) {
+            opts.module_name = argv[i + 1]
+            i = i + 2
+            continue
+        } else if (arg == "--libs" && i + 1 < argv.length()) {
+            let raw = argv[i + 1]
+            let parts = raw.split(",")
+            let libs = []
+            for (part in parts) {
+                let trimmed = part.trim()
+                if (trimmed != "") {
+                    libs.push(trimmed)
+                }
+            }
+            if (libs.length() == 0) {
+                die("--libs received an empty list")
+            }
+            opts.libs = libs
+            i = i + 2
+            continue
+        } else if (arg == "--npkg" && i + 1 < argv.length()) {
+            opts.package_name = argv[i + 1]
+            i = i + 2
+            continue
+        } else if (arg == "--npkg-version" && i + 1 < argv.length()) {
+            opts.package_version = argv[i + 1]
+            i = i + 2
+            continue
+        } else if (arg == "--cppflags" && i + 1 < argv.length()) {
+            opts.cppflags = argv[i + 1]
+            i = i + 2
+            continue
+        } else if (arg == "--keep-pp") {
+            opts.keep_pp = true
+            i = i + 1
+            continue
+        }
+
+        die("unknown or incomplete option: " @ arg)
+    }
+
+    if (opts.output == null) {
+        usage()
+        die("missing required --output")
+    }
+    if (opts.input == null) {
+        usage()
+        die("missing required --input")
+    }
+
+    if (opts.abi != null && opts.abi != "lp64" && opts.abi != "llp64" && opts.abi != "ilp32") {
+        die("unsupported ABI '" @ opts.abi @ "'")
+    }
+    if (opts.backend != "legacy" && opts.backend != "clang-json") {
+        die("unsupported backend '" @ opts.backend @ "'")
+    }
+
+    return opts
+}
+
+func main() {
+    let opts = parseArgs(process.argv)
+
+    // in package mode `opts.output` is the package root directory.
+    // create it first and tuck the intermediate ".pp"/".defs"/".ast.json"
+    // files inside so `--keep-pp` keeps everything in one place.
+    let isPackageMode = opts.package_name != null && opts.package_name != ""
+    let intermediatePrefix = opts.output
+    if (isPackageMode) {
+        fs.mkdir_all(opts.output)
+        intermediatePrefix = pathJoin(opts.output, ".bindgen")
+    }
+
+    let ppPath = intermediatePrefix @ ".pp"
+    let defsPath = intermediatePrefix @ ".defs"
+    let astPath = intermediatePrefix @ ".ast.json"
+
+    if (opts.abi == null) {
+        opts.abi = platform.os == "windows" ? "llp64" : "lp64"
+    }
+    let rawHeader = (await fs.read_file(opts.input))
+    if (rawHeader == null || rawHeader == "") {
+        die("input header is empty: " @ opts.input)
+    }
+    let rawMacros = collectObjectMacros(rawHeader)
+
+    // run a macro-survival preprocess pass only if the input header declared any object-like macros then
+    let activeMacros = []
+
+    if (isPackageMode) {
+        // in package mode we want every macro the preprocessor saw, including ones from transitively-included headers
+        let defsRc = preprocessDefines(opts.input, defsPath, opts.cc, opts.cppflags)
+        if (defsRc != 0) {
+            die("macro preprocessor pass failed with exit code " @ to_string(defsRc))
+        }
+        let defsText = (await fs.read_file(defsPath))
+        if (defsText != null && defsText != "") {
+            activeMacros = collectObjectMacrosFromDefs(defsText, dirBasename(opts.input), opts.input)
+        }
+    } else if (rawMacros.length() > 0) {
+        // single-file mode:
+        //     use rawMacros (from the user's header alone) as the canonical list,
+        //     then keep only the ones that survived preprocessing.
+        let defsRc = preprocessDefines(opts.input, defsPath, opts.cc, opts.cppflags)
+        if (defsRc != 0) {
+            die("macro preprocessor pass failed with exit code " @ to_string(defsRc))
+        }
+        let defsText = (await fs.read_file(defsPath))
+        if (defsText != null && defsText != "") {
+            let wantedMacros = {}
+            for (macro in rawMacros) {
+                wantedMacros[macro.name] = macro
+            }
+            let survived = {}
+            scanDefsForMacroSurvivors(defsText, wantedMacros, survived)
+            for (macro in rawMacros) {
+                if (survived.has_key(macro.name)) {
+                    activeMacros.push(macro)
+                }
+            }
+        } else {
+            for (macro in rawMacros) {
+                activeMacros.push(macro)
+            }
+        }
+    }
+
+    let aliases = {}
+    let enumAliasNames = []
+    let enums = []
+    let structs = []
+    let functions = []
+    let skipped = []
+    if (opts.backend == "clang-json") {
+        let astRc = dumpClangJsonAst(opts.input, astPath, opts.cc, opts.cppflags)
+        if (astRc != 0) {
+            die("clang JSON AST dump failed with exit code " @ to_string(astRc) @ " (use clang or clang-cl in --cc)")
+        }
+        let astText = (await fs.read_file(astPath))
+        if (astText == null || astText == "") {
+            die("clang JSON AST output is empty: " @ astPath)
+        }
+        let astRoot = JSON.parse(astText)
+        let parsedAst = parseClangJsonAst(astRoot, opts.abi)
+        aliases = parsedAst.aliases
+        enumAliasNames = parsedAst.enumAliasNames
+        enums = parsedAst.enums
+        structs = parsedAst.structs
+        functions = parsedAst.functions
+        skipped = parsedAst.skipped
+    } else {
+        let rc = preprocessHeader(opts.input, ppPath, opts.cc, opts.cppflags)
+        if (rc != 0) {
+            die("preprocessor failed with exit code " @ to_string(rc))
+        }
+
+        let pp = (await fs.read_file(ppPath))
+        if (pp == null || pp == "") {
+            die("preprocessed output is empty: " @ ppPath)
+        }
+
+        let declarations = collectDeclarations(pp)
+        let enumAliasSeen = {}
+        let enumValues = {}
+
+        for (tokens in declarations) {
+            let decl = trim(joinTokens(tokens, " "))
+            if (decl == "" || decl.starts_with("#")) {
+                continue
+            }
+
+            if (tokens.length() == 0) {
+                continue
+            }
+
+            if (tokens[0] == "typedef") {
+                if (tokens.length() > 1 && tokens[1] == "enum") {
+                    let parsedEnum = parseEnumDecl(tokens, enumValues)
+                    if (parsedEnum == null) {
+                        continue
+                    }
+                    if (parsedEnum.kind == "skip") {
+                        skipped.push(parsedEnum.reason @ ": " @ decl)
+                        continue
+                    }
+                    if (parsedEnum.kind == "enum") {
+                        let aliasInfo = enumAliasInfo(tokens)
+                        enums.push(parsedEnum)
+                        if (aliasInfo.name != null && aliasInfo.name != "bool") {
+                            aliases[aliasInfo.name] = makePrimitiveType("i32")
+                            if (!enumAliasSeen.has_key(aliasInfo.name)) {
+                                enumAliasSeen[aliasInfo.name] = true
+                                enumAliasNames.push(aliasInfo.name)
+                            }
+                        }
+                        for (aliasName in aliasInfo.aliases) {
+                            if (aliasName != null && aliasName != "bool") {
+                                aliases[aliasName] = makePrimitiveType("i32")
+                                if (!enumAliasSeen.has_key(aliasName)) {
+                                    enumAliasSeen[aliasName] = true
+                                    enumAliasNames.push(aliasName)
+                                }
+                            }
+                        }
+                        for (entry in parsedEnum.entries) {
+                            enumValues[entry.name] = entry.value
+                        }
+                        continue
+                    }
+                }
+
+                let parsed = parseTypedef(tokens, opts.abi)
+                if (parsed == null) {
+                    continue
+                }
+
+                if (parsed.kind == "skip") {
+                    skipped.push(parsed.reason @ ": " @ decl)
+                    continue
+                }
+
+                if (parsed.kind == "struct") {
+                    if (parsed.name == null) {
+                        skipped.push("struct without name: " @ decl)
+                        continue
+                    }
+                    structs.push({ name: parsed.name, fields: parsed.fields })
+                    aliases[parsed.name] = makeStructType(parsed.name)
+                    for (aliasDecl in parsed.aliasDecls) {
+                        if (aliasDecl == null || aliasDecl.name == null) {
+                            continue
+                        }
+                        if (aliasDecl.pointerCount > 0) {
+                            aliases[aliasDecl.name] = makePointerType(makeStructType(parsed.name))
+                        } else {
+                            aliases[aliasDecl.name] = makeStructType(parsed.name)
+                        }
+                    }
+                    continue
+                }
+
+                if (parsed.kind == "opaque_typedef") {
+                    for (aliasDecl in parsed.aliases) {
+                        if (aliasDecl == null || aliasDecl.name == null) {
+                            continue
+                        }
+                        if (aliasDecl.pointerCount > 0) {
+                            aliases[aliasDecl.name] = makePointerType(makeStructType(parsed.tag))
+                        } else if (parsed.tag != null) {
+                            aliases[aliasDecl.name] = makeStructType(parsed.tag)
+                        } else {
+                            aliases[aliasDecl.name] = makeUnsupportedType(aliasDecl.name)
+                        }
+                    }
+                    continue
+                }
+
+                if (parsed.kind == "typedef") {
+                    for (aliasDecl in parsed.aliases) {
+                        if (aliasDecl == null || aliasDecl.name == null) {
+                            continue
+                        }
+                        aliases[aliasDecl.name] = cloneType(aliasDecl.type)
+                    }
+                    continue
+                }
+
+                continue
+            }
+
+            if (tokens[0] == "enum") {
+                let parsedEnum = parseEnumDecl(tokens, enumValues)
+                if (parsedEnum == null) continue
+                if (parsedEnum.kind == "skip") {
+                    skipped.push(parsedEnum.reason @ ": " @ decl)
+                    continue
+                }
+                if (parsedEnum.kind == "enum") {
+                    let aliasInfo = enumAliasInfo(tokens)
+                    enums.push(parsedEnum)
+                    if (aliasInfo.name != null && aliasInfo.name != "bool") {
+                        aliases[aliasInfo.name] = makePrimitiveType("i32")
+                        if (!enumAliasSeen.has_key(aliasInfo.name)) {
+                            enumAliasSeen[aliasInfo.name] = true
+                            enumAliasNames.push(aliasInfo.name)
+                        }
+                    }
+                    for (entry in parsedEnum.entries) {
+                        enumValues[entry.name] = entry.value
+                    }
+                }
+                continue
+            }
+
+            if (tokens[0] == "struct") {
+                let parsed = parseStructDecl(tokens, opts.abi)
+                if (parsed == null) continue
+                if (parsed.kind == "skip") {
+                    skipped.push(parsed.reason @ ": " @ decl)
+                    continue
+                }
+                if (parsed.kind == "struct") {
+                    if (parsed.name == null) {
+                        skipped.push("struct without name: " @ decl)
+                        continue
+                    }
+                    structs.push({ name: parsed.name, fields: parsed.fields })
+                    aliases[parsed.name] = makeStructType(parsed.name)
+                }
+                continue
+            }
+
+            if (decl.index_of("{") >= 0) {
+                skipped.push("definition body skipped: " @ decl)
+                continue
+            }
+
+            if (decl.index_of("(") >= 0) {
+                let parsedFn = parseFunction(tokens, opts.abi)
+                if (parsedFn != null) {
+                    if (parsedFn.kind == "skip") {
+                        skipped.push(parsedFn.reason @ ": " @ decl)
+                    } else if (parsedFn.kind == "function") {
+                        functions.push(parsedFn)
+                    }
+                }
+                continue
+            }
+        }
+    }
+
+    if (isPackageMode) {
+        emitPackage(opts, aliases, enumAliasNames, enums, structs, functions, activeMacros, skipped)
+    } else {
+        let output = emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, activeMacros, skipped, null)
+        let _ = fs.write_file(opts.output, output).value
+        print("Generated " @ opts.output)
+        print("Structs: " @ to_string(structs.length()) @ ", typedefs: " @ to_string(aliases.keys().length()) @ ", functions: " @ to_string(functions.length()))
+    }
+
+    if (!opts.keep_pp && pathExists(ppPath)) {
+        let _ = fs.delete_file(ppPath).value
+    }
+    if (!opts.keep_pp && pathExists(defsPath)) {
+        let _ = fs.delete_file(defsPath).value
+    }
+    if (!opts.keep_pp && pathExists(astPath)) {
+        let _ = fs.delete_file(astPath).value
+    }
+}
+
+main()

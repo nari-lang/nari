@@ -1,0 +1,8 @@
+[wrap-git]
+url = https://github.com/Mbed-TLS/mbedtls.git
+revision = v3.5.0
+depth = 1
+method = cmake
+
+[provide]
+dependency_names = mbedtls, mbedx509, mbedcrypto

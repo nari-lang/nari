@@ -2,7 +2,7 @@
 
 #ifndef DISABLE_FFI
 
-#include "../ffi.h"
+#include "../nari_ffi.h"
 
 Value ScriptRuntime::builtin_ffi_membersof(const Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc == 0) {
@@ -149,13 +149,6 @@ Value ScriptRuntime::builtin_ffi_load_library(const Value *argvals, size_t argc,
     lib_oobj->set_field("path", Value::make_string(lib_path));
     lib_oobj->set_field("__ffi_handle__", Value::make_int(reinterpret_cast<int64_t>(lib.get())));
 
-    // Expose the list of exported symbols as an array on the library object.
-    // We deliberately do NOT call set_field(symbol, ...) for each one: with
-    // libraries that export tens of thousands of symbols (e.g. the full
-    // Win32 system DLL set) that would trigger the O(N^2) shape-transition
-    // cost in ObjectObj's hidden-class layout and make `import` take many
-    // seconds. Symbol resolution goes through __ffi_call / __ffi_get_symbol
-    // which use the cached __ffi_handle__ + lib->get_symbol(name) directly.
     const auto &symbols = lib->get_symbols();
     std::vector<Value> symbols_array;
     symbols_array.reserve(symbols.size());

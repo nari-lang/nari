@@ -29,13 +29,14 @@ endif
 
 cc = meson.get_compiler('cpp')
 fs = import('fs')
+cmake = import('cmake')
+
+# we sometimes need to attempt to use our own wraps if the system doesn't have them and they don't use conan.
+_wrap_mode = get_option('wrap_mode')
 
 # conan --deployer=direct_deploy puts each package under:
 #  <deploy-root>/<pkg>/{include,lib}
-# The default deploy root is build/conan/direct_deploy, but callers can
-# override it via a native/cross file property to keep multiple builds isolated from each other.
-# -Dsystem_deps=true: link distro packages found via pkg-config / default
-# linker paths and ignore the Conan deploy folder entirely (for packaging).
+# The default deploy root is build/conan/direct_deploy, but callers can override it via a native/cross file
 system_deps = get_option('system_deps')
 
 conan_deploy = meson.get_external_property('conan_deploy_dir', 'build/conan/direct_deploy')
@@ -53,12 +54,18 @@ conan_libarchive_libdir = [conan_deploy_abs / 'libarchive' / 'lib']
 have_replxx = false
 _replxx_lib = disabler()
 if not disable_repl and system_deps
-    _replxx_sys = cc.find_library('replxx', required: false)
-    if _replxx_sys.found() and cc.has_header('replxx.hxx')
+    _replxx_sys = cc.find_library('replxx', has_headers: 'replxx.hxx', required: false)
+    if _replxx_sys.found()
         _replxx_lib = _replxx_sys
         have_replxx = true
+    elif _wrap_mode != 'nofallback'
+        # No system replxx: build from subprojects/replxx.wrap
+        # repl is optional so the build can succeed even if we fail here.
+        _replxx_sub = cmake.subproject('replxx')
+        _replxx_lib = _replxx_sub.dependency('replxx')
+        have_replxx = true
     else
-        message('system replxx not found; REPL disabled (system_deps build)')
+        message('system replxx not found and --wrap-mode=nofallback set; REPL disabled (system_deps build)')
         disable_repl = true
     endif
 elif not disable_repl
@@ -98,10 +105,7 @@ if get_option('static_libcxx')
     link_args += ['-nostdlib++', '-l:libc++.a', '-l:libc++abi.a', '--unwindlib=libgcc']
 endif
 if target_mcu
-    # NARI_MCU: top-level gate for all MCU-specific code paths.
-    # NO_THREADS: forces IOThreadPool to the synchronous stub (no pthreads).
-    # DISABLE_PARSER: interpreter accepts only pre-compiled .naric bytecode;
-    #  source parsing and the embedded stdlib are not available at runtime.
+    # microcontroller target
     cpp_args += [
         '-DNARI_MCU',
         '-DNO_THREADS',
@@ -153,7 +157,6 @@ generated_cpp_name = 'embedded_std_modules.cpp'
 generated_cpp = generated_dir / generated_cpp_name
 
 # Importable std/* modules. Each entry becomes `import { X } from "std/<name>";`.
-# Keep this list in sync with src/stdlib/std/*.nari.
 std_module_names = [
     'archive',
     'collections',
@@ -232,7 +235,8 @@ if not target_mcu
     ]
 endif
 
-if not disable_ffi
+# we still compile the ffi stub when disable_jit isn't set, because the stub provides ffi_reentry_depth.
+if not disable_ffi or not disable_jit
     sources += ['src/ffi.cpp']
 endif
 
@@ -251,7 +255,8 @@ if not disable_jit
     ]
 endif
 
-if not is_emscripten
+# In system_deps mode the headers come from pkg-config / the compiler's default search path
+if not is_emscripten and not system_deps
     inc_dirs = include_directories(
         conan_deploy / 'asmjit' / 'include',
         conan_deploy / 'mbedtls' / 'include',
@@ -281,10 +286,26 @@ endif
 
 if not disable_jit
     if system_deps
-        # shared system asmjit: no ASMJIT_STATIC define
-        asmjit_dep = dependency('asmjit', required: false)
+        # prefer a system asmjit
+        # if it is not installed, fall back to building the subproject/asmjit.wrap
+        asmjit_dep = dependency('asmjit', required: false, allow_fallback: false)
         if not asmjit_dep.found()
-            asmjit_dep = cc.find_library('asmjit', required: true)
+            asmjit_dep = cc.find_library(
+                'asmjit',
+                has_headers: 'asmjit/asmjit.h',
+                required: false,
+            )
+        endif
+        if not asmjit_dep.found()
+            if _wrap_mode == 'nofallback'
+                error(
+                    'system asmjit not found and --wrap-mode=nofallback forbids the '
+                    + 'subproject fallback; install asmjit or drop nofallback.',
+                )
+            endif
+            # Build from subprojects/asmjit.wrap (CMake).
+            _asmjit_sub = cmake.subproject('asmjit')
+            asmjit_dep = _asmjit_sub.dependency('asmjit')
         endif
     else
         _asmjit_lib = cc.find_library('asmjit', dirs: conan_asmjit_libdir, required: false)
@@ -301,16 +322,45 @@ if not disable_jit
 endif
 
 if not is_emscripten and not disable_http and system_deps
-    # System curl carries its own TLS/zlib. mbedtls stays a direct dependency
-    _sys_http = [dependency('libcurl', required: true)]
+    # system curl carries its own TLS/zlib.
+    # prefer pkg-config/system libs and fall back to the WrapDB (curl) / git (mbedtls) subprojects
+    _libcurl_dep = dependency('libcurl', required: false, allow_fallback: false)
+    if not _libcurl_dep.found()
+        _libcurl_dep = dependency('libcurl', required: true)
+    endif
+    _sys_http = [_libcurl_dep]
+    # Probe the three mbedtls libs individually (pkg-config, then plain lib).
+    _mbed_libs = []
+    _mbed_missing = false
     foreach mbedlib : ['mbedtls', 'mbedx509', 'mbedcrypto']
-        _mbed_pc = dependency(mbedlib, required: false)
+        _mbed_pc = dependency(mbedlib, required: false, allow_fallback: false)
+        if not _mbed_pc.found()
+            _mbed_pc = cc.find_library(mbedlib, required: false)
+        endif
         if _mbed_pc.found()
-            _sys_http += [_mbed_pc]
+            _mbed_libs += [_mbed_pc]
         else
-            _sys_http += [cc.find_library(mbedlib, required: true)]
+            _mbed_missing = true
         endif
     endforeach
+    if not _mbed_missing
+        _sys_http += _mbed_libs
+    else
+        # At least one mbedtls lib is missing, build all three from subprojects/mbedtls.wrap (CMake).
+        if _wrap_mode == 'nofallback'
+            error(
+                'system mbedtls (mbedtls/mbedx509/mbedcrypto) not found and '
+                + '--wrap-mode=nofallback forbids the subproject fallback; '
+                + 'install mbedtls or drop nofallback.',
+            )
+        endif
+        _mbed_sub = cmake.subproject('mbedtls')
+        _sys_http += [
+            _mbed_sub.dependency('mbedtls'),
+            _mbed_sub.dependency('mbedx509'),
+            _mbed_sub.dependency('mbedcrypto'),
+        ]
+    endif
     http_dep = declare_dependency(dependencies: _sys_http)
     all_deps += [http_dep]
 elif not is_emscripten and not disable_http
@@ -351,9 +401,13 @@ endif
 
 if not is_emscripten and not disable_ffi
     if system_deps
-        ffi_dep = dependency('libffi', required: false)
+        ffi_dep = dependency('libffi', required: false, allow_fallback: false)
         if not ffi_dep.found()
-            ffi_dep = cc.find_library('ffi', required: true)
+            ffi_dep = cc.find_library('ffi', has_headers: 'ffi.h', required: false)
+        endif
+        if not ffi_dep.found()
+            # build from subprojects/libffi.wrap.
+            ffi_dep = dependency('libffi', required: true)
         endif
     else
         ffi_dep = cc.find_library('ffi', dirs: conan_ffi_libdir, required: false)
@@ -367,9 +421,13 @@ endif
 # libarchive (read + write, tar/gzip/zip).
 if not is_emscripten and system_deps
     # shared system libarchive links its own zlib
-    libarchive_dep = dependency('libarchive', required: false)
+    libarchive_dep = dependency('libarchive', required: false, allow_fallback: false)
     if not libarchive_dep.found()
-        libarchive_dep = cc.find_library('archive', required: true)
+        libarchive_dep = cc.find_library('archive', has_headers: 'archive.h', required: false)
+    endif
+    if not libarchive_dep.found()
+        # build from subprojects/libarchive.wrap.
+        libarchive_dep = dependency('libarchive', required: true)
     endif
     all_deps += [libarchive_dep]
 elif not is_emscripten

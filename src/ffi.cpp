@@ -1,6 +1,6 @@
 #ifndef DISABLE_FFI
 
-#include "ffi.h"
+#include "nari_ffi.h"
 #include "core_types.h"
 #include "nari_fs.h"
 #include "parser_api.h"
@@ -1795,10 +1795,8 @@ FFICallback::~FFICallback() {
     }
 }
 
-// Nonzero inside an FFI callback. The JIT entry path falls back to the
-// interpreter when set: JIT reentry through Win32 callbacks (WNDPROC under
-// Wine) was observed to leak ~100s of MB per invocation. Slow path is the
-// workaround until JIT reentry is fixed.
+// Nonzero inside an FFI callback. The JIT entry path falls back to the interpreter when set,
+// callback reentry has a bad memory leak I haven't fixed yet.
 thread_local int g_ffi_reentry_depth = 0;
 extern "C" int ffi_reentry_depth() {
     return g_ffi_reentry_depth;
@@ -2054,5 +2052,11 @@ FFICallback *FFICallbackManager::get_callback(void *code_ptr) {
 }
 
 } // namespace nari
+
+#else // DISABLE_FFI
+// dummy for when FFI is disabled, so the rest of the code can still compile
+extern "C" int ffi_reentry_depth() {
+    return 0;
+}
 
 #endif // DISABLE_FFI

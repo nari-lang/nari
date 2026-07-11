@@ -221,171 +221,97 @@ For more complex headers, a Clang AST backend is also available:
   --output bindings.nari
 ```
 
-For Win32 or other MSVC-style headers, prefer `clang-cl`:
+### Multiple libraries
+
+By default the generator emits a single `import lib from "<name>"` and calls
+`__ffi_call(lib, ...)` directly in each wrapper. To spread symbols across several
+shared libraries, pass `--module-name <Name>` and `--libs lib1,lib2,...`:
 
 ```bash
 ./build/debug/nari tools/ffi_bindgen.nari \
-  --backend clang-json \
-  --cc clang-cl \
   --input /path/to/header.h \
-  --output bindings.nari
-```
-
-### Win32 from Linux with cargo-xwin
-
-If you've used [`cargo-xwin`](https://github.com/rust-cross/cargo-xwin) to splat
-the Windows SDK + MSVC CRT into `~/.xwin-cache/splat`, the simplest invocation
-is just:
-
-```bash
-./build/debug/nari tools/ffi_bindgen.nari \
-  --output win_bindings.nari \
-  --xwin ~/.xwin-cache/splat
-```
-
-With no `--input`, the generator defaults to `<splat>/sdk/include/um/Windows.h`
-(the umbrella header) and emits a `global Win32 = { ... }` object so you can
-just call `Win32.MessageBoxA(...)`, `Win32.CreateWindowExW(...)`, etc.
-
-You can also point `--input` at a specific Win32 sub-header by short name:
-
-```bash
-./build/debug/nari tools/ffi_bindgen.nari \
-  --input shellapi.h \
-  --output shell_bindings.nari \
-  --xwin ~/.xwin-cache/splat
-```
-
-The short name is resolved against the standard SDK subdirs (`um`, `shared`,
-`ucrt`, `winrt`, `cppwinrt`). Because most Win32 sub-headers depend on the
-foundational typedefs from `<windows.h>`, the generator automatically wraps your
-header in a tiny shim that does `#include <windows.h>` first, so things like
-`winuser.h`, `wingdi.h`, `commctrl.h`, and `shellapi.h` work standalone.
-
-You can still pass a full filesystem path if you prefer:
-
-```bash
-./build/debug/nari tools/ffi_bindgen.nari \
-  --input ~/.xwin-cache/splat/sdk/include/um/Windows.h \
   --output bindings.nari \
-  --xwin ~/.xwin-cache/splat
+  --module-name Graphics \
+  --libs libfoo.so,libbar.so
 ```
 
-The script auto-detects the target architecture from `<splat>/sdk/lib/um/<arch>`
-(e.g. `x86`, `x86_64`, `aarch64`), sets the matching ABI (`ilp32` for x86,
-`llp64` for x64/arm64), passes the correct `--target=` triple to clang, and adds
-the required `/imsvc` include paths for `crt/include` and
-`sdk/include/{ucrt,shared,um,winrt,cppwinrt}`. You can override the arch with
-`--arch x86|x64|arm64`, the triple with `--target <triple>`, or the ABI with
-`--abi`. The `clang-cl` driver is selected automatically (you can override with
-`--cc`), as is `--backend clang-json` (override with `--backend legacy`).
+The generated loader imports each library in order and lazily routes each call
+to whichever library first exports the requested symbol, caching the result.
+Library names should include the platform extension (e.g. `libfoo.so`,
+`user32.dll`, `libbar.dylib`) so the runtime loads them as native libraries
+rather than treating a bare name as a package import.
 
-For an installation that follows the official MSVC layout
-(`VC/Tools/MSVC/<v>/...` and `Windows Kits/10/Include/<v>/...`), use `--win32`
-plus `--winsysroot` instead. That preset also accepts `--arch` /
-`--target` for cross-compilation.
+### Generating npkg packages with `--npkg`
 
-When `--win32` or `--xwin` is in effect, the generated bindings expose a single
-`Win32` wrapper object backed by a small loader that imports the standard
-Windows system DLLs (`user32.dll`, `kernel32.dll`, `gdi32.dll`, `advapi32.dll`,
-`shell32.dll`, `comctl32.dll`, `comdlg32.dll`, `ole32.dll`, `oleaut32.dll`,
-`shlwapi.dll`, `winmm.dll`, `ws2_32.dll`, `msimg32.dll`, `version.dll`,
-`psapi.dll`, `dwmapi.dll`, `uxtheme.dll`, `imm32.dll`). Each call is
-transparently routed to whichever DLL exports the symbol on first use and
-cached for subsequent calls. So once you have your bindings file you can just
-write:
-
-```nari
-import { Win32 } from "./win_bindings.nari"
-
-Win32.MessageBoxA(0, "Hello from Nari", "Greetings", 0)
-let hwnd = Win32.GetDesktopWindow()
-let hInstance = Win32.GetModuleHandleW(0)
-```
-
-For non-Win32 headers you can opt into the same multi-library loader with
-`--module-name <Name>` and `--libs lib1,lib2,...`. With a single library and no
-`--module-name`, the legacy behaviour is preserved (one `import lib from
-"libname"` and direct `__ffi_call(libname, ...)` in each wrapper).
-
-### Generating npkg packages with `--package-name`
-
-For larger projects, the generator can emit a multi-file npkg-compatible
-package instead of a single `.nari` file. Pass `--package-name <name>` and
-point `--output` at a directory:
+The generator can emit an [npkg](19-package-management.md)-compatible package
+directory instead of a single `.nari` file. Pass `--npkg <name>` and point
+`--output` at a directory:
 
 ```bash
 ./build/debug/nari tools/ffi_bindgen.nari \
-  --output ./packages/win32 \
-  --xwin ~/.xwin-cache/splat \
-  --package-name "@ffi/win32" \
-  --package-version "0.1.0"
+  --input /path/to/mathlib.h \
+  --output ./packages/mathlib \
+  --npkg "ffi/mathlib" \
+  --npkg-version "0.1.0" \
+  --libs libmathlib.so
 ```
 
-The generated layout is:
+The generated layout is a single-module package:
 
 ```
-packages/win32/
+packages/mathlib/
 +-- nari.toml             # packageFormat = 1, name, version, [exports]
 +-- src/
-    +-- win32.nari        # umbrella: aggregates per-DLL wrappers into `Win32`
-    +-- core.nari         # shared types, structs, macros, FFI signatures
-    +-- user32.nari       # exports User32 = { MessageBoxA, ... }
-    +-- kernel32.nari     # exports Kernel32 = { GetModuleHandleW, ... }
-    +-- gdi32.nari
-    +-- ...               # one file per source DLL
+    +-- mathlib.nari      # types, structs, macros, signatures, wrapper object
 ```
 
-Each function is grouped under its source DLL by inspecting the SDK's import
-`.lib` files. Consumers can opt into whichever granularity they want:
+The module name is derived from the tail of `--npkg` (e.g. `ffi/mathlib` ->
+`mathlib`). Every generated symbol - the wrapper object, macro constants, and
+enum constants - is re-exported via a trailing `export { ... }` block, and the
+manifest's `[exports]` table maps both the package root (`"."`) and each named
+symbol to the module file. Consumers can then import at whatever granularity
+they want:
 
 ```nari
-// Everything (loads all 7 default Win32 DLLs)
-import { Win32 } from "@ffi/win32"
-Win32.MessageBoxA(0, "Hi", "Title", 0)
+// The whole wrapper object
+import { Mathlib } from "ffi/mathlib"
+Mathlib.add(2, 3)
 
-// One DLL only (loads just user32.dll)
-import { User32 } from "@ffi/win32/user32"
-User32.GetDesktopWindow()
-
-// Surgical: a single function from one DLL
-import { CreateWindowExW } from "@ffi/win32/user32"
-
-// Constants and types only - no DLL load
-import { WM_QUIT, MB_OK, WS_VISIBLE } from "@ffi/win32/core"
+// A single constant
+import { MATH_PI } from "ffi/mathlib"
 ```
 
 Add the package to your project's `nari.toml`:
 
 ```toml
 [dependencies]
-"@ffi/win32" = { path = "/path/to/packages/win32" }
-# or, once published:
-# "@ffi/win32" = { version = "0.1.0" }
+"ffi/mathlib" = { path = "/path/to/packages/mathlib" }
 ```
 
-It preprocesses the header with `cc -E -P` (or `clang-cl /EP` when using
-`clang-cl`), then emits:
+### What gets generated
+
+The generator preprocesses the header with `cc -E -P` (or `clang-cl /EP` when
+`--cc` names a `clang-cl` driver), then emits:
 
 - `type` aliases for supported `typedef`s
 - `type Name { ... }` declarations for supported `struct`s
 - pooled `global SIG_* = { returns: ..., params: [...] }` signature objects shared across matching function shapes
-- a `load_<Name>()` helper plus `global <Name> = { ... }` wrapper object that calls through `__ffi_call(...)` (single lib) or a `<Name>_call(name, sig, args)` indirection that resolves the right library lazily (multi-lib mode)
+- a `load_<Name>()` helper plus `<Name> = { ... }` wrapper object that calls through `__ffi_call(...)` (single lib) or a `<Name>_call(name, sig, args)` indirection that resolves the right library lazily (multi-lib mode)
 - object-like `#define` constants for supported macros, including integer aliases and simple `CLITERAL(Type){ ... }` struct literals
 
-The `legacy` backend is fast and works well for simpler C headers. The `clang-json` backend is better for macro-heavy or declaration-heavy headers because it reads Clang's JSON AST instead of relying on the token parser alone.
-
-On Linux, Windows SDK headers may still need a small case-normalizing include overlay because the SDK assumes a case-insensitive filesystem (`winbase.h` vs `WinBase.h`, `winuser.h` vs `WinUser.h`, and similar cases).
+The `legacy` backend is fast and works well for simpler C headers. The
+`clang-json` backend is better for macro-heavy or declaration-heavy headers
+because it reads Clang's JSON AST instead of relying on the token parser alone.
 
 Optional flags:
 
 ```bash
 ./build/debug/nari tools/ffi_bindgen.nari \
-  --input win32.h \
-  --output win32_bindings.nari \
-  --cc x86_64-w64-mingw32-gcc \
-  --abi llp64 \
-  --cppflags "-I/path/to/includes -DUNICODE"
+  --input header.h \
+  --output bindings.nari \
+  --cc clang \
+  --abi lp64 \
+  --cppflags "-I/path/to/includes -DSOME_MACRO"
 ```
 
 Current supported subset:
