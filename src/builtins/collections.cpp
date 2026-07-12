@@ -1226,8 +1226,8 @@ static srell::regex_constants::syntax_option_type srell_flags_from_string(const 
     return opts;
 }
 
-// __regex_new(pattern, flags?) -> regex value. Validates pattern by attempting
-// to compile it; throws RegexError on malformed input.
+// __regex_new(pattern, flags?) -> Result<regex, string>. Validates pattern by
+// attempting to compile it; returns Err(RegexError message) on malformed input.
 Value ScriptRuntime::builtin_regex_new(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 1 || !argvals[0].is_string()) {
         runtime_fatal("TypeError: '__regex_new' expects a pattern string", call);
@@ -1241,13 +1241,14 @@ Value ScriptRuntime::builtin_regex_new(const Value *argvals, size_t argc, const 
     // compile-check up front so errors surface at construction, not first use.
     // The build defines SRELL_NO_THROW (see src/builtins/common.h), so srell
     // does NOT throw on bad patterns -- it leaves a non-zero ecode() instead.
-    // We surface that as a catchable script_throw.
+    // We surface that as an Err result.
     srell::u8cregex re(pattern, srell_flags_from_string(flags));
     if (re.ecode() != 0) {
-        return script_throw("RegexError: invalid pattern (srell error " +
-                            std::to_string((int)re.ecode()) + ")");
+        return make_err(Value::make_string(
+            "RegexError: invalid pattern (srell error " +
+            std::to_string((int)re.ecode()) + ")"));
     }
-    return Value::make_regex(std::move(pattern), std::move(flags));
+    return make_ok(Value::make_regex(std::move(pattern), std::move(flags)));
 }
 
 // regex.test(string) -> bool
@@ -2145,11 +2146,11 @@ struct JsonDirectParser {
 };
 } // namespace
 
-// __json_parse(jsonString) -> value
+// __json_parse(jsonString) -> Result<value, string>
 Value ScriptRuntime::builtin_json_parse(const Value *argvals, size_t argc, const CallExpr *call) {
-    (void)call;
     if (argc < 1 || !argvals[0].is_string()) {
-        return script_throw("TypeError: JSON.parse requires a string argument");
+        runtime_fatal("TypeError: JSON.parse requires a string argument", call);
+        return Value::none();
     }
     const std::string &src = argvals[0].get_string();
     // persist the last object shape to attempt to avoid recompiling for homogeneous records
@@ -2165,9 +2166,9 @@ Value ScriptRuntime::builtin_json_parse(const Value *argvals, size_t argc, const
         }
     }
     if (!jp.ok) {
-        return script_throw("SyntaxError: JSON.parse failed: " + jp.err);
+        return make_err(Value::make_string("SyntaxError: JSON.parse failed: " + jp.err));
     }
-    return result;
+    return make_ok(result);
 }
 
 // Append JSON-escaped string contents (no surrounding quotes) to `out`, matching
@@ -2339,10 +2340,10 @@ static bool value_to_json_string(const Value &v, std::string &out, std::vector<c
     return true;
 }
 
-// __json_stringify(value[, indent]) -> string
+// __json_stringify(value[, indent]) -> Result<string, string>
 Value ScriptRuntime::builtin_json_stringify(const Value *argvals, size_t argc, const CallExpr *) {
     if (argc < 1) {
-        return Value::make_string("null");
+        return make_ok(Value::make_string("null"));
     }
     int indent = -1;
     if (argc >= 2) {
@@ -2360,18 +2361,20 @@ Value ScriptRuntime::builtin_json_stringify(const Value *argvals, size_t argc, c
         std::string out;
         out.reserve(64);
         if (!value_to_json_string(argvals[0], out, seen)) {
-            return script_throw("TypeError: JSON.stringify: cyclic or too deeply nested structure");
+            return make_err(Value::make_string(
+                "TypeError: JSON.stringify: cyclic or too deeply nested structure"));
         }
-        return Value::make_string(std::move(out));
+        return make_ok(Value::make_string(std::move(out)));
     }
     bool ok = true;
     try {
         nlohmann::json j = value_to_json(argvals[0], seen, ok);
         if (!ok) {
-            return script_throw("TypeError: JSON.stringify: cyclic or too deeply nested structure");
+            return make_err(Value::make_string(
+                "TypeError: JSON.stringify: cyclic or too deeply nested structure"));
         }
-        return Value::make_string(j.dump(indent));
+        return make_ok(Value::make_string(j.dump(indent)));
     } catch (...) {
-        return Value::make_string("null");
+        return make_ok(Value::make_string("null"));
     }
 }

@@ -3,7 +3,7 @@
 import { Random } from "std/random";
 
 func check(name, cond) {
-    if (!cond) { throw "Random test failed: " @ name; }
+    if (!cond) { panic("Random test failed: " @ name); }
 }
 
 // Determinism: same seed -> identical sequence

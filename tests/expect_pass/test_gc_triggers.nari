@@ -8,14 +8,14 @@ system.print("=== GC Trigger Tests ===\n");
 let assert = func(cond, msg) {
     if (!cond) {
         system.print("[FAIL] " @ msg);
-        throw "assertion failed: " @ msg;
+        panic("assertion failed: " @ msg);
     }
     system.print("[pass] " @ msg);
 };
 let assertGe = func(a, b, msg) {
     if (a < b) {
         system.print("[FAIL] " @ msg @ " (got " @ a @ ", expected >= " @ b @ ")");
-        throw "assertion failed: " @ msg;
+        panic("assertion failed: " @ msg);
     }
     system.print("[pass] " @ msg @ " (" @ a @ " >= " @ b @ ")");
 };
@@ -331,22 +331,19 @@ assert(n14a.nxt.id == 2, "n14b still accessible through n14a");
 assert(n14a.nxt.nxt.id == 3, "n14c still accessible through n14a.nxt");
 system.print("");
 
-// Test 15: Cycle created then caught via try/catch: ensure GC works normally after exception handling.
-system.print("[Test 15] GC after try/catch with cycle in try block");
+// Test 15: Cycle created inside a local function scope becomes unreachable
+// after the function returns: ensure GC collects it normally.
+system.print("[Test 15] GC after function scope exit with cycle in body");
 
-let tryCycleFunc = func() {
-    try {
-        let ta = { ref: null };
-        let tb = { ref: ta };
-        ta.ref = tb;
-        throw "deliberate";
-    } catch (e) {
-        // ta and tb should now be unreachable
-    }
+let scopeCycleFunc = func() {
+    let ta = { ref: null };
+    let tb = { ref: ta };
+    ta.ref = tb;
+    // ta and tb become unreachable once this function returns
 };
-tryCycleFunc();
+scopeCycleFunc();
 let result15 = __gc_collect();
-assertGe(result15.collected, 2, "Cycle from try block collected after catch");
+assertGe(result15.collected, 2, "Cycle from function scope collected after return");
 system.print("");
 
 // Test 16: Re-entrant GC: calling __gc_collect() inside a function that also creates cycles.

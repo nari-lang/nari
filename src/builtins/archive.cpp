@@ -225,9 +225,10 @@ struct FileGuard {
 
 } // namespace
 
-// Convert a ArchiveError into a runtime throw
-static Value raise_archive_throw(ScriptRuntime *rt, const ArchiveError &e) {
-    return rt->script_throw(e.msg);
+// Convert an ArchiveError (internal C++ cleanup-unwind exception) into an
+// Err(message) result value.
+static Value raise_archive_err(ScriptRuntime *rt, const ArchiveError &e) {
+    return rt->make_err(Value::make_string(e.msg));
 }
 
 Value ScriptRuntime::builtin_archive_list(const Value *argvals, size_t argc, const nari::CallExpr *call) {
@@ -278,9 +279,9 @@ Value ScriptRuntime::builtin_archive_list(const Value *argvals, size_t argc, con
             entries.push_back(e);
         }
 
-        return Value::make_array(std::move(entries));
+        return make_ok(Value::make_array(std::move(entries)));
     } catch (const ArchiveError &e) {
-        return raise_archive_throw(this, e);
+        return raise_archive_err(this, e);
     }
 }
 
@@ -456,9 +457,9 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
         ObjectObj *r = result.get_obj_ptr();
         r->set_field("files", Value::make_int_checked(files));
         r->set_field("bytes", Value::make_int_checked(bytes));
-        return result;
+        return make_ok(result);
     } catch (const ArchiveError &e) {
-        return raise_archive_throw(this, e);
+        return raise_archive_err(this, e);
     }
 }
 
@@ -634,8 +635,8 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
         ObjectObj *r = result.get_obj_ptr();
         r->set_field("files", Value::make_int_checked(file_count));
         r->set_field("bytes", Value::make_int_checked(out_bytes));
-        return result;
+        return make_ok(result);
     } catch (const ArchiveError &e) {
-        return raise_archive_throw(this, e);
+        return raise_archive_err(this, e);
     }
 }

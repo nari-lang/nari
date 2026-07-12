@@ -225,12 +225,21 @@ func handle_request(conn) {
             return;
         }
 
-        let file = fs.read_file(file_path).await;
-        if (file.is_err()) {
-            let body500 = "500 Internal Server Error\nError reading file: " + file;
+        let read_handle = fs.read_file(file_path);
+        // wait for the read to finish, then inspect the handle
+        while (!read_handle.ready) {}
+        if (read_handle.failed) {
+            let e = read_handle.error;
+            let body500 = "500 Internal Server Error\nError reading file: " + e;
             let response500 = build_response("500", "Internal Server Error", "text/plain", body500);
-            print(`  -> 500 Error: {file}`);
-            conn.write(conn, response500);
+            print(`  -> 500 Error: {e}`);
+            conn.write(conn, response500, func(write_err) {});
+        } else {
+            let content = read_handle.value;
+            let mime_type = get_mime_type(file_path) ?? "application/octet-stream";
+            let response200 = build_response("200", "OK", mime_type, content);
+            print(`  -> 200 OK ({mime_type})`);
+            conn.write(conn, response200, func(write_err) {});
         }
 
         let content = file.unwrap();

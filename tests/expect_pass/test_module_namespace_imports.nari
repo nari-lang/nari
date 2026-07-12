@@ -2,25 +2,25 @@ import json from "../dep/module_exports.nari";
 import { times_two as times2, magic_number, increment } from "../dep/module_exports.nari";
 
 if (json.times_two(21) != 42) {
-    throw "namespace import did not expose exported function";
+    panic("namespace import did not expose exported function");
 }
 
 if (json.magic_number != 41) {
-    throw "namespace import did not expose exported let binding";
+    panic("namespace import did not expose exported let binding");
 }
 
 if (json.increment(4) != 5) {
-    throw "namespace import did not expose aliased export";
+    panic("namespace import did not expose aliased export");
 }
 
 if (times2(8) != 16) {
-    throw "named import alias failed";
+    panic("named import alias failed");
 }
 
 if (magic_number != 41) {
-    throw "named import of let binding failed";
+    panic("named import of let binding failed");
 }
 
 if (increment(9) != 10) {
-    throw "named import of aliased function failed";
+    panic("named import of aliased function failed");
 }

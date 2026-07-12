@@ -211,7 +211,7 @@ let wndProcPtr = __ffi_create_callback({
 }, demoWndProc);
 
 if (wndProcPtr == 0) {
-    throw "Failed to create window procedure callback";
+    panic("Failed to create window procedure callback");
 }
 
 // Get module handle
@@ -243,7 +243,7 @@ if (atom == 0) {
     if (regErr != ERROR_CLASS_ALREADY_EXISTS) {
         __ffi_free(classNameW);
         __ffi_free_callback(wndProcPtr);
-        throw "RegisterClassExW failed. GetLastError=" @ to_string(regErr);
+        panic("RegisterClassExW failed. GetLastError=" @ to_string(regErr));
     }
 }
 
@@ -264,7 +264,7 @@ let hwnd = user32.CreateWindowExW(
 
 if (hwnd == 0) {
     let err = kernel32.GetLastError();
-    throw "CreateWindowExW failed. GetLastError=" @ to_string(err);
+    panic("CreateWindowExW failed. GetLastError=" @ to_string(err));
 }
 
 print("Created HWND: " @ to_string(hwnd));

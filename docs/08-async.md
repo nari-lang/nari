@@ -369,13 +369,12 @@ func processItem(item) {
 
 ```nari
 let handle = spawn {
-    try {
-        let response = http.fetch("https://invalid-url.com");
-        return response;
-    } catch (e) {
-        print("Request failed: " @ e);
+    let response = http.fetch("https://invalid-url.com");  // returns Result
+    if (response.is_err()) {
+        print("Request failed: " @ response.unwrap_err());
         return null;
     }
+    return response.unwrap();
 };
 
 let result = handle.value;
@@ -426,12 +425,12 @@ spawn {
 
 ```nari
 spawn {
-    try {
-        let result = riskyOperation();
-        process(result);
-    } catch (error) {
-        print("Error: " @ error);
+    let result = riskyOperation();   // returns Result
+    if (result.is_err()) {
+        print("Error: " @ result.unwrap_err());
+        return;
     }
+    process(result.unwrap());
 };
 ```
 
@@ -452,4 +451,4 @@ set_timeout(func() {
 
 - [Modules](09-modules.md) - Organizing async code into modules
 - [Standard Library](12-stdlib.md) - http and net modules
-- [Error Handling](10-error-handling.md) - try/catch in async code
+- [Error Handling](10-error-handling.md) - Result/Option in async code

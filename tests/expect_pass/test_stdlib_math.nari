@@ -8,7 +8,7 @@ func approx(a, b) {
 
 func check(name, cond) {
     if (!cond) {
-        throw "math test failed: " @ name;
+        panic("math test failed: " @ name);
     }
 }
 

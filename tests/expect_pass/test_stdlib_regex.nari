@@ -3,11 +3,11 @@
 import { Regex } from "std/regex";
 
 func check(name, cond) {
-    if (!cond) { throw "Regex test failed: " @ name; }
+    if (!cond) { panic("Regex test failed: " @ name); }
 }
 
 // Regex.new + .test method
-let r = Regex.new("\\d+", "");
+let r = Regex.new("\\d+", "").unwrap();
 check("new+test hit", r.test("abc 123"));
 check("new+test miss", !r.test("abc def"));
 
@@ -45,19 +45,16 @@ check("split[1]", parts[1] == "two");
 check("split[2]", parts[2] == "three");
 
 // Flags: case-insensitive
-let ci = Regex.new("foo", "i");
+let ci = Regex.new("foo", "i").unwrap();
 check("ci flag hit", ci.test("FOO bar"));
 check("ci flag literal", ci.test("foo bar"));
 
-// Bad pattern -> RegexError. Need try/catch (use a sentinel since we can't
-// know exact error class semantics). The runtime throws RegexError via
-// runtime_fatal; treat presence of caught error as success.
-let caught = false;
-try {
-    Regex.new("[unclosed", "");
-} catch (e) {
-    caught = true;
-}
-check("bad pattern throws", caught);
+// Bad pattern -> Err(RegexError). Regex.new returns Result<regex, string>.
+let bad = Regex.new("[unclosed", "");
+check("bad pattern is_err", bad.is_err());
+
+// Good pattern -> Ok(regex).
+let good = Regex.new("\\d+", "");
+check("good pattern is_ok", good.is_ok());
 
 print("Regex stdlib OK");

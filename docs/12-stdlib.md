@@ -378,17 +378,17 @@ func fetchUser(userId) {
     let response = await http.fetch(url);
     
     if (response.status_code == 200) {
-        return response.body;
+        return Ok(response.body);
     } else {
-        throw "Failed to fetch user: " @ response.status_code;
+        return Err("Failed to fetch user: " @ response.status_code);
     }
 }
 
-try {
-    let userData = fetchUser(123);
-    print("User data: " @ userData);
-} catch (e) {
-    print("Error: " @ e);
+let userData = fetchUser(123);
+if (userData.is_ok()) {
+    print("User data: " @ userData.unwrap());
+} else {
+    print("Error: " @ userData.unwrap_err());
 }
 ```
 

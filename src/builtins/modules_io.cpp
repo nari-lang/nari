@@ -150,7 +150,7 @@ Value ScriptRuntime::builtin_time(const Value *, size_t, const nari::CallExpr *)
 //  ISO-8601 / RFC-3339 input
 //
 // "utc" is a bool: true -> UTC, false -> local time.
-// On parse error, helpers script_throw a catchable DateError.
+// On parse error, helpers return an Err result with a DateError message.
 namespace {
 
 // Cross-platform local-time conversion. Returns false on overflow.
@@ -221,10 +221,12 @@ Value ScriptRuntime::builtin_time_now_ms(const Value *, size_t, const nari::Call
 
 Value ScriptRuntime::builtin_time_components(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 1 || argc > 2) {
-        return script_throw("DateError: __time_components(ms, utc=true) expects 1..2 args");
+        runtime_fatal("DateError: __time_components(ms, utc=true) expects 1..2 args", call);
+        return Value::none();
     }
     if (!argvals[0].is_int() && !argvals[0].is_float()) {
-        return script_throw("DateError: ms must be a number");
+        runtime_fatal("DateError: ms must be a number", call);
+        return Value::none();
     }
     int64_t ms = argvals[0].is_int() ? argvals[0].get_int()
                                      : static_cast<int64_t>(argvals[0].get_float());
@@ -233,7 +235,7 @@ Value ScriptRuntime::builtin_time_components(const Value *argvals, size_t argc, 
     tm tm{};
     int sub_ms = 0;
     if (!ms_to_tm(ms, utc, tm, sub_ms)) {
-        return script_throw("DateError: timestamp out of range");
+        return make_err(Value::make_string("DateError: timestamp out of range"));
     }
     Value obj = Value::make_object();
     ObjectObj *o = obj.get_obj_ptr();
@@ -247,15 +249,17 @@ Value ScriptRuntime::builtin_time_components(const Value *argvals, size_t argc, 
     o->set_field("weekday", Value::make_int(tm.tm_wday));
     o->set_field("yearday", Value::make_int(tm.tm_yday + 1));
     o->set_field("utc", Value::make_bool(utc));
-    return obj;
+    return make_ok(obj);
 }
 
 Value ScriptRuntime::builtin_time_from_components(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 1 || argc > 2) {
-        return script_throw("DateError: __time_from_components expects 1..2 args");
+        runtime_fatal("DateError: __time_from_components expects 1..2 args", call);
+        return Value::none();
     }
     if (!argvals[0].is_object()) {
-        return script_throw("DateError: first arg must be an object with date fields");
+        runtime_fatal("DateError: first arg must be an object with date fields", call);
+        return Value::none();
     }
     const ObjectObj *o = argvals[0].get_obj_ptr();
     bool utc = (argc < 2) ? true : argvals[1].is_bool() ? argvals[1].get_bool()
@@ -268,7 +272,8 @@ Value ScriptRuntime::builtin_time_from_components(const Value *argvals, size_t a
         !get_int_field(o, "minute", minute, 0) ||
         !get_int_field(o, "second", second, 0) ||
         !get_int_field(o, "ms", sub_ms, 0)) {
-        return script_throw("DateError: date fields must be numbers");
+        runtime_fatal("DateError: date fields must be numbers", call);
+        return Value::none();
     }
     std::tm tm{};
     tm.tm_year = static_cast<int>(year - 1900);
@@ -280,21 +285,24 @@ Value ScriptRuntime::builtin_time_from_components(const Value *argvals, size_t a
     tm.tm_isdst = -1; // let libc decide
     std::time_t t = tm_to_time(tm, utc);
     if (t == static_cast<std::time_t>(-1)) {
-        return script_throw("DateError: invalid date components");
+        return make_err(Value::make_string("DateError: invalid date components"));
     }
     int64_t ms = static_cast<int64_t>(t) * 1000 + sub_ms;
-    return Value::make_int(ms);
+    return make_ok(Value::make_int(ms));
 }
 
 Value ScriptRuntime::builtin_time_format(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 2 || argc > 3) {
-        return script_throw("DateError: __time_format(ms, fmt, utc=true) expects 2..3 args");
+        runtime_fatal("DateError: __time_format(ms, fmt, utc=true) expects 2..3 args", call);
+        return Value::none();
     }
     if (!argvals[0].is_int() && !argvals[0].is_float()) {
-        return script_throw("DateError: ms must be a number");
+        runtime_fatal("DateError: ms must be a number", call);
+        return Value::none();
     }
     if (!argvals[1].is_string()) {
-        return script_throw("DateError: fmt must be a string");
+        runtime_fatal("DateError: fmt must be a string", call);
+        return Value::none();
     }
     int64_t ms = argvals[0].is_int() ? argvals[0].get_int()
                                      : static_cast<int64_t>(argvals[0].get_float());
@@ -304,7 +312,7 @@ Value ScriptRuntime::builtin_time_format(const Value *argvals, size_t argc, cons
     std::tm tm{};
     int sub_ms = 0;
     if (!ms_to_tm(ms, utc, tm, sub_ms)) {
-        return script_throw("DateError: timestamp out of range");
+        return make_err(Value::make_string("DateError: timestamp out of range"));
     }
     // Custom token: %L -> 3-digit milliseconds. Substitute before strftime so
     // the format string passed to libc never contains %L.
@@ -331,17 +339,18 @@ Value ScriptRuntime::builtin_time_format(const Value *argvals, size_t argc, cons
         size_t n = std::strftime(&out[0], cap, fmt.c_str(), &tm);
         if (n > 0) {
             out.resize(n);
-            return Value::make_string(out);
+            return make_ok(Value::make_string(out));
         }
         // strftime returns 0 when output doesn't fit OR when format produces an empty string, attempt to grow buffer.
         cap *= 2;
     }
-    return Value::make_string("");
+    return make_ok(Value::make_string(""));
 }
 
 Value ScriptRuntime::builtin_time_parse_iso(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc != 1 || !argvals[0].is_string()) {
-        return script_throw("DateError: __time_parse_iso(s) expects 1 string arg");
+        runtime_fatal("DateError: __time_parse_iso(s) expects 1 string arg", call);
+        return Value::none();
     }
     const std::string &s = argvals[0].get_string();
     // Accept:  YYYY-MM-DD
@@ -356,7 +365,7 @@ Value ScriptRuntime::builtin_time_parse_iso(const Value *argvals, size_t argc, c
     bool saw_tz = false;
     size_t i = 0;
     auto fail = [&]() {
-        return script_throw("DateError: invalid ISO-8601 string: '" + s + "'");
+        return make_err(Value::make_string("DateError: invalid ISO-8601 string: '" + s + "'"));
     };
     auto read_int = [&](int width, int &out) -> bool {
         if (i + static_cast<size_t>(width) > s.size()) {
@@ -478,7 +487,7 @@ Value ScriptRuntime::builtin_time_parse_iso(const Value *argvals, size_t argc, c
         int64_t off_sec = (tz_h * 3600 + tz_m * 60) * tz_sign;
         ms -= off_sec * 1000;
     }
-    return Value::make_int(ms);
+    return make_ok(Value::make_int(ms));
 }
 
 // URL percent-encoding helpers
@@ -505,9 +514,10 @@ bool url_is_path_safe(unsigned char c) {
 
 } // namespace
 
-Value ScriptRuntime::builtin_url_encode(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_url_encode(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 1 || !argvals[0].is_string()) {
-        return script_throw("URLError: __url_encode(s, mode='component') expects a string");
+        runtime_fatal("URLError: __url_encode(s, mode='component') expects a string", call);
+        return Value::none();
     }
     const std::string &s = argvals[0].get_string();
     bool path_mode = false;
@@ -529,9 +539,10 @@ Value ScriptRuntime::builtin_url_encode(const Value *argvals, size_t argc, const
     return Value::make_string(std::move(out));
 }
 
-Value ScriptRuntime::builtin_url_decode(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_url_decode(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 1 || !argvals[0].is_string()) {
-        return script_throw("URLError: __url_decode(s, plus=false) expects a string");
+        runtime_fatal("URLError: __url_decode(s, plus=false) expects a string", call);
+        return Value::none();
     }
     const std::string &s = argvals[0].get_string();
     bool plus_mode = (argc >= 2 && argvals[1].is_bool() && argvals[1].get_bool());
@@ -557,14 +568,16 @@ Value ScriptRuntime::builtin_url_decode(const Value *argvals, size_t argc, const
         char c = s[i];
         if (c == '%') {
             if (i + 2 >= s.size()) {
-                return script_throw("URLError: truncated percent-escape at end of string");
+                return make_err(Value::make_string(
+                    "URLError: truncated percent-escape at end of string"));
             }
             bool ok_hi = false, ok_lo = false;
             int hi = from_hex(s[i + 1], ok_hi);
             int lo = from_hex(s[i + 2], ok_lo);
             if (!ok_hi || !ok_lo) {
-                return script_throw(std::string("URLError: invalid hex digits in '%") +
-                                    s[i + 1] + s[i + 2] + "'");
+                return make_err(Value::make_string(
+                    std::string("URLError: invalid hex digits in '%") +
+                    s[i + 1] + s[i + 2] + "'"));
             }
             out.push_back(static_cast<char>((hi << 4) | lo));
             i += 2;
@@ -574,5 +587,5 @@ Value ScriptRuntime::builtin_url_decode(const Value *argvals, size_t argc, const
             out.push_back(c);
         }
     }
-    return Value::make_string(std::move(out));
+    return make_ok(Value::make_string(std::move(out)));
 }

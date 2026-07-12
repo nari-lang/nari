@@ -14,7 +14,8 @@ export let Date = {
   // Returns ms-since-epoch (int).
   now: func() { return __time_now_ms(); },
 
-  // Construct a UTC timestamp from components. month is 1..12.
+  // Construct a UTC timestamp (int ms) from components. month is 1..12.
+  // Panics on invalid components
   utc: func(year, month, day, hour, minute, second, ms) {
     if (hour == null) { hour = 0; }
     if (minute == null) { minute = 0; }
@@ -28,16 +29,19 @@ export let Date = {
         minute: minute,
         second: second,
         ms: ms
-    }, true);
+    }, true).unwrap();
   },
 
-  // Parse an ISO-8601 / RFC-3339 string. Throws DateError on failure.
+  // Parse an ISO-8601 / RFC-3339 string -> Result<int ms, string>.
+  // Ok(ms) on success
+  // Err(message) on malformed input.
   parse_iso: func(s) { return __time_parse_iso(s); },
 
-  // strftime-style format. utc defaults to true.
+  // strftime-style format -> string. utc defaults to true.
+  // Panics if the timestamp is out of range.
   format: func(ms, fmt, utc) {
     if (utc == null) { utc = true; }
-    return __time_format(ms, fmt, utc);
+    return __time_format(ms, fmt, utc).unwrap();
   },
 
   // Build a Date instance from ms. opts.utc defaults to true.
@@ -46,7 +50,7 @@ export let Date = {
     if (opts != null && opts.utc != null) {
         use_utc = opts.utc;
     }
-    let c = __time_components(ms, use_utc);
+    let c = __time_components(ms, use_utc).unwrap();
     let self = {
         ms: ms,
         year: c.year, month: c.month, day: c.day,
@@ -80,7 +84,7 @@ export let Date = {
         @ "." @ pad3(self.millis) @ suffix;
     };
     self.format = func(fmt) {
-        return __time_format(self.ms, fmt, self.utc);
+        return __time_format(self.ms, fmt, self.utc).unwrap();
     };
     self.add_ms = func(n) {
         return Date.from_ms(self.ms + n, { utc: self.utc });

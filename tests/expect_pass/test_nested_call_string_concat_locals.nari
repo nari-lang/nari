@@ -8,13 +8,13 @@ func main() {
     let c = suffix(b);
 
     if (a != "root") {
-        throw "nested call mutated original local";
+        panic("nested call mutated original local");
     }
     if (b != "root/suffix") {
-        throw "nested call mutated intermediate local";
+        panic("nested call mutated intermediate local");
     }
     if (c != "root/suffix/suffix") {
-        throw "nested call returned wrong final value";
+        panic("nested call returned wrong final value");
     }
 
     print("success!");

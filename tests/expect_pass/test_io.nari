@@ -7,7 +7,7 @@ if (content == "test content") {
     system.print("Read/write successful")
 } else {
     system.print("Read/write failed")
-    throw `Read/write failed: got {content}`
+    panic(`Read/write failed: got {content}`);
 }
 
 fs.append_file("__test_temp__.txt", " appended").await
@@ -19,7 +19,7 @@ if (appended == "test content appended") {
     system.print("Append successful")
 } else {
     system.print("Append failed: got " @ appended)
-    throw `Append failed: got {appended}`
+    panic(`Append failed: got {appended}`);
 }
 
 let exists = fs.file_exists("__test_temp__.txt")
@@ -29,7 +29,7 @@ if (exists) {
     system.print("File exists check successful")
 } else {
     system.print("File exists check failed");
-    throw "File should exist"
+    panic("File should exist");
 }
 
 let files = fs.list_dir(".")

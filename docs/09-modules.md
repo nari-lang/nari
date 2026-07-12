@@ -384,7 +384,7 @@ func validateEmail(email) {
 global User = {
     create: func(name, email) {
         if (!validateEmail(email)) {
-            throw "Invalid email";
+            panic("Invalid email");
         }
         return { name: name, email: email };
     }
@@ -428,5 +428,5 @@ Current module system limitations:
 
 ## Next Steps
 
-- [Error Handling](10-error-handling.md) - Using try/catch in modules
+- [Error Handling](10-error-handling.md) - Using Result/Option in modules
 - [Standard Library](12-stdlib.md) - Built-in modules

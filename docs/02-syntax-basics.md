@@ -324,8 +324,8 @@ Keywords that cannot be used as identifiers:
 
 ```
 if, else, while, for, in, func, return, break, continue,
-let, global, switch, case, default, try, catch, finally,
-throw, spawn, import, type, true, false, null
+let, global, switch, case, default, spawn, import, type,
+true, false, null
 ```
 
 ## Next Steps

@@ -1,5 +1,5 @@
 func assert(cond, msg) {
-    if (!cond) throw msg;
+    if (!cond) panic(msg);
 }
 
 func run_heap_property_set() {

@@ -19,7 +19,7 @@ func usage() {
 }
 
 func die(message) {
-    throw "ffi_bindgen: " @ message
+    panic("ffi_bindgen: " @ message);
 }
 
 func shellQuote(text) {
@@ -137,8 +137,8 @@ func isNariKeyword(word) {
         "return": true, "if": true, "else": true, "for": true, "while": true,
         "in": true, "break": true, "continue": true, "class": true, "type": true,
         "enum": true, "new": true, "import": true, "export": true, "true": true,
-        "false": true, "not": true, "try": true, "catch": true, "finally": true,
-        "throw": true, "const": true, "var": true, "foreach": true, "match": true,
+        "false": true, "not": true,
+        "const": true, "var": true, "foreach": true, "match": true,
         "and": true, "or": true, "null": true
     }
     return kw.has_key(word)
@@ -285,13 +285,8 @@ func objectProp(obj, key) {
     if (obj == null || typeof(obj) != "object") {
         return null
     }
-    let value = null
-    try {
-        value = obj[key]
-    } catch (e) {
-        value = null
-    }
-    return value
+    // Index access on an object never throws: missing keys yield null.
+    return obj[key]
 }
 
 func joinTokens(tokens, sep) {
@@ -1379,7 +1374,7 @@ func parseTypeSpec(tokens, abi) {
 
 func cloneType(typeRef) {
     if (typeRef == null) return null
-    return JSON.parse(JSON.stringify(typeRef))
+    return JSON.parse(JSON.stringify(typeRef).unwrap()).unwrap()
 }
 
 func makePrimitiveType(value) {
@@ -1442,30 +1437,20 @@ func normalizeTypeRef(typeRef) {
         return null
     }
 
-    let kind = null
-    try {
-        kind = typeRef.kind
-    } catch (e) {
+    // typeRef is an object here: property access on a missing key yields null
+    // rather than throwing, so objectProp is safe.
+    let kind = objectProp(typeRef, "kind")
+    if (kind == null) {
         return null
     }
 
     if (kind == "pointer") {
-        let target = null
-        try {
-            target = normalizeTypeRef(typeRef.target)
-        } catch (e) {
-            target = null
-        }
+        let target = normalizeTypeRef(objectProp(typeRef, "target"))
         return makePointerType(target)
     }
 
     if (kind == "primitive" || kind == "named" || kind == "struct") {
-        let value = null
-        try {
-            value = typeRef.value
-        } catch (e) {
-            value = null
-        }
+        let value = objectProp(typeRef, "value")
         if (value == null) {
             return null
         }
@@ -1473,12 +1458,7 @@ func normalizeTypeRef(typeRef) {
     }
 
     if (kind == "unsupported") {
-        let text = null
-        try {
-            text = typeRef.text
-        } catch (e) {
-            text = null
-        }
+        let text = objectProp(typeRef, "text")
         return makeUnsupportedType(text == null ? "" : text)
     }
 
@@ -1489,12 +1469,7 @@ func safeName(obj, fallback) {
     if (obj == null || typeof(obj) != "object") {
         return fallback
     }
-    let name = null
-    try {
-        name = obj.name
-    } catch (e) {
-        name = null
-    }
+    let name = objectProp(obj, "name")
     return name == null ? fallback : name
 }
 
@@ -2715,12 +2690,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             lines.push("type " @ structName @ " {")
             for (field in st.fields) {
                 let fieldName = safeName(field, "field")
-                let fieldType = null
-                try {
-                    fieldType = toNariTypeName(field.type, aliases)
-                } catch (e) {
-                    fieldType = null
-                }
+                let fieldType = toNariTypeName(objectProp(field, "type"), aliases)
                 if (fieldType == null || fieldType == "void" || !isValidNariTypeName(fieldType)) {
                     // Field types that we can't resolve cleanly (anonymous
                     // unions, inline sub-structs from typedefs, flexible
@@ -2749,12 +2719,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             if (enumAliasSet.has_key(name)) {
                 continue
             }
-            let aliasType = null
-            try {
-                aliasType = toNariTypeName(aliases[name], aliases)
-            } catch (e) {
-                aliasType = null
-            }
+            let aliasType = toNariTypeName(aliases[name], aliases)
             if (aliasType != null && aliasType != name) {
                 lines.push("type " @ name @ " " @ aliasType @ ";")
             }
@@ -2866,28 +2831,24 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
 
         for (fn in functions) {
             let fnName = safeName(fn, "anonymous_function")
-            let returnExpr = null
-            let sigName = null
-            try {
-                returnExpr = toFfiExpr(fn.returnType, aliases)
-                sigName = buildSignatureName(fn.returnType, fn.params, fn.variadic, fn.fixedCount, aliases)
-            } catch (e) {
-                returnExpr = null
-                sigName = null
+            let fnReturnType = objectProp(fn, "returnType")
+            let fnParams = objectProp(fn, "params")
+            let fnVariadic = objectProp(fn, "variadic")
+            let fnFixedCount = objectProp(fn, "fixedCount")
+            // params must be iterable for the signature/param passes below.
+            if (fnParams == null || typeof(fnParams) != "array") {
+                continue
             }
+            let returnExpr = toFfiExpr(fnReturnType, aliases)
+            let sigName = buildSignatureName(fnReturnType, fnParams, fnVariadic, fnFixedCount, aliases)
             if (returnExpr == null || sigName == null) {
                 continue
             }
 
             let paramExprs = []
             let okay = true
-            for (paramType in fn.params) {
-                let expr = null
-                try {
-                    expr = toFfiExpr(paramType, aliases)
-                } catch (e) {
-                    expr = null
-                }
+            for (paramType in fnParams) {
+                let expr = toFfiExpr(paramType, aliases)
                 if (expr == null) {
                     okay = false
                     break
@@ -2902,9 +2863,9 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             let key = JSON.stringify({
                 returns: returnExpr,
                 params: paramExprs,
-                variadic: fn.variadic,
-                fixed: fn.fixedCount
-            })
+                variadic: fnVariadic,
+                fixed: fnFixedCount
+            }).unwrap()
 
             if (!signaturePool.has_key(key)) {
                 let uniqueName = sigName
@@ -2918,20 +2879,21 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
                     name: uniqueName,
                     returns: returnExpr,
                     params: paramExprs,
-                    variadic: fn.variadic,
-                    fixed: fn.fixedCount
+                    variadic: fnVariadic,
+                    fixed: fnFixedCount
                 }
                 usedSignatureNames[uniqueName] = true
                 signatureOrder.push(key)
             }
 
+            let fnParamNames = objectProp(fn, "paramNames")
             let paramDecls = []
             let argExprs = []
             let paramIndex = 0
-            for (paramType in fn.params) {
+            for (paramType in fnParams) {
                 let rawName = null
-                if (fn.paramNames != null && paramIndex < fn.paramNames.length()) {
-                    rawName = fn.paramNames[paramIndex]
+                if (fnParamNames != null && paramIndex < fnParamNames.length()) {
+                    rawName = fnParamNames[paramIndex]
                 }
                 let paramName = safeParamName(rawName == null ? "arg" @ to_string(paramIndex) : rawName)
                 paramDecls.push(paramName)
@@ -2939,7 +2901,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
                 paramIndex = paramIndex + 1
             }
 
-            if (fn.variadic) {
+            if (fnVariadic) {
                 paramDecls.push("varargs")
             }
 
@@ -2956,7 +2918,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
                 // multi-lib: route through the cached call helper.
                 callTarget = callHelperName @ "(\"" @ fnName @ "\", " @ sigVar @ ", "
             }
-            if (fn.variadic) {
+            if (fnVariadic) {
                 wrapperLines.push("        let argList = [" @ joinTokens(argExprs, ", ") @ "]")
                 wrapperLines.push("        if (varargs != null) {")
                 wrapperLines.push("            let len = varargs.length()")
@@ -2991,7 +2953,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             lines.push("")
             lines.push("global " @ libVar @ " = " @ loaderName @ "();")
             lines.push("if (!" @ libVar @ ") {")
-            lines.push("    throw \"Failed to load shared library: " @ dylibBase @ "\";")
+            lines.push("    panic(\"Failed to load shared library: " @ dylibBase @ "\");")
             lines.push("}")
             lines.push("")
         } else {
@@ -3032,7 +2994,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             lines.push("        }")
             lines.push("    }")
             lines.push("    if (loaded.length() == 0) {")
-            lines.push("        throw \"" @ wrapperName @ ": failed to load any native library (tried: \" @ JSON.stringify(failed) @ \")\"")
+            lines.push("        panic(\"" @ wrapperName @ ": failed to load any native library (tried: \" @ JSON.stringify(failed).unwrap() @ \")\")")
             lines.push("    }")
             lines.push("    return {")
             lines.push("        libs: loaded,")
@@ -3054,7 +3016,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             lines.push("            }")
             lines.push("        }")
             lines.push("        if (lib == null) {")
-            lines.push("            throw \"" @ wrapperName @ ": symbol '\" @ name @ \"' is not exported by any loaded library\"")
+            lines.push("            panic(\"" @ wrapperName @ ": symbol '\" @ name @ \"' is not exported by any loaded library\")")
             lines.push("        }")
             lines.push("    }")
             lines.push("    return __ffi_call(lib, name, sig, args)")
@@ -3355,7 +3317,7 @@ func main() {
         if (astText == null || astText == "") {
             die("clang JSON AST output is empty: " @ astPath)
         }
-        let astRoot = JSON.parse(astText)
+        let astRoot = JSON.parse(astText).unwrap()
         let parsedAst = parseClangJsonAst(astRoot, opts.abi)
         aliases = parsedAst.aliases
         enumAliasNames = parsedAst.enumAliasNames

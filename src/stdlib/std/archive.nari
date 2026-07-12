@@ -6,13 +6,13 @@
 //  import { Archive } from "std/archive";
 
 export let Archive = {
-  // Archive.list(path) -> [{ name, size, type, mtime }, ...]
+  // Archive.list(path) -> Result<[{ name, size, type, mtime }, ...], string>
   // type: "file" | "dir" | "symlink" | "other"
   list: func(path) {
       return __archive_list(path);
   },
 
-  // Archive.extract(archive_path, dest_dir, opts?) -> { files, bytes }
+  // Archive.extract(archive_path, dest_dir, opts?) -> Result<{ files, bytes }, string>
   // opts: { max_files?: int=10000, max_bytes?: int=1<<30, allow_links?: bool=false }
   // Rejects entries with absolute or escaping paths, and symlinks
   // (unless allow_links=true). dest_dir is created if needed.
@@ -20,7 +20,7 @@ export let Archive = {
       return __archive_extract(archive_path, dest_dir, opts);
   },
 
-  // Archive.create(archive_path, files, opts?) -> { files, bytes }
+  // Archive.create(archive_path, files, opts?) -> Result<{ files, bytes }, string>
   // Format inferred from extension: .tar / .tar.gz / .tgz / .zip.
   // `files`: array of either string (source path) or { src, dest }.
   // opts: { base_dir?: string } - when set, string sources are stored

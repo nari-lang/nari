@@ -3,7 +3,7 @@
 import { Map, Set } from "std/collections";
 
 func check(name, cond) {
-    if (!cond) { throw "Collections test failed: " @ name; }
+    if (!cond) { panic("Collections test failed: " @ name); }
 }
 
 let m = Map.create();

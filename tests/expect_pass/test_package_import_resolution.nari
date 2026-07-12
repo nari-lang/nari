@@ -1,7 +1,7 @@
 import math from "../dep/package_import_app/src/main.nari";
 
 if (math.run_checks() != "ok") {
-    throw "package import resolution failed";
+    panic("package import resolution failed");
 }
 
 print("success!");

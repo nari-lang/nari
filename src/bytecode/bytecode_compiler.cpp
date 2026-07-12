@@ -1590,58 +1590,6 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (auto *throw_stmt = dynamic_cast<const ThrowStmt *>(stmt)) {
-        if (throw_stmt->value) {
-            compile_expr(throw_stmt->value.get());
-        } else {
-            ctx->emit_op(OpCode::OP_LOAD_NONE);
-        }
-        ctx->emit_op(OpCode::OP_THROW);
-        return;
-    }
-
-    if (auto *try_stmt = dynamic_cast<const TryStmt *>(stmt)) {
-        // emit setup_try with placeholders for catch and finally offsets
-        ctx->emit_op(OpCode::OP_SETUP_TRY);
-        size_t catch_offset_pos = ctx->function->code.size();
-        ctx->emit_short(0xFFFF); // catch offset placeholder
-        size_t finally_offset_pos = ctx->function->code.size();
-        ctx->emit_short(0xFFFF); // finally offset placeholder
-
-        if (try_stmt->try_block) {
-            this->try_depth++;
-            compile_stmt(try_stmt->try_block.get());
-            this->try_depth--;
-        }
-        ctx->emit_op(OpCode::OP_POP_TRY);
-        size_t try_end_jump = ctx->emit_jump(OpCode::OP_JUMP);
-        ctx->patch_jump(catch_offset_pos);
-
-        ctx->emit_op(OpCode::OP_BEGIN_CATCH);
-        if (!try_stmt->catch_var.empty()) {
-            uint16_t var_idx = ctx->declare_local(try_stmt->catch_var);
-            ctx->emit_op_short(OpCode::OP_STORE_VAR, var_idx);
-            ctx->emit_op(OpCode::OP_POP);
-        } else {
-            ctx->emit_op(OpCode::OP_POP); // pop err value
-        }
-        if (try_stmt->catch_block) {
-            compile_stmt(try_stmt->catch_block.get());
-        }
-
-        ctx->patch_jump(try_end_jump);
-
-        if (try_stmt->finally_block) {
-            ctx->patch_jump(finally_offset_pos);
-            ctx->emit_op(OpCode::OP_BEGIN_FINALLY);
-            compile_stmt(try_stmt->finally_block.get());
-        } else {
-            // no block, patch pos to the end
-            ctx->patch_jump(finally_offset_pos);
-        }
-        return;
-    }
-
     if (auto *switch_stmt = dynamic_cast<const SwitchStmt *>(stmt)) {
         compile_expr(switch_stmt->value.get());
 

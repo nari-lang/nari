@@ -12,7 +12,7 @@ Nari is a dynamically typed scripting language designed for rapid development wi
 * **Generics and Enums**: Type-safe generics and algebraic data types with pattern matching support.
 * **Rich Standard Library**: Comprehensive built-in modules for common tasks including HTTP operations, file I/O, mathematical operations, and system interactions.
 * **String Interpolation**: Expressive string formatting using backtick strings with embedded expressions.
-* **Error Handling**: Structured exception handling with try/catch/finally blocks.
+* **Error Handling**: Value-based error handling with `Result`/`Option` enums; `panic(value)` for unrecoverable failures.
 * **Module System**: Organize code across multiple files with the import system.
 * **Cross-Platform**: Supports Linux, Windows, and WebAssembly via Emscripten.
 
@@ -238,7 +238,7 @@ Comprehensive documentation is available in the [docs/](docs/) directory:
 * [Custom Types](docs/07-custom-types.md): Type declarations and annotations
 * [Asynchronous Programming](docs/08-async.md): Spawn blocks and event loop usage
 * [Modules](docs/09-modules.md): Import system and code organization
-* [Error Handling](docs/10-error-handling.md): Exception handling with try/catch/finally
+* [Error Handling](docs/10-error-handling.md): Value-based error handling with Result/Option
 * [Built-in Functions](docs/11-builtins.md): Core globally available functions
 * [Standard Library](docs/12-stdlib.md): System, math, I/O, HTTP, and networking modules
 * [String Methods](docs/13-string-methods.md): String manipulation operations

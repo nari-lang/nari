@@ -5,8 +5,8 @@
 
 func expect(cond, msg) {
   if (cond == false) {
-    throw "FAILED: " + msg;
-  }
+    panic("FAILED: " + msg);
+}
 }
 
 func t1() { // the doc example that used to hang
@@ -53,19 +53,6 @@ func t5() { // nested fors: inner continue must not touch outer loop
   }
   return `{out}`;
 }
-func t6() { // continue inside try within for: try frame must be popped
-  let out = [];
-  for (let i = 0; i < 5; i = i + 1) {
-    try {
-      if (i == 2) { continue; }
-      if (i == 3) { throw "x"; }
-      out.push(i);
-    } catch (e) {
-      out.push(99);
-    }
-  }
-  return `{out}`;
-}
 func t7() { // break and continue coexist
   let out = [];
   for (let i = 0; i < 10; i = i + 1) {
@@ -91,7 +78,6 @@ for (let r = 0; r < 3; r = r + 1) {
   expect(t3() == "[10, 30, 40]", "continue in for-in");
   expect(t4() == `["a=1", "c=3"]`, "continue in k/v for-in");
   expect(t5() == "[0, 2, 10, 12, 20, 22]", "nested for continue");
-  expect(t6() == "[0, 1, 99, 4]", "continue inside try");
   expect(t7() == "[0, 2, 3]", "break alongside continue");
   expect(t8() == 332667, "continue with ++ increment");
 }

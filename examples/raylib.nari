@@ -737,8 +737,8 @@ func load_raylib() {
 
 global raylib_lib = load_raylib();
 if (!raylib_lib) {
-  throw "Failed to load shared library: raylib";
-}
+  panic("Failed to load shared library: raylib");
+  }
 
 // FFI signatures
 global SIG_VOID_IIP = { returns: "void", params: ["int", "int", "pointer"] };

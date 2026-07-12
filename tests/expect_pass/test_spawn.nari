@@ -2,10 +2,10 @@
 
 // 1. spawn returns a handle
 let h = spawn { return 42 }
-if (typeof(h) != "handle") { throw "spawn should return a handle, got: " @ typeof(h) }
+if (typeof(h) != "handle") { panic("spawn should return a handle, got: " @ typeof(h)) }
 
-// 2. .value resolves to the return value
-if (h.await != 42) { throw "spawn handle .value should be 42" }
+// 2. .await resolves to the return value
+if (h.await != 42) { panic("spawn handle .await should be 42") }
 
 // 3. spawn with computation
 let h2 = spawn {
@@ -13,36 +13,35 @@ let h2 = spawn {
     let y = 20
     return x + y
 }
-if (h2.await != 30) { throw "spawn computation: expected 30, got " @ string(h2.await) }
+if (h2.await != 30) { panic("spawn computation: expected 30, got " + string(h2.await)) }
 
 // 4. spawn with string return
 let h3 = spawn { return "hello" }
-if (h3.await != "hello") { throw "spawn string: expected 'hello'" }
+if (h3.await != "hello") { panic("spawn string: expected 'hello'") }
 
 // 5. .ready is true after completion
 let h4 = spawn { return true }
 h4.await  // wait for completion
-if (!h4.ready) { throw "handle.ready should be true after .value access" }
+if (!h4.ready) { panic("handle.ready should be true after .await access") }
 
 // 6. .failed is false on successful spawn
 let h5 = spawn { return 0 }
 h5.await  // wait
-if (h5.failed) { throw "handle.failed should be false on success" }
+if (h5.failed) { panic("handle.failed should be false on success") }
 
 // 7. spawn with no explicit return gives null
 let h6 = spawn { let x = 1 + 1 }
-if (h6.await != null) { throw "spawn with no return should give null" }
+if (h6.await != null) { panic("spawn with no return should give null") }
 
 // 8. multiple concurrent spawns sum correctly
 let a = spawn { return 1 }
 let b = spawn { return 2 }
 let c = spawn { return 3 }
-if (a.await + b.await + c.await != 6) { throw "multiple spawns: expected sum 6" }
+if (a.await + b.await + c.await != 6) { panic("multiple spawns: expected sum 6") }
 
 // 9. spawn captures outer variable
 let base = 100
 let hc = spawn { return base + 1 }
-if (hc.await != 101) { throw "spawn should capture outer variable, expected 101" }
+if (hc.await != 101) { panic("spawn should capture outer variable, expected 101") }
 
 print("All spawn tests passed.")
-

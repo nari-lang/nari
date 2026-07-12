@@ -9,28 +9,28 @@ import {
 } from "../dep/module_direct_exports.nari";
 
 if (values.local_answer != 42) {
-    throw "export let local binding failed";
+    panic("export let local binding failed");
 }
 
 if (values.global_answer != 99) {
-    throw "export global binding failed";
+    panic("export global binding failed");
 }
 
 if (values.first_number != 7 || values.second_number != 8) {
-    throw "export destructured array bindings failed";
+    panic("export destructured array bindings failed");
 }
 
 if (values.exported_label != "ok") {
-    throw "export destructured object binding failed";
+    panic("export destructured object binding failed");
 }
 
 let result = read_values();
 if (result[0] != 42 || result[1] != 99 || result[2] != 7 || result[3] != 8 || result[4] != "ok") {
-    throw "exported function did not observe direct exported bindings";
+    panic("exported function did not observe direct exported bindings");
 }
 
 if (local_answer != 42 || global_answer != 99) {
-    throw "named imports of direct exported bindings failed";
+    panic("named imports of direct exported bindings failed");
 }
 
 print("success!");

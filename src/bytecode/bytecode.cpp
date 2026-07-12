@@ -1464,7 +1464,7 @@ bool VM::execute_instruction() {
                     VM::push(runtime->delegate_call(del, args));
                     break;
                 }
-                fprintf(stderr, "bytecode: attempt to call non-function value\n");
+                fprintf(stderr, "bytecode: attempt to call non-function value: %s\n", func_ref.to_string().c_str());
                 stack.resize(args_base - 1);
                 VM::push(Value::none());
                 break;
@@ -1801,7 +1801,7 @@ bool VM::execute_instruction() {
             size_t args_base = stack.size() - argc;
             const Value &func_ref = stack[args_base - 1];
             if (!func_ref.is_function()) {
-                fprintf(stderr, "bytecode: attempt to call non-function value (spread)\n");
+                fprintf(stderr, "bytecode: attempt to call non-function value (spread): %s\n", func_ref.to_string().c_str());
                 stack.resize(args_base - 1);
                 VM::push(Value::none());
                 break;
@@ -2079,7 +2079,7 @@ bool VM::execute_instruction() {
                                 VM::push(error);
                                 ip() = current_function()->code.data() + th.catch_ip;
                             } else {
-                                fprintf(stderr, "Uncaught exception: %s\n", error.to_string().c_str());
+                                fprintf(stderr, "panic: %s\n", error.to_string().c_str());
                             }
                         } else {
                             VM::push(handle->result);
@@ -3593,10 +3593,10 @@ bool VM::dispatch_throw(Value error) {
         return true; // caught
     }
 
-    // flush any remaining stale handlers so they cannot cause issues for a top level exception
+    // flush any remaining stale handlers so they cannot cause issues for a top level panic
     try_stack.clear();
 
-    fprintf(stderr, "Uncaught exception: %s\n", error.to_string().c_str());
+    fprintf(stderr, "panic: %s\n", error.to_string().c_str());
     for (const auto &entry : trace) {
         fprintf(stderr, "%s\n", entry.c_str());
     }

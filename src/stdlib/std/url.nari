@@ -28,10 +28,12 @@ export let URL = {
   // segments where slashes are meaningful.
   encode_path: func(s) { return __url_encode(s, "path"); },
 
-  // Decode a percent-encoded string. Throws URLError on malformed input.
+  // Decode a percent-encoded string -> Result<string, string>.
+  // Ok(decoded) on success; Err(message) on malformed input.
   decode: func(s) { return __url_decode(s, false); },
 
   // Decode as application/x-www-form-urlencoded ("+" -> space).
+  // Returns Result<string, string> (see decode).
   decode_form: func(s) { return __url_decode(s, true); },
 
   // Parse a query string ("a=1&b=2" or "?a=1&b=2") into an object.
@@ -49,10 +51,10 @@ export let URL = {
               let k = "";
               let v = "";
               if (eq < 0) {
-                  k = __url_decode(p, true);
+                  k = __url_decode(p, true).unwrap();
               } else {
-                  k = __url_decode(p.substr(0, eq), true);
-                  v = __url_decode(p.substr(eq + 1), true);
+                  k = __url_decode(p.substr(0, eq), true).unwrap();
+                  v = __url_decode(p.substr(eq + 1), true).unwrap();
               }
               out[k] = v;
           }
@@ -76,10 +78,10 @@ export let URL = {
               let k = "";
               let v = "";
               if (eq < 0) {
-                  k = __url_decode(p, true);
+                  k = __url_decode(p, true).unwrap();
               } else {
-                  k = __url_decode(p.substr(0, eq), true);
-                  v = __url_decode(p.substr(eq + 1), true);
+                  k = __url_decode(p.substr(0, eq), true).unwrap();
+                  v = __url_decode(p.substr(eq + 1), true).unwrap();
               }
               let existing = out[k];
               if (existing == null) {
@@ -125,11 +127,12 @@ export let URL = {
       return parts.join("&");
   },
 
-  // Parse a full URL string. Returns an instance object with fields and
-  // helper methods. Throws URLError if the scheme is missing.
+  // Parse a full URL string -> Result<url, string>. Ok(instance) with fields
+  // and helper methods; Err(message) if the input is not a string or the
+  // scheme is missing / the authority is malformed.
   parse: func(s) {
       if (s == null || typeof(s) != "string") {
-          throw "URLError: parse expects a string";
+          return Err("URLError: parse expects a string");
       }
       let rest = s;
 
@@ -153,7 +156,7 @@ export let URL = {
       let protocol = "";
       let ci = rest.index_of(":");
       if (ci < 0) {
-          throw "URLError: missing scheme in '" @ s @ "'";
+          return Err("URLError: missing scheme in '" @ s @ "'");
       }
       protocol = rest.substr(0, ci);
       rest = rest.substr(ci + 1);
@@ -180,17 +183,17 @@ export let URL = {
               authority = authority.substr(at + 1);
               let colon = userinfo.index_of(":");
               if (colon >= 0) {
-                  username = __url_decode(userinfo.substr(0, colon), false);
-                  password = __url_decode(userinfo.substr(colon + 1), false);
+                  username = __url_decode(userinfo.substr(0, colon), false).unwrap();
+                  password = __url_decode(userinfo.substr(colon + 1), false).unwrap();
               } else {
-                  username = __url_decode(userinfo, false);
+                  username = __url_decode(userinfo, false).unwrap();
               }
           }
           // host[:port] - IPv6 bracketed addresses keep their ':' inside [].
           if (authority.length() > 0 && authority.char_at(0) == "[") {
               let close = authority.index_of("]");
               if (close < 0) {
-                  throw "URLError: unterminated IPv6 host in '" @ s @ "'";
+                  return Err("URLError: unterminated IPv6 host in '" @ s @ "'");
               }
               host = authority.substr(0, close + 1);
               if (close + 1 < authority.length() && authority.char_at(close + 1) == ":") {
@@ -241,9 +244,9 @@ export let URL = {
               merged[k] = patch[k];
               i = i + 1;
           }
-          return URL.parse(URL.create(merged));
+          return URL.parse(URL.create(merged)).unwrap();
       };
-      return self;
+      return Ok(self);
   },
 
   // Build a URL string from an object of parts

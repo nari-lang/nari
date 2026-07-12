@@ -30,27 +30,27 @@ assert(d.utc == true, "utc flag");
 // -- ISO formatting + parse round-trip -------------------------------------
 let iso = d.to_iso_string();
 assert(iso == "2025-06-15T12:34:56.789Z", "iso canonical: '" @ iso @ "'");
-let reparsed = Date.from_ms(Date.parse_iso(iso));
+let reparsed = Date.from_ms(Date.parse_iso(iso).unwrap());
 assert(reparsed.equals(d), "iso parse round-trip");
 
 // Date-only -> midnight UTC
-let dateOnly = Date.parse_iso("2025-01-01");
+let dateOnly = Date.parse_iso("2025-01-01").unwrap();
 assert(dateOnly == Date.utc(2025, 1, 1, 0, 0, 0, 0), "date-only is UTC midnight");
 
 // Offset normalization: +05:00 should equal Z 5 hours earlier.
-let aOff = Date.parse_iso("2025-01-01T05:00:00+05:00");
-let aUtc = Date.parse_iso("2025-01-01T00:00:00Z");
+let aOff = Date.parse_iso("2025-01-01T05:00:00+05:00").unwrap();
+let aUtc = Date.parse_iso("2025-01-01T00:00:00Z").unwrap();
 assert(aOff == aUtc, "+05:00 normalized to UTC");
 
-let bOff = Date.parse_iso("2024-12-31T23:00:00-01:00");
-let bUtc = Date.parse_iso("2025-01-01T00:00:00Z");
+let bOff = Date.parse_iso("2024-12-31T23:00:00-01:00").unwrap();
+let bUtc = Date.parse_iso("2025-01-01T00:00:00Z").unwrap();
 assert(bOff == bUtc, "-01:00 normalized to UTC");
 
 // Fractional seconds: ".1" -> 100ms, ".12" -> 120ms, ".123456" truncates to 123
-assert(Date.parse_iso("2025-01-01T00:00:00.1Z")    == Date.utc(2025,1,1,0,0,0,100), ".1 -> 100ms");
-assert(Date.parse_iso("2025-01-01T00:00:00.12Z")   == Date.utc(2025,1,1,0,0,0,120), ".12 -> 120ms");
-assert(Date.parse_iso("2025-01-01T00:00:00.123Z")  == Date.utc(2025,1,1,0,0,0,123), ".123 -> 123ms");
-assert(Date.parse_iso("2025-01-01T00:00:00.123456Z") == Date.utc(2025,1,1,0,0,0,123), ".123456 truncates");
+assert(Date.parse_iso("2025-01-01T00:00:00.1Z").unwrap()    == Date.utc(2025,1,1,0,0,0,100), ".1 -> 100ms");
+assert(Date.parse_iso("2025-01-01T00:00:00.12Z").unwrap()   == Date.utc(2025,1,1,0,0,0,120), ".12 -> 120ms");
+assert(Date.parse_iso("2025-01-01T00:00:00.123Z").unwrap()  == Date.utc(2025,1,1,0,0,0,123), ".123 -> 123ms");
+assert(Date.parse_iso("2025-01-01T00:00:00.123456Z").unwrap() == Date.utc(2025,1,1,0,0,0,123), ".123456 truncates");
 
 // -- Format strings + %L extension -----------------------------------------
 let f = Date.format(knownMs, "%Y-%m-%d %H:%M:%S.%L", true);
@@ -74,21 +74,8 @@ assert(yearStart.year == 2025 && yearStart.month == 1 && yearStart.day == 1, "ye
 assert(yearStart.hour == 0 && yearStart.minute == 0 && yearStart.second == 0, "rollover h/m/s");
 assert(yearStart.millis == 0, "rollover ms");
 
-// -- Errors are catchable --------------------------------------------------
-let threw = false;
-try {
-    Date.parse_iso("not a date");
-} catch (e) {
-    threw = true;
-}
-assert(threw, "parse_iso throws on garbage");
-
-threw = false;
-try {
-    Date.parse_iso("2025-13-01T00:00:00Z");
-} catch (e) {
-    threw = true;
-}
-assert(threw, "parse_iso rejects month 13");
+// -- Errors are returned as Err --------------------------------------------
+assert(Date.parse_iso("not a date").is_err(), "parse_iso Err on garbage");
+assert(Date.parse_iso("2025-13-01T00:00:00Z").is_err(), "parse_iso rejects month 13");
 
 print("date stdlib: all checks passed");

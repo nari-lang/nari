@@ -2,8 +2,8 @@
 
 let assert = func(cond, msg) {
   if (!cond) {
-    throw "assertion failed: " @ msg;
-  }
+    panic("assertion failed: " @ msg);
+}
 };
 
 // flat() with default depth (1)

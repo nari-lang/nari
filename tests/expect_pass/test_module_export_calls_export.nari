@@ -2,11 +2,11 @@ import exported from "../dep/module_export_calls_export.nari";
 import { use_helper } from "../dep/module_export_calls_export.nari";
 
 if (exported.use_helper() != 42) {
-    throw "namespace import failed when exported function called exported helper";
+    panic("namespace import failed when exported function called exported helper");
 }
 
 if (use_helper() != 42) {
-    throw "named import failed when exported function called exported helper";
+    panic("named import failed when exported function called exported helper");
 }
 
 print("success!");

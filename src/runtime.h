@@ -107,6 +107,7 @@ void runtime_log(TraceLevel level, const std::string &msg);
 #define BUILTIN_FUNCTIONS(X)                                        \
     X("__system_exec", builtin_system_exec)                         \
     X("print", builtin_print)                                       \
+    X("panic", builtin_panic)                                       \
     X("set_timeout", builtin_setTimeout)                             \
     X("__math_floor", builtin_math_floor)                           \
     X("__math_ceil", builtin_math_ceil)                             \
@@ -322,9 +323,11 @@ class ScriptRuntime {
     // optional statement hook used by the bytecode debugger
     std::function<void(const Stmt *)> debug_stmt_hook;
 
-    // Raise a script-catchable throw from a builtin. Sets flags.throw_flag +
-    // throw_value; runtime checks at every statement boundary. Use this for
-    // user-actionable errors instead of runtime_fatal (which is uncatchable).
+    // Raise a throw (panic) from a builtin. Sets flags.throw_flag +
+    // throw_value; runtime checks at every statement boundary. Nari has no
+    // try/catch, so a throw is an uncatchable panic that unwinds to the top.
+    // Prefer returning a Result (make_err) for recoverable errors and reserve
+    // this / runtime_fatal for unrecoverable conditions.
     // Callers that hold non-RAII resources must release them before return.
     Value script_throw(std::string msg) {
         flags.throw_value = Value::make_string(std::move(msg));
@@ -332,8 +335,8 @@ class ScriptRuntime {
         return Value::none();
     }
 
-    // Inspect / consume a pending script_throw. Used by the JIT call helpers to
-    // deliver a builtin's throw to an enclosing try/catch (the interpreter uses
+    // Inspect / consume a pending throw. Used by the JIT call helpers to
+    // propagate a builtin's throw out of a JIT frame (the interpreter uses
     // flags.throw_flag directly via push_builtin_result).
     bool has_pending_throw() const {
         return flags.throw_flag;
@@ -672,7 +675,6 @@ class ScriptRuntime {
     std::vector<std::string> func_stack;
     std::vector<std::map<std::string, Value>> block_scope_stack;
     Flags flags;
-    int ast_try_depth = 0; // nesting depth of try blocks; TCO disabled when > 0
 
     std::shared_ptr<std::map<std::string, Value>> current_scope_closure;
     ClassInstancePtr current_instance; // current 'this' context
@@ -734,6 +736,7 @@ class ScriptRuntime {
     void ensure_module_loaded(const std::string &module_name, const ASTNode *site = nullptr);
 
     Value builtin_print(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_panic(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_setTimeout(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_setInterval(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_clearInterval(const Value *argvals, size_t argc, const CallExpr *);

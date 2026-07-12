@@ -417,7 +417,7 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
         "if", "else", "for", "while", "in", "break",
         "continue", "class", "type", "enum", "new", "import",
         "export", "true", "false",
-        "not", "try", "catch", "finally", "throw"
+        "not"
     };
 
     size_t i = 0;

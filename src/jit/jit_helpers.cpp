@@ -494,7 +494,7 @@ static void jit_call_value_impl(VM *vm, uint32_t argc) {
             return;
         }
         vm->stack.resize(slot_base);
-        fprintf(stderr, "bytecode: attempt to call non-function value\n");
+        fprintf(stderr, "bytecode: attempt to call non-function value: %s\n", func_val.to_string().c_str());
         vm->push(Value::none());
         return;
     }
@@ -586,9 +586,8 @@ static void jit_call_impl(VM *vm, uint32_t argc) {
     Value func = vm->stack[args_base - 1]; // func_val sits just below the args
 
     if (!func.is_function()) {
-        // Delegate call trap: d(args) -> handler.call(target, [args]). After
-        // the is_function() fast path so ordinary calls are untouched. Mirrors
-        // the VM executor and AST interpreter.
+        // Delegate call trap: d(args) -> handler.call(target, [args]). 
+        // After the is_function() fast path so ordinary calls are untouched
         if (func.is_delegate()) {
             std::vector<Value> args(vm->stack.begin() + args_base, vm->stack.end());
             vm->stack.resize(args_base - 1); // pop args + func
@@ -596,7 +595,7 @@ static void jit_call_impl(VM *vm, uint32_t argc) {
             return;
         }
         vm->stack.resize(args_base - 1); // pop args + func
-        fprintf(stderr, "bytecode: attempt to call non-function value\n");
+        fprintf(stderr, "bytecode: attempt to call non-function value: %s\n", func.to_string().c_str());
         vm->push(Value::none());
         return;
     }

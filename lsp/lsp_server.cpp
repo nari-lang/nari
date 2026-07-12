@@ -308,22 +308,6 @@ static void collect_stmt_reads(const nari::Stmt *s, std::unordered_set<std::stri
         case nari::StmtKind::Return:
             collect_expr_reads(static_cast<const nari::ReturnStmt *>(s)->value.get(), reads);
             break;
-        case nari::StmtKind::Throw:
-            collect_expr_reads(static_cast<const nari::ThrowStmt *>(s)->value.get(), reads);
-            break;
-        case nari::StmtKind::Try: {
-            const auto *ts = static_cast<const nari::TryStmt *>(s);
-            if (ts->try_block) {
-                collect_stmts_reads(ts->try_block->stmts, reads);
-            }
-            if (ts->catch_block) {
-                collect_stmts_reads(ts->catch_block->stmts, reads);
-            }
-            if (ts->finally_block) {
-                collect_stmts_reads(ts->finally_block->stmts, reads);
-            }
-            break;
-        }
         case nari::StmtKind::Switch: {
             const auto *ss = static_cast<const nari::SwitchStmt *>(s);
             collect_expr_reads(ss->value.get(), reads);
@@ -418,19 +402,6 @@ static void collect_local_decls_stmt(const nari::Stmt *s, std::vector<LocalDecl>
         case nari::StmtKind::While:
             collect_local_decls_stmt(static_cast<const nari::WhileStmt *>(s)->body.get(), out);
             break;
-        case nari::StmtKind::Try: {
-            const auto *ts = static_cast<const nari::TryStmt *>(s);
-            if (ts->try_block) {
-                collect_local_decls_stmts(ts->try_block->stmts, out);
-            }
-            if (ts->catch_block) {
-                collect_local_decls_stmts(ts->catch_block->stmts, out);
-            }
-            if (ts->finally_block) {
-                collect_local_decls_stmts(ts->finally_block->stmts, out);
-            }
-            break;
-        }
         case nari::StmtKind::Switch: {
             const auto *ss = static_cast<const nari::SwitchStmt *>(s);
             for (const auto &c : ss->cases) {
@@ -1677,8 +1648,8 @@ static std::string import_string_at(const std::string &text, int line0, int col0
 static const char *kNariKeywords[] = {
     "let", "global", "func", "return", "if", "else", "while", "for",
     "foreach", "in", "break", "continue", "class", "new", "this",
-    "type", "enum", "match", "spawn", "await", "try", "catch", "finally",
-    "throw", "import", "export", "public", "private", "null",
+    "type", "enum", "match", "spawn", "await",
+    "import", "export", "public", "private", "null",
     "true", "false", nullptr
 };
 
@@ -1687,6 +1658,7 @@ static const struct {
     const char *detail;
 } kNariBuiltins[] = {
     { "print", "func print(...)" },
+    { "panic", "func panic(value) -> never" },
     { "to_string", "func to_string(value) -> string" },
     { "to_number", "func to_number(value) -> number" },
     { "to_bool", "func to_bool(value) -> bool" },
@@ -3281,66 +3253,6 @@ class NariLspServer {
                     actions.push_back(std::move(action));
                 }
             }
-        }
-
-        // refactor: wrap selection in try / catch
-        const auto &r_start = range.contains("start") ? range["start"] : json{};
-        const auto &r_end = range.contains("end") ? range["end"] : json{};
-        const int sel_sl = r_start.value("line", 0);
-        const int sel_el = r_end.value("line", 0);
-        const int sel_sc = r_start.value("character", 0);
-        const int sel_ec = r_end.value("character", 0);
-        if (sel_sl != sel_el || sel_sc != sel_ec) {
-            std::vector<std::string> lines = lsp_split_lines(content);
-            const int start_ln = std::max(0, std::min(sel_sl, (int)lines.size() - 1));
-            const int end_ln = std::max(0, std::min(sel_el, (int)lines.size() - 1));
-
-            // Detect leading indent of first selected line
-            std::string indent;
-            if (start_ln < (int)lines.size()) {
-                for (char c : lines[start_ln]) {
-                    if (c == ' ' || c == '\t') {
-                        indent += c;
-                    } else {
-                        break;
-                    }
-                }
-            }
-            const std::string inner = indent + "    ";
-
-            std::string try_text = indent + "try {\n";
-            for (int ln = start_ln; ln <= end_ln; ++ln) {
-                if (ln >= (int)lines.size()) {
-                    break;
-                }
-                // Strip leading whitespace and re-indent with inner
-                size_t p = 0;
-                while (p < lines[ln].size() && (lines[ln][p] == ' ' || lines[ln][p] == '\t')) {
-                    ++p;
-                }
-                try_text += inner + lines[ln].substr(p) + "\n";
-            }
-            try_text += indent + "} catch (err) {\n";
-            try_text += indent + "    \n";
-            try_text += indent + "}";
-
-            const int wrap_end_ln = (end_ln + 1 < (int)lines.size()) ? end_ln + 1 : end_ln;
-            const int wrap_end_ch = (wrap_end_ln == end_ln) ? (int)lines[end_ln].size() : 0;
-            json ws, we, wrap_rng, wrap_edit, changes;
-            ws["line"] = int64_t(start_ln);
-            ws["character"] = int64_t(0);
-            we["line"] = int64_t(wrap_end_ln);
-            we["character"] = int64_t(wrap_end_ch);
-            wrap_rng["start"] = std::move(ws);
-            wrap_rng["end"] = std::move(we);
-            wrap_edit["range"] = std::move(wrap_rng);
-            wrap_edit["newText"] = std::move(try_text);
-            changes[uri] = json::array({ std::move(wrap_edit) });
-            json action;
-            action["title"] = "Wrap in try / catch";
-            action["kind"] = "refactor";
-            action["edit"]["changes"] = std::move(changes);
-            actions.push_back(std::move(action));
         }
 
         send_response(id, std::move(actions));

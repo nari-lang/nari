@@ -3,7 +3,7 @@
 import { Logger } from "std/logger";
 
 func check(name, cond) {
-    if (!cond) { throw "Logger test failed: " @ name; }
+    if (!cond) { panic("Logger test failed: " @ name); }
 }
 
 // Capture sink: record every line that passes the level filter.

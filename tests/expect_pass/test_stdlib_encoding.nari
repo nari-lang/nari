@@ -5,7 +5,7 @@ import { Hex, Base64 } from "std/encoding";
 
 func check(name, cond) {
     if (!cond) {
-        throw "encoding test failed: " @ name;
+        panic("encoding test failed: " @ name);
     }
 }
 

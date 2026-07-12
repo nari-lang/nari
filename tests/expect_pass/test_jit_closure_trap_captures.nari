@@ -14,7 +14,7 @@
 // interpreter. Both must agree with the arithmetic ground truth.
 
 func assert(cond, msg) {
-    if (!cond) { throw msg; }
+    if (!cond) { panic(msg); }
 }
 
 // --- Delegate get/set traps capturing a local ---------------------------

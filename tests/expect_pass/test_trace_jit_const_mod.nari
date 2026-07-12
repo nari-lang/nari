@@ -5,8 +5,8 @@
 
 func expect(cond, msg) {
   if (cond == false) {
-    throw "FAILED: " + msg;
-  }
+    panic("FAILED: " + msg);
+}
 }
 
 func mod_chain(n, d) {

@@ -21,6 +21,18 @@ Value ScriptRuntime::builtin_print(const Value *argvals, size_t argc, const nari
     return Value::none();
 }
 
+// panic(value): raise an uncatchable panic that unwinds to the top of the program.
+// this essentially aborts with an error value
+Value ScriptRuntime::builtin_panic(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc >= 1) {
+        flags.throw_value = argvals[0];
+    } else {
+        flags.throw_value = Value::none();
+    }
+    flags.throw_flag = true;
+    return Value::none();
+}
+
 Value ScriptRuntime::builtin_setTimeout(const Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc >= 2) {
         Value callback_val = argvals[0];
@@ -35,7 +47,7 @@ Value ScriptRuntime::builtin_setTimeout(const Value *argvals, size_t argc, const
         auto io_op = std::make_shared<IOOperation>(IOOperation::Type::Timer);
         io_op->timer_ms = delay_ms;
 
-        // Capture the complete callback Value to keep lambdas alive
+        // capture the complete callback Value to keep lambdas alive
         io_op->callback = [this, callback_val]() {
             if (callback_val.is_function()) {
                 call_function_value(callback_val, {});

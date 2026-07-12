@@ -19,7 +19,7 @@ let ok = true;
 func first_value(re, str) {
     return re.exec(str).value;  // GET_PROPERTY immediately on returned object
 }
-let r = __regex_new("a", "");
+let r = __regex_new("a", "").unwrap();
 ok = ok && test("exec.value c1", "a", first_value(r, "banana"));
 ok = ok && test("exec.value c2", "a", first_value(r, "banana"));  // ABA was here
 ok = ok && test("exec.value c3", "a", first_value(r, "banana"));

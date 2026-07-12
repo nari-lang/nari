@@ -2,24 +2,20 @@ import Store from "../../workspace/npkg/lib/store.nari";
 
 func assert_contains(text, needle, label) {
     if (text.index_of(needle) == -1) {
-        throw label @ ": expected error to contain '" @ needle @ "' but got '" @ text @ "'";
+        panic(label @ ": expected error to contain '" @ needle @ "' but got '" @ text @ "'");
     }
 }
 
 func expect_error(project_root, checks) {
-    let got_error = false;
+    let result = Store.resolve_project(project_root);
 
-    try {
-        Store.resolve_project(project_root);
-    } catch (err) {
-        got_error = true;
-        for (needle in checks) {
-            assert_contains(err, needle, project_root);
-        }
+    if (!result.is_err()) {
+        panic("Expected dependency resolution to fail for " @ project_root);
     }
 
-    if (!got_error) {
-        throw "Expected dependency resolution to fail for " @ project_root;
+    let err = to_string(result.unwrap_err());
+    for (needle in checks) {
+        assert_contains(err, needle, project_root);
     }
 }
 

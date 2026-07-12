@@ -22,21 +22,16 @@ assert(URL.encode("safe-_.~") == "safe-_.~", "unreserved untouched");
 let utf8 = "café";
 let enc = URL.encode(utf8);
 assert(enc == "caf%C3%A9", "UTF-8 percent-encoded by byte");
-assert(URL.decode(enc) == utf8, "UTF-8 round-trips");
+assert(URL.decode(enc).unwrap() == utf8, "UTF-8 round-trips");
 
 // decode_form vs decode for '+'
-assert(URL.decode("a+b") == "a+b", "strict decode keeps '+'");
-assert(URL.decode_form("a+b") == "a b", "form decode treats '+' as space");
-assert(URL.decode("100%25") == "100%", "decode percent literal");
+assert(URL.decode("a+b").unwrap() == "a+b", "strict decode keeps '+'");
+assert(URL.decode_form("a+b").unwrap() == "a b", "form decode treats '+' as space");
+assert(URL.decode("100%25").unwrap() == "100%", "decode percent literal");
 
-// Error cases - both must throw URLError
-let caught1 = false;
-try { URL.decode("%2"); } catch (e) { caught1 = true; }
-assert(caught1, "truncated percent escape throws");
-
-let caught2 = false;
-try { URL.decode("%ZZ"); } catch (e) { caught2 = true; }
-assert(caught2, "invalid hex in percent escape throws");
+// Error cases - both must return Err(URLError)
+assert(URL.decode("%2").is_err(), "truncated percent escape is Err");
+assert(URL.decode("%ZZ").is_err(), "invalid hex in percent escape is Err");
 
 // -- parse_query / parse_query_all / format_query --------------------------------
 let q = URL.parse_query("a=1&b=hello%20world&c=&d");
@@ -81,7 +76,7 @@ assert(rt.name == "Jane Doe", "round-trip name");
 assert(rt.role == "admin", "round-trip role");
 
 // -- parse: full URL ---------------------------------------------------------
-let u = URL.parse("https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top");
+let u = URL.parse("https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top").unwrap();
 assert(u.protocol == "https", "protocol");
 assert(u.username == "alice", "username");
 assert(u.password == "s3cr3t", "password");
@@ -98,61 +93,61 @@ assert(u.to_string() == "https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top",
        "full URL round-trip");
 
 // -- parse: simple http ------------------------------------------------------
-let s = URL.parse("http://example.com/path");
+let s = URL.parse("http://example.com/path").unwrap();
 assert(s.protocol == "http" && s.host == "example.com", "simple http");
 assert(s.username == "" && s.password == "" && s.port == "", "simple has no userinfo/port");
 assert(s.to_string() == "http://example.com/path", "simple round-trip");
 
 // -- parse: no path ----------------------------------------------------------
-let np = URL.parse("https://example.com");
+let np = URL.parse("https://example.com").unwrap();
 assert(np.pathname == "", "no path");
 assert(np.to_string() == "https://example.com", "no path round-trip");
 
 // -- parse: query only, no path ----------------------------------------------
-let qonly = URL.parse("https://example.com?foo=bar");
+let qonly = URL.parse("https://example.com?foo=bar").unwrap();
 assert(qonly.search == "foo=bar", "query without path");
 assert(qonly.params.foo == "bar", "params parsed");
 
 // -- parse: fragment with '?' inside -----------------------------------------
-let frag = URL.parse("https://example.com/x?a=1#h?z=2");
+let frag = URL.parse("https://example.com/x?a=1#h?z=2").unwrap();
 assert(frag.search == "a=1", "search before fragment");
 assert(frag.hash == "h?z=2", "fragment keeps '?'");
 
 // -- parse: IPv6 host --------------------------------------------------------
-let v6 = URL.parse("http://[::1]:8080/x");
+let v6 = URL.parse("http://[::1]:8080/x").unwrap();
 assert(v6.host == "[::1]", "IPv6 host kept bracketed");
 assert(v6.port == "8080", "IPv6 port");
 assert(v6.pathname == "/x", "IPv6 path");
 
-let v6np = URL.parse("http://[2001:db8::1]/api");
+let v6np = URL.parse("http://[2001:db8::1]/api").unwrap();
 assert(v6np.host == "[2001:db8::1]", "longer IPv6");
 assert(v6np.port == "", "IPv6 without port");
 
 // -- parse: file:// (empty host) ---------------------------------------------
-let f = URL.parse("file:///etc/hosts");
+let f = URL.parse("file:///etc/hosts").unwrap();
 assert(f.protocol == "file", "file scheme");
 assert(f.host == "", "file empty host");
 assert(f.pathname == "/etc/hosts", "file path");
 
 // -- parse: opaque URI (no authority) ----------------------------------------
-let m = URL.parse("mailto:bob@example.com");
+let m = URL.parse("mailto:bob@example.com").unwrap();
 assert(m.protocol == "mailto", "mailto scheme");
 assert(m.host == "", "mailto no host");
 assert(m.pathname == "bob@example.com", "mailto path holds address");
 
 // -- parse: username only (no password) --------------------------------------
-let uo = URL.parse("ftp://anon@ftp.example.org/pub");
+let uo = URL.parse("ftp://anon@ftp.example.org/pub").unwrap();
 assert(uo.username == "anon", "ftp username only");
 assert(uo.password == "", "ftp no password");
 assert(uo.host == "ftp.example.org", "ftp host");
 
 // -- parse: percent-encoded userinfo decoded ---------------------------------
-let enc2 = URL.parse("https://us%40er:p%26ss@example.com/");
+let enc2 = URL.parse("https://us%40er:p%26ss@example.com/").unwrap();
 assert(enc2.username == "us@er", "username decoded");
 assert(enc2.password == "p&ss", "password decoded");
 
 // -- .with() patches ---------------------------------------------------------
-let base = URL.parse("https://example.com/old?q=1");
+let base = URL.parse("https://example.com/old?q=1").unwrap();
 let next = base.with({ pathname: "/new", search: "q=2" });
 assert(next.pathname == "/new", "with pathname");
 assert(next.search == "q=2", "with search");
@@ -163,12 +158,7 @@ assert(base.pathname == "/old", "base pathname untouched");
 assert(base.search == "q=1", "base search untouched");
 
 // -- parse: error cases -----------------------------------------------------
-let caughtNoScheme = false;
-try { URL.parse("just a string"); } catch (e) { caughtNoScheme = true; }
-assert(caughtNoScheme, "no scheme throws URLError");
-
-let caughtBadV6 = false;
-try { URL.parse("http://[::1/x"); } catch (e) { caughtBadV6 = true; }
-assert(caughtBadV6, "unterminated IPv6 throws");
+assert(URL.parse("just a string").is_err(), "no scheme is Err");
+assert(URL.parse("http://[::1/x").is_err(), "unterminated IPv6 is Err");
 
 print("All URL tests passed.");

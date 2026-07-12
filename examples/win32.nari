@@ -1,5 +1,5 @@
 if (platform.os != "windows") {
-    throw "This example is only for Windows! Current OS: " @ platform.os;
+    panic("This example is only for Windows! Current OS: " @ platform.os);
 }
 
 import user32_lib from "user32.dll";

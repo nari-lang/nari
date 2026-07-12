@@ -195,7 +195,7 @@ void ScriptRuntime::run_start(bool found_toplevel) {
     }
     call_user_function(it->second.get(), {});
     if (flags.throw_flag) {
-        runtime_fatal("Uncaught throw: " + flags.throw_value.to_string(), nullptr);
+        runtime_fatal("panic: " + flags.throw_value.to_string(), nullptr);
     }
 }
 
@@ -241,7 +241,7 @@ void ScriptRuntime::execute_toplevel_function(Function *f) {
     }
 
     if (flags.throw_flag) {
-        runtime_fatal("Uncaught throw: " + flags.throw_value.to_string(), nullptr);
+        runtime_fatal("panic: " + flags.throw_value.to_string(), nullptr);
     }
 }
 
@@ -2796,8 +2796,8 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
         case StmtKind::Return: {
             const auto *returnStmt = (const nari::ReturnStmt *)s;
             // self tail-call elimination
-            // detects `return current_func(args...)` when not inside a try block and not a lambda
-            if (this->ast_try_depth == 0 && returnStmt->value && !func_stack.empty()) {
+            // detects `return current_func(args...)` when not a lambda
+            if (returnStmt->value && !func_stack.empty()) {
                 const std::string &cur_name = func_stack.back();
                 if (!cur_name.empty() && cur_name[0] != '<') {
                     if (auto *tcall = dynamic_cast<const nari::CallExpr *>(returnStmt->value.get())) {
@@ -2823,61 +2823,6 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                 flags.return_value = eval_expr(returnStmt->value.get());
             } else {
                 flags.return_value = Value::none();
-            }
-            return;
-        }
-
-        case StmtKind::Throw: {
-            const auto *throwStmt = (const nari::ThrowStmt *)s;
-            if (throwStmt->value) {
-                flags.throw_value = eval_expr(throwStmt->value.get());
-            } else {
-                flags.throw_value = Value::none();
-            }
-            flags.throw_flag = true;
-            return;
-        }
-
-        case StmtKind::Try: {
-            const auto *tryStmt = (const nari::TryStmt *)s;
-            auto assign_var = [&](const std::string &name, Value val) {
-                if (!call_stack.empty()) {
-                    call_stack.back()[name] = std::move(val);
-                } else if (!module_stack.empty()) {
-                    module_local_vars[module_stack.back()][name] = std::move(val);
-                } else if (!tryStmt->filename.empty()) {
-                    module_local_vars[tryStmt->filename][name] = std::move(val);
-                } else {
-                    globals[name] = std::move(val);
-                }
-            };
-
-            this->ast_try_depth++;
-            exec_stmt(tryStmt->try_block.get());
-            this->ast_try_depth--;
-
-            bool pending_throw = flags.throw_flag;
-            Value pending_value = flags.throw_value;
-            if (pending_throw) {
-                flags.throw_flag = false;
-                flags.throw_value = Value::none();
-            }
-
-            if (pending_throw && tryStmt->catch_block) {
-                if (!tryStmt->catch_var.empty()) {
-                    assign_var(tryStmt->catch_var, pending_value);
-                }
-                exec_stmt(tryStmt->catch_block.get());
-                pending_throw = false;
-            }
-
-            if (tryStmt->finally_block) {
-                exec_stmt(tryStmt->finally_block.get());
-            }
-
-            if (pending_throw && !flags.throw_flag) {
-                flags.throw_flag = true;
-                flags.throw_value = pending_value;
             }
             return;
         }

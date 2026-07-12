@@ -955,7 +955,7 @@ class Parser {
         static const std::unordered_set<std::string> boundaryKeywords = {
             "func", "let", "const", "var", "if", "while", "for",
             "foreach", "return", "continue", "break", "import", "export", "type",
-            "enum", "class", "throw", "try", "match"
+            "enum", "class", "match"
         };
         while (!is_eof()) {
             TokenKind kind = peek().kind;
@@ -1771,10 +1771,6 @@ class Parser {
             collect_mutated_expr(rs->value.get(), out);
             return;
         }
-        if (const auto *ts = dynamic_cast<const nari::ThrowStmt *>(s)) {
-            collect_mutated_expr(ts->value.get(), out);
-            return;
-        }
         if (const auto *blk = dynamic_cast<const nari::BlockStmt *>(s)) {
             for (const auto &st : blk->stmts) {
                 // Any VarDeclStmt inside a nested block potentially shadows an outer name.
@@ -1826,27 +1822,6 @@ class Parser {
             }
             if (ss->default_body) {
                 for (const auto &st : ss->default_body->stmts) {
-                    collect_mutated_stmt(st.get(), out);
-                }
-            }
-            return;
-        }
-        if (const auto *trys = dynamic_cast<const nari::TryStmt *>(s)) {
-            if (!trys->catch_var.empty()) {
-                out.insert(trys->catch_var);
-            }
-            if (trys->try_block) {
-                for (const auto &st : trys->try_block->stmts) {
-                    collect_mutated_stmt(st.get(), out);
-                }
-            }
-            if (trys->catch_block) {
-                for (const auto &st : trys->catch_block->stmts) {
-                    collect_mutated_stmt(st.get(), out);
-                }
-            }
-            if (trys->finally_block) {
-                for (const auto &st : trys->finally_block->stmts) {
                     collect_mutated_stmt(st.get(), out);
                 }
             }
@@ -2009,10 +1984,6 @@ class Parser {
             rs->value = subst_fold(std::move(rs->value), m);
             return;
         }
-        if (auto *ts = dynamic_cast<nari::ThrowStmt *>(s)) {
-            ts->value = subst_fold(std::move(ts->value), m);
-            return;
-        }
         if (auto *blk = dynamic_cast<nari::BlockStmt *>(s)) {
             subst_block(blk, m);
             return; // passes copy so nested re-decls are handled
@@ -2047,12 +2018,6 @@ class Parser {
                 subst_block(c.body.get(), m);
             }
             subst_block(ss->default_body.get(), m);
-            return;
-        }
-        if (auto *trys = dynamic_cast<nari::TryStmt *>(s)) {
-            subst_block(trys->try_block.get(), m);
-            subst_block(trys->catch_block.get(), m);
-            subst_block(trys->finally_block.get(), m);
             return;
         }
     }
@@ -3194,27 +3159,6 @@ class Parser {
                 return rs;
             }
 
-            if (tok.text == "throw") {
-                next();
-                ExprPtr val = nullptr;
-                if (peek().kind == TokenKind::TK_SEMICOLON || peek().kind == TokenKind::TK_RBRACE || peek().kind == TokenKind::TK_EOF) {
-                    error_and_exit("throw requires a value");
-                }
-                val = parse_expression();
-                if (peek().kind == TokenKind::TK_SEMICOLON) {
-                    next();
-                }
-                auto ts = std::make_unique<nari::ThrowStmt>(std::move(val));
-                ts->line = tok.line;
-                ts->col = tok.col;
-                ts->filename = tok.filename.empty() ? current_filename : tok.filename;
-                return ts;
-            }
-
-            if (tok.text == "try") {
-                return parse_try_stmt();
-            }
-
             // import statement: `import name from "library.so"`
             if (tok.text == "import") {
                 Token importTok = tok;
@@ -3556,41 +3500,6 @@ class Parser {
             error_and_exit("Unexpected token in statement: '" + token_desc(tok) + "'");
             unreachable();
         }
-    }
-
-    StmtPtr parse_try_stmt() {
-        const Token &kw = peek();
-        expect(TokenKind::TK_IDENT, "try");
-        auto try_block = parse_block();
-
-        std::string catch_var;
-        BlockPtr catch_block = nullptr;
-        BlockPtr finally_block = nullptr;
-
-        if (peek().kind == TokenKind::TK_IDENT && peek().text == "catch") {
-            next(); // consume 'catch'
-            expect(TokenKind::TK_LPAREN, "Missing start `(`");
-            const Token &varTok = peek();
-            expect(TokenKind::TK_IDENT, "Catch requires a variable");
-            catch_var = varTok.text;
-            expect(TokenKind::TK_RPAREN, "Missing end `)`");
-            catch_block = parse_block();
-        }
-
-        if (peek().kind == TokenKind::TK_IDENT && peek().text == "finally") {
-            next(); // consume 'finally'
-            finally_block = parse_block();
-        }
-
-        if (!catch_block && !finally_block) {
-            error_and_exit("Try must have catch block.");
-        }
-
-        auto ts = std::make_unique<nari::TryStmt>(std::move(try_block), catch_var, std::move(catch_block), std::move(finally_block));
-        ts->line = kw.line;
-        ts->col = kw.col;
-        ts->filename = kw.filename.empty() ? current_filename : kw.filename;
-        return ts;
     }
 
     StmtPtr parse_switch_stmt() {
@@ -4602,10 +4511,6 @@ static void ri_stmt(nari::Stmt *s) {
         ri_expr(rs->value.get());
         return;
     }
-    if (auto *ts = dynamic_cast<nari::ThrowStmt *>(s)) {
-        ri_expr(ts->value.get());
-        return;
-    }
     if (auto *blk = dynamic_cast<nari::BlockStmt *>(s)) {
         ri_block(blk);
         return;
@@ -4640,12 +4545,6 @@ static void ri_stmt(nari::Stmt *s) {
             ri_block(c.body.get());
         }
         ri_block(ss->default_body.get());
-        return;
-    }
-    if (auto *trys = dynamic_cast<nari::TryStmt *>(s)) {
-        ri_block(trys->try_block.get());
-        ri_block(trys->catch_block.get());
-        ri_block(trys->finally_block.get());
         return;
     }
 }

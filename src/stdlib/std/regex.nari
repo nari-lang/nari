@@ -7,8 +7,9 @@
 // import { Regex } from "std/regex";
 
 export let Regex = {
-  // Regex.new(pattern, flags?) -> regex value. Throws RegexError on
-  // malformed pattern. flags: any of "imsguvy" (g/u/v/y silently accepted).
+  // Regex.new(pattern, flags?) -> Result<regex, string>. Returns Err with a
+  // RegexError message on malformed pattern; Ok(regex) otherwise.
+  // flags: any of "imsguvy" (g/u/v/y silently accepted).
   new: func(pattern, flags) {
       if (flags == null) { flags = ""; }
       return __regex_new(pattern, flags);
@@ -34,20 +35,20 @@ export let Regex = {
   // Regex.match(re, str) -> first match object {value, index, groups} or null.
   // Accepts either a regex value or a pattern string.
   match: func(re, str) {
-      if (typeof(re) == "string") { re = __regex_new(re, ""); }
+      if (typeof(re) == "string") { re = __regex_new(re, "").unwrap(); }
       return re.exec(str);
   },
 
   // Regex.test(re, str) -> bool. Accepts regex or pattern string.
   test: func(re, str) {
-      if (typeof(re) == "string") { re = __regex_new(re, ""); }
+      if (typeof(re) == "string") { re = __regex_new(re, "").unwrap(); }
       return re.test(str);
   },
 
   // Regex.split(re, str) -> array of segments split by every match.
   // No-match returns [str].
   split: func(re, str) {
-      if (typeof(re) == "string") { re = __regex_new(re, ""); }
+      if (typeof(re) == "string") { re = __regex_new(re, "").unwrap(); }
       let parts = [];
       let rest = str;
       let safety = 0;
@@ -74,7 +75,7 @@ export let Regex = {
   // `replacement` is a literal string ($1 etc. not interpolated - use
   // Regex.replace_with for callback-based substitution).
   replace: func(re, str, replacement) {
-      if (typeof(re) == "string") { re = __regex_new(re, ""); }
+      if (typeof(re) == "string") { re = __regex_new(re, "").unwrap(); }
       let m = re.exec(str);
       if (m == null) { return str; }
       return str.substr(0, m.index) + replacement + str.substr(m.index + m.value.length());
@@ -83,7 +84,7 @@ export let Regex = {
   // Regex.replace_all(re, str, replacement) -> str with EVERY non-overlapping
   // match replaced. Literal replacement (see Regex.replace).
   replace_all: func(re, str, replacement) {
-      if (typeof(re) == "string") { re = __regex_new(re, ""); }
+      if (typeof(re) == "string") { re = __regex_new(re, "").unwrap(); }
       let out = "";
       let rest = str;
       let safety = 0;

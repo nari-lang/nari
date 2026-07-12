@@ -39,7 +39,7 @@ func __stdlib_init__() {
               return value;
           },
           unwrap_err: func() {
-              throw "Called unwrap_err on Ok value";
+              panic("Called unwrap_err on Ok value");
           },
           map: func(f) {
               return Ok(f(value));
@@ -68,7 +68,7 @@ func __stdlib_init__() {
               return true;
           },
           unwrap: func() {
-              throw error;
+              panic(error);
           },
           unwrap_or: func(default_val) {
               return default_val;
@@ -139,7 +139,7 @@ func __stdlib_init__() {
               return true;
           },
           unwrap: func() {
-              throw "Called unwrap on None value";
+              panic("Called unwrap on None value");
           },
           unwrap_or: func(default_val) {
               return default_val;
@@ -559,7 +559,7 @@ func __stdlib_init__() {
 if (platform.os == "emscripten") {
     global http = {
         fetch: func(url, options) {
-            throw "HTTP requests not supported in Emscripten environment!";
+            panic("HTTP requests not supported in Emscripten environment!");
         },
     };
 } else {
@@ -573,13 +573,15 @@ if (platform.os == "emscripten") {
 }
 
 global JSON = {
-    // parse a JSON string into a Nari value (object, array, string, number, bool, or null)
-    // throws SyntaxError on malformed input
+    // parse a JSON string into Result<value, string>.
+    // Ok(value) on success (object, array, string, number, bool, or null);
+    // Err(message) on malformed input.
     parse: func(text) {
         return __json_parse(text);
     },
 
-    // serialize a Nari value to a JSON string
+    // serialize a Nari value to Result<string, string>.
+    // Ok(json) on success; Err(message) on cyclic/too-deep structures.
     // optional second argument `indent` (integer) enables pretty-printing
     stringify: func(value, indent) {
         if (indent == null) {
@@ -678,7 +680,7 @@ global Spawn = {
         }
 
         if (best_index < 0) {
-            throw "All handles failed";
+            panic("All handles failed");
         }
 
         let result = {};

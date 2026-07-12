@@ -4,19 +4,19 @@ import { describe as describe_a } from "../dep/module_collision_a.nari";
 import { describe as describe_b } from "../dep/module_collision_b.nari";
 
 if (a.describe() != "module-a") {
-    throw "namespace import returned wrong function for module a";
+    panic("namespace import returned wrong function for module a");
 }
 
 if (b.describe() != "module-b") {
-    throw "namespace import returned wrong function for module b";
+    panic("namespace import returned wrong function for module b");
 }
 
 if (describe_a() != "module-a") {
-    throw "named import alias returned wrong function for module a";
+    panic("named import alias returned wrong function for module a");
 }
 
 if (describe_b() != "module-b") {
-    throw "named import alias returned wrong function for module b";
+    panic("named import alias returned wrong function for module b");
 }
 
 print("success!");

@@ -18,7 +18,7 @@ Welcome to the Nari language documentation! Nari is a lightweight, dynamically-t
 ### Advanced Features
 - [**Asynchronous Programming**](08-async.md) - spawn blocks, Spawn methods, and event loop
 - [**Modules**](09-modules.md) - Import system and code organization
-- [**Error Handling**](10-error-handling.md) - try/catch/finally and throw statements
+- [**Error Handling**](10-error-handling.md) - Result/Option enums and unrecoverable panics
 - [**Generics and Enums**](16-generics-enums.md) - Generic types, enum variants, and pattern matching
 - [**C Foreign Function Interface**](17-ffi.md) - Call C library functions directly from Nari
 
@@ -71,7 +71,7 @@ print("Status:", handle.value);
 - **String Interpolation** - Backtick strings with `{expressions}`
 - **Operators** - Ternary `?:`, nullish coalescing `??`, exponentiation `**`
 - **Module System** - Import external files
-- **Error Handling** - try/catch/finally blocks
+- **Error Handling** - Result/Option enums and unrecoverable panics
 - **Event Loop** - set_timeout, set_interval for scheduling
 
 ## Contributing

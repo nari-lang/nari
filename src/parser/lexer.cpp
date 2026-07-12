@@ -394,7 +394,6 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename)
             // determine if this / starts a regex literal or is a division operator
             static const std::unordered_set<std::string> kPrefixKeywords = {
                 "return",
-                "throw",
                 "typeof",
                 "new",
                 "delete",

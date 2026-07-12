@@ -458,7 +458,7 @@ func safeDivide(a, b) {
 // Avoid
 func unsafeDivide(a, b) {
     if (b == 0) {
-        throw "Division by zero";
+        panic("Division by zero");
     }
     return a / b;
 }

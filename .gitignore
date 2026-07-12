@@ -15,7 +15,4 @@ thirdparty/asmjit/
 test.nari
 workspace/
 
-esp_idf_project/main/bad_apple_frames/
-npkg-frontend/web/node_modules/
-
-result*
+__pycache__

@@ -2,23 +2,23 @@
 
 // 1. await on a stored handle
 let h = spawn { return 42 }
-if (h.await != 42) { throw "await on stored handle: expected 42" }
+if (h.await != 42) { panic("await on stored handle: expected 42") }
 
 // 2. await on an inline spawn
 let r = spawn { return 10 + 20 }.await
-if (r != 30) { throw "await on inline spawn: expected 30, got " @ string(r) }
+if (r != 30) { panic("await on inline spawn: expected 30, got " @ string(r)) }
 
 // 3. await chains correctly with following operators (handle is on the left)
 let h2 = spawn { return "hello" }
-if ((h2.await) @ " world" != "hello world") { throw "await + concat failed" }
+if ((h2.await) + " world" != "hello world") { panic("await + concat failed") }
 
 // 4. await binds the full postfix chain, `await obj.handle` is `(obj.handle).value`
 let obj = { h: spawn { return [1, 2, 3] } }
 let arr = obj.h.await
-if (arr.length() != 3 || arr[0] != 1) { throw "await on member access failed" }
+if (arr.length() != 3 || arr[0] != 1) { panic("await on member access failed") }
 
 // 5. nested awaits
 let n = spawn { return spawn { return 7 }.await }.await
-if (n != 7) { throw "nested await failed" }
+if (n != 7) { panic("nested await failed") }
 
 print("test_await: ok!")

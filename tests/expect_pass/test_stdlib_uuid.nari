@@ -4,7 +4,7 @@ import { uuid } from "std/uuid";
 
 func check(name, cond) {
     if (!cond) {
-        throw "uuid test failed: " @ name;
+        panic("uuid test failed: " @ name);
     }
 }
 
@@ -32,7 +32,7 @@ let i = 0;
 while (i < u.length()) {
     let c = u.char_at(i);
     if (allowed.index_of(c) < 0) {
-        throw "uuid test failed: invalid char at " @ i @ " -> " @ c;
+        panic("uuid test failed: invalid char at " @ i @ " -> " @ c);
     }
     i = i + 1;
 }

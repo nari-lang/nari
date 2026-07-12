@@ -421,4 +421,4 @@ func process(data) {
 ## Next Steps
 
 - [Functions](06-functions.md) - Function declarations and usage
-- [Error Handling](10-error-handling.md) - try/catch/finally
+- [Error Handling](10-error-handling.md) - Result/Option and panic

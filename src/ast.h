@@ -517,8 +517,6 @@ enum class StmtKind {
     Break,
     Continue,
     Return,
-    Throw,
-    Try,
     Other
 };
 
@@ -814,25 +812,6 @@ struct ReturnStmt : Stmt {
     }
 };
 
-struct ThrowStmt : Stmt {
-    ExprPtr value;
-
-    explicit ThrowStmt(ExprPtr v) : value(std::move(v)) {
-        stmt_kind = StmtKind::Throw;
-    }
-
-    void pretty_print(int indent = 0) const override {
-        print_indent(indent);
-        printf("Throw%s", loc_str().c_str());
-        if (value) {
-            printf(":\n");
-            value->pretty_print(indent + 2);
-        } else {
-            printf("\n");
-        }
-    }
-};
-
 struct BlockStmt : Stmt {
     std::vector<StmtPtr> stmts;
 
@@ -910,38 +889,6 @@ struct SwitchStmt : Stmt {
             print_indent(indent + 2);
             printf("Default:\n");
             default_body->pretty_print(indent + 4);
-        }
-    }
-};
-
-struct TryStmt : Stmt {
-    BlockPtr try_block;
-    std::string catch_var;
-    BlockPtr catch_block;
-    BlockPtr finally_block;
-
-    TryStmt(BlockPtr t, std::string cv, BlockPtr c, BlockPtr f)
-        : try_block(std::move(t)), catch_var(std::move(cv)), catch_block(std::move(c)), finally_block(std::move(f)) {
-        stmt_kind = StmtKind::Try;
-    }
-
-    void pretty_print(int indent = 0) const override {
-        print_indent(indent);
-        printf("Try%s:\n", loc_str().c_str());
-        if (try_block) {
-            print_indent(indent + 2);
-            printf("TryBlock:\n");
-            try_block->pretty_print(indent + 4);
-        }
-        if (catch_block) {
-            print_indent(indent + 2);
-            printf("Catch(%s):\n", catch_var.c_str());
-            catch_block->pretty_print(indent + 4);
-        }
-        if (finally_block) {
-            print_indent(indent + 2);
-            printf("Finally:\n");
-            finally_block->pretty_print(indent + 4);
         }
     }
 };

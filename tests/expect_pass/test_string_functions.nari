@@ -20,7 +20,7 @@ system.print(`split("{fruits}", ',') -> {fruits.split(",")}`);
 let words = "Hello World".split(" ");
 system.print("split('Hello World', ' ')         -> " @ words);
 if (words.length() != 2 || words[0] != "Hello" || words[1] != "World") {
-    throw "Error in split function! Expected ['Hello', 'World'].";
+    panic("Error in split function! Expected ['Hello', 'World'].");
 }
 
 // replace(str, find, replacement)
@@ -42,7 +42,7 @@ let mixed = "Hello World";
 system.print(`to_upper("{mixed}") -> {mixed.to_upper()}`);
 system.print(`to_lower("{mixed}") -> {mixed.to_lower()}`);
 if (mixed.to_upper() != "HELLO WORLD" || mixed.to_lower() != "hello world") {
-    throw "Error in to_upper or to_lower functions. Expected 'HELLO WORLD' and 'hello world'.";
+    panic("Error in to_upper or to_lower functions. Expected 'HELLO WORLD' and 'hello world'.");
 }
 
 // starts_with(str, prefix) and ends_with(str, suffix)
@@ -53,7 +53,7 @@ system.print(`ends_with("{filename}", ".txt")   -> {filename.ends_with(".txt")}`
 system.print(`ends_with("{filename}", ".pdf")   -> {filename.ends_with(".pdf")}`);
 
 if (!filename.starts_with("doc") || filename.ends_with(".pdf")) {
-    throw "Error in starts_with or ends_with functions. Expected true, false, true, false.";
+    panic("Error in starts_with or ends_with functions. Expected true, false, true, false.");
 }
 
 // char_at(str, index)
@@ -63,33 +63,33 @@ system.print(`char_at("{alphabet}", 3) -> {alphabet.char_at(3)}`);
 system.print(`char_at("{alphabet}", 6) -> {alphabet.char_at(6)}`);
 
 if (alphabet.char_at(0) != "A" || alphabet.char_at(3) != "D" || alphabet.char_at(6) != "G") {
-    throw "Error in char_at function! Expected 'A, D, G'.";
+    panic("Error in char_at function! Expected 'A, D, G'.");
 }
 
 // join(array, delimiter)
 let items = ["apple", "banana", "cherry"];
 system.print(`join(['apple', 'banana', 'cherry'], ', ')  -> {items.join(", ")}`);
 if (items.join(", ") != "apple, banana, cherry") {
-    throw "Error in join function. Expected 'apple, banana, cherry'.";
+    panic("Error in join function. Expected 'apple, banana, cherry'.");
 }
 
 let numbers = [1, 2, 3, 4, 5];
 system.print(`join([1, 2, 3, 4, 5], '-')                 -> {numbers.join("-")}`);
 
 if (numbers.join("-") != "1-2-3-4-5") {
-    throw "Error in join function. Expected '1-2-3-4-5'.";
+    panic("Error in join function. Expected '1-2-3-4-5'.");
 }
 
 let messy = "  HELLO  ";
 let clean = messy.trim().to_lower();
 system.print(`to_lower(trim("  HELLO  "))                 -> "{clean}"`);
 if (clean != "hello") {
-    throw "Error in combined trim and to_lower functions. Expected 'hello'.";
+    panic("Error in combined trim and to_lower functions. Expected 'hello'.");
 }
 
 let name = "Alice";
 let greeting = `Hello, {name.to_upper()}!`;
 system.print(`to_upper("Alice")                           -> "{greeting}"`);
 if (greeting != "Hello, ALICE!") {
-    throw "Error in string interpolation with to_upper. Expected 'Hello, ALICE!'.";
+    panic("Error in string interpolation with to_upper. Expected 'Hello, ALICE!'.");
 }

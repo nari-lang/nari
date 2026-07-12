@@ -1,517 +1,211 @@
 # Error Handling
 
-Nari provides try/catch/finally blocks for error handling and a `throw` statement for raising errors.
+Nari does **not** have `try`/`catch`/`finally`. Recoverable errors are modeled
+as values using the `Result<T, E>` and `Option<T>` enums from the prelude, and
+the `panic(value)` builtin is reserved for **unrecoverable failures** that abort
+the program (similar to Rust's `panic!`).
 
-## try/catch/finally
+## Result and Option
 
-### Basic try/catch
+The prelude defines two enums that are always available:
 
 ```nari
-try {
-    // Code that might throw
-    let result = riskyOperation();
-    print(result);
-} catch (error) {
-    print("Error occurred: " @ error);
+enum Result<T, E> { Ok(T), Err(E) }
+enum Option<T>    { Some(T), None }
+```
+
+Fallible operations return a `Result`. You inspect it instead of catching an exception:
+
+```nari
+let result = json.parse(text);
+if (result.is_ok()) {
+    let data = result.unwrap();
+    print(data);
+} else {
+    print("Parse error: " @ result.unwrap_err());
 }
 ```
 
-### With finally
+### Constructing Results
 
-The `finally` block always executes, whether an error occurred or not:
-
-```nari
-try {
-    let file = openFile("data.txt");
-    processFile(file);
-} catch (e) {
-    print("Error: " @ e);
-} finally {
-    print("Cleanup code runs here");
-    // Close file, release resources, etc.
-}
-```
-
-### Nested try/catch
-
-```nari
-try {
-    let data = fetchData();
-    
-    try {
-        let parsed = parseData(data);
-        saveData(parsed);
-    } catch (parseError) {
-        print("Parse error: " @ parseError);
-    }
-} catch (fetchError) {
-    print("Fetch error: " @ fetchError);
-}
-```
-
-## throw Statement
-
-### Throwing Errors
-
-```nari
-func divide(a, b) {
-    if (b == 0) {
-        throw "Division by zero";
-    }
-    return a / b;
-}
-
-try {
-    let result = divide(10, 0);
-} catch (e) {
-    print("Error: " @ e);  // Error: Division by zero
-}
-```
-
-### Throwing Custom Objects
-
-```nari
-func validateAge(age) {
-    if (age < 0) {
-        throw {
-            type: "ValidationError",
-            message: "Age cannot be negative",
-            value: age
-        };
-    }
-    if (age > 150) {
-        throw {
-            type: "ValidationError", 
-            message: "Age seems unrealistic",
-            value: age
-        };
-    }
-    return true;
-}
-
-try {
-    validateAge(-5);
-} catch (error) {
-    if (is_object(error)) {
-        print(error.type @ ": " @ error.message);
-        print("Value was: " @ error.value);
-    } else {
-        print("Error: " @ error);
-    }
-}
-```
-
-## Error Patterns
-
-### Error Type Classification
-
-```nari
-func processRequest(request) {
-    if (!request) {
-        throw { type: "ValueError", message: "Request is null" };
-    }
-    
-    if (!request.url) {
-        throw { type: "ValueError", message: "Missing URL" };
-    }
-    
-    if (request.method != "GET" && request.method != "POST") {
-        throw { type: "ValueError", message: "Invalid method" };
-    }
-    
-    // Process request...
-}
-
-try {
-    processRequest({ method: "DELETE" });
-} catch (e) {
-    if (e.type == "ValueError") {
-        print("Validation error: " @ e.message);
-    } else {
-        print("Unknown error: " @ e);
-    }
-}
-```
-
-### Result/Error Pattern
+Use the `Ok` and `Err` constructors:
 
 ```nari
 func safeDivide(a, b) {
     if (b == 0) {
-        return { success: false, error: "Division by zero" };
+        return Err("Division by zero");
     }
-    return { success: true, value: a / b };
+    return Ok(a / b);
 }
 
-let result = safeDivide(10, 2);
-if (result.success) {
-    print("Result: " @ result.value);
-} else {
-    print("Error: " @ result.error);
+let r = safeDivide(10, 0);
+if (r.is_err()) {
+    print("Error: " @ r.unwrap_err());  // Error: Division by zero
 }
 ```
 
-### Re-throwing Errors
+### Result methods
+
+| Method            | Description                                                        |
+| ----------------- | ------------------------------------------------------------------ |
+| `is_ok()`         | `true` when the value is `Ok`                                       |
+| `is_err()`        | `true` when the value is `Err`                                      |
+| `unwrap()`        | Returns the `Ok` value, or **panics** if it is `Err`               |
+| `unwrap_err()`    | Returns the `Err` value, or **panics** if it is `Ok`               |
+| `unwrap_or(def)`  | Returns the `Ok` value, or `def` when `Err`                        |
+| `map(f)`          | Transforms the `Ok` value, leaving `Err` untouched                 |
+| `map_err(f)`      | Transforms the `Err` value, leaving `Ok` untouched                 |
+| `and_then(f)`     | Chains another `Result`-returning operation on the `Ok` value      |
+| `or_else(f)`      | Provides a fallback `Result` when `Err`                            |
+
+### Option
+
+`Option` represents a value that may be absent:
 
 ```nari
-func outerFunction() {
-    try {
-        innerFunction();
-    } catch (e) {
-        print("Logging error: " @ e);
-        throw e;  // Re-throw to caller
-    }
-}
-
-func innerFunction() {
-    throw "Something went wrong";
-}
-
-try {
-    outerFunction();
-} catch (e) {
-    print("Caught in main: " @ e);
-}
-```
-
-## Validation Patterns
-
-### Input Validation
-
-```nari
-func validateUser(user) {
-    let errors = [];
-    
-    if (!user.username || user.username.length() < 3) {
-        errors.push("Username must be at least 3 characters");
-    }
-    
-    if (!user.email || user.email.index_of("@") == -1) {
-        errors.push("Invalid email address");
-    }
-    
-    if (errors.length() > 0) {
-        throw { type: "ValidationError", errors: errors };
-    }
-    
-    return true;
-}
-
-try {
-    validateUser({ username: "ab", email: "invalid" });
-} catch (e) {
-    if (e.type == "ValidationError") {
-        print("Validation failed:");
-        for (error in e.errors) {
-            print("  - " @ error);
+func find(list, target) {
+    for (item in list) {
+        if (item == target) {
+            return Some(item);
         }
     }
+    return None;
+}
+
+let found = find([1, 2, 3], 2);
+if (found.is_some()) {
+    print("Found: " @ found.unwrap());
 }
 ```
 
-### Data Parsing
+## Unrecoverable panics
+
+`panic(value)` raises an **uncatchable** panic. There is no way to recover from
+it in Nari code: it unwinds all the way to the top and stops the program. It is
+a builtin function and can be used anywhere an expression is accepted. Use it
+only for programmer errors and truly unrecoverable conditions.
 
 ```nari
-func parseJSON(text) {
-    // Simplified JSON parser example
-    if (text.length() == 0) {
-        throw "Empty JSON string";
+func mustBePositive(n) {
+    if (n <= 0) {
+        panic("expected a positive number");  // aborts the program
     }
-    
-    if (text.char_at(0) != "{" && text.char_at(0) != "[") {
-        throw "Invalid JSON format";
-    }
-    
-    // Parse logic...
-    return {};
-}
-
-try {
-    let data = parseJSON("invalid");
-} catch (e) {
-    print("Parse error: " @ e);
+    return n;
 }
 ```
 
-## Error Handling with Async
+`unwrap()` and `unwrap_err()` call `panic`, so calling
+`unwrap()` on an `Err` panics. Prefer explicit `is_ok()`/`is_err()` checks or
+`unwrap_or` when the error is expected and recoverable.
 
-### In spawn Blocks
+## Patterns
+
+### Propagating errors
+
+Return the `Result` up the call stack and let the caller decide:
 
 ```nari
-let handle = spawn {
-    try {
-        let response = http.fetch("https://invalid-url.com");
-        return response;
-    } catch (e) {
-        return { error: true, message: e };
+func loadConfig(path) {
+    let raw = fs.read_file_sync(path);   // returns Result
+    if (raw.is_err()) {
+        return raw;                       // propagate the Err
     }
-};
+    return json.parse(raw.unwrap());      // also a Result
+}
 
-let result = handle.value;
-if (result.error) {
-    print("Request failed: " @ result.message);
+let cfg = loadConfig("config.json");
+if (cfg.is_err()) {
+    print("Could not load config: " @ cfg.unwrap_err());
 }
 ```
 
-### Multiple Async Operations
+`and_then` expresses the same chaining more compactly:
 
 ```nari
-func fetchWithFallback(urls) {
-    for (url in urls) {
-        try {
-            let response = http.fetch(url);
-            return response;
-        } catch (e) {
-            print("Failed to fetch from " @ url @ ": " @ e);
-            // Try next URL
-        }
-    }
-    throw "All URLs failed";
-}
-
-try {
-    let data = fetchWithFallback([
-        "https://primary.com",
-        "https://backup1.com",
-        "https://backup2.com"
-    ]);
-    print("Success: " @ data.status_code);
-} catch (e) {
-    print("Complete failure: " @ e);
+func loadConfig(path) {
+    return fs.read_file_sync(path).and_then(func(raw) {
+        return json.parse(raw);
+    });
 }
 ```
 
-## Resource Management
-
-### Cleanup with finally
+### Fallback values
 
 ```nari
-func processFile(filename) {
-    let content = null;
-    
-    try {
-        content = fs.read_file(filename);
-        if (!content) {
-            throw "Could not read file";
-        }
-        
-        // Process file
-        let lines = content.split("\n");
-        print("Lines: " @ lines.length());
-        
-    } catch (e) {
-        print("Error processing file: " @ e);
-    } finally {
-        // Cleanup always runs
-        print("File processing complete");
-        content = null;
-    }
+func getConfigValue(config, key, fallback) {
+    let v = config.get(key);   // returns Option
+    return v.unwrap_or(fallback);
 }
 ```
 
-### Transaction Pattern
+### Structured errors
+
+The `Err` payload can be any value, including an object with context:
 
 ```nari
-func performTransaction() {
-    let committed = false;
-    
-    try {
-        startTransaction();
-        
-        // Do work
-        updateRecord(1);
-        updateRecord(2);
-        updateRecord(3);
-        
-        commitTransaction();
-        committed = true;
-        
-    } catch (e) {
-        print("Transaction error: " @ e);
-    } finally {
-        if (!committed) {
-            rollbackTransaction();
-        }
+func processRequest(request) {
+    if (!request) {
+        return Err({ type: "ValueError", message: "Request is null" });
     }
+    if (!request.url) {
+        return Err({ type: "ValueError", message: "Missing URL" });
+    }
+    return Ok(request);
+}
+
+let r = processRequest({ method: "DELETE" });
+if (r.is_err()) {
+    let e = r.unwrap_err();
+    print(e.type @ ": " @ e.message);
 }
 ```
 
-## Defensive Programming
-
-### Guard Clauses
-
-```nari
-func processUser(user) {
-    if (!user) {
-        throw "User is null";
-    }
-    
-    if (!user.id) {
-        throw "User missing ID";
-    }
-    
-    if (!user.name) {
-        throw "User missing name";
-    }
-    
-    // Safe to process user
-    return user.name @ " (" @ user.id @ ")";
-}
-```
-
-### Type Checking
-
-```nari
-func calculateArea(shape) {
-    if (!is_object(shape)) {
-        throw "Shape must be an object";
-    }
-    
-    if (shape.type == "circle") {
-        if (!is_number(shape.radius)) {
-            throw "Circle radius must be a number";
-        }
-        return 3.14159 * shape.radius ** 2;
-    }
-    
-    if (shape.type == "rectangle") {
-        if (!is_number(shape.width) || !is_number(shape.height)) {
-            throw "Rectangle dimensions must be numbers";
-        }
-        return shape.width * shape.height;
-    }
-    
-    throw "Unknown shape type: " @ shape.type;
-}
-```
-
-## Error Recovery Strategies
-
-### Retry Logic
+### Retry logic
 
 ```nari
 func retry(operation, maxAttempts) {
     let attempts = 0;
-    let lastError = null;
-    
     while (attempts < maxAttempts) {
-        try {
-            return operation();
-        } catch (e) {
-            attempts = attempts + 1;
-            lastError = e;
-            print("Attempt " @ attempts @ " failed: " @ e);
-            
-            if (attempts < maxAttempts) {
-                // Wait before retrying
-                set_timeout(func() {}, 1000);
-            }
+        let r = operation();          // returns Result
+        if (r.is_ok()) {
+            return r;
         }
+        attempts = attempts + 1;
+        print("Attempt " @ attempts @ " failed: " @ r.unwrap_err());
     }
-    
-    throw "Max retries exceeded. Last error: " @ lastError;
-}
-
-// Usage
-try {
-    let result = retry(func() {
-        return http.fetch("https://unreliable-api.com");
-    }, 3);
-    print("Success!");
-} catch (e) {
-    print("Failed after retries: " @ e);
+    return Err("Max retries exceeded");
 }
 ```
 
-### Fallback Values
+## Async errors
+
+Async I/O handles report failure through their own members rather than throwing:
 
 ```nari
-func getConfigValue(key, fallback) {
-    try {
-        let config = loadConfig();
-        if (config.has_key(key)) {
-            return config[key];
-        }
-        return fallback;
-    } catch (e) {
-        print("Config error: " @ e);
-        return fallback;
-    }
+let handle = fs.read_file("data.txt");
+while (!handle.ready) {}
+if (handle.failed) {
+    print("Read failed: " @ handle.error);
+} else {
+    print(handle.value);
 }
-
-let timeout = getConfigValue("timeout", 5000);
 ```
+
+A handle exposes `.ready`, `.failed`, `.error`, and `.value`. Reading `.value`
+on a failed handle panics, so check `.failed` first when the failure is
+expected.
 
 ## Best Practices
 
-### 1. Catch Specific Errors
-
-```nari
-// Good: Handle different error types
-try {
-    performOperation();
-} catch (e) {
-    if (is_object(e) && e.type == "NetworkError") {
-        handleNetworkError(e);
-    } else if (is_object(e) && e.type == "ValidationError") {
-        handleValidationError(e);
-    } else {
-        handleUnknownError(e);
-    }
-}
-```
-
-### 2. Don't Swallow Errors Silently
-
-```nari
-// Bad
-try {
-    riskyOperation();
-} catch (e) {
-    // Silent failure - don't do this
-}
-
-// Good
-try {
-    riskyOperation();
-} catch (e) {
-    print("Operation failed: " @ e);
-    // Or log, notify user, etc.
-}
-```
-
-### 3. Clean Up in finally
-
-```nari
-let resource = null;
-try {
-    resource = acquireResource();
-    useResource(resource);
-} catch (e) {
-    print("Error: " @ e);
-} finally {
-    if (resource) {
-        releaseResource(resource);
-    }
-}
-```
-
-### 4. Provide Context in Errors
-
-```nari
-// Good
-throw {
-    type: "FileError",
-    message: "Could not read file",
-    filename: filename,
-    reason: "File not found"
-};
-
-// Less helpful
-throw "Error reading file";
-```
+- Return `Result`/`Option` for anything that can fail as part of normal
+  operation; reserve `panic` for bugs and unrecoverable states.
+- Prefer `is_ok()`/`is_err()` checks or `unwrap_or` over bare `unwrap()` so an
+  expected error does not turn into a panic.
+- Put contextual information in the `Err` payload (type, message, offending
+  value) to make failures easier to diagnose.
+- Propagate errors with `and_then`/early `return` instead of swallowing them.
 
 ## Next Steps
 
-- [Builtins](11-builtins.md) - Built-in error handling functions
+- [Builtins](11-builtins.md) - Built-in functions and their `Result` returns
 - [Custom Types](07-custom-types.md) - Using custom types for structured errors

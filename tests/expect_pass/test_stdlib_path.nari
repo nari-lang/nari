@@ -3,7 +3,7 @@
 import { Path } from "std/path";
 
 func check(name, cond) {
-    if (!cond) { throw "Path test failed: " @ name; }
+    if (!cond) { panic("Path test failed: " @ name); }
 }
 
 // is_absolute
