@@ -32,6 +32,9 @@ func __stdlib_init__() {
           is_err: func() {
               return false;
           },
+          expect: func(msg) {
+              return value;
+          },
           unwrap: func() {
               return value;
           },
@@ -66,6 +69,9 @@ func __stdlib_init__() {
           },
           is_err: func() {
               return true;
+          },
+          expect: func(msg) {
+              panic(msg);
           },
           unwrap: func() {
               panic(error);
