@@ -463,11 +463,6 @@ race: Returns the fastest completing handle
 
 all: Wait for all handles to complete, return array of results
 
-#### `all_settled(handles)`
-
-all_settled: Wait for all handles, return results including failures
-Returns array of { status, value?, error?, duration }
-
 #### `any(handles)`
 
 any: Return first successful handle (by completion time)

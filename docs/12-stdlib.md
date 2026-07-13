@@ -538,15 +538,6 @@ Get the first successful handle.
 let firstSuccess = Spawn.any(handles);
 ```
 
-### Spawn.all_settled
-
-Get all results with status. Each result is `{ index, duration, status, value? , error? }`
-where `status` is `"fulfilled"` or `"rejected"`.
-
-```nari
-let settled = Spawn.all_settled(handles);
-```
-
 ## yield Function
 
 Yield control to the event loop.

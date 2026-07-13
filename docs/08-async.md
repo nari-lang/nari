@@ -121,28 +121,6 @@ let firstSuccess = Spawn.any(handles);
 print("First successful: " @ urls[firstSuccess.index]);
 ```
 
-### Spawn.all_settled
-
-Get all results with their status. Each result is an object with fields
-`index`, `duration`, `status` (`"fulfilled"` or `"rejected"`), and either
-`value` (on success) or `error` (on failure):
-
-```nari
-let handles = Spawn.map(urls, func(url) { 
-    return http.fetch(url); 
-});
-
-let settled = Spawn.all_settled(handles);
-
-for (result in settled) {
-    if (result.status == "fulfilled") {
-        print("Success! Duration: " @ result.duration @ "ms");
-    } else {
-        print("Failed: " @ result.error);
-    }
-}
-```
-
 ## Timers and Scheduling
 
 ### set_timeout
