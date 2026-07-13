@@ -1,9 +1,8 @@
 {
-    "mesonbuild.configureOnOpen": false,
     "chat.tools.terminal.autoApprove": {
         "./build/release/naric": true
     },
+    "mesonbuild.configureOnOpen": false,
     "C_Cpp.errorSquiggles": "enabled",
-    "C_Cpp.default.compileCommands": "/home/wearr/Documents/Coding/Nari/builddir/compile_commands.json",
     "C_Cpp.default.configurationProvider": "mesonbuild.mesonbuild"
 }

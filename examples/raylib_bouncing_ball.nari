@@ -38,9 +38,8 @@ let win_width = Raylib.GetScreenWidth()
 let win_height = Raylib.GetScreenHeight()
 
 while (!Raylib.WindowShouldClose()) {
-
   if (Raylib.IsKeyPressed(KEY_ENTER)) {
-  break
+      break;
   }
 
   // clamp dt
@@ -62,84 +61,81 @@ while (!Raylib.WindowShouldClose()) {
   let is_over_ball = dist_to_ball <= ball_radius
 
   if (Raylib.IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && is_over_ball) {
-  is_grabbed = true
-  grab_offset_x = ball_x - mouse_x
-  grab_offset_y = ball_y - mouse_y
-  prev_mouse_x = mouse_x
-  prev_mouse_y = mouse_y
-  mouse_vx = 0
-  mouse_vy = 0
+    is_grabbed = true
+    grab_offset_x = ball_x - mouse_x
+    grab_offset_y = ball_y - mouse_y
+    prev_mouse_x = mouse_x
+    prev_mouse_y = mouse_y
+    mouse_vx = 0
+    mouse_vy = 0
   }
 
   if (Raylib.IsMouseButtonReleased(MOUSE_LEFT_BUTTON) && is_grabbed) {
-  is_grabbed = false
-  ball_vx = mouse_vx * 0.8
-  ball_vy = mouse_vy * 0.8
+    is_grabbed = false
+    ball_vx = mouse_vx * 0.8
+    ball_vy = mouse_vy * 0.8
   }
 
   if (is_grabbed) {
+    ball_x = mouse_x + grab_offset_x
+    ball_y = mouse_y + grab_offset_y
 
-  ball_x = mouse_x + grab_offset_x
-  ball_y = mouse_y + grab_offset_y
-
-  ball_vx = 0
-  ball_vy = 0
-
+    ball_vx = 0
+    ball_vy = 0
   } else {
+    // gravity
+    ball_vy = ball_vy + gravity * dt
 
-  // gravity
-  ball_vy = ball_vy + gravity * dt
+    // air drag
+    ball_vx = ball_vx - ball_vx * air_drag * dt
+    ball_vy = ball_vy - ball_vy * air_drag * dt
 
-  // air drag
-  ball_vx = ball_vx - ball_vx * air_drag * dt
-  ball_vy = ball_vy - ball_vy * air_drag * dt
+    // clamp max speed
+    let speed = math.sqrt(ball_vx * ball_vx + ball_vy * ball_vy)
+    if (speed > max_speed) {
+      let scale = max_speed / speed
+      ball_vx = ball_vx * scale
+      ball_vy = ball_vy * scale
+    }
 
-  // clamp max speed
-  let speed = math.sqrt(ball_vx * ball_vx + ball_vy * ball_vy)
-  if (speed > max_speed) {
-  let scale = max_speed / speed
-  ball_vx = ball_vx * scale
-  ball_vy = ball_vy * scale
-  }
+    // integrate
+    ball_x = ball_x + ball_vx * dt
+    ball_y = ball_y + ball_vy * dt
 
-  // integrate
-  ball_x = ball_x + ball_vx * dt
-  ball_y = ball_y + ball_vy * dt
+    // wall bounce
+    if (ball_x <= ball_radius) {
+      ball_x = ball_radius
+      ball_vx = -ball_vx * bounce_damping
+    }
 
-  // wall bounce
-  if (ball_x <= ball_radius) {
-  ball_x = ball_radius
-  ball_vx = -ball_vx * bounce_damping
-  }
+    if (ball_x >= win_width - ball_radius) {
+      ball_x = win_width - ball_radius
+      ball_vx = -ball_vx * bounce_damping
+    }
 
-  if (ball_x >= win_width - ball_radius) {
-  ball_x = win_width - ball_radius
-  ball_vx = -ball_vx * bounce_damping
-  }
+    // floor
+    if (ball_y >= win_height - ball_radius) {
+      ball_y = win_height - ball_radius
+      ball_vy = -ball_vy * bounce_damping
 
-  // floor
-  if (ball_y >= win_height - ball_radius) {
-  ball_y = win_height - ball_radius
-  ball_vy = -ball_vy * bounce_damping
+      // ground friction only when touching floor
+      ball_vx = ball_vx - ball_vx * ground_friction * dt
 
-  // ground friction only when touching floor
-  ball_vx = ball_vx - ball_vx * ground_friction * dt
+      // no tiny bounce
+      if (math.abs(ball_vy) < 30) {
+        ball_vy = 0
+      }
 
-  // no tiny bounce
-  if (math.abs(ball_vy) < 30) {
-  ball_vy = 0
-  }
+      if (math.abs(ball_vx) < 5) {
+        ball_vx = 0
+      }
+    }
 
-  if (math.abs(ball_vx) < 5) {
-  ball_vx = 0
-  }
-  }
-
-  // ceiling
-  if (ball_y <= ball_radius) {
-  ball_y = ball_radius
-  ball_vy = -ball_vy * bounce_damping
-  }
+    // ceiling
+    if (ball_y <= ball_radius) {
+      ball_y = ball_radius
+      ball_vy = -ball_vy * bounce_damping
+    }
   }
 
   prev_mouse_x = mouse_x
@@ -152,7 +148,7 @@ while (!Raylib.WindowShouldClose()) {
   Raylib.DrawCircle(ball_x, ball_y, ball_radius, RED)
 
   if (is_over_ball && !is_grabbed) {
-  Raylib.DrawCircleLines(ball_x, ball_y, ball_radius + 2, RAYWHITE)
+    Raylib.DrawCircleLines(ball_x, ball_y, ball_radius + 2, RAYWHITE)
   }
 
   let fontSize = 30;
@@ -170,5 +166,3 @@ while (!Raylib.WindowShouldClose()) {
 
   Raylib.EndDrawing()
 }
-
-Raylib.CloseWindow()

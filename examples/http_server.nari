@@ -11,7 +11,7 @@ func get_mime_type(path) {
         }
         i++;
     }
-    
+    print(ext)
     switch (ext) {
         case "html":
         case "htm":
@@ -180,20 +180,6 @@ func handle_request(conn) {
             return;
         }
 
-        // special handling for directory listing
-        if (request.path == "/") {
-            let index_path = root_dir + "index.html";
-            let index_exists = fs.file_exists(index_path).await;
-
-            if (!index_exists) {
-                let dir_html = generate_directory_listing(root_dir, request.path);
-                let dir_response = build_response("200", "OK", "text/html", dir_html);
-                print("  -> 200 OK (directory listing)");
-                conn.write(conn, dir_response);
-                return;
-            }
-        }
-
         let file_path = sanitize_path(request.path);
         let exists = fs.file_exists(file_path).await;
 
@@ -208,9 +194,12 @@ func handle_request(conn) {
         let is_dir = fs.is_directory(file_path);
         if (is_dir) {
             // serve index.html if it exists
-            let index_exists = fs.file_exists(file_path + "/index.html").await;
+            let index_path = file_path + "/index.html";
+            let index_exists = fs.file_exists(index_path).await;
             if (index_exists) {
-                let file = fs.read_file(index_path).await;
+                let content = fs.read_file(index_path)
+                    .await
+                    .unwrap();
                 let dir_response = build_response("200", "OK", "text/html", content);
                 print("  -> 200 OK (text/html)");
                 conn.write(conn, dir_response);
@@ -225,25 +214,10 @@ func handle_request(conn) {
             return;
         }
 
-        let read_handle = fs.read_file(file_path);
-        // wait for the read to finish, then inspect the handle
-        while (!read_handle.ready) {}
-        if (read_handle.failed) {
-            let e = read_handle.error;
-            let body500 = "500 Internal Server Error\nError reading file: " + e;
-            let response500 = build_response("500", "Internal Server Error", "text/plain", body500);
-            print(`  -> 500 Error: {e}`);
-            conn.write(conn, response500, func(write_err) {});
-        } else {
-            let content = read_handle.value;
-            let mime_type = get_mime_type(file_path) ?? "application/octet-stream";
-            let response200 = build_response("200", "OK", mime_type, content);
-            print(`  -> 200 OK ({mime_type})`);
-            conn.write(conn, response200, func(write_err) {});
-        }
-
-        let content = file.unwrap();
-        let mime_type = get_mime_type(file_path) ?? "application/octet-stream";
+        let content = fs.read_file(file_path)
+            .await
+            .unwrap();
+        let mime_type = get_mime_type(file_path) || "application/octet-stream";
         let response200 = build_response("200", "OK", mime_type, content);
         print(`  -> 200 OK ({mime_type})`);
         conn.write(conn, response200);
