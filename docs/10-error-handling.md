@@ -48,8 +48,9 @@ if (r.is_err()) {
 
 | Method            | Description                                                        |
 | ----------------- | ------------------------------------------------------------------ |
-| `is_ok()`         | `true` when the value is `Ok`                                       |
-| `is_err()`        | `true` when the value is `Err`                                      |
+| `is_ok()`         | `true` when the value is `Ok`                                      |
+| `is_err()`        | `true` when the value is `Err`                                     |
+| `expect(msg)`     | Returns the `Ok` value, or **panics** with `msg` if it is `Err`    |
 | `unwrap()`        | Returns the `Ok` value, or **panics** if it is `Err`               |
 | `unwrap_err()`    | Returns the `Err` value, or **panics** if it is `Ok`               |
 | `unwrap_or(def)`  | Returns the `Ok` value, or `def` when `Err`                        |
@@ -176,24 +177,6 @@ func retry(operation, maxAttempts) {
     return Err("Max retries exceeded");
 }
 ```
-
-## Async errors
-
-Async I/O handles report failure through their own members rather than throwing:
-
-```nari
-let handle = fs.read_file("data.txt");
-while (!handle.ready) {}
-if (handle.failed) {
-    print("Read failed: " @ handle.error);
-} else {
-    print(handle.value);
-}
-```
-
-A handle exposes `.ready`, `.failed`, `.error`, and `.value`. Reading `.value`
-on a failed handle panics, so check `.failed` first when the failure is
-expected.
 
 ## Best Practices
 
