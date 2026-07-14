@@ -60,8 +60,8 @@ enum {
     JIT_CODE_UNWINDING_INFO = 4,
 };
 
-// All jitdump structs are naturally packed, so the in-memory layout matches 
-// the on-disk format with no compiler padding. Asserted below.
+// All jitdump structs are packed, so the in-memory layout matches
+// the on-disk format with no compiler padding
 struct FileHeader {
     uint32_t magic;      // "JiTD" (0x4A695444)
     uint32_t version;    // 1
@@ -167,8 +167,8 @@ void ensure_init_locked() {
         left -= (size_t)w;
     }
 
-    // Marker mmap: perf inject --jit keys on an executable mmap of a file named jit-*.dump. 
-    // Mapping page 0 (covering the header we just wrote) with PROT_EXEC makes perf record emit the MMAP event it needs.
+    // marker mmap: perf inject --jit keys on an executable mmap of a file named jit-*.dump,
+    // mapping page 0 with PROT_EXEC makes perf record emit the MMAP event it needs.
     long pg = sysconf(_SC_PAGESIZE);
     g_marker_size = (pg > 0) ? (size_t)pg : 4096;
     g_marker = mmap(nullptr, g_marker_size, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0);

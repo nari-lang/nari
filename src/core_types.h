@@ -286,6 +286,8 @@ struct ObjectObj : HeapHeader, PooledHeapObject<ObjectObj> {
     const ObjectShape *shape = nullptr;
     std::vector<Value> fields;
     std::unique_ptr<ObjectDict, void (*)(ObjectDict *)> dict = { nullptr, delete_object_dict };
+    std::string native_struct_type;
+    std::vector<uint8_t> native_struct_storage;
     uint32_t shape_version = 0;
     bool frozen = false;
     bool dict_mode = false;
@@ -304,6 +306,9 @@ struct ObjectObj : HeapHeader, PooledHeapObject<ObjectObj> {
     bool has_field(const std::string &name) const noexcept;
     bool is_empty() const noexcept;
     size_t field_count() const noexcept;
+    bool is_managed_native_struct() const noexcept {
+        return !native_struct_type.empty() && !native_struct_storage.empty();
+    }
 };
 
 struct FunctionData : HeapHeader {
@@ -423,7 +428,9 @@ struct Task {
     Value result;
     Value error;
     std::map<std::string, Value> locals;
+    std::unordered_set<std::string> const_locals;
     std::vector<std::map<std::string, Value>> block_scopes;
+    std::vector<std::unordered_set<std::string>> block_const_scopes;
     Flags flags;
 
     explicit Task(const nari::BlockStmt *b) : body(b) {

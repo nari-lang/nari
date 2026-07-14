@@ -1,0 +1,9 @@
+func makeWriter() {
+    const value = 1;
+    return func() {
+        value = 2;
+    };
+}
+
+let write = makeWriter();
+write();

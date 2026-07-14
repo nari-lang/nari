@@ -1,0 +1,15 @@
+func call_on_last_iteration(callee, iteration) {
+    if (iteration == 55) {
+        callee();
+    }
+}
+
+func start() {
+    let not_a_function = "jit_target";
+
+    for (let i = 0; i <= 55; i++) {
+        call_on_last_iteration(not_a_function, i);
+    }
+
+    print("execution continued after JIT runtime panic");
+}

@@ -365,7 +365,7 @@ void VM::register_builtin(const std::string &name) {
         ScriptRuntime::BuiltinFn func = runtime->lookup_builtin_member(name);
         if (func) {
             auto &data = builtins[name].get_function();
-            // member-fn pointers are 16 bytes on Itanium ABI but 8 on MSVC x64. 
+            // member-fn pointers are 16 bytes on Itanium ABI but 8 on MSVC x64.
             // reader (jit_call_value) memcpys the same sizeof back out.
             static_assert(sizeof(func) <= sizeof(data.jit_builtin_fn), "pointer-to-member too large for jit_builtin_fn");
             std::memcpy(data.jit_builtin_fn, &func, sizeof(func));
@@ -570,16 +570,32 @@ void VM::register_all_builtins() {
 }
 
 Value VM::call_builtin(const std::string &name, const std::vector<Value> &args) {
-    Value result = runtime->call_builtin(name, args, nullptr);
-    return result;
+    return call_builtin(name, args.data(), args.size());
 }
 
 Value VM::call_builtin(const std::string &name, const Value *argv, size_t argc) {
-    return runtime->call_builtin(name, argv, argc, nullptr);
+    try {
+        return runtime->call_builtin(name, argv, argc, nullptr);
+    } catch (const RuntimeError &) {
+        has_error = true;
+        return Value::none();
+    }
+}
+
+Value VM::call_builtin_member(ScriptRuntime::BuiltinFn fn, const Value *argv, size_t argc) {
+    try {
+        return runtime->call_builtin_member(fn, argv, argc, nullptr);
+    } catch (const RuntimeError &) {
+        has_error = true;
+        return Value::none();
+    }
 }
 
 // push the result of a builtin call, but first check whether the builtin raised a script-catchable throw
 bool VM::push_builtin_result(Value result) {
+    if (has_error) {
+        return false;
+    }
     if (runtime->flags.throw_flag) {
         Value err = runtime->flags.throw_value;
         runtime->flags.throw_flag = false;
@@ -806,1214 +822,1381 @@ void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t ar
 }
 
 bool VM::execute_instruction() {
-    // GC-stress validation safe-point: a full precise collection at every
-    // instruction boundary (where all live Values are in scanned roots), no-op unless NARI_GC_STRESS is set.
-    if (NARI_UNLIKELY(gc_stress)) {
-        gc_collect_roots();
-    } else if (NARI_UNLIKELY(gc_safepoints) && GarbageCollector::instance().should_collect()) {
-        // collect only when the GC has flagged that enough has been allocated.
-        // at an instruction boundary the operand stack is at a clean height
-        gc_collect_roots();
-    }
+    try {
+        if (NARI_UNLIKELY(Runtime::g_shutdown_requested.load())) {
+            return false;
+        }
+        // a full precise collection at every instruction boundary (all live Values are scanned roots),
+        // no-op unless NARI_GC_STRESS is set.
+        if (NARI_UNLIKELY(gc_stress)) {
+            gc_collect_roots();
+        } else if (NARI_UNLIKELY(gc_safepoints) && GarbageCollector::instance().should_collect()) {
+            // collect only when the GC has flagged that enough has been allocated.
+            // at an instruction boundary the operand stack is at a clean height
+            gc_collect_roots();
+        }
 #ifndef DISABLE_JIT
-    // save pointer to start of instruction (before any reads) and its PC offset.
-    uint8_t *const insn_base_ptr = ip();
-    uint8_t *const code_data_ptr = current_function()->code.data();
-    const size_t insn_pc = (size_t)(insn_base_ptr - code_data_ptr);
+        // save pointer to start of instruction (before any reads) and its PC offset.
+        uint8_t *const insn_base_ptr = ip();
+        uint8_t *const code_data_ptr = current_function()->code.data();
+        const size_t insn_pc = (size_t)(insn_base_ptr - code_data_ptr);
 
-    // flip from pending -> active if the target PC has been reached.
-    if (trace_recorder.pending_record && insn_pc == trace_recorder.target_pc) {
-        trace_recorder.pending_record = false;
-        trace_recorder.recording = true;
-        trace_recorder.type_vstack.clear();
-        trace_recorder.steps.clear();
-    }
-    const bool trace_was_recording = trace_recorder.recording;
+        // flip from pending -> active if the target PC has been reached.
+        if (trace_recorder.pending_record && insn_pc == trace_recorder.target_pc) {
+            trace_recorder.pending_record = false;
+            trace_recorder.recording = true;
+            trace_recorder.type_vstack.clear();
+            trace_recorder.steps.clear();
+        }
+        const bool trace_was_recording = trace_recorder.recording;
 #endif
 
-    // Debugger hook
-    {
-        auto &dc = dbg::DebugController::instance();
-        if (dc.enabled()) {
-            uint8_t *const dbg_ip = ip();
-            FunctionMeta *const dbg_fn = current_function();
-            const size_t dbg_pc = static_cast<size_t>(dbg_ip - dbg_fn->code.data());
-            const int dbg_line = dbg_fn->resolve_line(dbg_pc);
-            const std::string dbg_file = dbg::canonicalise_path(dbg_fn->source_file);
-            const bool pending_entry_stop = dc.pending_entry_stop();
-            if (dc.should_stop(*this, dbg_pc, frames.size(), dbg_line, dbg_file)) {
-                dbg::StopReason reason;
-                if (!dc.has_fired_first_stop() && pending_entry_stop) {
-                    reason = dbg::StopReason::Entry;
-                } else if (dc.has_breakpoint(dbg_file, dbg_line)) {
-                    reason = dbg::StopReason::Breakpoint;
-                } else {
-                    reason = dbg::StopReason::Step;
-                }
-                dc.mark_first_stop_fired();
-                dc.publish_stop_and_wait(dc.snapshot_frames(*this, reason));
-            }
-        }
-    }
-
-    OpCode op = static_cast<OpCode>(read_byte());
-
-    switch (op) {
-        // stack operations
-        case OpCode::OP_LOAD_CONST: {
-            uint16_t idx = read_short();
-            Constant &c = current_function()->constants[idx];
-
-            switch (c.type) {
-                case Constant::Type::NONE:
-                    VM::push(Value::none());
-                    break;
-                case Constant::Type::INT:
-                    VM::push(Value::make_int(c.as_int));
-                    break;
-                case Constant::Type::FLOAT:
-                    VM::push(Value::make_float(c.as_float));
-                    break;
-                case Constant::Type::STRING:
-                    // shared immutable constant -- no per-load alloc/copy
-                    VM::push(chunk->get_const_string(c.string_idx));
-                    break;
-                case Constant::Type::FUNCTION:
-                    // TODO: create function value
-                    VM::push(Value::none());
-                    break;
-            }
-            break;
-        }
-
-        case OpCode::OP_LOAD_VAR: {
-            uint16_t idx = read_short();
-            // Check for open upvalue cell first (closure-shared variable)
-            auto &upvals = current_frame().open_upvalues;
-            if (upvals) {
-                auto it = upvals->find(idx);
-                if (it != upvals->end()) {
-                    VM::push(*it->second);
-                    break;
-                }
-            }
-            VM::push(stack[current_frame().slot_base + idx]);
-            break;
-        }
-
-        case OpCode::OP_STORE_VAR: {
-            uint16_t idx = read_short();
-            Value val = peek();
-            stack[current_frame().slot_base + idx] = val;
-            // Also update any open upvalue cell so closures see the change
-            auto &upvals = current_frame().open_upvalues;
-            if (upvals) {
-                auto it = upvals->find(idx);
-                if (it != upvals->end()) {
-                    *it->second = val;
-                }
-            }
-            break;
-        }
-
-        case OpCode::OP_LOAD_GLOBAL: {
-            uint16_t name_idx = read_short();
-            if (NARI_LIKELY(name_idx < global_cache_valid.size() &&
-                            global_cache_valid[name_idx])) {
-                VM::push(global_cache[name_idx]);
-            } else {
-                VM::push(get_global(chunk->strings[name_idx]));
-            }
-            break;
-        }
-
-        case OpCode::OP_STORE_GLOBAL: {
-            uint16_t name_idx = read_short();
-            const std::string &name = chunk->strings[name_idx];
-            set_global(name, peek());
-            if (name_idx < global_cache.size()) {
-                global_cache[name_idx] = peek();
-                global_cache_valid[name_idx] = 1;
-            }
-            break;
-        }
-
-        case OpCode::OP_LOAD_CAPTURE: {
-            uint16_t idx = read_short();
-            auto &captures = current_frame().captures;
-            if (captures && idx < captures->size()) {
-                VM::push(*(*captures)[idx]); // dereference cell
-            } else {
-                VM::push(Value::none());
-            }
-            break;
-        }
-
-        case OpCode::OP_STORE_CAPTURE: {
-            uint16_t idx = read_short();
-            auto &captures = current_frame().captures;
-            if (captures && idx < captures->size()) {
-                *(*captures)[idx] = peek(); // write through cell
-            }
-            break;
-        }
-
-        case OpCode::OP_POP:
-            pop();
-            break;
-
-        case OpCode::OP_DUP:
-            VM::push(peek());
-            break;
-
-        case OpCode::OP_LOAD_NONE:
-            VM::push(Value::none());
-            break;
-        case OpCode::OP_LOAD_TRUE:
-            VM::push(Value::make_bool(true));
-            break;
-        case OpCode::OP_LOAD_FALSE:
-            VM::push(Value::make_bool(false));
-            break;
-        case OpCode::OP_LOAD_ZERO:
-            VM::push(Value::make_int(0));
-            break;
-        case OpCode::OP_LOAD_ONE:
-            VM::push(Value::make_int(1));
-            break;
-
-        case OpCode::OP_ADD: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            if (a.is_int() && b.is_int()) {
-                a.inplace_int_checked(a.get_int() + b.get_int());
-            } else if (a.is_string() || b.is_string()) {
-                a = Value::make_string(a.to_string() + b.to_string());
-            } else {
-                a.set_float(a.as_number() + b.as_number());
-            }
-            stack.pop_back();
-            break;
-        }
-
-        case OpCode::OP_SUB: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            if (a.is_int() && b.is_int()) {
-                a.inplace_int_checked(a.get_int() - b.get_int());
-            } else {
-                a.set_float(a.as_number() - b.as_number());
-            }
-            stack.pop_back();
-            break;
-        }
-
-        case OpCode::OP_MUL: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            if (a.is_int() && b.is_int()) {
-                // any product outside int48 promotes to float in one branch
-                int64_t product;
-                if (NARI_UNLIKELY(mul_overflow_i48(a.get_int(), b.get_int(), &product))) {
-                    a.set_float(a.as_number() * b.as_number());
-                } else {
-                    a.inplace_int(product);
-                }
-            } else {
-                a.set_float(a.as_number() * b.as_number());
-            }
-            stack.pop_back();
-            break;
-        }
-
-        case OpCode::OP_DIV: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            double bn = b.as_number();
-            if (bn == 0.0) {
-                a.set_float(std::nan(""));
-            } else if (a.is_int() && b.is_int()) {
-                int64_t av = a.get_int(), bv = b.get_int();
-                if (av == INT64_MIN && bv == -1) {
-                    a.set_float(-static_cast<double>(INT64_MIN));
-                } else if (av % bv == 0) {
-                    a.inplace_int(av / bv);
-                } else {
-                    a.set_float(a.as_number() / bn);
-                }
-            } else {
-                a.set_float(a.as_number() / bn);
-            }
-            stack.pop_back();
-            break;
-        }
-
-        case OpCode::OP_MOD: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            if (a.is_int() && b.is_int()) {
-                int64_t bv = b.get_int();
-                if (bv == 0) {
-                    a.set_float(std::nan(""));
-                } else {
-                    int64_t av = a.get_int();
-                    if (av == INT64_MIN && bv == -1) {
-                        a.set_float(0.0);
+        // Debugger hook
+        {
+            auto &dc = dbg::DebugController::instance();
+            if (dc.enabled()) {
+                uint8_t *const dbg_ip = ip();
+                FunctionMeta *const dbg_fn = current_function();
+                const size_t dbg_pc = static_cast<size_t>(dbg_ip - dbg_fn->code.data());
+                const int dbg_line = dbg_fn->resolve_line(dbg_pc);
+                const std::string dbg_file = dbg::canonicalise_path(dbg_fn->source_file);
+                const bool pending_entry_stop = dc.pending_entry_stop();
+                if (dc.should_stop(*this, dbg_pc, frames.size(), dbg_line, dbg_file)) {
+                    dbg::StopReason reason;
+                    if (!dc.has_fired_first_stop() && pending_entry_stop) {
+                        reason = dbg::StopReason::Entry;
+                    } else if (dc.has_breakpoint(dbg_file, dbg_line)) {
+                        reason = dbg::StopReason::Breakpoint;
                     } else {
-                        a.inplace_int(av % bv);
+                        reason = dbg::StopReason::Step;
                     }
-                }
-            } else {
-                a.set_float(std::fmod(a.as_number(), b.as_number()));
-            }
-            stack.pop_back();
-            break;
-        }
-
-        case OpCode::OP_POW: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            if (a.is_int() && b.is_int() && b.get_int() >= 0) {
-                int64_t result = 1;
-                int64_t base = a.get_int();
-                int64_t exp = b.get_int();
-                bool overflowed = false;
-                while (exp > 0) {
-                    if (exp & 1) {
-                        if (mul_overflow_i64(result, base, &result)) {
-                            overflowed = true;
-                            break;
-                        }
-                    }
-                    exp >>= 1;
-                    if (exp > 0) {
-                        if (mul_overflow_i64(base, base, &base)) {
-                            overflowed = true;
-                            break;
-                        }
-                    }
-                }
-                if (overflowed) {
-                    a.set_float(std::pow(a.as_number(), b.as_number()));
-                } else {
-                    a.inplace_int(result);
-                }
-            } else {
-                a.set_float(std::pow(a.as_number(), b.as_number()));
-            }
-            stack.pop_back();
-            break;
-        }
-
-        case OpCode::OP_NEG: {
-            Value &a = peek(0);
-            if (a.is_int()) {
-                // -INT48_MIN = 2^47 doesn't fit in int48 (max is 2^47 - 1),
-                // inplace_int would truncate and sign-extend back to INT48_MIN,
-                // so we use inplace_int_checked to promote to float when the result overflows int48.
-                a.inplace_int_checked(-a.get_int());
-            } else {
-                a.set_float(-a.as_number());
-            }
-            break;
-        }
-
-        case OpCode::OP_STR_CONCAT: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            // `@` must not mutate either operand. `LOAD_VAR` produces aliased `Value`
-            // copies for heap strings, so in-place append here can corrupt caller
-            // locals across nested function calls.
-            a = Value::make_string(a.to_string() + b.to_string());
-            stack.pop_back();
-            break;
-        }
-
-        case OpCode::OP_FORMAT_VALUE: {
-            uint16_t spec_idx = read_short();
-            Value value = pop();
-            if (spec_idx == 0xFFFF || spec_idx >= chunk->strings.size()) {
-                VM::push(Value::make_string(value.to_string()));
-            } else {
-                Value args[2] = { value, Value::make_string(chunk->strings[spec_idx]) };
-                VM::push(call_builtin("__format_value", args, 2));
-            }
-            break;
-        }
-
-        // in-place string append to a local variable: slot @= pop(), no copy of slot.
-        case OpCode::OP_STR_APPEND_VAR: {
-            uint16_t idx = read_short();
-            Value rhs = pop(); // pop the right-hand side off the stack
-            Value &slot = stack[current_frame().slot_base + idx];
-            if (slot.is_mutable_heap_string()) {
-                std::string &dst = slot.get_string();
-                if (rhs.is_sso()) {
-                    uint8_t len = rhs.sso_len();
-                    if (len == 1) {
-                        dst += rhs.sso_char(0);
-                    } else if (len > 0) {
-                        char buf[5];
-                        for (uint8_t i = 0; i < len; i++) {
-                            buf[i] = rhs.sso_char(i);
-                        }
-                        dst.append(buf, len);
-                    }
-                } else if (rhs.is_string()) {
-                    dst += static_cast<const Value &>(rhs).get_string();
-                } else {
-                    slot = Value::make_string(slot.to_string() + rhs.to_string());
-                }
-            } else {
-                slot = Value::make_string(slot.to_string() + rhs.to_string());
-            }
-            // keep slot value on top of stack, copy first since push_back may reallocate the stack vector and invalidate `slot`
-            {
-                Value to_push = slot;
-                VM::push(std::move(to_push));
-            }
-            break;
-        }
-
-        // In-place string append to a global variable: globals[name] @= pop()
-        case OpCode::OP_STR_APPEND_GLOBAL: {
-            uint16_t name_idx = read_short();
-            const std::string &name = chunk->strings[name_idx];
-            Value rhs = pop();
-            // Pop rhs before taking a reference into globals to avoid aliasing
-            // if the same variable appears on both sides (e.g. x @= x).
-            Value &slot = globals[name];
-            if (slot.is_mutable_heap_string()) {
-                std::string &dst = slot.get_string();
-                if (rhs.is_sso()) {
-                    uint8_t len = rhs.sso_len();
-                    if (len == 1) {
-                        dst += rhs.sso_char(0);
-                    } else if (len > 0) {
-                        char buf[5];
-                        for (uint8_t i = 0; i < len; i++) {
-                            buf[i] = rhs.sso_char(i);
-                        }
-                        dst.append(buf, len);
-                    }
-                } else if (rhs.is_string()) {
-                    dst += static_cast<const Value &>(rhs).get_string();
-                } else {
-                    slot = Value::make_string(slot.to_string() + rhs.to_string());
-                }
-            } else {
-                slot = Value::make_string(slot.to_string() + rhs.to_string());
-            }
-            VM::push(slot);
-            if (name_idx < global_cache.size()) {
-                global_cache[name_idx] = slot;
-                global_cache_valid[name_idx] = 1;
-            }
-            break;
-        }
-
-        case OpCode::OP_BIT_AND: {
-            int64_t val = value_as_int_safe(peek(0));
-            stack.pop_back();
-            Value &a = peek(0);
-            int64_t av = value_as_int_safe(a);
-            a.set_int(av & val);
-            break;
-        }
-
-        case OpCode::OP_BIT_OR: {
-            int64_t val = value_as_int_safe(peek(0));
-            stack.pop_back();
-            Value &a = peek(0);
-            int64_t av = value_as_int_safe(a);
-            a.set_int(av | val);
-            break;
-        }
-
-        case OpCode::OP_BIT_XOR: {
-            int64_t val = value_as_int_safe(peek(0));
-            stack.pop_back();
-            Value &a = peek(0);
-            int64_t av = value_as_int_safe(a);
-            a.set_int(av ^ val);
-            break;
-        }
-
-        case OpCode::OP_BIT_NOT: {
-            Value &a = peek(0);
-            int64_t av = value_as_int_safe(a);
-            a.set_int(~av);
-            break;
-        }
-
-        case OpCode::OP_LSHIFT: {
-            int64_t val = value_as_int_safe(peek(0));
-            stack.pop_back();
-            Value &a = peek(0);
-            int64_t av = value_as_int_safe(a);
-            // Mask the shift count to [0, 63]; shift counts >= 64 or < 0
-            // would be UB on int64_t. Matches the JIT inline path.
-            a.set_int(av << (val & 63));
-            break;
-        }
-
-        case OpCode::OP_RSHIFT: {
-            int64_t val = value_as_int_safe(peek(0));
-            stack.pop_back();
-            Value &a = peek(0);
-            int64_t av = value_as_int_safe(a);
-            a.set_int(av >> (val & 63));
-            break;
-        }
-
-        case OpCode::OP_NOT: {
-            bool r = !is_truthy(peek(0));
-            peek(0).set_bool(r);
-            break;
-        }
-
-        case OpCode::OP_EQ: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            bool r = Value::values_equal(a, b);
-            stack.pop_back();
-            a.set_bool(r);
-            break;
-        }
-
-        case OpCode::OP_NE: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            bool r = !Value::values_equal(a, b);
-            stack.pop_back();
-            a.set_bool(r);
-            break;
-        }
-
-        case OpCode::OP_LT: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            bool r = (a.is_int() && b.is_int()) ? (a.get_int() < b.get_int())
-                                                : (a.as_number() < b.as_number());
-            stack.pop_back();
-            a.set_bool(r);
-            break;
-        }
-
-        case OpCode::OP_LE: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            bool r = (a.is_int() && b.is_int()) ? (a.get_int() <= b.get_int())
-                                                : (a.as_number() <= b.as_number());
-            stack.pop_back();
-            a.set_bool(r);
-            break;
-        }
-
-        case OpCode::OP_GT: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            bool r = (a.is_int() && b.is_int()) ? (a.get_int() > b.get_int())
-                                                : (a.as_number() > b.as_number());
-            stack.pop_back();
-            a.set_bool(r);
-            break;
-        }
-
-        case OpCode::OP_GE: {
-            Value &b = peek(0);
-            Value &a = peek(1);
-            bool r = (a.is_int() && b.is_int()) ? (a.get_int() >= b.get_int())
-                                                : (a.as_number() >= b.as_number());
-            stack.pop_back();
-            a.set_bool(r);
-            break;
-        }
-
-        case OpCode::OP_JUMP: {
-            int16_t offset = read_signed_short();
-#ifndef DISABLE_JIT
-            if (offset < 0) { // backward jump: potential loop back-edge
-                uint32_t func_idx = (uint32_t)(current_function() - chunk->functions.data());
-                size_t anchor_pc = insn_pc; // PC of this OP_JUMP
-
-                if (trace_was_recording && trace_recorder.anchor_pc == anchor_pc) {
-                    // Completed one full iteration; add LoopBack, finalize, compile.
-                    trace_recorder.steps.push_back({ jit::TraceStep::Kind::LoopBack });
-                    if (trace_recorder.exit_pc != 0 && !trace_recorder.aborted) {
-                        trace_recorder.valid = true;
-                        trace_recorder.recording = false;
-                        if (jit::g_trace_jit) {
-                            jit::jit_tls_prepare(*this);
-                            jit::g_trace_jit->compile(trace_recorder, *chunk, func_idx);
-                        }
-                    } else {
-                        trace_recorder.recording = false;
-                        trace_recorder.aborted = true;
-                        // Fallback: trace recording failed; compile with method JIT so the
-                        // function doesn't stay in the interpreter forever.
-                        if (jit::g_jit_compiler &&
-                            !jit::g_jit_compiler->is_compiled(func_idx)) {
-                            jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
-                        }
-                    }
-                    // Fall through to ip() += offset (complete this iteration normally)
-                } else if (!trace_was_recording && !trace_recorder.pending_record && !trace_recorder.recording) {
-                    // neither recording nor pending: check for cached trace, then do heat tracking.
-                    if (jit::g_trace_jit) {
-                        const jit::CompiledTrace *ct = jit::g_trace_jit->find(func_idx, anchor_pc);
-                        if (ct && ct->valid) {
-                            // Compiled traces assume vm->frames is non-empty,
-                            // they load frames._M_finish and read &frames.back()
-                            assert(!frames.empty() && "trace JIT entered with empty call frames!");
-                            jit::jit_tls_prepare(*this);
-                            trace_last_iters = 0;
-                            ct->fn(this); // trace sets ip internally; skip normal jump
-
-                            // Accumulate trace profitability stats
-                            {
-                                uint64_t pkey = ((uint64_t)func_idx << 32) | (uint64_t)anchor_pc;
-                                auto &st = trace_iter_stats_[pkey];
-                                st.first += trace_last_iters;
-                                st.second++;
-                                static const bool trace_stats = (getenv("NARI_TRACE_STATS") != nullptr);
-                                if (trace_stats && (st.second & (st.second - 1)) == 0) {
-                                    fprintf(stderr,
-                                            "[trace-stats] func=%u anchor=%zu entries=%u "
-                                            "total_iters=%llu avg=%llu\n",
-                                            func_idx, anchor_pc, st.second,
-                                            (unsigned long long)st.first,
-                                            (unsigned long long)(st.first / st.second));
-                                }
-                            }
-                            break;
-                        }
-                    } // Hot-edge detection: count backward jumps at this edge
-                    uint64_t key = ((uint64_t)func_idx << 32) | (uint64_t)anchor_pc;
-                    uint32_t heat = ++edge_heat_[key];
-                    if (heat == TRACE_HOT_THRESHOLD) {
-                        // target_pc = where this jump lands (the loop header)
-                        size_t target = (size_t)((insn_base_ptr + 3 + offset) - code_data_ptr);
-                        trace_recorder.reset();
-                        trace_recorder.pending_record = true;
-                        trace_recorder.anchor_pc = anchor_pc;
-                        trace_recorder.target_pc = target;
-                        trace_recorder.func_idx = func_idx;
-                    }
+                    dc.mark_first_stop_fired();
+                    dc.publish_stop_and_wait(dc.snapshot_frames(*this, reason));
                 }
             }
-#endif
-            ip() += offset;
-            break;
         }
 
-        case OpCode::OP_JUMP_IF_FALSE: {
-            int16_t offset = read_signed_short();
-            if (!is_truthy(peek())) {
-                ip() += offset;
+        OpCode op = static_cast<OpCode>(read_byte());
+
+        switch (op) {
+            // stack operations
+            case OpCode::OP_LOAD_CONST: {
+                uint16_t idx = read_short();
+                Constant &c = current_function()->constants[idx];
+
+                switch (c.type) {
+                    case Constant::Type::NONE:
+                        VM::push(Value::none());
+                        break;
+                    case Constant::Type::INT:
+                        VM::push(Value::make_int(c.as_int));
+                        break;
+                    case Constant::Type::FLOAT:
+                        VM::push(Value::make_float(c.as_float));
+                        break;
+                    case Constant::Type::STRING:
+                        // shared immutable constant -- no per-load alloc/copy
+                        VM::push(chunk->get_const_string(c.string_idx));
+                        break;
+                    case Constant::Type::FUNCTION:
+                        // TODO: create function value
+                        VM::push(Value::none());
+                        break;
+                }
+                break;
             }
-            pop(); // consume condition
-            break;
-        }
 
-        case OpCode::OP_JUMP_IF_TRUE: {
-            int16_t offset = read_signed_short();
-            if (is_truthy(peek())) {
-                ip() += offset;
-            }
-            pop();
-            break;
-        }
-
-        case OpCode::OP_JUMP_IF_NONE: {
-            int16_t offset = read_signed_short();
-            if (peek().is_none()) {
-                ip() += offset;
-            }
-            pop();
-            break;
-        }
-
-        // functions
-        case OpCode::OP_CALL: {
-            uint8_t argc = read_byte();
-
-            // args are already on the stack: stack[args_base .. top-1] (pushed left-to-right).
-            // The function value sits just below them at stack[args_base-1].
-            size_t args_base = stack.size() - argc;
-            const Value &func_ref = stack[args_base - 1];
-
-            if (!func_ref.is_function()) {
-                // check if callee is a class name string -> instantiate
-                if (func_ref.is_string()) {
-                    std::string class_name =
-                        func_ref.get_string(); // copy, SSO buffer is shared
-                    if (Parser::get_registered_class(class_name)) {
-                        std::vector<Value> args(stack.begin() + args_base, stack.begin() + args_base + argc);
-                        stack.resize(args_base - 1);
-                        VM::push(instantiate_class(class_name, std::move(args)));
+            case OpCode::OP_LOAD_VAR: {
+                uint16_t idx = read_short();
+                // Check for open upvalue cell first (closure-shared variable)
+                auto &upvals = current_frame().open_upvalues;
+                if (upvals) {
+                    auto it = upvals->find(idx);
+                    if (it != upvals->end()) {
+                        VM::push(*it->second);
                         break;
                     }
                 }
-                // Delegate call trap: d(args) -> handler.call(target, [args]),
-                // after the is_function() fast path so ordinary calls are untouched.
-                if (func_ref.is_delegate()) {
-                    std::vector<Value> args(stack.begin() + args_base, stack.begin() + args_base + argc);
-                    Value del = std::move(stack[args_base - 1]);
-                    stack.resize(args_base - 1);
-                    VM::push(runtime->delegate_call(del, args));
+                VM::push(stack[current_frame().slot_base + idx]);
+                break;
+            }
+
+            case OpCode::OP_STORE_VAR: {
+                uint16_t idx = read_short();
+                Value val = peek();
+                stack[current_frame().slot_base + idx] = val;
+                // Also update any open upvalue cell so closures see the change
+                auto &upvals = current_frame().open_upvalues;
+                if (upvals) {
+                    auto it = upvals->find(idx);
+                    if (it != upvals->end()) {
+                        *it->second = val;
+                    }
+                }
+                break;
+            }
+
+            case OpCode::OP_LOAD_GLOBAL: {
+                uint16_t name_idx = read_short();
+                if (NARI_LIKELY(name_idx < global_cache_valid.size() &&
+                                global_cache_valid[name_idx])) {
+                    VM::push(global_cache[name_idx]);
+                } else {
+                    VM::push(get_global(chunk->strings[name_idx]));
+                }
+                break;
+            }
+
+            case OpCode::OP_STORE_GLOBAL: {
+                uint16_t name_idx = read_short();
+                const std::string &name = chunk->strings[name_idx];
+                set_global(name, peek());
+                if (name_idx < global_cache.size()) {
+                    global_cache[name_idx] = peek();
+                    global_cache_valid[name_idx] = 1;
+                }
+                break;
+            }
+
+            case OpCode::OP_LOAD_CAPTURE: {
+                uint16_t idx = read_short();
+                auto &captures = current_frame().captures;
+                if (captures && idx < captures->size()) {
+                    VM::push(*(*captures)[idx]); // dereference cell
+                } else {
+                    VM::push(Value::none());
+                }
+                break;
+            }
+
+            case OpCode::OP_STORE_CAPTURE: {
+                uint16_t idx = read_short();
+                auto &captures = current_frame().captures;
+                if (captures && idx < captures->size()) {
+                    *(*captures)[idx] = peek(); // write through cell
+                }
+                break;
+            }
+
+            case OpCode::OP_POP:
+                pop();
+                break;
+
+            case OpCode::OP_DUP:
+                VM::push(peek());
+                break;
+
+            case OpCode::OP_LOAD_NONE:
+                VM::push(Value::none());
+                break;
+            case OpCode::OP_LOAD_TRUE:
+                VM::push(Value::make_bool(true));
+                break;
+            case OpCode::OP_LOAD_FALSE:
+                VM::push(Value::make_bool(false));
+                break;
+            case OpCode::OP_LOAD_ZERO:
+                VM::push(Value::make_int(0));
+                break;
+            case OpCode::OP_LOAD_ONE:
+                VM::push(Value::make_int(1));
+                break;
+
+            case OpCode::OP_ADD: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                if (a.is_int() && b.is_int()) {
+                    a.inplace_int_checked(a.get_int() + b.get_int());
+                } else if (a.is_string() || b.is_string()) {
+                    a = Value::make_string(a.to_string() + b.to_string());
+                } else {
+                    a.set_float(a.as_number() + b.as_number());
+                }
+                stack.pop_back();
+                break;
+            }
+
+            case OpCode::OP_SUB: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                if (a.is_int() && b.is_int()) {
+                    a.inplace_int_checked(a.get_int() - b.get_int());
+                } else {
+                    a.set_float(a.as_number() - b.as_number());
+                }
+                stack.pop_back();
+                break;
+            }
+
+            case OpCode::OP_MUL: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                if (a.is_int() && b.is_int()) {
+                    // any product outside int48 promotes to float in one branch
+                    int64_t product;
+                    if (NARI_UNLIKELY(mul_overflow_i48(a.get_int(), b.get_int(), &product))) {
+                        a.set_float(a.as_number() * b.as_number());
+                    } else {
+                        a.inplace_int(product);
+                    }
+                } else {
+                    a.set_float(a.as_number() * b.as_number());
+                }
+                stack.pop_back();
+                break;
+            }
+
+            case OpCode::OP_DIV: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                double bn = b.as_number();
+                if (bn == 0.0) {
+                    a.set_float(std::nan(""));
+                } else if (a.is_int() && b.is_int()) {
+                    int64_t av = a.get_int(), bv = b.get_int();
+                    if (av == INT64_MIN && bv == -1) {
+                        a.set_float(-static_cast<double>(INT64_MIN));
+                    } else if (av % bv == 0) {
+                        a.inplace_int(av / bv);
+                    } else {
+                        a.set_float(a.as_number() / bn);
+                    }
+                } else {
+                    a.set_float(a.as_number() / bn);
+                }
+                stack.pop_back();
+                break;
+            }
+
+            case OpCode::OP_MOD: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                if (a.is_int() && b.is_int()) {
+                    int64_t bv = b.get_int();
+                    if (bv == 0) {
+                        a.set_float(std::nan(""));
+                    } else {
+                        int64_t av = a.get_int();
+                        if (av == INT64_MIN && bv == -1) {
+                            a.set_float(0.0);
+                        } else {
+                            a.inplace_int(av % bv);
+                        }
+                    }
+                } else {
+                    a.set_float(std::fmod(a.as_number(), b.as_number()));
+                }
+                stack.pop_back();
+                break;
+            }
+
+            case OpCode::OP_POW: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                if (a.is_int() && b.is_int() && b.get_int() >= 0) {
+                    int64_t result = 1;
+                    int64_t base = a.get_int();
+                    int64_t exp = b.get_int();
+                    bool overflowed = false;
+                    while (exp > 0) {
+                        if (exp & 1) {
+                            if (mul_overflow_i64(result, base, &result)) {
+                                overflowed = true;
+                                break;
+                            }
+                        }
+                        exp >>= 1;
+                        if (exp > 0) {
+                            if (mul_overflow_i64(base, base, &base)) {
+                                overflowed = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (overflowed) {
+                        a.set_float(std::pow(a.as_number(), b.as_number()));
+                    } else {
+                        a.inplace_int(result);
+                    }
+                } else {
+                    a.set_float(std::pow(a.as_number(), b.as_number()));
+                }
+                stack.pop_back();
+                break;
+            }
+
+            case OpCode::OP_NEG: {
+                Value &a = peek(0);
+                if (a.is_int()) {
+                    // -INT48_MIN = 2^47 doesn't fit in int48 (max is 2^47 - 1),
+                    // inplace_int would truncate and sign-extend back to INT48_MIN,
+                    // so we use inplace_int_checked to promote to float when the result overflows int48.
+                    a.inplace_int_checked(-a.get_int());
+                } else {
+                    a.set_float(-a.as_number());
+                }
+                break;
+            }
+
+            case OpCode::OP_STR_CONCAT: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                // `@` must not mutate either operand. `LOAD_VAR` produces aliased `Value`
+                // copies for heap strings, so in-place append here can corrupt caller
+                // locals across nested function calls.
+                a = Value::make_string(a.to_string() + b.to_string());
+                stack.pop_back();
+                break;
+            }
+
+            case OpCode::OP_FORMAT_VALUE: {
+                uint16_t spec_idx = read_short();
+                Value value = pop();
+                if (spec_idx == 0xFFFF || spec_idx >= chunk->strings.size()) {
+                    VM::push(Value::make_string(value.to_string()));
+                } else {
+                    Value args[2] = { value, Value::make_string(chunk->strings[spec_idx]) };
+                    VM::push(call_builtin("__format_value", args, 2));
+                }
+                break;
+            }
+
+            // in-place string append to a local variable: slot @= pop(), no copy of slot.
+            case OpCode::OP_STR_APPEND_VAR: {
+                uint16_t idx = read_short();
+                Value rhs = pop(); // pop the right-hand side off the stack
+                Value &slot = stack[current_frame().slot_base + idx];
+                if (slot.is_mutable_heap_string()) {
+                    std::string &dst = slot.get_string();
+                    if (rhs.is_sso()) {
+                        uint8_t len = rhs.sso_len();
+                        if (len == 1) {
+                            dst += rhs.sso_char(0);
+                        } else if (len > 0) {
+                            char buf[5];
+                            for (uint8_t i = 0; i < len; i++) {
+                                buf[i] = rhs.sso_char(i);
+                            }
+                            dst.append(buf, len);
+                        }
+                    } else if (rhs.is_string()) {
+                        dst += static_cast<const Value &>(rhs).get_string();
+                    } else {
+                        slot = Value::make_string(slot.to_string() + rhs.to_string());
+                    }
+                } else {
+                    slot = Value::make_string(slot.to_string() + rhs.to_string());
+                }
+                // keep slot value on top of stack, copy first since push_back may reallocate the stack vector and invalidate `slot`
+                {
+                    Value to_push = slot;
+                    VM::push(std::move(to_push));
+                }
+                break;
+            }
+
+            // In-place string append to a global variable: globals[name] @= pop()
+            case OpCode::OP_STR_APPEND_GLOBAL: {
+                uint16_t name_idx = read_short();
+                const std::string &name = chunk->strings[name_idx];
+                Value rhs = pop();
+                // Pop rhs before taking a reference into globals to avoid aliasing
+                // if the same variable appears on both sides (e.g. x @= x).
+                Value &slot = globals[name];
+                if (slot.is_mutable_heap_string()) {
+                    std::string &dst = slot.get_string();
+                    if (rhs.is_sso()) {
+                        uint8_t len = rhs.sso_len();
+                        if (len == 1) {
+                            dst += rhs.sso_char(0);
+                        } else if (len > 0) {
+                            char buf[5];
+                            for (uint8_t i = 0; i < len; i++) {
+                                buf[i] = rhs.sso_char(i);
+                            }
+                            dst.append(buf, len);
+                        }
+                    } else if (rhs.is_string()) {
+                        dst += static_cast<const Value &>(rhs).get_string();
+                    } else {
+                        slot = Value::make_string(slot.to_string() + rhs.to_string());
+                    }
+                } else {
+                    slot = Value::make_string(slot.to_string() + rhs.to_string());
+                }
+                VM::push(slot);
+                if (name_idx < global_cache.size()) {
+                    global_cache[name_idx] = slot;
+                    global_cache_valid[name_idx] = 1;
+                }
+                break;
+            }
+
+            case OpCode::OP_BIT_AND: {
+                int64_t val = value_as_int_safe(peek(0));
+                stack.pop_back();
+                Value &a = peek(0);
+                int64_t av = value_as_int_safe(a);
+                a.set_int(av & val);
+                break;
+            }
+
+            case OpCode::OP_BIT_OR: {
+                int64_t val = value_as_int_safe(peek(0));
+                stack.pop_back();
+                Value &a = peek(0);
+                int64_t av = value_as_int_safe(a);
+                a.set_int(av | val);
+                break;
+            }
+
+            case OpCode::OP_BIT_XOR: {
+                int64_t val = value_as_int_safe(peek(0));
+                stack.pop_back();
+                Value &a = peek(0);
+                int64_t av = value_as_int_safe(a);
+                a.set_int(av ^ val);
+                break;
+            }
+
+            case OpCode::OP_BIT_NOT: {
+                Value &a = peek(0);
+                int64_t av = value_as_int_safe(a);
+                a.set_int(~av);
+                break;
+            }
+
+            case OpCode::OP_LSHIFT: {
+                int64_t val = value_as_int_safe(peek(0));
+                stack.pop_back();
+                Value &a = peek(0);
+                int64_t av = value_as_int_safe(a);
+                // Mask the shift count to [0, 63]; shift counts >= 64 or < 0
+                // would be UB on int64_t. Matches the JIT inline path.
+                a.set_int(av << (val & 63));
+                break;
+            }
+
+            case OpCode::OP_RSHIFT: {
+                int64_t val = value_as_int_safe(peek(0));
+                stack.pop_back();
+                Value &a = peek(0);
+                int64_t av = value_as_int_safe(a);
+                a.set_int(av >> (val & 63));
+                break;
+            }
+
+            case OpCode::OP_NOT: {
+                bool r = !is_truthy(peek(0));
+                peek(0).set_bool(r);
+                break;
+            }
+
+            case OpCode::OP_EQ: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                bool r = Value::values_equal(a, b);
+                stack.pop_back();
+                a.set_bool(r);
+                break;
+            }
+
+            case OpCode::OP_NE: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                bool r = !Value::values_equal(a, b);
+                stack.pop_back();
+                a.set_bool(r);
+                break;
+            }
+
+            case OpCode::OP_LT: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                bool r = (a.is_int() && b.is_int()) ? (a.get_int() < b.get_int())
+                                                    : (a.as_number() < b.as_number());
+                stack.pop_back();
+                a.set_bool(r);
+                break;
+            }
+
+            case OpCode::OP_LE: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                bool r = (a.is_int() && b.is_int()) ? (a.get_int() <= b.get_int())
+                                                    : (a.as_number() <= b.as_number());
+                stack.pop_back();
+                a.set_bool(r);
+                break;
+            }
+
+            case OpCode::OP_GT: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                bool r = (a.is_int() && b.is_int()) ? (a.get_int() > b.get_int())
+                                                    : (a.as_number() > b.as_number());
+                stack.pop_back();
+                a.set_bool(r);
+                break;
+            }
+
+            case OpCode::OP_GE: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                bool r = (a.is_int() && b.is_int()) ? (a.get_int() >= b.get_int())
+                                                    : (a.as_number() >= b.as_number());
+                stack.pop_back();
+                a.set_bool(r);
+                break;
+            }
+
+            case OpCode::OP_JUMP: {
+                int16_t offset = read_signed_short();
+#ifndef DISABLE_JIT
+                if (offset < 0) { // backward jump: potential loop back-edge
+                    uint32_t func_idx = (uint32_t)(current_function() - chunk->functions.data());
+                    size_t anchor_pc = insn_pc; // PC of this OP_JUMP
+
+                    if (trace_was_recording && trace_recorder.anchor_pc == anchor_pc) {
+                        // Completed one full iteration; add LoopBack, finalize, compile.
+                        trace_recorder.steps.push_back({ jit::TraceStep::Kind::LoopBack });
+                        if (trace_recorder.exit_pc != 0 && !trace_recorder.aborted) {
+                            trace_recorder.valid = true;
+                            trace_recorder.recording = false;
+                            if (jit::g_trace_jit) {
+                                jit::jit_tls_prepare(*this);
+                                jit::g_trace_jit->compile(trace_recorder, *chunk, func_idx);
+                            }
+                        } else {
+                            trace_recorder.recording = false;
+                            trace_recorder.aborted = true;
+                            // Fallback: trace recording failed; compile with method JIT so the
+                            // function doesn't stay in the interpreter forever.
+                            if (jit::g_jit_compiler &&
+                                !jit::g_jit_compiler->is_compiled(func_idx)) {
+                                jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
+                            }
+                        }
+                        // Fall through to ip() += offset (complete this iteration normally)
+                    } else if (!trace_was_recording && !trace_recorder.pending_record && !trace_recorder.recording) {
+                        // neither recording nor pending: check for cached trace, then do heat tracking.
+                        if (jit::g_trace_jit) {
+                            const jit::CompiledTrace *ct = jit::g_trace_jit->find(func_idx, anchor_pc);
+                            if (ct && ct->valid) {
+                                // Compiled traces assume vm->frames is non-empty,
+                                // they load frames._M_finish and read &frames.back()
+                                assert(!frames.empty() && "trace JIT entered with empty call frames!");
+                                jit::jit_tls_prepare(*this);
+                                trace_last_iters = 0;
+                                ct->fn(this); // trace sets ip internally; skip normal jump
+
+                                // Accumulate trace profitability stats
+                                {
+                                    uint64_t pkey = ((uint64_t)func_idx << 32) | (uint64_t)anchor_pc;
+                                    auto &st = trace_iter_stats_[pkey];
+                                    st.first += trace_last_iters;
+                                    st.second++;
+                                    static const bool trace_stats = (getenv("NARI_TRACE_STATS") != nullptr);
+                                    if (trace_stats && (st.second & (st.second - 1)) == 0) {
+                                        fprintf(stderr,
+                                                "[trace-stats] func=%u anchor=%zu entries=%u "
+                                                "total_iters=%llu avg=%llu\n",
+                                                func_idx, anchor_pc, st.second,
+                                                (unsigned long long)st.first,
+                                                (unsigned long long)(st.first / st.second));
+                                    }
+                                }
+                                break;
+                            }
+                        } // Hot-edge detection: count backward jumps at this edge
+                        uint64_t key = ((uint64_t)func_idx << 32) | (uint64_t)anchor_pc;
+                        uint32_t heat = ++edge_heat_[key];
+                        if (heat == TRACE_HOT_THRESHOLD) {
+                            // target_pc = where this jump lands (the loop header)
+                            size_t target = (size_t)((insn_base_ptr + 3 + offset) - code_data_ptr);
+                            trace_recorder.reset();
+                            trace_recorder.pending_record = true;
+                            trace_recorder.anchor_pc = anchor_pc;
+                            trace_recorder.target_pc = target;
+                            trace_recorder.func_idx = func_idx;
+                        }
+                    }
+                }
+#endif
+                ip() += offset;
+                break;
+            }
+
+            case OpCode::OP_JUMP_IF_FALSE: {
+                int16_t offset = read_signed_short();
+                if (!is_truthy(peek())) {
+                    ip() += offset;
+                }
+                pop(); // consume condition
+                break;
+            }
+
+            case OpCode::OP_JUMP_IF_TRUE: {
+                int16_t offset = read_signed_short();
+                if (is_truthy(peek())) {
+                    ip() += offset;
+                }
+                pop();
+                break;
+            }
+
+            case OpCode::OP_JUMP_IF_NONE: {
+                int16_t offset = read_signed_short();
+                if (peek().is_none()) {
+                    ip() += offset;
+                }
+                pop();
+                break;
+            }
+
+            // functions
+            case OpCode::OP_CALL: {
+                uint8_t argc = read_byte();
+                uint16_t callee_label_idx = read_short();
+
+                // args are already on the stack: stack[args_base .. top-1] (pushed left-to-right).
+                // The function value sits just below them at stack[args_base-1].
+                size_t args_base = stack.size() - argc;
+                const Value &func_ref = stack[args_base - 1];
+
+                if (!func_ref.is_function()) {
+                    // check if callee is a class name string -> instantiate
+                    if (func_ref.is_string()) {
+                        std::string class_name =
+                            func_ref.get_string(); // copy, SSO buffer is shared
+                        if (Parser::get_registered_class(class_name)) {
+                            std::vector<Value> args(stack.begin() + args_base, stack.begin() + args_base + argc);
+                            stack.resize(args_base - 1);
+                            VM::push(instantiate_class(class_name, std::move(args)));
+                            break;
+                        }
+                    }
+                    // Delegate call trap: d(args) -> handler.call(target, [args]),
+                    // after the is_function() fast path so ordinary calls are untouched.
+                    if (func_ref.is_delegate()) {
+                        std::vector<Value> args(stack.begin() + args_base, stack.begin() + args_base + argc);
+                        Value del = std::move(stack[args_base - 1]);
+                        stack.resize(args_base - 1);
+                        VM::push(runtime->delegate_call(del, args));
+                        break;
+                    }
+                    runtime_panic(Value::make_string("called a non-function value: '" + chunk->strings[callee_label_idx] + "'"));
+                    return false;
+                }
+
+                const auto &fn = func_ref.get_function();
+
+                if (frames.size() >= MAX_CALL_DEPTH) {
+                    Value err = Value::make_string("Stack Overflow: maximum call depth exceeded!");
+                    if (!dispatch_throw(err)) {
+                        return false;
+                    }
                     break;
                 }
-                fprintf(stderr, "bytecode: attempt to call non-function value: %s\n", func_ref.to_string().c_str());
-                stack.resize(args_base - 1);
-                VM::push(Value::none());
-                break;
-            }
 
-            const auto &fn = func_ref.get_function();
-
-            if (frames.size() >= MAX_CALL_DEPTH) {
-                Value err = Value::make_string("Stack Overflow: maximum call depth exceeded!");
-                if (!dispatch_throw(err)) {
-                    return false;
+                // fast path: cached function index avoids hash lookup on repeated calls.
+                if (fn.jit_func_idx >= 0) {
+                    auto cell_captures = fn.captures;
+                    call_user_function_stack(static_cast<uint32_t>(fn.jit_func_idx), args_base, argc, cell_captures);
+                    break;
                 }
-                break;
-            }
 
-            // fast path: cached function index avoids hash lookup on repeated calls.
-            if (fn.jit_func_idx >= 0) {
-                auto cell_captures = fn.captures;
-                call_user_function_stack(static_cast<uint32_t>(fn.jit_func_idx), args_base, argc, cell_captures);
-                break;
-            }
+                const std::string &fname = fn.name;
 
-            const std::string &fname = fn.name;
-
-            // medium path: user-defined bytecode function (first call, populate cache).
-            auto fit = func_indices.find(fname);
-            if (fit != func_indices.end()) {
-                // cache the index for future fast-path hits.
-                const_cast<FunctionData &>(fn).jit_func_idx = static_cast<int32_t>(fit->second);
-                auto cell_captures = fn.captures;
-                call_user_function_stack(fit->second, args_base, argc, cell_captures);
-                break;
-            }
-
-            // slower paths: builtins and AST-compiled functions.
-            // move args out of the stack into a small local buffer, then trim.
-            Value arg_buf[16];
-            std::vector<Value> arg_vec;
-            Value *args_ptr;
-            if (argc <= 16) {
-                for (int i = 0; i < argc; i++) {
-                    arg_buf[i] = std::move(stack[args_base + i]);
+                // medium path: user-defined bytecode function (first call, populate cache).
+                auto fit = func_indices.find(fname);
+                if (fit != func_indices.end()) {
+                    // cache the index for future fast-path hits.
+                    const_cast<FunctionData &>(fn).jit_func_idx = static_cast<int32_t>(fit->second);
+                    auto cell_captures = fn.captures;
+                    call_user_function_stack(fit->second, args_base, argc, cell_captures);
+                    break;
                 }
-                args_ptr = arg_buf;
-            } else {
-                arg_vec.assign(std::make_move_iterator(stack.begin() + args_base),
-                               std::make_move_iterator(stack.begin() + args_base + argc));
-                args_ptr = arg_vec.data();
-            }
-            // copy func out before trimming (func_ref is a reference into stack[args_base-1]).
-            Value func_copy = std::move(stack[args_base - 1]);
-            stack.resize(args_base - 1);
-            const auto &fn2 = func_copy.get_function();
 
-            auto bit = builtins.find(fn2.name);
-            if (bit != builtins.end()) {
-                if (!push_builtin_result(call_builtin(fn2.name, args_ptr, argc))) {
-                    return false;
-                }
-            } else if (fn2.func_ptr) {
-                std::vector<Value> args_v(args_ptr, args_ptr + argc);
-                VM::push(runtime->call_user_function(fn2.func_ptr.get(), args_v));
-            } else {
-                auto rit = runtime->functions.find(fn2.name);
-                if (rit != runtime->functions.end()) {
-                    std::vector<Value> args_v(args_ptr, args_ptr + argc);
-                    VM::push(runtime->call_user_function(rit->second.get(), args_v));
+                // slower paths: builtins and AST-compiled functions.
+                // move args out of the stack into a small local buffer, then trim.
+                Value arg_buf[16];
+                std::vector<Value> arg_vec;
+                Value *args_ptr;
+                if (argc <= 16) {
+                    for (int i = 0; i < argc; i++) {
+                        arg_buf[i] = std::move(stack[args_base + i]);
+                    }
+                    args_ptr = arg_buf;
                 } else {
-                    fprintf(stderr, "bytecode: unknown function '%s'\n", fn2.name.c_str());
-                    VM::push(Value::none());
+                    arg_vec.assign(std::make_move_iterator(stack.begin() + args_base),
+                                   std::make_move_iterator(stack.begin() + args_base + argc));
+                    args_ptr = arg_vec.data();
                 }
-            }
-            break;
-        }
+                // copy func out before trimming (func_ref is a reference into stack[args_base-1]).
+                Value func_copy = std::move(stack[args_base - 1]);
+                stack.resize(args_base - 1);
+                const auto &fn2 = func_copy.get_function();
 
-        case OpCode::OP_SELF_TAIL_CALL: {
-            uint8_t argc = read_byte();
-            CallFrame &frame = current_frame();
-            FunctionMeta *func = frame.function;
-            size_t slot_base = frame.slot_base;
-            size_t locals_needed = func->var_names.size();
-            size_t param_count = static_cast<size_t>(func->param_count);
-
-            // The N new argument values are on the top of the stack.
-            // Read them into a local buffer before modifying any slot.
-            size_t args_start = stack.size() - argc;
-            Value arg_buf[16];
-            std::vector<Value> vec_buf;
-            Value *new_args;
-            if (argc <= 16) {
-                for (int i = 0; i < argc; i++) {
-                    arg_buf[i] = std::move(stack[args_start + i]);
+                auto bit = builtins.find(fn2.name);
+                if (bit != builtins.end()) {
+                    if (!push_builtin_result(call_builtin(fn2.name, args_ptr, argc))) {
+                        return false;
+                    }
+                } else if (fn2.func_ptr) {
+                    std::vector<Value> args_v(args_ptr, args_ptr + argc);
+                    VM::push(runtime->call_user_function(fn2.func_ptr.get(), args_v));
+                } else {
+                    auto rit = runtime->functions.find(fn2.name);
+                    if (rit != runtime->functions.end()) {
+                        std::vector<Value> args_v(args_ptr, args_ptr + argc);
+                        VM::push(runtime->call_user_function(rit->second.get(), args_v));
+                    } else {
+                        fprintf(stderr, "bytecode: unknown function '%s'\n", fn2.name.c_str());
+                        VM::push(Value::none());
+                    }
                 }
-                new_args = arg_buf;
-            } else {
-                vec_buf.assign(std::make_move_iterator(stack.begin() + args_start), std::make_move_iterator(stack.end()));
-                new_args = vec_buf.data();
+                break;
             }
 
-            // trim stack back to the full locals frame.
-            stack.resize(slot_base + locals_needed);
+            case OpCode::OP_SELF_TAIL_CALL: {
+                uint8_t argc = read_byte();
+                CallFrame &frame = current_frame();
+                FunctionMeta *func = frame.function;
+                size_t slot_base = frame.slot_base;
+                size_t locals_needed = func->var_names.size();
+                size_t param_count = static_cast<size_t>(func->param_count);
 
-            // overwrite parameter slots with the new values.
-            for (int i = 0; i < argc && static_cast<size_t>(i) < param_count; i++) {
-                stack[slot_base + i] = std::move(new_args[i]);
+                // The N new argument values are on the top of the stack.
+                // Read them into a local buffer before modifying any slot.
+                size_t args_start = stack.size() - argc;
+                Value arg_buf[16];
+                std::vector<Value> vec_buf;
+                Value *new_args;
+                if (argc <= 16) {
+                    for (int i = 0; i < argc; i++) {
+                        arg_buf[i] = std::move(stack[args_start + i]);
+                    }
+                    new_args = arg_buf;
+                } else {
+                    vec_buf.assign(std::make_move_iterator(stack.begin() + args_start), std::make_move_iterator(stack.end()));
+                    new_args = vec_buf.data();
+                }
+
+                // trim stack back to the full locals frame.
+                stack.resize(slot_base + locals_needed);
+
+                // overwrite parameter slots with the new values.
+                for (int i = 0; i < argc && static_cast<size_t>(i) < param_count; i++) {
+                    stack[slot_base + i] = std::move(new_args[i]);
+                }
+                // reset any params not passed to none
+                for (size_t i = argc; i < param_count; i++) {
+                    stack[slot_base + i] = Value::none();
+                }
+
+                // jump back to function start, re-running the default-param preamble
+                frame.ip = func->code.data();
+                break;
             }
-            // reset any params not passed to none
-            for (size_t i = argc; i < param_count; i++) {
-                stack[slot_base + i] = Value::none();
-            }
 
-            // jump back to function start, re-running the default-param preamble
-            frame.ip = func->code.data();
-            break;
-        }
+            case OpCode::OP_RETURN: {
+                Value result = pop();
 
-        case OpCode::OP_RETURN: {
-            Value result = pop();
+                // remove any try-handlers that were installed INSIDE this frame.
+                // handler.frame_depth == frames.size() means the handler was pushed while
+                // executing this frame, so it belongs to us and cannot outlive the return.
+                while (!try_stack.empty() && try_stack.back().frame_depth >= frames.size()) {
+                    try_stack.pop_back();
+                }
 
-            // remove any try-handlers that were installed INSIDE this frame.
-            // handler.frame_depth == frames.size() means the handler was pushed while
-            // executing this frame, so it belongs to us and cannot outlive the return.
-            while (!try_stack.empty() && try_stack.back().frame_depth >= frames.size()) {
-                try_stack.pop_back();
-            }
+                // restore to pre-call state
+                size_t slot_base = current_frame().slot_base;
+                frames.pop_back();
 
-            // restore to pre-call state
-            size_t slot_base = current_frame().slot_base;
-            frames.pop_back();
+                if (frames.empty()) {
+                    // returning from top-level - end execution
+                    VM::push(result);
+                    return false;
+                }
 
-            if (frames.empty()) {
-                // returning from top-level - end execution
+                // trim stack back to before the call
+                stack.resize(slot_base);
                 VM::push(result);
-                return false;
+                break;
             }
 
-            // trim stack back to before the call
-            stack.resize(slot_base);
-            VM::push(result);
-            break;
-        }
-
-        case OpCode::OP_MAKE_CLOSURE: {
-            uint16_t func_idx = read_short();
-            uint8_t capture_count = read_byte();
-            FunctionMeta *func = &chunk->functions[func_idx];
-            // create captures vector with shared cells
-            auto captures = std::make_shared<std::vector<std::shared_ptr<Value>>>();
-            captures->resize(capture_count);
-            for (int i = 0; i < capture_count; i++) {
-                uint8_t source = read_byte();
-                uint16_t idx = read_short();
-                if (source == 0) {
-                    // parent local: get or create cell from parent frame
-                    auto cell = current_frame().get_or_create_cell(idx, stack[current_frame().slot_base + idx]);
-                    // keep local in sync with cell
-                    stack[current_frame().slot_base + idx] = *cell;
-                    (*captures)[i] = cell;
-                } else if (source == 1) {
-                    // parent capture: share the same cell
-                    auto &parent_caps = current_frame().captures;
-                    if (parent_caps && idx < parent_caps->size()) {
-                        (*captures)[i] = (*parent_caps)[idx];
+            case OpCode::OP_MAKE_CLOSURE: {
+                uint16_t func_idx = read_short();
+                uint8_t capture_count = read_byte();
+                FunctionMeta *func = &chunk->functions[func_idx];
+                // create captures vector with shared cells
+                auto captures = std::make_shared<std::vector<std::shared_ptr<Value>>>();
+                captures->resize(capture_count);
+                for (int i = 0; i < capture_count; i++) {
+                    uint8_t source = read_byte();
+                    uint16_t idx = read_short();
+                    if (source == 0) {
+                        // parent local: get or create cell from parent frame
+                        auto cell = current_frame().get_or_create_cell(idx, stack[current_frame().slot_base + idx]);
+                        // keep local in sync with cell
+                        stack[current_frame().slot_base + idx] = *cell;
+                        (*captures)[i] = cell;
+                    } else if (source == 1) {
+                        // parent capture: share the same cell
+                        auto &parent_caps = current_frame().captures;
+                        if (parent_caps && idx < parent_caps->size()) {
+                            (*captures)[i] = (*parent_caps)[idx];
+                        } else {
+                            (*captures)[i] = std::make_shared<Value>(Value::none());
+                        }
                     } else {
-                        (*captures)[i] = std::make_shared<Value>(Value::none());
+                        // global
+                        const std::string &name = chunk->strings[idx];
+                        (*captures)[i] = std::make_shared<Value>(get_global(name));
                     }
+                }
+                // create a function value with captures
+                Value closure = Value::make_function(func->name);
+                closure.get_function().captures = captures;
+                if (capture_count > 0) {
+                    closure.get_function().jit_capture0_raw = (*captures)[0].get();
+                }
+                GarbageCollector::instance().track(&closure.get_function(), GarbageCollector::TrackedType::Function);
+                closure.get_function().jit_func_idx = (int32_t)func_idx;
+                closure.get_function().jit_locals_count = (uint32_t)chunk->functions[func_idx].var_names.size();
+                closure.get_function().jit_meta = &chunk->functions[func_idx];
+                {
+                    auto cls = jit_classify_inline(chunk->functions[func_idx]);
+                    closure.get_function().jit_inline_kind = cls.kind;
+                    closure.get_function().jit_inline_imm = cls.imm;
+                }
+                func_indices[func->name] = func_idx;
+                VM::push(closure);
+                break;
+            }
+
+            case OpCode::OP_SPAWN: {
+                // sync spawn: collector bookkeeping is not thread-safe, so a real thread would race on shared heap.
+                // result is wrapped in a Handle still
+                Value func_val = pop();
+                auto handle = Value::make_handle_ptr();
+                handle->state = HandleData::Running;
+                // func_val and the handle are live across call_function_value_sync,
+                // which runs nested bytecode (safe-points). Root them so a collection
+                // there can't sweep them. handle_val owns the handle for marking.
+                Value handle_val = Value::make_handle(handle);
+                {
+                    TempRootScope rs(*this);
+                    rs.add(&func_val);
+                    rs.add(&handle_val);
+                    try {
+                        Value result = call_function_value_sync(func_val, {});
+                        handle->result = result;
+                        handle->end_time = std::chrono::steady_clock::now();
+                        handle->state = HandleData::Completed;
+                    } catch (const std::exception &e) {
+                        handle->error = Value::make_string(e.what());
+                        handle->end_time = std::chrono::steady_clock::now();
+                        handle->state = HandleData::Failed;
+                    } catch (...) {
+                        handle->error = Value::make_string("Unknown error in spawned task");
+                        handle->end_time = std::chrono::steady_clock::now();
+                        handle->state = HandleData::Failed;
+                    }
+                }
+                VM::push(std::move(handle_val));
+                break;
+            }
+
+            // data structures
+            case OpCode::OP_MAKE_ARRAY: {
+                uint16_t size = read_short();
+                if (stack.size() < size) {
+                    fprintf(stderr, "OP_MAKE_ARRAY: stack underflow\n");
+                    has_error = true;
+                    break;
+                }
+                std::vector<Value> elements(size);
+                // pop in reverse order, fill from back to front
+                for (int i = size - 1; i >= 0; i--) {
+                    elements[i] = pop();
+                }
+                VM::push(Value::make_array(std::move(elements)));
+                break;
+            }
+
+            case OpCode::OP_MAKE_OBJECT: {
+                const uint8_t *site = ip(); // stable per-literal key (before operand read)
+                uint16_t size = read_short();
+                VM::push(make_object_cached(site, size));
+                break;
+            }
+
+            case OpCode::OP_ARRAY_PUSH: {
+                // stack: [..., array, value] -> [..., array (with value appended)]
+                Value val = pop();
+                Value &arr_ref = stack[stack.size() - 1]; // peek the array
+                if (!arr_ref.is_array()) {
+                    fprintf(stderr, "OP_ARRAY_PUSH: expected array\n");
+                    has_error = true;
+                    break;
+                }
+                arr_ref.get_array().push_back(std::move(val));
+                break;
+            }
+
+            case OpCode::OP_ARRAY_SPREAD: {
+                // stack: [..., array, iterable] -> [..., array (with iterable elements appended)]
+                Value iterable = pop();
+                Value &arr_ref = stack[stack.size() - 1];
+                if (!arr_ref.is_array()) {
+                    fprintf(stderr, "OP_ARRAY_SPREAD: expected array\n");
+                    has_error = true;
+                    break;
+                }
+                auto &target = arr_ref.get_array();
+                if (iterable.is_array()) {
+                    auto &src = iterable.get_array();
+                    target.insert(target.end(), src.begin(), src.end());
                 } else {
-                    // global
-                    const std::string &name = chunk->strings[idx];
-                    (*captures)[i] = std::make_shared<Value>(get_global(name));
+                    fprintf(stderr, "Spread operator requires an iterable (array)\n");
+                    has_error = true;
                 }
+                break;
             }
-            // create a function value with captures
-            Value closure = Value::make_function(func->name);
-            closure.get_function().captures = captures;
-            if (capture_count > 0) {
-                closure.get_function().jit_capture0_raw = (*captures)[0].get();
-            }
-            GarbageCollector::instance().track(&closure.get_function(), GarbageCollector::TrackedType::Function);
-            closure.get_function().jit_func_idx = (int32_t)func_idx;
-            closure.get_function().jit_locals_count = (uint32_t)chunk->functions[func_idx].var_names.size();
-            closure.get_function().jit_meta = &chunk->functions[func_idx];
-            {
-                auto cls = jit_classify_inline(chunk->functions[func_idx]);
-                closure.get_function().jit_inline_kind = cls.kind;
-                closure.get_function().jit_inline_imm = cls.imm;
-            }
-            func_indices[func->name] = func_idx;
-            VM::push(closure);
-            break;
-        }
 
-        case OpCode::OP_SPAWN: {
-            // sync spawn: collector bookkeeping is not thread-safe, so a real thread would race on shared heap.
-            // result is wrapped in a Handle still
-            Value func_val = pop();
-            auto handle = Value::make_handle_ptr();
-            handle->state = HandleData::Running;
-            // func_val and the handle are live across call_function_value_sync,
-            // which runs nested bytecode (safe-points). Root them so a collection
-            // there can't sweep them. handle_val owns the handle for marking.
-            Value handle_val = Value::make_handle(handle);
-            {
-                TempRootScope rs(*this);
-                rs.add(&func_val);
-                rs.add(&handle_val);
-                try {
-                    Value result = call_function_value_sync(func_val, {});
-                    handle->result = result;
-                    handle->end_time = std::chrono::steady_clock::now();
-                    handle->state = HandleData::Completed;
-                } catch (const std::exception &e) {
-                    handle->error = Value::make_string(e.what());
-                    handle->end_time = std::chrono::steady_clock::now();
-                    handle->state = HandleData::Failed;
-                } catch (...) {
-                    handle->error = Value::make_string("Unknown error in spawned task");
-                    handle->end_time = std::chrono::steady_clock::now();
-                    handle->state = HandleData::Failed;
+            case OpCode::OP_OBJECT_SPREAD: {
+                // stack: [..., target_obj, source_obj] -> [..., target_obj (with source fields copied)]
+                Value source = pop();
+                Value &target_ref = stack[stack.size() - 1];
+                if (!target_ref.is_object() || !source.is_object()) {
+                    fprintf(stderr, "OP_OBJECT_SPREAD: expected objects\n");
+                    has_error = true;
+                    break;
                 }
-            }
-            VM::push(std::move(handle_val));
-            break;
-        }
-
-        // data structures
-        case OpCode::OP_MAKE_ARRAY: {
-            uint16_t size = read_short();
-            if (stack.size() < size) {
-                fprintf(stderr, "OP_MAKE_ARRAY: stack underflow\n");
-                has_error = true;
-                break;
-            }
-            std::vector<Value> elements(size);
-            // pop in reverse order, fill from back to front
-            for (int i = size - 1; i >= 0; i--) {
-                elements[i] = pop();
-            }
-            VM::push(Value::make_array(std::move(elements)));
-            break;
-        }
-
-        case OpCode::OP_MAKE_OBJECT: {
-            const uint8_t *site = ip(); // stable per-literal key (before operand read)
-            uint16_t size = read_short();
-            VM::push(make_object_cached(site, size));
-            break;
-        }
-
-        case OpCode::OP_ARRAY_PUSH: {
-            // stack: [..., array, value] -> [..., array (with value appended)]
-            Value val = pop();
-            Value &arr_ref = stack[stack.size() - 1]; // peek the array
-            if (!arr_ref.is_array()) {
-                fprintf(stderr, "OP_ARRAY_PUSH: expected array\n");
-                has_error = true;
-                break;
-            }
-            arr_ref.get_array().push_back(std::move(val));
-            break;
-        }
-
-        case OpCode::OP_ARRAY_SPREAD: {
-            // stack: [..., array, iterable] -> [..., array (with iterable elements appended)]
-            Value iterable = pop();
-            Value &arr_ref = stack[stack.size() - 1];
-            if (!arr_ref.is_array()) {
-                fprintf(stderr, "OP_ARRAY_SPREAD: expected array\n");
-                has_error = true;
-                break;
-            }
-            auto &target = arr_ref.get_array();
-            if (iterable.is_array()) {
-                auto &src = iterable.get_array();
-                target.insert(target.end(), src.begin(), src.end());
-            } else {
-                fprintf(stderr, "Spread operator requires an iterable (array)\n");
-                has_error = true;
-            }
-            break;
-        }
-
-        case OpCode::OP_OBJECT_SPREAD: {
-            // stack: [..., target_obj, source_obj] -> [..., target_obj (with source fields copied)]
-            Value source = pop();
-            Value &target_ref = stack[stack.size() - 1];
-            if (!target_ref.is_object() || !source.is_object()) {
-                fprintf(stderr, "OP_OBJECT_SPREAD: expected objects\n");
-                has_error = true;
-                break;
-            }
-            ObjectObj *src = source.get_obj_ptr();
-            ObjectObj *tgt = target_ref.get_obj_ptr();
-            for (const auto &name : src->get_keys()) {
-                if (const Value *val = src->get_field(name)) {
-                    tgt->set_field(name, *val);
+                ObjectObj *src = source.get_obj_ptr();
+                ObjectObj *tgt = target_ref.get_obj_ptr();
+                for (const auto &name : src->get_keys()) {
+                    if (const Value *val = src->get_field(name)) {
+                        tgt->set_field(name, *val);
+                    }
                 }
-            }
-            break;
-        }
-
-        case OpCode::OP_OBJECT_SET: {
-            // stack: [..., obj, value] + 2-byte key string idx -> [..., obj (with key set)]
-            uint16_t key_idx = read_short();
-            Value val = pop();
-            Value &obj_ref = stack[stack.size() - 1];
-            if (!obj_ref.is_object()) {
-                fprintf(stderr, "OP_OBJECT_SET: expected object\n");
-                has_error = true;
                 break;
             }
-            const std::string &key = chunk->strings[key_idx];
-            obj_ref.get_obj_ptr()->set_field(key, std::move(val));
-            break;
-        }
 
-        case OpCode::OP_CALL_SPREAD: {
-            // stack: [..., callee, args_array] -> [..., result]
-            Value args_arr = pop();
-            Value callee = pop();
-            if (!args_arr.is_array()) {
-                fprintf(stderr, "OP_CALL_SPREAD: expected args array\n");
-                has_error = true;
+            case OpCode::OP_OBJECT_SET: {
+                // stack: [..., obj, value] + 2-byte key string idx -> [..., obj (with key set)]
+                uint16_t key_idx = read_short();
+                Value val = pop();
+                Value &obj_ref = stack[stack.size() - 1];
+                if (!obj_ref.is_object()) {
+                    fprintf(stderr, "OP_OBJECT_SET: expected object\n");
+                    has_error = true;
+                    break;
+                }
+                const std::string &key = chunk->strings[key_idx];
+                obj_ref.get_obj_ptr()->set_field(key, std::move(val));
                 break;
             }
-            auto &args = args_arr.get_array();
-            // push callee back, then all args. This sets up the stack like OP_CALL expects
-            VM::push(std::move(callee));
-            for (auto &a : args) {
-                VM::push(a);
-            }
-            uint8_t argc = static_cast<uint8_t>(args.size());
-            // Now replicate OP_CALL logic
-            size_t args_base = stack.size() - argc;
-            const Value &func_ref = stack[args_base - 1];
-            if (!func_ref.is_function()) {
-                fprintf(stderr, "bytecode: attempt to call non-function value (spread): %s\n", func_ref.to_string().c_str());
+
+            case OpCode::OP_CALL_SPREAD: {
+                uint16_t callee_label_idx = read_short();
+                // stack: [..., callee, args_array] -> [..., result]
+                Value args_arr = pop();
+                Value callee = pop();
+                if (!args_arr.is_array()) {
+                    fprintf(stderr, "OP_CALL_SPREAD: expected args array\n");
+                    has_error = true;
+                    break;
+                }
+                auto &args = args_arr.get_array();
+                // push callee back, then all args. This sets up the stack like OP_CALL expects
+                VM::push(std::move(callee));
+                for (auto &a : args) {
+                    VM::push(a);
+                }
+                uint8_t argc = static_cast<uint8_t>(args.size());
+                // Now replicate OP_CALL logic
+                size_t args_base = stack.size() - argc;
+                const Value &func_ref = stack[args_base - 1];
+                if (!func_ref.is_function()) {
+                    runtime_panic(Value::make_string("called a non-function value with spread arguments: '" + chunk->strings[callee_label_idx] + "'"));
+                    return false;
+                }
+                const auto &fn = func_ref.get_function();
+                if (frames.size() >= MAX_CALL_DEPTH) {
+                    Value err = Value::make_string("Stack Overflow: maximum call-depth exceeded!");
+                    if (!dispatch_throw(err)) {
+                        return false;
+                    }
+                    break;
+                }
+                if (fn.jit_func_idx >= 0) {
+                    auto cell_captures = fn.captures;
+                    call_user_function_stack(static_cast<uint32_t>(fn.jit_func_idx), args_base, argc, cell_captures);
+                    break;
+                }
+                const std::string &fname = fn.name;
+                auto fit = func_indices.find(fname);
+                if (fit != func_indices.end()) {
+                    const_cast<FunctionData &>(fn).jit_func_idx = static_cast<int32_t>(fit->second);
+                    auto cell_captures = fn.captures;
+                    call_user_function_stack(fit->second, args_base, argc, cell_captures);
+                    break;
+                }
+                Value arg_buf[16];
+                std::vector<Value> arg_vec;
+                Value *args_ptr;
+                if (argc <= 16) {
+                    for (int i = 0; i < argc; i++) {
+                        arg_buf[i] = std::move(stack[args_base + i]);
+                    }
+                    args_ptr = arg_buf;
+                } else {
+                    arg_vec.assign(std::make_move_iterator(stack.begin() + args_base),
+                                   std::make_move_iterator(stack.begin() + args_base + argc));
+                    args_ptr = arg_vec.data();
+                }
+                Value func_copy = std::move(stack[args_base - 1]);
                 stack.resize(args_base - 1);
-                VM::push(Value::none());
-                break;
-            }
-            const auto &fn = func_ref.get_function();
-            if (frames.size() >= MAX_CALL_DEPTH) {
-                Value err = Value::make_string("Stack Overflow: maximum call-depth exceeded!");
-                if (!dispatch_throw(err)) {
-                    return false;
-                }
-                break;
-            }
-            if (fn.jit_func_idx >= 0) {
-                auto cell_captures = fn.captures;
-                call_user_function_stack(static_cast<uint32_t>(fn.jit_func_idx), args_base, argc, cell_captures);
-                break;
-            }
-            const std::string &fname = fn.name;
-            auto fit = func_indices.find(fname);
-            if (fit != func_indices.end()) {
-                const_cast<FunctionData &>(fn).jit_func_idx = static_cast<int32_t>(fit->second);
-                auto cell_captures = fn.captures;
-                call_user_function_stack(fit->second, args_base, argc, cell_captures);
-                break;
-            }
-            Value arg_buf[16];
-            std::vector<Value> arg_vec;
-            Value *args_ptr;
-            if (argc <= 16) {
-                for (int i = 0; i < argc; i++) {
-                    arg_buf[i] = std::move(stack[args_base + i]);
-                }
-                args_ptr = arg_buf;
-            } else {
-                arg_vec.assign(std::make_move_iterator(stack.begin() + args_base),
-                               std::make_move_iterator(stack.begin() + args_base + argc));
-                args_ptr = arg_vec.data();
-            }
-            Value func_copy = std::move(stack[args_base - 1]);
-            stack.resize(args_base - 1);
-            const auto &fn2 = func_copy.get_function();
-            auto bit = builtins.find(fn2.name);
-            if (bit != builtins.end()) {
-                if (!push_builtin_result(call_builtin(fn2.name, args_ptr, argc))) {
-                    return false;
-                }
-            } else if (fn2.func_ptr) {
-                std::vector<Value> args_v(args_ptr, args_ptr + argc);
-                VM::push(runtime->call_user_function(fn2.func_ptr.get(), args_v));
-            } else {
-                auto rit = runtime->functions.find(fn2.name);
-                if (rit != runtime->functions.end()) {
+                const auto &fn2 = func_copy.get_function();
+                auto bit = builtins.find(fn2.name);
+                if (bit != builtins.end()) {
+                    if (!push_builtin_result(call_builtin(fn2.name, args_ptr, argc))) {
+                        return false;
+                    }
+                } else if (fn2.func_ptr) {
                     std::vector<Value> args_v(args_ptr, args_ptr + argc);
-                    VM::push(runtime->call_user_function(rit->second.get(), args_v));
+                    VM::push(runtime->call_user_function(fn2.func_ptr.get(), args_v));
                 } else {
-                    fprintf(stderr, "bytecode: unknown function '%s'\n", fn2.name.c_str());
-                    VM::push(Value::none());
+                    auto rit = runtime->functions.find(fn2.name);
+                    if (rit != runtime->functions.end()) {
+                        std::vector<Value> args_v(args_ptr, args_ptr + argc);
+                        VM::push(runtime->call_user_function(rit->second.get(), args_v));
+                    } else {
+                        fprintf(stderr, "bytecode: unknown function '%s'\n", fn2.name.c_str());
+                        VM::push(Value::none());
+                    }
                 }
+                break;
             }
-            break;
-        }
 
-        case OpCode::OP_MAKE_REGEX: {
-            uint16_t pattern_idx = read_short();
-            uint16_t flags_idx = read_short();
-            const std::string &pattern = chunk->strings[pattern_idx];
-            const std::string &flags = chunk->strings[flags_idx];
-            VM::push(Value::make_regex(pattern, flags));
-            break;
-        }
+            case OpCode::OP_MAKE_REGEX: {
+                uint16_t pattern_idx = read_short();
+                uint16_t flags_idx = read_short();
+                const std::string &pattern = chunk->strings[pattern_idx];
+                const std::string &flags = chunk->strings[flags_idx];
+                VM::push(Value::make_regex(pattern, flags));
+                break;
+            }
 
-        case OpCode::OP_GET_INDEX: {
+            case OpCode::OP_GET_INDEX: {
 #ifndef DISABLE_JIT
-            trace_arr_recordable = false;
+                trace_arr_recordable = false;
 #endif
-            Value index = pop();
-            Value obj = pop();
+                Value index = pop();
+                Value obj = pop();
 
-            // Coerce whole-number floats to int for indexing (e.g. "1" - 1 == 0.0)
-            if (index.is_float()) {
-                double f = index.get_float();
-                if (f == std::floor(f) && !std::isinf(f) && !std::isnan(f)) {
-                    index = Value::make_int(static_cast<int64_t>(f));
+                // Coerce whole-number floats to int for indexing (e.g. "1" - 1 == 0.0)
+                if (index.is_float()) {
+                    double f = index.get_float();
+                    if (f == std::floor(f) && !std::isinf(f) && !std::isnan(f)) {
+                        index = Value::make_int(static_cast<int64_t>(f));
+                    }
                 }
-            }
-            if (obj.is_array()) {
-                auto &arr = obj.get_array();
-                if (index.is_int()) {
-                    int64_t idx = index.get_int();
-                    if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
-                        VM::push(arr[idx]);
+                if (obj.is_array()) {
+                    auto &arr = obj.get_array();
+                    if (index.is_int()) {
+                        int64_t idx = index.get_int();
+                        if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
+                            VM::push(arr[idx]);
 #ifndef DISABLE_JIT
-                        // Trace-recordable if the loaded element is an int,
-                        // or an int48-overflow float, which the trace decodes with
-                        // the same dual-path as ObjGetProp
-                        if (trace_was_recording) {
-                            const Value &v = stack.back();
-                            trace_arr_recordable = v.is_int() || v.is_float();
-                            trace_arr_ptr = obj.heap_ptr();
-                            trace_arr_size_bytes = arr.size() * sizeof(Value);
+                            // Trace-recordable if the loaded element is an int,
+                            // or an int48-overflow float, which the trace decodes with
+                            // the same dual-path as ObjGetProp
+                            if (trace_was_recording) {
+                                const Value &v = stack.back();
+                                trace_arr_recordable = v.is_int() || v.is_float();
+                                trace_arr_ptr = obj.heap_ptr();
+                                trace_arr_size_bytes = arr.size() * sizeof(Value);
+                            }
+#endif
+                        } else {
+                            VM::push(Value::none());
                         }
-#endif
+                    } else {
+                        VM::push(Value::none());
+                    }
+                } else if (obj.is_object()) {
+                    const std::string key = index.to_string();
+                    const Value *v = obj.get_obj_ptr()->get_field(key);
+                    VM::push(v ? *v : Value::none());
+                } else if (obj.is_delegate()) {
+                    // Delegate get trap. After the object fast path so prop-IC is untouched.
+                    VM::push(runtime->delegate_get(obj, index));
+                } else if (obj.is_string()) {
+                    // String character indexing: returns a 1-char string (auto-SSO).
+                    if (index.is_int()) {
+                        const std::string &s = obj.get_string();
+                        int64_t idx = index.get_int();
+                        if (idx >= 0 && idx < (int64_t)s.size()) {
+                            VM::push(Value::make_string(std::string(1, s[(size_t)idx])));
+                        } else {
+                            VM::push(Value::none());
+                        }
                     } else {
                         VM::push(Value::none());
                     }
                 } else {
                     VM::push(Value::none());
                 }
-            } else if (obj.is_object()) {
-                const std::string key = index.to_string();
-                const Value *v = obj.get_obj_ptr()->get_field(key);
-                VM::push(v ? *v : Value::none());
-            } else if (obj.is_delegate()) {
-                // Delegate get trap. After the object fast path so prop-IC is untouched.
-                VM::push(runtime->delegate_get(obj, index));
-            } else if (obj.is_string()) {
-                // String character indexing: returns a 1-char string (auto-SSO).
-                if (index.is_int()) {
-                    const std::string &s = obj.get_string();
-                    int64_t idx = index.get_int();
-                    if (idx >= 0 && idx < (int64_t)s.size()) {
-                        VM::push(Value::make_string(std::string(1, s[(size_t)idx])));
+                break;
+            }
+
+            case OpCode::OP_SET_INDEX: {
+#ifndef DISABLE_JIT
+                trace_arr_recordable = false;
+#endif
+                Value val = pop();
+                Value index = pop();
+                Value obj = pop();
+
+                // coerce whole-number floats to int for indexing
+                if (index.is_float()) {
+                    double f = index.get_float();
+                    if (f == std::floor(f) && !std::isinf(f) && !std::isnan(f)) {
+                        index = Value::make_int(static_cast<int64_t>(f));
+                    }
+                }
+                if (obj.is_array()) {
+                    auto &arr = obj.get_array();
+                    if (index.is_int()) {
+                        int64_t idx = index.get_int();
+                        int64_t orig_idx = idx;
+                        if (idx < 0) {
+                            idx += static_cast<int64_t>(arr.size());
+                        }
+                        if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
+                            arr[idx] = val;
+#ifndef DISABLE_JIT
+                            // in-bounds int-array int-store: trace-recordable.
+                            if (trace_was_recording && orig_idx >= 0 &&
+                                (val.is_int() || val.is_float())) {
+                                trace_arr_recordable = true;
+                                trace_arr_ptr = obj.heap_ptr();
+                                trace_arr_size_bytes = arr.size() * sizeof(Value);
+                            }
+#endif
+                        } else if (idx >= static_cast<int64_t>(arr.size()) && idx < 10000000) {
+                            arr.resize(static_cast<size_t>(idx) + 1, Value::none());
+                            arr[idx] = val;
+                        }
+                    }
+                } else if (obj.is_object()) {
+                    obj.get_obj_ptr()->set_field(index.to_string(), val);
+                } else if (obj.is_delegate()) {
+                    // Delegate set trap. After the object fast path so prop-IC is untouched.
+                    runtime->delegate_set(obj, index, val);
+                }
+                VM::push(val); // assignment expressions return the value
+                break;
+            }
+
+            case OpCode::OP_GET_PROPERTY: {
+                uint16_t name_idx = read_short();
+                Value obj = pop();
+
+                // inline cache fast path for plain objects (dict_mode objects always take the slow path)
+                if (obj.is_object()) {
+                    ObjectObj *oobj = static_cast<ObjectObj *>(obj.heap_ptr());
+                    auto &ic = prop_ic[((unsigned)name_idx) & PROP_IC_MASK];
+#ifndef DISABLE_JIT
+                    // resolve the field slot for the trace recorder while obj is live
+                    if (trace_was_recording) {
+                        trace_prop_recordable = false;
+                        if (!oobj->dict_mode) {
+                            auto sit = oobj->shape->index.find(intern_field(chunk->strings[name_idx]));
+                            if (sit != oobj->shape->index.end() && sit->second < oobj->fields.size()) {
+                                trace_prop_slot = (uint32_t)sit->second;
+                                trace_prop_recordable = true;
+                            }
+                        }
+                    }
+#endif
+                    if (!oobj->dict_mode && ic.shape == oobj->shape &&
+                        ic.name_idx == name_idx &&
+                        ic.slot < oobj->fields.size()) {
+                        VM::push(oobj->fields[ic.slot]); // IC hit
                     } else {
-                        VM::push(Value::none());
-                    }
-                } else {
-                    VM::push(Value::none());
-                }
-            } else {
-                VM::push(Value::none());
-            }
-            break;
-        }
-
-        case OpCode::OP_SET_INDEX: {
-#ifndef DISABLE_JIT
-            trace_arr_recordable = false;
-#endif
-            Value val = pop();
-            Value index = pop();
-            Value obj = pop();
-
-            // coerce whole-number floats to int for indexing
-            if (index.is_float()) {
-                double f = index.get_float();
-                if (f == std::floor(f) && !std::isinf(f) && !std::isnan(f)) {
-                    index = Value::make_int(static_cast<int64_t>(f));
-                }
-            }
-            if (obj.is_array()) {
-                auto &arr = obj.get_array();
-                if (index.is_int()) {
-                    int64_t idx = index.get_int();
-                    int64_t orig_idx = idx;
-                    if (idx < 0) {
-                        idx += static_cast<int64_t>(arr.size());
-                    }
-                    if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
-                        arr[idx] = val;
-#ifndef DISABLE_JIT
-                        // in-bounds int-array int-store: trace-recordable.
-                        if (trace_was_recording && orig_idx >= 0 &&
-                            (val.is_int() || val.is_float())) {
-                            trace_arr_recordable = true;
-                            trace_arr_ptr = obj.heap_ptr();
-                            trace_arr_size_bytes = arr.size() * sizeof(Value);
-                        }
-#endif
-                    } else if (idx >= static_cast<int64_t>(arr.size()) && idx < 10000000) {
-                        arr.resize(static_cast<size_t>(idx) + 1, Value::none());
-                        arr[idx] = val;
-                    }
-                }
-            } else if (obj.is_object()) {
-                obj.get_obj_ptr()->set_field(index.to_string(), val);
-            } else if (obj.is_delegate()) {
-                // Delegate set trap. After the object fast path so prop-IC is untouched.
-                runtime->delegate_set(obj, index, val);
-            }
-            VM::push(val); // assignment expressions return the value
-            break;
-        }
-
-        case OpCode::OP_GET_PROPERTY: {
-            uint16_t name_idx = read_short();
-            Value obj = pop();
-
-            // inline cache fast path for plain objects (dict_mode objects always take the slow path)
-            if (obj.is_object()) {
-                ObjectObj *oobj = static_cast<ObjectObj *>(obj.heap_ptr());
-                auto &ic = prop_ic[((unsigned)name_idx) & PROP_IC_MASK];
-#ifndef DISABLE_JIT
-                // resolve the field slot for the trace recorder while obj is live
-                if (trace_was_recording) {
-                    trace_prop_recordable = false;
-                    if (!oobj->dict_mode) {
-                        auto sit = oobj->shape->index.find(intern_field(chunk->strings[name_idx]));
-                        if (sit != oobj->shape->index.end() && sit->second < oobj->fields.size()) {
-                            trace_prop_slot = (uint32_t)sit->second;
-                            trace_prop_recordable = true;
+                        const std::string &name = chunk->strings[name_idx];
+                        Value *v = oobj->get_field(name);
+                        if (v) {
+                            if (!oobj->dict_mode) {
+                                auto sit = oobj->shape->index.find(intern_field(name));
+                                if (sit != oobj->shape->index.end()) {
+                                    ic.shape = oobj->shape;
+                                    ic.name_idx = name_idx;
+                                    ic.slot = sit->second;
+                                }
+                            }
+                            VM::push(*v);
+                        } else {
+                            VM::push(Value::none());
                         }
                     }
-                }
-#endif
-                if (!oobj->dict_mode && ic.shape == oobj->shape &&
-                    ic.name_idx == name_idx &&
-                    ic.slot < oobj->fields.size()) {
-                    VM::push(oobj->fields[ic.slot]); // IC hit
+                } else if (obj.is_class_instance()) {
+                    const std::string &name = chunk->strings[name_idx];
+                    const auto &instance = obj.get_class_instance();
+                    // check private field access
+                    if (instance->layout && instance->layout->private_fields.count(name) && current_class_name != instance->class_name) {
+                        bytecode_runtime_fatal("Cannot access private field '" + name + "' of class '" + instance->class_name + "'!", "");
+                        has_error = true;
+                        return false;
+                    }
+                    const Value *fv = instance->get_field(name);
+                    VM::push(fv ? *fv : Value::none());
+                } else if (obj.is_delegate()) {
+                    // Delegate get trap. After the object fast path so prop-IC is untouched.
+                    VM::push(runtime->delegate_get(obj, Value::make_string(chunk->strings[name_idx])));
                 } else {
                     const std::string &name = chunk->strings[name_idx];
-                    Value *v = oobj->get_field(name);
-                    if (v) {
+                    if (obj.is_array() && name == "length") {
+                        VM::push(Value::make_int(static_cast<int64_t>(obj.get_array().size())));
+                    } else if (obj.is_string() && name == "length") {
+                        VM::push(Value::make_int(static_cast<int64_t>(obj.get_string().size())));
+                    } else if (obj.is_handle()) {
+                        // handle special members on async handles
+                        const auto &handle = obj.get_handle();
+                        if (!handle) {
+                            VM::push(Value::none());
+                        } else if (name == "await") {
+                            // wait for handle to complete
+                            while (handle->state == HandleData::Running) {
+                                runtime->process_completed_io();
+                                if (handle->state == HandleData::Running) {
+                                    NARI_SLEEP_MILLIS(1);
+                                }
+                            }
+                            if (handle->state == HandleData::Failed) {
+                                // throw the error
+                                VM::push(handle->error);
+                                // use throw to propagate
+                                Value error = pop();
+                                if (!try_stack.empty()) {
+                                    TryHandler th = try_stack.back();
+                                    try_stack.pop_back();
+                                    while (frames.size() > th.frame_depth) {
+                                        size_t sb = current_frame().slot_base;
+                                        frames.pop_back();
+                                        if (!frames.empty()) {
+                                            stack.resize(sb);
+                                        }
+                                    }
+                                    stack.resize(th.stack_depth);
+                                    VM::push(error);
+                                    ip() = current_function()->code.data() + th.catch_ip;
+                                } else {
+                                    fprintf(stderr, "panic: %s\n", error.to_string().c_str());
+                                }
+                            } else {
+                                VM::push(handle->result);
+                            }
+                        } else if (name == "ready") {
+                            runtime->process_completed_io();
+                            VM::push(Value::make_bool(handle->state != HandleData::Running));
+                        } else if (name == "failed") {
+                            VM::push(Value::make_bool(handle->state == HandleData::Failed));
+                        } else if (name == "error") {
+                            VM::push(handle->error);
+                        } else if (name == "status_code") {
+                            // For HTTP response handles
+                            const Value *sc =
+                                handle->result.is_object()
+                                    ? handle->result.get_obj_ptr()->get_field("status_code")
+                                    : nullptr;
+                            VM::push(sc ? *sc : Value::none());
+                        } else if (name == "duration") {
+                            if (handle->state == HandleData::Running) {
+                                auto now = chrono::steady_clock::now();
+                                auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - handle->start_time);
+                                VM::push(Value::make_int(elapsed.count()));
+                            } else {
+                                auto elapsed = chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
+                                VM::push(Value::make_int(elapsed.count()));
+                            }
+                        } else {
+                            VM::push(Value::none());
+                        }
+                    } else if (obj.is_string()) {
+                        std::string class_name = obj.get_string();
+                        const nari::ClassDecl *class_decl = Parser::get_registered_class(class_name);
+                        if (class_decl) {
+                            ensure_static_fields_inited(class_name, class_decl);
+                            std::string key = class_name + "." + name;
+                            auto &sf = Parser::get_static_fields();
+                            auto it = sf.find(key);
+                            if (it != sf.end()) {
+                                VM::push(it->second);
+                            } else {
+                                VM::push(Value::none());
+                            }
+                        } else {
+                            // Not a class name, treat like other non-object types
+                            if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
+                                VM::push(Value::none());
+                            } else {
+                                bytecode_runtime_fatal("Cannot access property '" + name + "' on string value", name);
+                                VM::push(Value::none());
+                            }
+                        }
+                    } else {
+                        // Compiler-internal properties (__variant, __data) are used as
+                        // speculative probes in match/pattern expressions, silently return none for non-objects.
+                        // For all other properties, this is a fatal user error.
+                        if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
+                            VM::push(Value::none());
+                        } else {
+                            bytecode_runtime_fatal(
+                                "Cannot access property '" + name + "' on " +
+                                    (obj.is_none() ? "null" : "non-object") +
+                                    " value",
+                                name);
+                            VM::push(Value::none());
+                        }
+                    }
+                }
+                break;
+            }
+
+            case OpCode::OP_SET_PROPERTY: {
+                uint16_t name_idx = read_short();
+                Value val = pop();
+                Value obj = pop();
+
+                if (obj.is_object()) {
+                    ObjectObj *oobj = static_cast<ObjectObj *>(obj.heap_ptr());
+                    auto &ic = prop_ic[((unsigned)name_idx) & PROP_IC_MASK];
+#ifndef DISABLE_JIT
+                    // resolve the field slot for the trace recorder while obj is live
+                    if (trace_was_recording) {
+                        trace_prop_recordable = false;
+                        if (!oobj->dict_mode && !oobj->frozen) {
+                            auto sit = oobj->shape->index.find(intern_field(chunk->strings[name_idx]));
+                            if (sit != oobj->shape->index.end() && sit->second < oobj->fields.size()) {
+                                trace_prop_slot = (uint32_t)sit->second;
+                                trace_prop_recordable = true;
+                            }
+                        }
+                    }
+#endif
+                    if (!oobj->dict_mode && !oobj->frozen &&
+                        ic.shape == oobj->shape && ic.name_idx == name_idx &&
+                        ic.slot < oobj->fields.size()) {
+                        oobj->fields[ic.slot] = val; // IC hit, direct write
+                    } else {
+                        const std::string &name = chunk->strings[name_idx];
+                        oobj->set_field(name, val);
                         if (!oobj->dict_mode) {
                             auto sit = oobj->shape->index.find(intern_field(name));
                             if (sit != oobj->shape->index.end()) {
@@ -2022,736 +2205,577 @@ bool VM::execute_instruction() {
                                 ic.slot = sit->second;
                             }
                         }
-                        VM::push(*v);
-                    } else {
-                        VM::push(Value::none());
                     }
-                }
-            } else if (obj.is_class_instance()) {
-                const std::string &name = chunk->strings[name_idx];
-                const auto &instance = obj.get_class_instance();
-                // check private field access
-                if (instance->layout && instance->layout->private_fields.count(name) && current_class_name != instance->class_name) {
-                    bytecode_runtime_fatal("Cannot access private field '" + name + "' of class '" + instance->class_name + "'!", "");
-                    has_error = true;
-                    return false;
-                }
-                const Value *fv = instance->get_field(name);
-                VM::push(fv ? *fv : Value::none());
-            } else if (obj.is_delegate()) {
-                // Delegate get trap. After the object fast path so prop-IC is untouched.
-                VM::push(runtime->delegate_get(obj, Value::make_string(chunk->strings[name_idx])));
-            } else {
-                const std::string &name = chunk->strings[name_idx];
-                if (obj.is_array() && name == "length") {
-                    VM::push(Value::make_int(static_cast<int64_t>(obj.get_array().size())));
-                } else if (obj.is_string() && name == "length") {
-                    VM::push(Value::make_int(static_cast<int64_t>(obj.get_string().size())));
-                } else if (obj.is_handle()) {
-                    // handle special members on async handles
-                    const auto &handle = obj.get_handle();
-                    if (!handle) {
-                        VM::push(Value::none());
-                    } else if (name == "await") {
-                        // wait for handle to complete
-                        while (handle->state == HandleData::Running) {
-                            runtime->process_completed_io();
-                            if (handle->state == HandleData::Running) {
-                                NARI_SLEEP_MILLIS(1);
-                            }
-                        }
-                        if (handle->state == HandleData::Failed) {
-                            // throw the error
-                            VM::push(handle->error);
-                            // use throw to propagate
-                            Value error = pop();
-                            if (!try_stack.empty()) {
-                                TryHandler th = try_stack.back();
-                                try_stack.pop_back();
-                                while (frames.size() > th.frame_depth) {
-                                    size_t sb = current_frame().slot_base;
-                                    frames.pop_back();
-                                    if (!frames.empty()) {
-                                        stack.resize(sb);
-                                    }
-                                }
-                                stack.resize(th.stack_depth);
-                                VM::push(error);
-                                ip() = current_function()->code.data() + th.catch_ip;
-                            } else {
-                                fprintf(stderr, "panic: %s\n", error.to_string().c_str());
-                            }
-                        } else {
-                            VM::push(handle->result);
-                        }
-                    } else if (name == "ready") {
-                        runtime->process_completed_io();
-                        VM::push(Value::make_bool(handle->state != HandleData::Running));
-                    } else if (name == "failed") {
-                        VM::push(Value::make_bool(handle->state == HandleData::Failed));
-                    } else if (name == "error") {
-                        VM::push(handle->error);
-                    } else if (name == "status_code") {
-                        // For HTTP response handles
-                        const Value *sc =
-                            handle->result.is_object()
-                                ? handle->result.get_obj_ptr()->get_field("status_code")
-                                : nullptr;
-                        VM::push(sc ? *sc : Value::none());
-                    } else if (name == "duration") {
-                        if (handle->state == HandleData::Running) {
-                            auto now = chrono::steady_clock::now();
-                            auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - handle->start_time);
-                            VM::push(Value::make_int(elapsed.count()));
-                        } else {
-                            auto elapsed = chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
-                            VM::push(Value::make_int(elapsed.count()));
-                        }
-                    } else {
-                        VM::push(Value::none());
+                } else if (obj.is_class_instance()) {
+                    const std::string &name = chunk->strings[name_idx];
+                    auto instance = obj.get_class_instance();
+                    Value *fv = instance->get_field(name);
+                    if (fv) {
+                        *fv = std::move(val);
                     }
                 } else if (obj.is_string()) {
-                    std::string class_name = obj.get_string();
-                    const nari::ClassDecl *class_decl = Parser::get_registered_class(class_name);
-                    if (class_decl) {
-                        ensure_static_fields_inited(class_name, class_decl);
-                        std::string key = class_name + "." + name;
-                        auto &sf = Parser::get_static_fields();
-                        auto it = sf.find(key);
-                        if (it != sf.end()) {
-                            VM::push(it->second);
-                        } else {
-                            VM::push(Value::none());
-                        }
-                    } else {
-                        // Not a class name, treat like other non-object types
-                        if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
-                            VM::push(Value::none());
-                        } else {
-                            bytecode_runtime_fatal("Cannot access property '" + name + "' on string value", name);
-                            VM::push(Value::none());
-                        }
+                    std::string cname = obj.get_string();
+                    if (Parser::get_registered_class(cname)) {
+                        const std::string &name = chunk->strings[name_idx];
+                        std::string key = cname + "." + name;
+                        Parser::get_static_fields()[key] = val;
                     }
-                } else {
-                    // Compiler-internal properties (__variant, __data) are used as
-                    // speculative probes in match/pattern expressions, silently return none for non-objects.
-                    // For all other properties, this is a fatal user error.
-                    if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
-                        VM::push(Value::none());
-                    } else {
-                        bytecode_runtime_fatal(
-                            "Cannot access property '" + name + "' on " +
-                                (obj.is_none() ? "null" : "non-object") +
-                                " value",
-                            name);
-                        VM::push(Value::none());
-                    }
+                } else if (obj.is_delegate()) {
+                    // Delegate set trap
+                    runtime->delegate_set(obj, Value::make_string(chunk->strings[name_idx]), val);
                 }
-            }
-            break;
-        }
-
-        case OpCode::OP_SET_PROPERTY: {
-            uint16_t name_idx = read_short();
-            Value val = pop();
-            Value obj = pop();
-
-            if (obj.is_object()) {
-                ObjectObj *oobj = static_cast<ObjectObj *>(obj.heap_ptr());
-                auto &ic = prop_ic[((unsigned)name_idx) & PROP_IC_MASK];
-#ifndef DISABLE_JIT
-                // resolve the field slot for the trace recorder while obj is live
-                if (trace_was_recording) {
-                    trace_prop_recordable = false;
-                    if (!oobj->dict_mode && !oobj->frozen) {
-                        auto sit = oobj->shape->index.find(intern_field(chunk->strings[name_idx]));
-                        if (sit != oobj->shape->index.end() && sit->second < oobj->fields.size()) {
-                            trace_prop_slot = (uint32_t)sit->second;
-                            trace_prop_recordable = true;
-                        }
-                    }
-                }
-#endif
-                if (!oobj->dict_mode && !oobj->frozen &&
-                    ic.shape == oobj->shape && ic.name_idx == name_idx &&
-                    ic.slot < oobj->fields.size()) {
-                    oobj->fields[ic.slot] = val; // IC hit, direct write
-                } else {
-                    const std::string &name = chunk->strings[name_idx];
-                    oobj->set_field(name, val);
-                    if (!oobj->dict_mode) {
-                        auto sit = oobj->shape->index.find(intern_field(name));
-                        if (sit != oobj->shape->index.end()) {
-                            ic.shape = oobj->shape;
-                            ic.name_idx = name_idx;
-                            ic.slot = sit->second;
-                        }
-                    }
-                }
-            } else if (obj.is_class_instance()) {
-                const std::string &name = chunk->strings[name_idx];
-                auto instance = obj.get_class_instance();
-                Value *fv = instance->get_field(name);
-                if (fv) {
-                    *fv = std::move(val);
-                }
-            } else if (obj.is_string()) {
-                std::string cname = obj.get_string();
-                if (Parser::get_registered_class(cname)) {
-                    const std::string &name = chunk->strings[name_idx];
-                    std::string key = cname + "." + name;
-                    Parser::get_static_fields()[key] = val;
-                }
-            } else if (obj.is_delegate()) {
-                // Delegate set trap
-                runtime->delegate_set(obj, Value::make_string(chunk->strings[name_idx]), val);
-            }
-            VM::push(val);
-            break;
-        }
-
-        // for-each iteration support
-        case OpCode::OP_MAKE_ITERATOR: {
-            // top of stack has the iterable (array or object)
-            // push an iterator: [array_or_keys, index=0] on stack
-            Value iterable = pop();
-            if (iterable.is_array()) {
-                VM::push(iterable);           // the array
-                VM::push(Value::make_int(0)); // current index
-            } else if (iterable.is_object()) {
-                // create an array from the object's keys, then iterate that.
-                // The loop variable receives each key, values are accessible via obj[key].
-                const ObjectObj *oobj = iterable.get_obj_ptr();
-                std::vector<Value> keys;
-                for (const auto &name : oobj->get_keys()) {
-                    keys.push_back(Value::make_string(name));
-                }
-                VM::push(Value::make_array(std::move(keys)));
-                VM::push(Value::make_int(0));
-            } else {
-                fprintf(stderr, "bytecode: for-each requires an array or object\n");
-                has_error = true;
-                VM::push(Value::make_array()); // dummy empty array
-                VM::push(Value::make_int(0));  // dummy index
-            }
-            break;
-        }
-
-        case OpCode::OP_ITER_ARRAY: {
-            // Normalize an iterable to a plain array so the compiler can drive a desugared index-loop
-            // mirrors the single-variable normalization of OP_MAKE_ITERATOR:
-            //   array  -> itself
-            //   object -> its keys as an array
-            // anything else is an error, we just dump an empty array
-            Value iterable = pop();
-            if (iterable.is_array()) {
-                VM::push(iterable);
-            } else if (iterable.is_object()) {
-                const ObjectObj *oobj = iterable.get_obj_ptr();
-                std::vector<Value> keys;
-                for (const auto &name : oobj->get_keys()) {
-                    keys.push_back(Value::make_string(name));
-                }
-                VM::push(Value::make_array(std::move(keys)));
-            } else {
-                fprintf(stderr, "bytecode: for-each requires an array or object\n");
-                has_error = true;
-                VM::push(Value::make_array()); // dummy empty array
-            }
-            break;
-        }
-
-        case OpCode::OP_MAKE_ITERATOR_KV: {
-            // key-value for-each: for (key, value in ...)
-            // Builds a pairs array [[key0, val0], [key1, val1], ...] and pushes [pairs, index=0]
-            Value iterable = pop();
-            std::vector<Value> pairs;
-            if (iterable.is_array()) {
-                const auto &arr = iterable.get_array();
-                pairs.reserve(arr.size());
-                for (size_t _ki = 0; _ki < arr.size(); _ki++) {
-                    std::vector<Value> pair;
-                    pair.push_back(Value::make_int(static_cast<int64_t>(_ki)));
-                    pair.push_back(arr[_ki]);
-                    pairs.push_back(Value::make_array(std::move(pair)));
-                }
-            } else if (iterable.is_object()) {
-                const ObjectObj *oobj = iterable.get_obj_ptr();
-                for (const auto &name : oobj->get_keys()) {
-                    const Value *val = oobj->get_field(name);
-                    if (!val) {
-                        continue;
-                    }
-                    std::vector<Value> pair;
-                    pair.push_back(Value::make_string(name));
-                    pair.push_back(*val);
-                    pairs.push_back(Value::make_array(std::move(pair)));
-                }
-            } else {
-                fprintf(stderr, "bytecode: for-each (key, value) requires an array or object\n");
-                has_error = true;
-            }
-            VM::push(Value::make_array(std::move(pairs)));
-            VM::push(Value::make_int(0));
-            break;
-        }
-
-        case OpCode::OP_ITER_NEXT: {
-            // stack has: [..., array, index]
-            Value idx_val = pop(); // current index
-            Value arr_val = pop(); // the array
-            int64_t idx = idx_val.get_int();
-            auto &arr = arr_val.get_array();
-            if (idx < static_cast<int64_t>(arr.size())) {
-                // push iterator state back for next iteration
-                VM::push(arr_val);                  // array
-                VM::push(Value::make_int(idx + 1)); // next index
-                // push current element value and true
-                VM::push(arr[idx]);               // value
-                VM::push(Value::make_bool(true)); // still iterating
-            } else {
-                // done iterating, push iterator back (will be cleaned up by OP_POP)
-                VM::push(arr_val);                 // array
-                VM::push(Value::make_int(idx));    // index (unchanged)
-                VM::push(Value::make_bool(false)); // done
-            }
-            break;
-        }
-
-        case OpCode::OP_ITER_NEXT_KV: {
-            // key-value iteration: stack has [..., pairs_array, index]
-            // pairs_array is [[key0, val0], [key1, val1], ...]
-            // Pushes: pairs_array, index+1, key, value, true, or pairs_array, index, false
-            Value idx_val = pop(); // current index
-            Value arr_val = pop(); // the pairs array
-            int64_t idx = idx_val.get_int();
-            auto &pairs = arr_val.get_array();
-            if (idx < static_cast<int64_t>(pairs.size())) {
-                VM::push(arr_val);                  // pairs array
-                VM::push(Value::make_int(idx + 1)); // next index
-                // destructure pair [key, value]
-                const auto &pair = pairs[idx].get_array();
-                VM::push(pair[0]);                // key
-                VM::push(pair[1]);                // value
-                VM::push(Value::make_bool(true)); // still iterating
-            } else {
-                VM::push(arr_val);                 // pairs array
-                VM::push(Value::make_int(idx));    // index (unchanged)
-                VM::push(Value::make_bool(false)); // done
-            }
-            break;
-        }
-
-        case OpCode::OP_THROW: {
-            Value error = pop();
-            bool caught = dispatch_throw(error);
-            // Inside a JIT-compiled function call, returning normally from execute_instruction()
-            // would resume the JIT caller's baked native code, which has no way to honor
-            // the rewound frame.ip (caught) or the unwound frames (uncaught).
-            // Longjmp out to VM::run's setjmp instead.
-            //
-            // longjmp skips dtors, explicitly cleanup
-            error = Value::none();
-            if (jit_call_depth > 0 && this->overflow_jmp) {
-                std::longjmp(*this->overflow_jmp, caught ? 2 : 1);
-            }
-            if (!caught) {
-                return false;
-            }
-            break;
-        }
-
-        case OpCode::OP_CHECK_TYPE: {
-            // Capture instruction pc *before* reading operands (opcode already consumed).
-            size_t instr_pc = static_cast<size_t>(ip() - current_function()->code.data()) - 1;
-            uint16_t type_str_idx = read_short();
-            uint8_t ctx_byte = read_byte(); // 0=param, 1=return, 2=variable
-            // peek TOS without consuming it
-            const Value &val = stack.back();
-            const std::string &expected = chunk->strings[type_str_idx];
-            bool ok = false;
-            if (expected == "int") {
-                ok = val.is_int();
-            } else if (expected == "float") {
-                ok = val.is_float();
-            } else if (expected == "number") {
-                ok = val.is_numeric();
-            } else if (expected == "string") {
-                ok = val.is_string();
-            } else if (expected == "bool") {
-                ok = val.is_bool();
-            } else if (expected == "null") {
-                ok = val.is_none();
-            } else if (expected == "array") {
-                ok = val.is_array();
-            } else if (expected == "object") {
-                ok = val.is_object();
-            } else if (expected == "function") {
-                ok = val.is_function();
-            } else if (expected == "regex") {
-                ok = val.is_regex();
-            } else if (val.is_class_instance()) {
-                ok = (val.get_class_instance()->class_name == expected);
-            }
-            // unknown annotation name, skip check (forward-compat)
-            if (!ok &&
-                (expected == "int" || expected == "float" || expected == "number" ||
-                 expected == "string" || expected == "bool" || expected == "null" ||
-                 expected == "array" || expected == "object" ||
-                 expected == "function" || expected == "regex" ||
-                 val.is_class_instance())) {
-                std::string actual;
-                if (val.is_none()) {
-                    actual = "null";
-                } else if (val.is_int()) {
-                    actual = "int";
-                } else if (val.is_float()) {
-                    actual = "float";
-                } else if (val.is_string()) {
-                    actual = "string";
-                } else if (val.is_bool()) {
-                    actual = "bool";
-                } else if (val.is_array()) {
-                    actual = "array";
-                } else if (val.is_object()) {
-                    actual = "object";
-                } else if (val.is_function()) {
-                    actual = "function";
-                } else if (val.is_regex()) {
-                    actual = "regex";
-                } else if (val.is_class_instance()) {
-                    actual = val.get_class_instance()->class_name;
-                } else {
-                    actual = "unknown";
-                }
-                const char *ctx_str = ctx_byte == 0   ? "parameter"
-                                      : ctx_byte == 1 ? "return value"
-                                                      : "variable";
-                // Resolve source location from the line map.
-                const FunctionMeta *fn = current_function();
-                int src_line = fn ? fn->resolve_line(instr_pc) : 0;
-                const std::string &fn_name = (fn && !fn->name.empty()) ? fn->name : "<anonymous>";
-                const std::string &src_file = fn ? fn->source_file : "";
-                std::string loc;
-                if (!src_file.empty()) {
-                    loc = " at '" + fn_name + "' (" + src_file;
-                    if (src_line > 0) {
-                        loc += ":" + std::to_string(src_line);
-                    }
-                    loc += ")";
-                } else if (!fn_name.empty()) {
-                    loc = " at '" + fn_name + "'";
-                }
-                std::string msg =
-                    std::string("TypeError: expected ") + ctx_str +
-                    " of type '" + expected + "', got '" + actual + "'" +
-                    loc;
-                Value err = Value::make_string(msg);
-                if (!dispatch_throw(err)) {
-                    return false;
-                }
-            }
-            break;
-        }
-
-        case OpCode::OP_SETUP_TRY: {
-            uint16_t catch_offset = read_short();
-            uint16_t finally_offset = read_short();
-            TryHandler handler;
-            size_t current_pos = ip() - current_function()->code.data();
-            handler.catch_ip = current_pos - 2 + static_cast<int16_t>(catch_offset);
-            handler.finally_ip = current_pos + static_cast<int16_t>(finally_offset);
-            handler.stack_depth = stack.size();
-            handler.frame_depth = frames.size();
-            try_stack.push_back(handler);
-            break;
-        }
-
-        case OpCode::OP_POP_TRY: {
-            if (!try_stack.empty()) {
-                try_stack.pop_back();
-            }
-            break;
-        }
-
-        case OpCode::OP_BEGIN_CATCH: {
-            // error value is already on stack (pushed by OP_THROW),
-            // nothing extra needed
-            break;
-        }
-
-        case OpCode::OP_BEGIN_FINALLY: {
-            // nothing to do, finally block just runs
-            break;
-        }
-
-        // class support
-        case OpCode::OP_NEW_INSTANCE: {
-            uint16_t name_idx = read_short();
-            uint8_t argc = read_byte();
-            const std::string &class_name = chunk->strings[name_idx];
-
-            // collect args
-            std::vector<Value> args;
-            args.reserve(argc);
-            for (int i = 0; i < argc; i++) {
-                args.push_back(pop());
-            }
-            std::reverse(args.begin(), args.end());
-
-            VM::push(instantiate_class(class_name, std::move(args)));
-            break;
-        }
-
-        case OpCode::OP_LOAD_THIS: {
-            if (current_instance) {
-                VM::push(Value::from_class_instance(current_instance));
-            } else {
-                VM::push(Value::none());
-            }
-            break;
-        }
-
-        case OpCode::OP_CALL_METHOD: {
-            uint16_t name_idx = read_short();
-            uint8_t argc = read_byte();
-            const std::string &method_name = chunk->strings[name_idx];
-
-            // fast path: read obj and args directly from the stack
-            // Stack: [..., obj, arg0, arg1, ..., argN-1]  (argN-1 on top)
-            const size_t stack_top = stack.size();
-            const size_t args_base = stack_top - (size_t)argc; // index of arg0
-            const size_t obj_idx = args_base - 1;              // index of obj
-
-            Value &obj_ref = stack[obj_idx]; // peek without popping
-
-            if (obj_ref.is_class_instance()) {
-                // class instance: needs args as a vector for the AST-based dispatch.
-                std::vector<Value> args(stack.begin() + args_base, stack.end());
-                Value obj = std::move(stack[obj_idx]);
-                stack.resize(obj_idx);
-                VM::push(call_class_method(obj.get_class_instance(), method_name, std::move(args)));
+                VM::push(val);
                 break;
             }
 
-            // Static method call: ClassName.method(args)
-            // Gate on there being ANY registered class,
-            // otherwise a string receiver is always a plain builtin-method call
-            if (obj_ref.is_string() && !Parser::get_all_registered_classes().empty()) {
-                std::string class_name = obj_ref.get_string(); // copy for SSO safety
-                const nari::ClassDecl *class_decl = Parser::get_registered_class(class_name);
-                if (class_decl) {
-                    // look for a static method
-                    const nari::ClassMethod *found = nullptr;
-                    for (const auto &m : class_decl->methods) {
-                        if (m.name == method_name && m.is_static) {
-                            found = &m;
+            // for-each iteration support
+            case OpCode::OP_MAKE_ITERATOR: {
+                // top of stack has the iterable (array or object)
+                // push an iterator: [array_or_keys, index=0] on stack
+                Value iterable = pop();
+                if (iterable.is_array()) {
+                    VM::push(iterable);           // the array
+                    VM::push(Value::make_int(0)); // current index
+                } else if (iterable.is_object()) {
+                    // create an array from the object's keys, then iterate that.
+                    // The loop variable receives each key, values are accessible via obj[key].
+                    const ObjectObj *oobj = iterable.get_obj_ptr();
+                    std::vector<Value> keys;
+                    for (const auto &name : oobj->get_keys()) {
+                        keys.push_back(Value::make_string(name));
+                    }
+                    VM::push(Value::make_array(std::move(keys)));
+                    VM::push(Value::make_int(0));
+                } else {
+                    fprintf(stderr, "bytecode: for-each requires an array or object\n");
+                    has_error = true;
+                    VM::push(Value::make_array()); // dummy empty array
+                    VM::push(Value::make_int(0));  // dummy index
+                }
+                break;
+            }
+
+            case OpCode::OP_ITER_ARRAY: {
+                // Normalize an iterable to a plain array so the compiler can drive a desugared index-loop
+                // mirrors the single-variable normalization of OP_MAKE_ITERATOR:
+                //   array  -> itself
+                //   object -> its keys as an array
+                // anything else is an error, we just dump an empty array
+                Value iterable = pop();
+                if (iterable.is_array()) {
+                    VM::push(iterable);
+                } else if (iterable.is_object()) {
+                    const ObjectObj *oobj = iterable.get_obj_ptr();
+                    std::vector<Value> keys;
+                    for (const auto &name : oobj->get_keys()) {
+                        keys.push_back(Value::make_string(name));
+                    }
+                    VM::push(Value::make_array(std::move(keys)));
+                } else {
+                    fprintf(stderr, "bytecode: for-each requires an array or object\n");
+                    has_error = true;
+                    VM::push(Value::make_array()); // dummy empty array
+                }
+                break;
+            }
+
+            case OpCode::OP_MAKE_ITERATOR_KV: {
+                // key-value for-each: for (key, value in ...)
+                // Builds a pairs array [[key0, val0], [key1, val1], ...] and pushes [pairs, index=0]
+                Value iterable = pop();
+                std::vector<Value> pairs;
+                if (iterable.is_array()) {
+                    const auto &arr = iterable.get_array();
+                    pairs.reserve(arr.size());
+                    for (size_t _ki = 0; _ki < arr.size(); _ki++) {
+                        std::vector<Value> pair;
+                        pair.push_back(Value::make_int(static_cast<int64_t>(_ki)));
+                        pair.push_back(arr[_ki]);
+                        pairs.push_back(Value::make_array(std::move(pair)));
+                    }
+                } else if (iterable.is_object()) {
+                    const ObjectObj *oobj = iterable.get_obj_ptr();
+                    for (const auto &name : oobj->get_keys()) {
+                        const Value *val = oobj->get_field(name);
+                        if (!val) {
+                            continue;
+                        }
+                        std::vector<Value> pair;
+                        pair.push_back(Value::make_string(name));
+                        pair.push_back(*val);
+                        pairs.push_back(Value::make_array(std::move(pair)));
+                    }
+                } else {
+                    fprintf(stderr, "bytecode: for-each (key, value) requires an array or object\n");
+                    has_error = true;
+                }
+                VM::push(Value::make_array(std::move(pairs)));
+                VM::push(Value::make_int(0));
+                break;
+            }
+
+            case OpCode::OP_ITER_NEXT: {
+                // stack has: [..., array, index]
+                Value idx_val = pop(); // current index
+                Value arr_val = pop(); // the array
+                int64_t idx = idx_val.get_int();
+                auto &arr = arr_val.get_array();
+                if (idx < static_cast<int64_t>(arr.size())) {
+                    // push iterator state back for next iteration
+                    VM::push(arr_val);                  // array
+                    VM::push(Value::make_int(idx + 1)); // next index
+                    // push current element value and true
+                    VM::push(arr[idx]);               // value
+                    VM::push(Value::make_bool(true)); // still iterating
+                } else {
+                    // done iterating, push iterator back (will be cleaned up by OP_POP)
+                    VM::push(arr_val);                 // array
+                    VM::push(Value::make_int(idx));    // index (unchanged)
+                    VM::push(Value::make_bool(false)); // done
+                }
+                break;
+            }
+
+            case OpCode::OP_ITER_NEXT_KV: {
+                // key-value iteration: stack has [..., pairs_array, index]
+                // pairs_array is [[key0, val0], [key1, val1], ...]
+                // Pushes: pairs_array, index+1, key, value, true, or pairs_array, index, false
+                Value idx_val = pop(); // current index
+                Value arr_val = pop(); // the pairs array
+                int64_t idx = idx_val.get_int();
+                auto &pairs = arr_val.get_array();
+                if (idx < static_cast<int64_t>(pairs.size())) {
+                    VM::push(arr_val);                  // pairs array
+                    VM::push(Value::make_int(idx + 1)); // next index
+                    // destructure pair [key, value]
+                    const auto &pair = pairs[idx].get_array();
+                    VM::push(pair[0]);                // key
+                    VM::push(pair[1]);                // value
+                    VM::push(Value::make_bool(true)); // still iterating
+                } else {
+                    VM::push(arr_val);                 // pairs array
+                    VM::push(Value::make_int(idx));    // index (unchanged)
+                    VM::push(Value::make_bool(false)); // done
+                }
+                break;
+            }
+
+            case OpCode::OP_THROW: {
+                Value error = pop();
+                bool caught = dispatch_throw(error);
+                // Inside a JIT-compiled function call, returning normally from execute_instruction()
+                // would resume the JIT caller's baked native code, which has no way to honor
+                // the rewound frame.ip (caught) or the unwound frames (uncaught).
+                // Longjmp out to VM::run's setjmp instead.
+                //
+                // longjmp skips dtors, explicitly cleanup
+                error = Value::none();
+                if (jit_call_depth > 0 && this->overflow_jmp) {
+                    std::longjmp(*this->overflow_jmp, caught ? 2 : 1);
+                }
+                if (!caught) {
+                    return false;
+                }
+                break;
+            }
+
+            case OpCode::OP_CHECK_TYPE: {
+                // Capture instruction pc *before* reading operands (opcode already consumed).
+                size_t instr_pc = static_cast<size_t>(ip() - current_function()->code.data()) - 1;
+                uint16_t type_str_idx = read_short();
+                uint8_t ctx_byte = read_byte(); // 0=param, 1=return, 2=variable
+                // peek TOS without consuming it
+                const Value &val = stack.back();
+                const std::string &expected = chunk->strings[type_str_idx];
+                bool ok = false;
+                if (expected == "int") {
+                    ok = val.is_int();
+                } else if (expected == "float") {
+                    ok = val.is_float();
+                } else if (expected == "number") {
+                    ok = val.is_numeric();
+                } else if (expected == "string") {
+                    ok = val.is_string();
+                } else if (expected == "bool") {
+                    ok = val.is_bool();
+                } else if (expected == "null") {
+                    ok = val.is_none();
+                } else if (expected == "array") {
+                    ok = val.is_array();
+                } else if (expected == "object") {
+                    ok = val.is_object();
+                } else if (expected == "function") {
+                    ok = val.is_function();
+                } else if (expected == "regex") {
+                    ok = val.is_regex();
+                } else if (val.is_class_instance()) {
+                    ok = (val.get_class_instance()->class_name == expected);
+                }
+                // unknown annotation name, skip check (forward-compat)
+                if (!ok &&
+                    (expected == "int" || expected == "float" || expected == "number" ||
+                     expected == "string" || expected == "bool" || expected == "null" ||
+                     expected == "array" || expected == "object" ||
+                     expected == "function" || expected == "regex" ||
+                     val.is_class_instance())) {
+                    std::string actual;
+                    if (val.is_none()) {
+                        actual = "null";
+                    } else if (val.is_int()) {
+                        actual = "int";
+                    } else if (val.is_float()) {
+                        actual = "float";
+                    } else if (val.is_string()) {
+                        actual = "string";
+                    } else if (val.is_bool()) {
+                        actual = "bool";
+                    } else if (val.is_array()) {
+                        actual = "array";
+                    } else if (val.is_object()) {
+                        actual = "object";
+                    } else if (val.is_function()) {
+                        actual = "function";
+                    } else if (val.is_regex()) {
+                        actual = "regex";
+                    } else if (val.is_class_instance()) {
+                        actual = val.get_class_instance()->class_name;
+                    } else {
+                        actual = "unknown";
+                    }
+                    const char *ctx_str = ctx_byte == 0   ? "parameter"
+                                          : ctx_byte == 1 ? "return value"
+                                                          : "variable";
+                    // Resolve source location from the line map.
+                    const FunctionMeta *fn = current_function();
+                    int src_line = fn ? fn->resolve_line(instr_pc) : 0;
+                    const std::string &fn_name = (fn && !fn->name.empty()) ? fn->name : "<anonymous>";
+                    const std::string &src_file = fn ? fn->source_file : "";
+                    std::string loc;
+                    if (!src_file.empty()) {
+                        loc = " at '" + fn_name + "' (" + src_file;
+                        if (src_line > 0) {
+                            loc += ":" + std::to_string(src_line);
+                        }
+                        loc += ")";
+                    } else if (!fn_name.empty()) {
+                        loc = " at '" + fn_name + "'";
+                    }
+                    std::string msg =
+                        std::string("TypeError: expected ") + ctx_str +
+                        " of type '" + expected + "', got '" + actual + "'" +
+                        loc;
+                    Value err = Value::make_string(msg);
+                    if (!dispatch_throw(err)) {
+                        return false;
+                    }
+                }
+                break;
+            }
+
+            case OpCode::OP_SETUP_TRY: {
+                uint16_t catch_offset = read_short();
+                uint16_t finally_offset = read_short();
+                TryHandler handler;
+                size_t current_pos = ip() - current_function()->code.data();
+                handler.catch_ip = current_pos - 2 + static_cast<int16_t>(catch_offset);
+                handler.finally_ip = current_pos + static_cast<int16_t>(finally_offset);
+                handler.stack_depth = stack.size();
+                handler.frame_depth = frames.size();
+                try_stack.push_back(handler);
+                break;
+            }
+
+            case OpCode::OP_POP_TRY: {
+                if (!try_stack.empty()) {
+                    try_stack.pop_back();
+                }
+                break;
+            }
+
+            case OpCode::OP_BEGIN_CATCH: {
+                // error value is already on stack (pushed by OP_THROW),
+                // nothing extra needed
+                break;
+            }
+
+            case OpCode::OP_BEGIN_FINALLY: {
+                // nothing to do, finally block just runs
+                break;
+            }
+
+            // class support
+            case OpCode::OP_NEW_INSTANCE: {
+                uint16_t name_idx = read_short();
+                uint8_t argc = read_byte();
+                const std::string &class_name = chunk->strings[name_idx];
+
+                // collect args
+                std::vector<Value> args;
+                args.reserve(argc);
+                for (int i = 0; i < argc; i++) {
+                    args.push_back(pop());
+                }
+                std::reverse(args.begin(), args.end());
+
+                VM::push(instantiate_class(class_name, std::move(args)));
+                break;
+            }
+
+            case OpCode::OP_LOAD_THIS: {
+                if (current_instance) {
+                    VM::push(Value::from_class_instance(current_instance));
+                } else {
+                    VM::push(Value::none());
+                }
+                break;
+            }
+
+            case OpCode::OP_CALL_METHOD: {
+                uint16_t name_idx = read_short();
+                uint8_t argc = read_byte();
+                const std::string &method_name = chunk->strings[name_idx];
+
+                // fast path: read obj and args directly from the stack
+                // Stack: [..., obj, arg0, arg1, ..., argN-1]  (argN-1 on top)
+                const size_t stack_top = stack.size();
+                const size_t args_base = stack_top - (size_t)argc; // index of arg0
+                const size_t obj_idx = args_base - 1;              // index of obj
+
+                Value &obj_ref = stack[obj_idx]; // peek without popping
+
+                if (obj_ref.is_class_instance()) {
+                    // class instance: needs args as a vector for the AST-based dispatch.
+                    std::vector<Value> args(stack.begin() + args_base, stack.end());
+                    Value obj = std::move(stack[obj_idx]);
+                    stack.resize(obj_idx);
+                    VM::push(call_class_method(obj.get_class_instance(), method_name, std::move(args)));
+                    break;
+                }
+
+                // Static method call: ClassName.method(args)
+                // Gate on there being ANY registered class,
+                // otherwise a string receiver is always a plain builtin-method call
+                if (obj_ref.is_string() && !Parser::get_all_registered_classes().empty()) {
+                    std::string class_name = obj_ref.get_string(); // copy for SSO safety
+                    const nari::ClassDecl *class_decl = Parser::get_registered_class(class_name);
+                    if (class_decl) {
+                        // look for a static method
+                        const nari::ClassMethod *found = nullptr;
+                        for (const auto &m : class_decl->methods) {
+                            if (m.name == method_name && m.is_static) {
+                                found = &m;
+                                break;
+                            }
+                        }
+                        if (found && found->body) {
+                            std::vector<Value> args(stack.begin() + args_base, stack.end());
+                            stack.resize(obj_idx);
+                            // execute static method via AST interpreter (no 'this' binding)
+                            auto saved_instance = current_instance;
+                            auto saved_class = current_class_name;
+                            current_instance = nullptr;
+                            current_class_name = class_name;
+                            runtime->current_instance = nullptr;
+                            runtime->current_class_name = class_name;
+
+                            runtime->call_stack.emplace_back();
+                            for (size_t i = 0; i < found->params.size() && i < args.size(); i++) {
+                                runtime->call_stack.back()[found->params[i].name] = args[i];
+                            }
+
+                            Value return_value = Value::none();
+                            ScopedSyntheticDebugFrame debug_frame(
+                                class_name + "." + method_name,
+                                found->filename.empty() ? class_decl->filename : found->filename,
+                                found->line,
+                                runtime->call_stack.size() - 1);
+                            for (const auto &stmt : found->body->stmts) {
+                                runtime->exec_stmt(stmt.get());
+                                if (runtime->flags.return_flag) {
+                                    return_value = runtime->flags.return_value;
+                                    runtime->flags.return_flag = false;
+                                    break;
+                                }
+                                if (runtime->flags.break_flag || runtime->flags.continue_flag ||
+                                    runtime->flags.throw_flag) {
+                                    break;
+                                }
+                            }
+
+                            runtime->call_stack.pop_back();
+                            runtime->current_instance = saved_instance;
+                            runtime->current_class_name = saved_class;
+                            current_instance = saved_instance;
+                            current_class_name = saved_class;
+                            VM::push(std::move(return_value));
+                            break;
+                        }
+                        // Check if it's a static field that's callable
+                        ensure_static_fields_inited(class_name, class_decl);
+                        std::string key = class_name + "." + method_name;
+                        auto &sf = Parser::get_static_fields();
+                        auto sit = sf.find(key);
+                        if (sit != sf.end() && sit->second.is_function()) {
+                            std::vector<Value> args(stack.begin() + args_base, stack.end());
+                            Value func = sit->second;
+                            stack.resize(obj_idx);
+                            const auto &fn = func.get_function();
+                            auto fit = func_indices.find(fn.name);
+                            if (fit != func_indices.end()) {
+                                call_user_function(fit->second, args);
+                            } else if (fn.func_ptr) {
+                                VM::push(runtime->call_user_function(fn.func_ptr.get(), args));
+                            } else {
+                                VM::push(Value::none());
+                            }
                             break;
                         }
                     }
-                    if (found && found->body) {
-                        std::vector<Value> args(stack.begin() + args_base, stack.end());
-                        stack.resize(obj_idx);
-                        // execute static method via AST interpreter (no 'this' binding)
-                        auto saved_instance = current_instance;
-                        auto saved_class = current_class_name;
-                        current_instance = nullptr;
-                        current_class_name = class_name;
-                        runtime->current_instance = nullptr;
-                        runtime->current_class_name = class_name;
-
-                        runtime->call_stack.emplace_back();
-                        for (size_t i = 0; i < found->params.size() && i < args.size(); i++) {
-                            runtime->call_stack.back()[found->params[i].name] = args[i];
-                        }
-
-                        Value return_value = Value::none();
-                        ScopedSyntheticDebugFrame debug_frame(
-                            class_name + "." + method_name,
-                            found->filename.empty() ? class_decl->filename : found->filename,
-                            found->line,
-                            runtime->call_stack.size() - 1);
-                        for (const auto &stmt : found->body->stmts) {
-                            runtime->exec_stmt(stmt.get());
-                            if (runtime->flags.return_flag) {
-                                return_value = runtime->flags.return_value;
-                                runtime->flags.return_flag = false;
-                                break;
-                            }
-                            if (runtime->flags.break_flag || runtime->flags.continue_flag ||
-                                runtime->flags.throw_flag) {
-                                break;
-                            }
-                        }
-
-                        runtime->call_stack.pop_back();
-                        runtime->current_instance = saved_instance;
-                        runtime->current_class_name = saved_class;
-                        current_instance = saved_instance;
-                        current_class_name = saved_class;
-                        VM::push(std::move(return_value));
-                        break;
-                    }
-                    // Check if it's a static field that's callable
-                    ensure_static_fields_inited(class_name, class_decl);
-                    std::string key = class_name + "." + method_name;
-                    auto &sf = Parser::get_static_fields();
-                    auto sit = sf.find(key);
-                    if (sit != sf.end() && sit->second.is_function()) {
-                        std::vector<Value> args(stack.begin() + args_base, stack.end());
-                        Value func = sit->second;
-                        stack.resize(obj_idx);
-                        const auto &fn = func.get_function();
-                        auto fit = func_indices.find(fn.name);
-                        if (fit != func_indices.end()) {
-                            call_user_function(fit->second, args);
-                        } else if (fn.func_ptr) {
-                            VM::push(runtime->call_user_function(fn.func_ptr.get(), args));
-                        } else {
-                            VM::push(Value::none());
-                        }
-                        break;
-                    }
                 }
-            }
 
-            if (obj_ref.is_delegate()) {
-                // has_key routes to the `has` trap,
-                // every other method resolves through the get trap then is invoked
-                std::vector<Value> args(stack.begin() + args_base, stack.end());
-                Value obj = std::move(stack[obj_idx]);
-                stack.resize(obj_idx);
-                if (method_name == "has_key" && args.size() == 1) {
-                    VM::push(Value::make_bool(runtime->delegate_has(obj, args[0])));
-                } else {
-                    VM::push(runtime->delegate_call_method(obj, method_name, std::move(args)));
+                if (obj_ref.is_delegate()) {
+                    // has_key routes to the `has` trap,
+                    // every other method resolves through the get trap then is invoked
+                    std::vector<Value> args(stack.begin() + args_base, stack.end());
+                    Value obj = std::move(stack[obj_idx]);
+                    stack.resize(obj_idx);
+                    if (method_name == "has_key" && args.size() == 1) {
+                        VM::push(Value::make_bool(runtime->delegate_has(obj, args[0])));
+                    } else {
+                        VM::push(runtime->delegate_call_method(obj, method_name, std::move(args)));
+                    }
+                    break;
+                }
+
+                if (obj_ref.is_object()) {
+                    const Value *it_v = obj_ref.get_obj_ptr()->get_field(method_name);
+                    if (it_v && it_v->is_function()) {
+                        // Object property is a callable, dispatch it.
+                        Value func = *it_v;
+                        std::vector<Value> args(stack.begin() + args_base, stack.end());
+                        stack.resize(obj_idx);
+                        const std::string &fname = func.get_function().name;
+                        const auto &func_ptr = func.get_function().func_ptr;
+
+                        auto bit = builtins.find(fname);
+                        if (bit != builtins.end()) {
+                            if (!push_builtin_result(call_builtin(fname, args.data(), args.size()))) {
+                                return false;
+                            }
+                        } else {
+                            auto fit = func_indices.find(fname);
+                            if (fit != func_indices.end()) {
+                                const auto &captures = func.get_function().captures;
+                                if (captures && !captures->empty()) {
+                                    call_user_function(fit->second, args, nullptr, captures);
+                                } else {
+                                    call_user_function(fit->second, args);
+                                }
+                            } else if (func_ptr) {
+                                VM::push(runtime->call_user_function(func_ptr.get(), args));
+                            } else {
+                                auto rit = runtime->functions.find(fname);
+                                if (rit != runtime->functions.end()) {
+                                    VM::push(runtime->call_user_function(rit->second.get(), args));
+                                } else {
+                                    bytecode_runtime_fatal("Method '" + method_name + "' is not callable or is otherwise unknown!", "");
+                                    VM::push(Value::none());
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    // Not a callable property, fall through to builtin method dispatch.
+                }
+
+                // builtin method call (array, string, object, number, etc.)
+                // stack-local buffer avoids heap alloc for argc <= 9.
+                {
+                    const size_t n = (size_t)argc + 1;
+                    Value buf[10];
+                    Value *argv;
+                    std::vector<Value> overflow;
+                    if (n <= 10) {
+                        buf[0] = stack[obj_idx];
+                        for (size_t i = 0; i < (size_t)argc; i++) {
+                            buf[i + 1] = stack[args_base + i];
+                        }
+                        argv = buf;
+                    } else {
+                        overflow.reserve(n);
+                        overflow.push_back(stack[obj_idx]);
+                        for (size_t i = 0; i < (size_t)argc; i++) {
+                            overflow.push_back(stack[args_base + i]);
+                        }
+                        argv = overflow.data();
+                    }
+                    stack.resize(obj_idx); // pop obj + args in one shot
+
+                    // inline cache: once resolved, call the builtin member pointer directly,
+                    // skipping builtins.find + runtime->call_builtin's own table lookups
+                    if (name_idx < method_ic_state.size() && method_ic_state[name_idx] == 1) {
+                        if (!push_builtin_result(call_builtin_member(method_ic_fn[name_idx], argv, n))) {
+                            return false;
+                        }
+                        break;
+                    }
+
+                    auto bit = builtins.find(method_name);
+                    if (bit != builtins.end()) {
+                        if (name_idx < method_ic_state.size()) {
+                            ScriptRuntime::BuiltinFn fn = runtime->lookup_builtin_member(method_name);
+                            if (fn) {
+                                method_ic_fn[name_idx] = fn;
+                                method_ic_state[name_idx] = 1;
+                            }
+                        }
+                        if (!push_builtin_result(call_builtin(method_name, argv, n))) {
+                            return false;
+                        }
+                    } else {
+                        // Uncommon / error path: give a typed diagnostic.
+                        const Value &ov = argv[0];
+                        std::string type_str =
+                            ov.is_string()   ? "string"
+                            : ov.is_array()  ? "array"
+                            : ov.is_object() ? "object"
+                            : ov.is_int()    ? "number"
+                            : ov.is_float()  ? "number"
+                            : ov.is_bool()   ? "boolean"
+                            : ov.is_none()   ? "null"
+                            : ov.is_regex()  ? "regex"
+                                             : "value";
+                        if (runtime->is_builtin_name(method_name)) {
+                            bytecode_runtime_fatal("Method '" + method_name + "' does not exist on type '" + type_str + "'!", "");
+                        } else {
+                            bytecode_runtime_fatal("'" + method_name + "' is not a method!", "");
+                        }
+                        VM::push(Value::none());
+                    }
                 }
                 break;
             }
 
-            if (obj_ref.is_object()) {
-                const Value *it_v = obj_ref.get_obj_ptr()->get_field(method_name);
-                if (it_v && it_v->is_function()) {
-                    // Object property is a callable, dispatch it.
-                    Value func = *it_v;
-                    std::vector<Value> args(stack.begin() + args_base, stack.end());
-                    stack.resize(obj_idx);
-                    const std::string &fname = func.get_function().name;
-                    const auto &func_ptr = func.get_function().func_ptr;
-
-                    auto bit = builtins.find(fname);
-                    if (bit != builtins.end()) {
-                        if (!push_builtin_result(call_builtin(fname, args.data(), args.size()))) {
-                            return false;
-                        }
-                    } else {
-                        auto fit = func_indices.find(fname);
-                        if (fit != func_indices.end()) {
-                            const auto &captures = func.get_function().captures;
-                            if (captures && !captures->empty()) {
-                                call_user_function(fit->second, args, nullptr, captures);
-                            } else {
-                                call_user_function(fit->second, args);
-                            }
-                        } else if (func_ptr) {
-                            VM::push(runtime->call_user_function(func_ptr.get(), args));
-                        } else {
-                            auto rit = runtime->functions.find(fname);
-                            if (rit != runtime->functions.end()) {
-                                VM::push(runtime->call_user_function(rit->second.get(), args));
-                            } else {
-                                bytecode_runtime_fatal("Method '" + method_name + "' is not callable or is otherwise unknown!", "");
-                                VM::push(Value::none());
-                            }
-                        }
-                    }
-                    break;
-                }
-                // Not a callable property, fall through to builtin method dispatch.
-            }
-
-            // builtin method call (array, string, object, number, etc.)
-            // stack-local buffer avoids heap alloc for argc <= 9.
-            {
-                const size_t n = (size_t)argc + 1;
-                Value buf[10];
-                Value *argv;
-                std::vector<Value> overflow;
-                if (n <= 10) {
-                    buf[0] = stack[obj_idx];
-                    for (size_t i = 0; i < (size_t)argc; i++) {
-                        buf[i + 1] = stack[args_base + i];
-                    }
-                    argv = buf;
-                } else {
-                    overflow.reserve(n);
-                    overflow.push_back(stack[obj_idx]);
-                    for (size_t i = 0; i < (size_t)argc; i++) {
-                        overflow.push_back(stack[args_base + i]);
-                    }
-                    argv = overflow.data();
-                }
-                stack.resize(obj_idx); // pop obj + args in one shot
-
-                // inline cache: once resolved, call the builtin member pointer directly,
-                // skipping builtins.find + runtime->call_builtin's own table lookups
-                if (name_idx < method_ic_state.size() && method_ic_state[name_idx] == 1) {
-                    if (!push_builtin_result(runtime->call_builtin_member(method_ic_fn[name_idx], argv, n, nullptr))) {
-                        return false;
-                    }
-                    break;
-                }
-
-                auto bit = builtins.find(method_name);
-                if (bit != builtins.end()) {
-                    if (name_idx < method_ic_state.size()) {
-                        ScriptRuntime::BuiltinFn fn = runtime->lookup_builtin_member(method_name);
-                        if (fn) {
-                            method_ic_fn[name_idx] = fn;
-                            method_ic_state[name_idx] = 1;
-                        }
-                    }
-                    if (!push_builtin_result(call_builtin(method_name, argv, n))) {
-                        return false;
-                    }
-                } else {
-                    // Uncommon / error path: give a typed diagnostic.
-                    const Value &ov = argv[0];
-                    std::string type_str =
-                        ov.is_string()   ? "string"
-                        : ov.is_array()  ? "array"
-                        : ov.is_object() ? "object"
-                        : ov.is_int()    ? "number"
-                        : ov.is_float()  ? "number"
-                        : ov.is_bool()   ? "boolean"
-                        : ov.is_none()   ? "null"
-                        : ov.is_regex()  ? "regex"
-                                         : "value";
-                    if (runtime->is_builtin_name(method_name)) {
-                        bytecode_runtime_fatal("Method '" + method_name + "' does not exist on type '" + type_str + "'!", "");
-                    } else {
-                        bytecode_runtime_fatal("'" + method_name + "' is not a method!", "");
-                    }
-                    VM::push(Value::none());
-                }
-            }
-            break;
+            default:
+                fprintf(stderr, "unknown opcode: %d\n", static_cast<int>(op));
+                has_error = true;
+                return false;
         }
 
-        default:
-            fprintf(stderr, "unknown opcode: %d\n", static_cast<int>(op));
-            has_error = true;
-            return false;
-    }
-
 #ifndef DISABLE_JIT
-    // post-dispatch trace recording hook (already handled inline above for OP_JUMP)
-    if (trace_was_recording && !trace_recorder.aborted && op != OpCode::OP_JUMP) {
-        trace_record_step(op, insn_base_ptr);
-    }
+        // post-dispatch trace recording hook (already handled inline above for OP_JUMP)
+        if (trace_was_recording && !trace_recorder.aborted && op != OpCode::OP_JUMP) {
+            trace_record_step(op, insn_base_ptr);
+        }
 #endif
 
-    return true;
+        return true;
+    } catch (const RuntimeError &) {
+        // Native runtime failures are already diagnosed at their source. Never
+        // let them unwind beyond the VM, especially through generated JIT code.
+        has_error = true;
+        return false;
+    }
 }
 
 #ifndef DISABLE_JIT
@@ -3604,6 +3628,12 @@ bool VM::dispatch_throw(Value error) {
     return false;
 }
 
+void VM::runtime_panic(Value error) {
+    // Runtime panics are fatal even inside script try/catch blocks.
+    try_stack.clear();
+    dispatch_throw(std::move(error));
+}
+
 void VM::poll_io() {
     runtime->process_completed_io();
 }
@@ -3698,100 +3728,6 @@ bool VM::run(Chunk *compiled_chunk) {
 #ifndef DISABLE_JIT
     // attempt to eagerly compile user functions that contain backward jumps (loops) but no method calls AND at least one OP_CALL
     if (jit::g_jit_compiler) {
-        // Simple per-opcode size table for scanning.
-        // Returns the total byte footprint of an instruction (opcode + operands).
-        auto opcode_size = [](OpCode op) -> size_t {
-            switch (op) {
-                // 1-byte (no operands)
-                case OpCode::OP_POP:
-                case OpCode::OP_DUP:
-                case OpCode::OP_LOAD_NONE:
-                case OpCode::OP_LOAD_TRUE:
-                case OpCode::OP_LOAD_FALSE:
-                case OpCode::OP_LOAD_ZERO:
-                case OpCode::OP_LOAD_ONE:
-                case OpCode::OP_ADD:
-                case OpCode::OP_SUB:
-                case OpCode::OP_MUL:
-                case OpCode::OP_DIV:
-                case OpCode::OP_MOD:
-                case OpCode::OP_POW:
-                case OpCode::OP_NEG:
-                case OpCode::OP_STR_CONCAT:
-                case OpCode::OP_BIT_AND:
-                case OpCode::OP_BIT_OR:
-                case OpCode::OP_BIT_XOR:
-                case OpCode::OP_BIT_NOT:
-                case OpCode::OP_LSHIFT:
-                case OpCode::OP_RSHIFT:
-                case OpCode::OP_NOT:
-                case OpCode::OP_EQ:
-                case OpCode::OP_NE:
-                case OpCode::OP_LT:
-                case OpCode::OP_LE:
-                case OpCode::OP_GT:
-                case OpCode::OP_GE:
-                case OpCode::OP_RETURN:
-                case OpCode::OP_GET_INDEX:
-                case OpCode::OP_SET_INDEX:
-                case OpCode::OP_MAKE_ITERATOR:
-                case OpCode::OP_ITER_NEXT:
-                case OpCode::OP_MAKE_ITERATOR_KV:
-                case OpCode::OP_ITER_NEXT_KV:
-                case OpCode::OP_ITER_ARRAY:
-                case OpCode::OP_THROW:
-                case OpCode::OP_POP_TRY:
-                case OpCode::OP_BEGIN_CATCH:
-                case OpCode::OP_BEGIN_FINALLY:
-                case OpCode::OP_LOAD_THIS:
-                case OpCode::OP_SPAWN:
-                case OpCode::OP_ARRAY_PUSH:
-                case OpCode::OP_ARRAY_SPREAD:
-                case OpCode::OP_OBJECT_SPREAD:
-                case OpCode::OP_CALL_SPREAD:
-                    return 1;
-                // 2-byte (1-byte operand)
-                case OpCode::OP_CALL:
-                case OpCode::OP_SELF_TAIL_CALL:
-                    return 2;
-                // 3-byte (uint16 operand)
-                case OpCode::OP_LOAD_CONST:
-                case OpCode::OP_LOAD_VAR:
-                case OpCode::OP_STORE_VAR:
-                case OpCode::OP_LOAD_GLOBAL:
-                case OpCode::OP_STORE_GLOBAL:
-                case OpCode::OP_FORMAT_VALUE:
-                case OpCode::OP_STR_APPEND_VAR:
-                case OpCode::OP_JUMP:
-                case OpCode::OP_JUMP_IF_FALSE:
-                case OpCode::OP_JUMP_IF_TRUE:
-                case OpCode::OP_JUMP_IF_NONE:
-                case OpCode::OP_MAKE_ARRAY:
-                case OpCode::OP_MAKE_OBJECT:
-                case OpCode::OP_OBJECT_SET:
-                case OpCode::OP_GET_PROPERTY:
-                case OpCode::OP_SET_PROPERTY:
-                case OpCode::OP_LOAD_CAPTURE:
-                case OpCode::OP_STORE_CAPTURE:
-                case OpCode::OP_STR_APPEND_GLOBAL:
-                    return 3;
-                // 4-byte
-                case OpCode::OP_CALL_METHOD:  // uint16 name_idx + uint8 argc
-                case OpCode::OP_NEW_INSTANCE: // uint16 class_name_idx + uint8 argc
-                case OpCode::OP_CHECK_TYPE:   // uint16 type_str_idx + uint8 context
-                    return 4;
-                case OpCode::OP_MAKE_CLOSURE:
-                    return 4;
-                // 5-byte: uint16 catch_offset + uint16 finally_offset
-                case OpCode::OP_SETUP_TRY:
-                // 5-byte: uint16 pattern_idx + uint16 flags_idx
-                case OpCode::OP_MAKE_REGEX:
-                    return 5;
-                default:
-                    return 1; // unknown: assume 1-byte to avoid skipping too far
-            }
-        };
-
         for (size_t i = 0; i < chunk->functions.size(); i++) {
             const FunctionMeta &fm = chunk->functions[i];
             if (fm.name.empty() || fm.name == "<main>") {
@@ -3880,7 +3816,11 @@ bool VM::run(Chunk *compiled_chunk) {
                         bw_jumps.push_back({ pc, target_pc });
                     }
                 }
-                pc += opcode_size(op2);
+                size_t instruction_size = decoded_instruction_size(code, pc);
+                if (instruction_size == 0) {
+                    break;
+                }
+                pc += instruction_size;
             }
 
             // determine which calls are inside loop bodies
@@ -3945,10 +3885,11 @@ bool VM::run(Chunk *compiled_chunk) {
     }
 #endif
 
-    // Set up longjmp recovery point for stack-overflow detection.
+    // Set up longjmp recovery for fatal errors raised from JIT helpers.
     // C++ exceptions cannot unwind through JIT-generated machine code, so
     // call_user_function_stack/jit_check_call_depth longjmp here instead.
-    // longjmp value 1 = uncaught; 2 = caught by Nari try-catch (resume loop).
+    // longjmp value 1 = uncaught; 2 = caught by Nari try-catch (resume loop);
+    // 3 = graceful shutdown (the instruction loop observes the shutdown flag).
     std::jmp_buf overflow_jmp_buf;
     overflow_jmp = &overflow_jmp_buf;
     {
@@ -3980,7 +3921,7 @@ bool VM::run(Chunk *compiled_chunk) {
     overflow_jmp = nullptr;
 
     // auto-call start() if it exists
-    if (!has_error) {
+    if (!has_error && !Runtime::g_shutdown_requested.load()) {
         auto start_it = func_indices.find("start");
         if (start_it != func_indices.end()) {
             std::jmp_buf start_jmp;
@@ -3993,6 +3934,10 @@ bool VM::run(Chunk *compiled_chunk) {
             if (start_jmp_val == 1) {
                 overflow_jmp = nullptr;
                 return false;
+            }
+            if (start_jmp_val == 3) {
+                overflow_jmp = nullptr;
+                return true;
             }
             // start_jmp_val == 0 (first entry) or 2 (caught; resume loop)
             if (!start_called) {

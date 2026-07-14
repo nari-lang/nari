@@ -7,6 +7,8 @@
 
 namespace nari {
 
+inline constexpr size_t MAX_FIXED_ARRAY_COUNT = 1u << 20;
+
 struct Expr;
 struct Stmt;
 struct BlockStmt;
@@ -27,6 +29,7 @@ struct TypeAnnotation {
     std::string name; // "number", "string", "bool", etc.
     std::vector<std::string> generic_params;
     bool is_array = false; // type[]
+    size_t fixed_array_count = 0; // type[N], used for inline FFI fields
 
     TypeAnnotation() = default;
 
@@ -49,6 +52,8 @@ struct TypeAnnotation {
         }
         if (is_array) {
             result += "[]";
+        } else if (fixed_array_count > 0) {
+            result += "[" + std::to_string(fixed_array_count) + "]";
         }
         return result;
     }
@@ -556,13 +561,15 @@ struct VarDeclStmt : Stmt {
     std::string name;        // for simple declarations
     ExprPtr initializerExpr; // optional initializer
     VarDeclCtrl is_global = LOCAL;
+    bool is_const = false;
 
     // Destructuring support
     DestructureKind destructure_kind = DestructureKind::None;
     std::vector<std::string> array_names;                             // for array destructuring: [a, b, c]
     std::vector<std::pair<std::string, std::string>> object_bindings; // for object destructuring: {key: name}
 
-    VarDeclStmt(std::string n, ExprPtr i, VarDeclCtrl g = LOCAL) : name(std::move(n)), initializerExpr(std::move(i)), is_global(g) {
+    VarDeclStmt(std::string n, ExprPtr i, VarDeclCtrl g = LOCAL, bool c = false)
+        : name(std::move(n)), initializerExpr(std::move(i)), is_global(g), is_const(c) {
         stmt_kind = StmtKind::VarDecl;
     }
 
@@ -902,14 +909,21 @@ struct TypeField {
     }
 };
 
-// custom type declaration: type Name<T, U> { field: type; ... }, and type aliases (type NameAlias Name)
+enum class TypeDeclKind : uint8_t {
+    Struct,
+    Union,
+};
+
+// custom aggregate declaration and type aliases (type NameAlias Name)
 struct TypeDecl : ASTNode {
     std::string name;
+    TypeDeclKind kind = TypeDeclKind::Struct;
     std::vector<std::string> generic_params; // T, U, etc.
     std::vector<TypeField> fields;
     TypeAnnotationPtr alias_target; // if non-null, this is a type alias
 
-    explicit TypeDecl(std::string n) : name(std::move(n)) {
+    explicit TypeDecl(std::string n, TypeDeclKind k = TypeDeclKind::Struct)
+        : name(std::move(n)), kind(k) {
     }
 
     bool is_alias() const {
@@ -918,7 +932,7 @@ struct TypeDecl : ASTNode {
 
     void pretty_print(int indent = 0) const override {
         print_indent(indent);
-        printf("TypeDecl: %s", name.c_str());
+        printf("%sDecl: %s", kind == TypeDeclKind::Union ? "Union" : "Type", name.c_str());
         if (!generic_params.empty()) {
             printf("<");
             for (size_t i = 0; i < generic_params.size(); i++) {
@@ -1272,6 +1286,8 @@ struct Function : ASTNode {
     TypeAnnotationPtr return_type;               // optional return type annotation
     void *closure_env_ptr = nullptr;             // pointer to captured environment
     void (*closure_deleter)(void *) = nullptr;   // custom deleter for closure
+    void *closure_const_env_ptr = nullptr;             // pointer to captured const names
+    void (*closure_const_deleter)(void *) = nullptr;
     bool strict_mode = false;                    // "use strict"
 
     Function() = default;
@@ -1283,6 +1299,10 @@ struct Function : ASTNode {
         if (closure_env_ptr && closure_deleter) {
             closure_deleter(closure_env_ptr);
             closure_env_ptr = nullptr;
+        }
+        if (closure_const_env_ptr && closure_const_deleter) {
+            closure_const_deleter(closure_const_env_ptr);
+            closure_const_env_ptr = nullptr;
         }
     }
 

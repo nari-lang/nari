@@ -1,0 +1,19 @@
+func find_slash(value) {
+    return value.index_of("/");
+}
+
+func start() {
+    let i = 0;
+    while (i < 60) {
+        find_slash("package");
+        i++;
+    }
+
+    try {
+        find_slash(null);
+    } catch (error) {
+        print("builtin runtime error was incorrectly caught: " @ error);
+    }
+
+    print("execution continued after builtin runtime error");
+}

@@ -103,7 +103,7 @@ static size_t find_top_level_format_colon(const std::string &expr) {
     return std::string::npos;
 }
 
-std::vector<Token> tokenize(const std::string &src, const std::string &filename) {
+std::vector<Token> tokenize(const std::string &src, const std::string &filename, std::vector<LexError> *errors) {
     std::vector<Token> tokens_out;
     auto push_tok = [&](TokenKind k, std::string txt, int line, int col) {
         Token tk;
@@ -562,6 +562,11 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename)
                 tok.filename = filename;
                 tok.line = start_line;
                 tok.col = start_col;
+                if (errors) {
+                    errors->push_back({ filename, start_line, start_col, "Unterminated string literal" });
+                    push_tok(TokenKind::TK_EOF, "", line, col);
+                    return tokens_out;
+                }
                 fatal_error(std::string("Unterminated string literal"), &tok);
             }
             push_tok(TokenKind::TK_STRING, out, start_line, start_col);
@@ -648,6 +653,12 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename)
             if (cur() == '`') {
                 advance();
             } else {
+                if (errors) {
+                    errors->push_back({ filename, start_line, start_col,
+                                        "Unterminated interpolated string literal" });
+                    push_tok(TokenKind::TK_EOF, "", line, col);
+                    return tokens_out;
+                }
                 fatal_error(std::string("Unterminated interpolated string literal"), &tok);
             }
 
@@ -675,6 +686,14 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename)
                     tok.filename = filename;
                     tok.line = start_line;
                     tok.col = start_col;
+                    if (errors) {
+                        errors->push_back({ filename,
+                                            start_line,
+                                            start_col,
+                                            "Invalid hex literal: expected at least one hex digit after 0x" });
+                        push_tok(TokenKind::TK_EOF, "", line, col);
+                        return tokens_out;
+                    }
                     fatal_error(std::string("Invalid hex literal: expected at least one hex digit after 0x"), &tok);
                 }
 

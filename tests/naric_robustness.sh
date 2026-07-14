@@ -41,7 +41,17 @@ check() {
 
 # a real compiled file should still work.
 cat > "$TMP/ok.nari" <<'EOF'
-func start() { print("hello"); }
+union NaricRoundtripUnion {
+  bytes: u8[12];
+  wide: u64;
+}
+
+func start() {
+  let members = __ffi_membersof("NaricRoundtripUnion");
+  if (members.union != "NaricRoundtripUnion" || members.fields[0].count != 12 || __ffi_sizeof("NaricRoundtripUnion") != 16) {
+    panic("union metadata did not survive .naric round-trip");
+  }
+}
 EOF
 "$NARIC" -o "$TMP/ok.naric" "$TMP/ok.nari" >/dev/null 2>&1 || {
   echo "ERROR: could not compile baseline file" >&2
@@ -55,25 +65,25 @@ echo "[pass] baseline .naric runs"
 PASS=$((PASS+1))
 
 # Case 1: wrong magic bytes.
-printf 'XXXX\x03\x00\x00\x00' > "$TMP/bad_magic.naric"
+printf 'XXXX\x06\x00\x00\x00' > "$TMP/bad_magic.naric"
 check "bad magic bytes" "$TMP/bad_magic.naric"
 
 # Case 2: truncated header (less than 8 bytes).
-printf 'NARI\x03\x00' > "$TMP/short_header.naric"
+printf 'NARI\x06\x00' > "$TMP/short_header.naric"
 check "truncated header" "$TMP/short_header.naric"
 
 # Case 3: valid header but truncated string-table count.
-printf 'NARI\x03\x00\x00\x00' > "$TMP/short_strings.naric"
+printf 'NARI\x06\x00\x00\x00' > "$TMP/short_strings.naric"
 check "header-only, missing strings section" "$TMP/short_strings.naric"
 
 # Case 4: huge string count (would require billions of bytes).
 #   header + strings_count = 0xFFFFFFFF
-printf 'NARI\x03\x00\x00\x00\xFF\xFF\xFF\xFF' > "$TMP/huge_count.naric"
+printf 'NARI\x06\x00\x00\x00\xFF\xFF\xFF\xFF' > "$TMP/huge_count.naric"
 check "absurd string count" "$TMP/huge_count.naric"
 
 # Case 5: valid count(1) but truncated string payload.
 #   header + strings_count(1) + string len(1000) + no payload bytes
-printf 'NARI\x03\x00\x00\x00\x01\x00\x00\x00\xE8\x03\x00\x00' > "$TMP/short_string.naric"
+printf 'NARI\x06\x00\x00\x00\x01\x00\x00\x00\xE8\x03\x00\x00' > "$TMP/short_string.naric"
 check "string length exceeds remaining buffer" "$TMP/short_string.naric"
 
 # Case 6: valid file with one trailing byte chopped off.

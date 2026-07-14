@@ -13,7 +13,8 @@ namespace bytecode {
 
 // Bytecode verifier: range-checks every index/slot/jump target in a decoded
 // Chunk and runs a conservative stack-height dataflow pass to catch obvious underflow.
-// Does NOT check runtime types, full exception-handling invariants, or that all paths reach RETURN/THROW.
+
+// NOTE: does NOT check runtime types, full exception invariants, or that all paths reach RETURN/THROW.
 class BytecodeVerifier {
   public:
     static bool verify(const Chunk &chunk) {
@@ -447,9 +448,25 @@ class BytecodeVerifier {
                     info.u16_a = read_u16_be(&code[pc]);
                     break;
                 }
-                case OpCode::OP_CALL:
                 case OpCode::OP_SELF_TAIL_CALL: {
                     info.u8_a = code[pc];
+                    break;
+                }
+                case OpCode::OP_CALL: {
+                    info.u8_a = code[pc];
+                    uint16_t label_idx = read_u16_be(&code[pc + 1]);
+                    if (label_idx >= n_strs) {
+                        fail(where, info.pc, "OP_CALL: callee label index out of range");
+                        return false;
+                    }
+                    break;
+                }
+                case OpCode::OP_CALL_SPREAD: {
+                    uint16_t label_idx = read_u16_be(&code[pc]);
+                    if (label_idx >= n_strs) {
+                        fail(where, info.pc, "OP_CALL_SPREAD: callee label index out of range");
+                        return false;
+                    }
                     break;
                 }
                 case OpCode::OP_NEW_INSTANCE:

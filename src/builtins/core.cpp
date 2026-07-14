@@ -532,7 +532,6 @@ Value ScriptRuntime::builtin_net_conn_write(const Value *argvals, size_t argc, c
             if (io_pool) {
                 io_pool->submit(write_op);
             }
-            
             return Value::make_handle(handle);
         }
     }
@@ -559,10 +558,8 @@ Value ScriptRuntime::builtin_net_conn_close(const Value *argvals, size_t argc, c
     return Value::none();
 }
 
-// Build the raw conn object exposed to scripts. Shared by listen/accept/connect.
-// Returns just the data fields; the prelude wraps this with method closures
-// (the bytecode method-call op does not auto-bind a receiver, so closures are
-// the only ergonomic way to expose `conn.read(cb)`).
+// Build the raw conn object exposed to scripts.
+// Shared by listen/accept/connect.
 static Value build_conn_object(int fd, const std::string &remote_ip, int remote_port) {
     auto conn_obj = Value::make_object();
     ObjectObj *o = conn_obj.get_obj_ptr();
@@ -853,10 +850,9 @@ Value ScriptRuntime::builtin_http_fetch(const Value *argvals, size_t argc, const
     std::string method = "GET";
     std::map<std::string, std::string> headers;
     std::string body;
-    
+
     if (argvals[1].is_object()) {
         const ObjectObj *opts = argvals[1].get_obj_ptr();
-    
         const Value *method_v = opts->get_field("method");
         if (method_v) {
             method = method_v->to_string();
@@ -936,8 +932,7 @@ Value ScriptRuntime::builtin_http_fetch(const Value *argvals, size_t argc, const
             handle->result = ScriptRuntime::make_err(Value::make_string(http_op->error_msg));
             handle->state = HandleData::Completed;
         }
-        // Free large response data; process_completed_io will null this
-        // callback to break the shared_ptr retain cycle.
+        // Free large response data, process_completed_io will null this callback.
         http_op->result_string = {};
         http_op->response_headers.clear();
     };

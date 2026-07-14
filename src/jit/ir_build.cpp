@@ -48,12 +48,12 @@ static int p1_width(OpCode op) {
         case OpCode::OP_RETURN:
         case OpCode::OP_GET_INDEX:
         case OpCode::OP_SET_INDEX:
-            return 1;
+            break;
         case OpCode::OP_CALL:
-            return 2;
+            break;
         case OpCode::OP_STR_CONCAT:
         case OpCode::OP_ITER_ARRAY:
-            return 1;
+            break;
         case OpCode::OP_LOAD_CONST:
         case OpCode::OP_LOAD_VAR:
         case OpCode::OP_STORE_VAR:
@@ -61,7 +61,7 @@ static int p1_width(OpCode op) {
         case OpCode::OP_JUMP:
         case OpCode::OP_JUMP_IF_FALSE:
         case OpCode::OP_JUMP_IF_TRUE:
-            return 3;
+            break;
         case OpCode::OP_STORE_GLOBAL:
         case OpCode::OP_LOAD_CAPTURE:
         case OpCode::OP_STORE_CAPTURE:
@@ -70,12 +70,13 @@ static int p1_width(OpCode op) {
         case OpCode::OP_FORMAT_VALUE:
         case OpCode::OP_MAKE_ARRAY:
         case OpCode::OP_MAKE_OBJECT:
-            return 3;
+            break;
         case OpCode::OP_CALL_METHOD:
-            return 4;
+            break;
         default:
             return 0; // outside the P1 subset
     }
+    return nari::bytecode::opcode_fixed_size(op);
 }
 
 bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
@@ -756,6 +757,8 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 }
                 case OpCode::OP_CALL: {
                     uint8_t argc = code[pc++];
+                    uint16_t callee_label = u16(pc);
+                    pc += 2;
                     if (vstk.size() < (size_t)argc + 1) {
                         return false;
                     }
@@ -769,6 +772,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     Inst in;
                     in.op = Op::Call;
                     in.imm_u32 = argc;
+                    in.imm_int = callee_label;
                     in.operands = std::move(ops);
                     in.bytecode_pc = op_pc;
                     emit_push(b, vstk, std::move(in));

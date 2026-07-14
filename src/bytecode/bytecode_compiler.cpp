@@ -12,6 +12,19 @@ using namespace nari;
 namespace nari {
 namespace bytecode {
 
+static std::string callee_label(const Expr *expr) {
+    if (const auto *ident = dynamic_cast<const IdentExpr *>(expr)) {
+        return ident->name;
+    }
+    if (const auto *member = dynamic_cast<const MemberExpr *>(expr)) {
+        return "." + member->member;
+    }
+    if (dynamic_cast<const IndexExpr *>(expr)) {
+        return "indexed expression";
+    }
+    return "computed expression";
+}
+
 // compiler state for a single function
 struct CompilerContext {
     FunctionMeta *function;
@@ -19,6 +32,8 @@ struct CompilerContext {
     std::unordered_map<std::string, uint16_t> locals;      // name -> slot index
     std::vector<std::string> local_names;                  // for tracking order
     std::unordered_map<std::string, uint16_t> capture_map; // captured var name -> capture index
+    std::set<std::string> const_locals;
+    std::set<std::string> const_captures;
     uint16_t local_count;
 
     CompilerContext(FunctionMeta *f, Chunk *c) : function(f), chunk(c), local_count(0) {
@@ -124,16 +139,19 @@ class Compiler {
     };
     std::vector<LoopInfo> loop_stack;
 
-    bool is_main_scope;               // true when compiling the <main> function body
-    int try_depth = 0;                // nesting depth of try blocks (TCO forbidden when > 0)
-    bool strict_mode = false;         // true when the current source file has "use strict" at the top level
+    bool is_main_scope; // true when compiling the <main> function body
+    int try_depth = 0; // nesting depth of try blocks (TCO forbidden when > 0)
+    bool strict_mode = false; // true when the current source file has "use strict" at the top level
     std::string current_return_type_; // e.g. "int", "string", "bool"
+    std::set<std::string> global_consts;
 
     void compile_expr(const Expr *expr);
     void compile_stmt(const Stmt *stmt);
     void compile_function_body(const Function *func, FunctionMeta &meta);
     void collect_idents(const Stmt *stmt, std::set<std::string> &idents);
     void collect_idents_expr(const Expr *expr, std::set<std::string> &idents);
+    bool is_const_binding(const std::string &name) const;
+    void emit_const_assignment_error(const std::string &name);
 
   public:
     Compiler() : chunk(nullptr), ctx(nullptr), parent_ctx(nullptr), is_main_scope(false) {
@@ -141,6 +159,23 @@ class Compiler {
 
     Chunk *compile(const FuncList &functions);
 };
+
+bool Compiler::is_const_binding(const std::string &name) const {
+    if (ctx->locals.count(name)) {
+        return ctx->const_locals.count(name);
+    }
+    if (ctx->capture_map.count(name)) {
+        return ctx->const_captures.count(name);
+    }
+    return global_consts.count(name);
+}
+
+void Compiler::emit_const_assignment_error(const std::string &name) {
+    uint32_t str_idx = chunk->add_string("TypeError: Assignment to constant variable '" + name + "'");
+    uint16_t const_idx = ctx->add_constant(Constant::make_string(str_idx));
+    ctx->emit_op_short(OpCode::OP_LOAD_CONST, const_idx);
+    ctx->emit_op(OpCode::OP_THROW);
+}
 
 // collect all identifier names referenced in an expression tree
 void Compiler::collect_idents_expr(const Expr *expr, std::set<std::string> &idents) {
@@ -446,6 +481,10 @@ void Compiler::compile_expr(const Expr *expr) {
                 fprintf(stderr, "increment/decrement requires a variable\n");
                 return;
             }
+            if (is_const_binding(ident->name)) {
+                emit_const_assignment_error(ident->name);
+                return;
+            }
             bool is_increment = (unary->op == "++" || unary->op == "post++");
             bool is_postfix = (unary->op == "post++" || unary->op == "post--");
             uint16_t local_idx = ctx->resolve_local(ident->name);
@@ -629,7 +668,8 @@ void Compiler::compile_expr(const Expr *expr) {
                     ctx->emit_op(OpCode::OP_ARRAY_PUSH);
                 }
             }
-            ctx->emit_op(OpCode::OP_CALL_SPREAD);
+            uint32_t label_idx = chunk->add_string(callee_label(call->callee.get()));
+            ctx->emit_op_short(OpCode::OP_CALL_SPREAD, static_cast<uint16_t>(label_idx));
             return;
         }
 
@@ -660,7 +700,9 @@ void Compiler::compile_expr(const Expr *expr) {
             for (const auto &arg : call->args) {
                 compile_expr(arg.get());
             }
+            uint32_t label_idx = chunk->add_string(callee_label(call->callee.get()));
             ctx->emit_op_byte(OpCode::OP_CALL, static_cast<uint8_t>(call->args.size()));
+            ctx->emit_short(static_cast<uint16_t>(label_idx));
             size_t end_jump = ctx->emit_jump(OpCode::OP_JUMP);
             ctx->patch_jump(none_jump);
             ctx->patch_jump(end_jump);
@@ -668,7 +710,9 @@ void Compiler::compile_expr(const Expr *expr) {
             for (const auto &arg : call->args) {
                 compile_expr(arg.get());
             }
+            uint32_t label_idx = chunk->add_string(callee_label(call->callee.get()));
             ctx->emit_op_byte(OpCode::OP_CALL, static_cast<uint8_t>(call->args.size()));
+            ctx->emit_short(static_cast<uint16_t>(label_idx));
         }
         return;
     }
@@ -717,6 +761,9 @@ void Compiler::compile_expr(const Expr *expr) {
         // Register captures in capture_map (NOT as locals)
         for (size_t i = 0; i < captures.size(); i++) {
             ctx->capture_map[captures[i]] = static_cast<uint16_t>(i);
+            if (saved->const_locals.count(captures[i]) || saved->const_captures.count(captures[i])) {
+                ctx->const_captures.insert(captures[i]);
+            }
         }
         meta.capture_count = static_cast<uint8_t>(captures.size());
         if (captures.size() > 255) {
@@ -1041,6 +1088,9 @@ void Compiler::compile_expr(const Expr *expr) {
         // Register captures in the spawn function context
         for (size_t i = 0; i < captures.size(); i++) {
             ctx->capture_map[captures[i]] = static_cast<uint16_t>(i);
+            if (saved->const_locals.count(captures[i]) || saved->const_captures.count(captures[i])) {
+                ctx->const_captures.insert(captures[i]);
+            }
         }
         meta.capture_count = static_cast<uint8_t>(captures.size());
         if (captures.size() > 255) {
@@ -1131,6 +1181,9 @@ void Compiler::compile_stmt(const Stmt *stmt) {
                 ctx->emit_op_short(OpCode::OP_LOAD_CONST, idx_const);
                 ctx->emit_op(OpCode::OP_GET_INDEX);
                 uint16_t local_idx = ctx->declare_local(var_decl->array_names[i]);
+                if (var_decl->is_const) {
+                    ctx->const_locals.insert(var_decl->array_names[i]);
+                }
                 ctx->emit_op_short(OpCode::OP_STORE_VAR, local_idx);
                 ctx->emit_op(OpCode::OP_POP);
             }
@@ -1149,6 +1202,9 @@ void Compiler::compile_stmt(const Stmt *stmt) {
                 uint32_t str_idx = chunk->add_string(key);
                 ctx->emit_op_short(OpCode::OP_GET_PROPERTY, (uint16_t)str_idx);
                 uint16_t local_idx = ctx->declare_local(var_name);
+                if (var_decl->is_const) {
+                    ctx->const_locals.insert(var_name);
+                }
                 ctx->emit_op_short(OpCode::OP_STORE_VAR, local_idx);
                 ctx->emit_op(OpCode::OP_POP);
             }
@@ -1167,12 +1223,22 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             ctx->emit_op(OpCode::OP_POP);
             // also declare a local so it can be referenced within the current scope
             uint16_t idx = ctx->declare_local(var_decl->name);
+            if (var_decl->is_const) {
+                ctx->const_locals.insert(var_decl->name);
+                global_consts.insert(var_decl->name);
+            }
             ctx->emit_op_short(OpCode::OP_LOAD_GLOBAL, (uint16_t)str_idx);
             ctx->emit_op_short(OpCode::OP_STORE_VAR, idx);
             ctx->emit_op(OpCode::OP_POP);
         } else {
             // pre-declare the local so closures in the initializer can capture it
             uint16_t idx = ctx->declare_local(var_decl->name);
+            if (var_decl->is_const) {
+                ctx->const_locals.insert(var_decl->name);
+                if (is_main_scope) {
+                    global_consts.insert(var_decl->name);
+                }
+            }
             if (var_decl->initializerExpr) {
                 compile_expr(var_decl->initializerExpr.get());
             } else {
@@ -1246,6 +1312,10 @@ void Compiler::compile_stmt(const Stmt *stmt) {
     }
 
     if (auto *assign = dynamic_cast<const AssignStmt *>(stmt)) {
+        if (is_const_binding(assign->target)) {
+            emit_const_assignment_error(assign->target);
+            return;
+        }
         // peephole: `v = v @ expr` -> OP_STR_APPEND_VAR / OP_STR_APPEND_GLOBAL
         // detects the pattern `target = target @ rhs` and emits a single string-append opcode
         if (auto *bin = dynamic_cast<const BinaryExpr *>(assign->value.get())) {
@@ -1413,10 +1483,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
     if (auto *foreach_stmt = dynamic_cast<const ForEachStmt *>(stmt)) {
         bool is_kv = !foreach_stmt->val_var.empty();
 
-        // Single-variable for-in is desugared onto an index loop over hidden
-        // locals so the JIT's existing P1 subset covers it. (Key/value for-in
-        // still uses the stack-based OP_MAKE_ITERATOR/OP_ITER_NEXT path below,
-        // which the method JIT cannot compile.)
+        // Single-variable for-in is desugared onto an index loop over hidden locals
         if (!is_kv) {
             // Desugar `for (v in iterable) { body }` into:
             //
@@ -1425,10 +1492,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             //   loop_start (continue target):
             //     __idx = __idx + 1             ; increment-first keeps `continue`
             //                                     a backward jump to the top
-            //     if !(__idx < __arr.length) goto exit   ; length re-read each
-            //                                              iteration to match
-            //                                              OP_ITER_NEXT semantics
-            //                                              under in-loop mutation
+            //     if !(__idx < __arr.length) goto exit   ; length re-read each iteration
             //     v = __arr[__idx]
             //     body
             //     goto loop_start
@@ -1752,6 +1816,28 @@ void Compiler::compile_function_body(const Function *func, FunctionMeta &meta) {
 Chunk *Compiler::compile(const FuncList &functions) {
     chunk = new Chunk();
 
+    // named functions are compiled before <main>, so collect top-level consts first.
+    for (const auto &func : functions) {
+        if (!func || func->name.find("__top_level__@") != 0 || !func->body) {
+            continue;
+        }
+        for (const auto &stmt : func->body->stmts) {
+            const auto *decl = dynamic_cast<const VarDeclStmt *>(stmt.get());
+            if (!decl || !decl->is_const) {
+                continue;
+            }
+            if (decl->destructure_kind == DestructureKind::Array) {
+                global_consts.insert(decl->array_names.begin(), decl->array_names.end());
+            } else if (decl->destructure_kind == DestructureKind::Object) {
+                for (const auto &[_, name] : decl->object_bindings) {
+                    global_consts.insert(name);
+                }
+            } else {
+                global_consts.insert(decl->name);
+            }
+        }
+    }
+
     std::vector<const Function *> top_level_bodies;
     for (size_t i = 0; i < functions.size(); i++) {
         const Function *func = functions[i].get();
@@ -1784,8 +1870,7 @@ Chunk *Compiler::compile(const FuncList &functions) {
     main_func.param_count = 0;
     main_func.capture_count = 0;
     main_func.is_lambda = false;
-    // Inherit source_file from the first top-level body that has one.
-    // Without this, breakpoints set against the script's path can never match `<main>` at runtime
+    // inherit source_file from the first top-level body that has one.
     for (const Function *body : top_level_bodies) {
         if (body && !body->filename.empty()) {
             main_func.source_file = body->filename;
@@ -1819,11 +1904,15 @@ Chunk *Compiler::compile(const FuncList &functions) {
     for (const auto &[name, decl] : Parser::get_all_registered_types()) {
         TypeInfo typeInfo;
         typeInfo.name = name;
+        typeInfo.is_union = decl->kind == TypeDeclKind::Union;
         if (decl->is_alias() && decl->alias_target) {
             typeInfo.alias_target = decl->alias_target->name;
         }
         for (const auto &field : decl->fields) {
-            typeInfo.fields.emplace_back(field.name, field.type ? field.type->name : "number", field.type ? field.type->is_array : false);
+            typeInfo.fields.emplace_back(
+                field.name, field.type ? field.type->name : "number",
+                field.type ? field.type->is_array : false,
+                field.type ? field.type->fixed_array_count : 0);
         }
         chunk->types.push_back(std::move(typeInfo));
     }

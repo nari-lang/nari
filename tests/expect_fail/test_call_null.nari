@@ -1,0 +1,11 @@
+func start() {
+    let missing_callee = null;
+
+    try {
+        missing_callee();
+    } catch (error) {
+        print("null runtime panic was incorrectly caught: " @ error);
+    }
+
+    print("execution continued after null runtime panic");
+}

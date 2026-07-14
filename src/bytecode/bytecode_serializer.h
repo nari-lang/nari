@@ -16,8 +16,8 @@ namespace bytecode {
 Nari Bytecode file format (.naric)
 
 Header:
-    magic:   4 bytes  "NARI"
-    version: 2 bytes  u16 (currently 2)
+    magic:   4 bytes   "NARI"
+    version: 2 bytes   u16 (currently 6)
     flags:   2 bytes   u16 (reserved)
 
 String table:
@@ -49,7 +49,7 @@ Function table:
 */
 
 static constexpr uint8_t MAGIC[4] = { 'N', 'A', 'R', 'I' };
-static constexpr uint16_t FORMAT_VERSION = 3;
+static constexpr uint16_t FORMAT_VERSION = 6;
 
 class BytecodeSerializer {
   public:
@@ -126,12 +126,14 @@ class BytecodeSerializer {
         write_u32(buf, static_cast<uint32_t>(chunk.types.size()));
         for (const auto &type : chunk.types) {
             write_string(buf, type.name);
+            write_u8(buf, type.is_union ? 1 : 0);
             write_string(buf, type.alias_target); // empty string if not an alias
             write_u32(buf, static_cast<uint32_t>(type.fields.size()));
             for (const auto &field : type.fields) {
                 write_string(buf, field.name);
                 write_string(buf, field.type_name);
                 write_u8(buf, field.is_array ? 1 : 0);
+                write_u64(buf, field.fixed_array_count);
             }
         }
 
@@ -154,8 +156,7 @@ class BytecodeSerializer {
         }
         pos += 4;
 
-        // own the Chunk via unique_ptr until the end so any exception frees it automatically.
-        // Without this, a bad_alloc thrown from inside the try block would propagate up and leak the raw chunk pointer.
+        // own the Chunk via unique_ptr until the end so any exception frees it automatically
         std::unique_ptr<Chunk> chunk;
         try {
             uint16_t version = read_u16(data, length, pos);
@@ -272,6 +273,7 @@ class BytecodeSerializer {
                 for (uint32_t ti = 0; ti < type_count; ti++) {
                     TypeInfo &type = chunk->types[ti];
                     type.name = read_string(data, length, pos);
+                    type.is_union = read_u8(data, length, pos) != 0;
                     type.alias_target = read_string(data, length, pos);
                     uint32_t field_count = read_u32(data, length, pos);
                     if (field_count > MAX_COUNT) {
@@ -282,6 +284,10 @@ class BytecodeSerializer {
                         type.fields[fi].name = read_string(data, length, pos);
                         type.fields[fi].type_name = read_string(data, length, pos);
                         type.fields[fi].is_array = read_u8(data, length, pos) != 0;
+                        type.fields[fi].fixed_array_count = read_u64(data, length, pos);
+                        if (type.fields[fi].fixed_array_count > nari::MAX_FIXED_ARRAY_COUNT) {
+                            throw DeserializeError{};
+                        }
                     }
                 }
             }
@@ -336,6 +342,13 @@ class BytecodeSerializer {
         for (int i = 0; i < 8; i++) {
             buf.push_back(u & 0xFF);
             u >>= 8;
+        }
+    }
+
+    static void write_u64(std::vector<uint8_t> &buf, uint64_t v) {
+        for (int i = 0; i < 8; i++) {
+            buf.push_back(v & 0xFF);
+            v >>= 8;
         }
     }
 
@@ -401,6 +414,17 @@ class BytecodeSerializer {
             v |= static_cast<uint64_t>(data[pos++]) << (i * 8);
         }
         return static_cast<int64_t>(v);
+    }
+
+    static uint64_t read_u64(const uint8_t *data, size_t length, size_t &pos) {
+        if (pos + 8 > length) {
+            throw DeserializeError{};
+        }
+        uint64_t v = 0;
+        for (int i = 0; i < 8; i++) {
+            v |= static_cast<uint64_t>(data[pos++]) << (i * 8);
+        }
+        return v;
     }
 
     static double read_f64(const uint8_t *data, size_t length, size_t &pos) {

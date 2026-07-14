@@ -379,8 +379,8 @@ func collectDeclarations(text) {
                 decls.push(current)
                 current = []
             } else if (tok == "}") {
-                let startsStruct = current.length() >= 2 && current[0] == "typedef" && current[1] == "struct"
-                let startsPlainStruct = current.length() >= 1 && current[0] == "struct"
+                let startsStruct = current.length() >= 2 && current[0] == "typedef" && (current[1] == "struct" || current[1] == "union")
+                let startsPlainStruct = current.length() >= 1 && (current[0] == "struct" || current[0] == "union")
                 let startsEnum = current.length() >= 2 && current[0] == "typedef" && current[1] == "enum"
                 let startsPlainEnum = current.length() >= 1 && current[0] == "enum"
                 if (!startsStruct && !startsPlainStruct && !startsEnum && !startsPlainEnum) {
@@ -1068,7 +1068,7 @@ func collectObjectMacros(text) {
         let i = 0
         while (i < rest.length()) {
             let ch = rest.char_at(i)
-            if (isWhitespace(ch)) {
+            if (is_whitespace(ch)) {
                 split = i
                 break
             }
@@ -1343,7 +1343,7 @@ func parseTypeSpec(tokens, abi) {
     }
 
     if (pointerCount > 0) {
-        if (base.length() >= 2 && base[0] == "struct") {
+        if (base.length() >= 2 && (base[0] == "struct" || base[0] == "union")) {
             return makePointerType(makeStructType(base[1]))
         }
         if (base.length() == 1) {
@@ -1356,7 +1356,7 @@ func parseTypeSpec(tokens, abi) {
         return makePointerType(makeNamedType(joinTokens(base, " ")))
     }
 
-    if (base.length() >= 2 && base[0] == "struct") {
+    if (base.length() >= 2 && (base[0] == "struct" || base[0] == "union")) {
         return makeStructType(base[1])
     }
 
@@ -1518,7 +1518,7 @@ func toNariTypeName(typeRef, aliases) {
     return null
 }
 
-func toFfiExpr(typeRef, aliases) {
+func toFfiExpr(typeRef, aliases, aggregateNames) {
     let resolved = resolveAlias(typeRef, aliases, {})
     if (resolved == null) {
         return null
@@ -1544,7 +1544,7 @@ func toFfiExpr(typeRef, aliases) {
     }
     if (typeTag(resolved) == "struct") {
         let structName = typeValue(resolved)
-        if (structName == null) {
+        if (structName == null || aggregateNames == null || !aggregateNames.has_key(structName)) {
             return null
         }
         return "__ffi_membersof(\"" @ structName @ "\")"
@@ -1618,6 +1618,19 @@ func parseFixedArrayDims(tokens) {
     return dims
 }
 
+func fixedArrayElementCount(dims) {
+    let total = 1
+    for (dim in dims) {
+        // Larger generated fields are not practical and cannot be represented
+        // portably by all supported C frontends.
+        if (dim <= 0 || total > 2147483647 / dim) {
+            return null
+        }
+        total = total * dim
+    }
+    return total
+}
+
 func parseFieldPart(tokens, abi) {
     let cleaned = removeQualifiers(tokens)
     if (cleaned.length() == 0) {
@@ -1667,22 +1680,15 @@ func parseFieldPart(tokens, abi) {
         return null
     }
 
-    let fields = []
     if (arrayDims == null || arrayDims.length() == 0) {
-        fields.push({ name: fieldName, type: fieldType })
-        return fields
+        return [{ name: fieldName, type: fieldType }]
     }
 
-    let total = 1
-    for (dim in arrayDims) {
-        total = total * dim
+    let total = fixedArrayElementCount(arrayDims)
+    if (total == null) {
+        return null
     }
-    let idx = 0
-    while (idx < total) {
-        fields.push({ name: fieldName @ "_" @ to_string(idx), type: cloneType(fieldType) })
-        idx = idx + 1
-    }
-    return fields
+    return [{ name: fieldName, type: fieldType, fixedArrayCount: total }]
 }
 
 func parseParamType(tokens, abi) {
@@ -1767,9 +1773,10 @@ func parseFieldDecl(tokens, abi) {
 func parseStructDecl(tokens, abi) {
     let isTypedef = tokens.length() > 0 && tokens[0] == "typedef"
     let pos = isTypedef ? 1 : 0
-    if (pos >= tokens.length() || tokens[pos] != "struct") {
+    if (pos >= tokens.length() || (tokens[pos] != "struct" && tokens[pos] != "union")) {
         return null
     }
+    let isUnion = tokens[pos] == "union"
     pos = pos + 1
 
     let tagName = null
@@ -1890,6 +1897,7 @@ func parseStructDecl(tokens, abi) {
         kind: "struct",
         name: structName,
         fields: fields,
+        isUnion: isUnion,
         aliasDecls: aliasDecls,
         tag: tagName
     }
@@ -1900,7 +1908,7 @@ func parseTypedef(tokens, abi) {
         return null
     }
 
-    if (tokens[1] == "struct") {
+    if (tokens[1] == "struct" || tokens[1] == "union") {
         return parseStructDecl(tokens, abi)
     }
 
@@ -2383,17 +2391,11 @@ func parseAstFieldQualType(name, qualText, abi) {
         return null
     }
 
-    let total = 1
-    for (dim in dims) {
-        total = total * dim
+    let total = fixedArrayElementCount(dims)
+    if (total == null) {
+        return null
     }
-    let fields = []
-    let idx = 0
-    while (idx < total) {
-        fields.push({ name: name @ "_" @ to_string(idx), type: cloneType(baseType) })
-        idx = idx + 1
-    }
-    return fields
+    return [{ name: name, type: baseType, fixedArrayCount: total }]
 }
 
 func findAstChildrenByKind(node, kind) {
@@ -2446,7 +2448,8 @@ func parseClangJsonAst(astRoot, abi) {
         }
 
         if (kind == "RecordDecl") {
-            if (objectProp(node, "tagUsed") != "struct" || objectProp(node, "completeDefinition") != true) {
+            let tagUsed = objectProp(node, "tagUsed")
+            if ((tagUsed != "struct" && tagUsed != "union") || objectProp(node, "completeDefinition") != true) {
                 continue
             }
             let name = objectProp(node, "name")
@@ -2471,7 +2474,7 @@ func parseClangJsonAst(astRoot, abi) {
                 skipped.push("unsupported struct field in " @ name)
                 continue
             }
-            structs.push({ name: name, fields: fields })
+            structs.push({ name: name, fields: fields, isUnion: tagUsed == "union" })
             structNames[name] = true
             aliases[name] = makeStructType(name)
             continue
@@ -2600,10 +2603,7 @@ func libBaseName(libName) {
     return sanitizeIdentifier(name)
 }
 
-// Returns true if `text` is a syntactically valid Nari type identifier
-// (alphanumeric / underscore, doesn't start with a digit). Used as a final
-// safety net before emitting struct field types so we don't write something
-// like `field: (;` if the upstream type parser produced garbage.
+// Returns true if `text` is a syntactically valid Nari type identifier (alphanumeric / underscore, doesn't start with a digit)
 func isValidNariTypeName(text) {
     if (text == null || text == "") return false
     let i = 0
@@ -2655,6 +2655,10 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
     // top-level value that should be re-exported.
     let wantExports = opts.package_name != null && opts.package_name != ""
     let exportNames = []
+    let aggregateNames = {}
+    for (st in structs) {
+        aggregateNames[safeName(st, "AnonymousStruct")] = true
+    }
 
     // Resolve which native libs to import. With no --libs, fall back to a
     // single lib derived from the input filename (per-platform naming).
@@ -2687,7 +2691,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
         lines.push("// Struct definitions")
         for (st in structs) {
             let structName = safeName(st, "AnonymousStruct")
-            lines.push("type " @ structName @ " {")
+            lines.push((objectProp(st, "isUnion") == true ? "union " : "type ") @ structName @ " {")
             for (field in st.fields) {
                 let fieldName = safeName(field, "field")
                 let fieldType = toNariTypeName(objectProp(field, "type"), aliases)
@@ -2699,6 +2703,10 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
                     // parseable. Layout-sensitive code will need to write
                     // the struct by hand.
                     fieldType = "pointer"
+                }
+                let fixedArrayCount = objectProp(field, "fixedArrayCount")
+                if (fixedArrayCount != null) {
+                    fieldType = fieldType @ "[" @ to_string(fixedArrayCount) @ "]"
                 }
                 lines.push("    " @ fieldName @ ": " @ fieldType @ ";")
             }
@@ -2839,7 +2847,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             if (fnParams == null || typeof(fnParams) != "array") {
                 continue
             }
-            let returnExpr = toFfiExpr(fnReturnType, aliases)
+            let returnExpr = toFfiExpr(fnReturnType, aliases, aggregateNames)
             let sigName = buildSignatureName(fnReturnType, fnParams, fnVariadic, fnFixedCount, aliases)
             if (returnExpr == null || sigName == null) {
                 continue
@@ -2848,7 +2856,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             let paramExprs = []
             let okay = true
             for (paramType in fnParams) {
-                let expr = toFfiExpr(paramType, aliases)
+                let expr = toFfiExpr(paramType, aliases, aggregateNames)
                 if (expr == null) {
                     okay = false
                     break
@@ -3255,7 +3263,7 @@ func main() {
     if (opts.abi == null) {
         opts.abi = platform.os == "windows" ? "llp64" : "lp64"
     }
-    let rawHeader = (await fs.read_file(opts.input))
+    let rawHeader = fs.read_file(opts.input).await.unwrap();
     if (rawHeader == null || rawHeader == "") {
         die("input header is empty: " @ opts.input)
     }
@@ -3270,7 +3278,7 @@ func main() {
         if (defsRc != 0) {
             die("macro preprocessor pass failed with exit code " @ to_string(defsRc))
         }
-        let defsText = (await fs.read_file(defsPath))
+        let defsText = fs.read_file(defsPath).await.unwrap()
         if (defsText != null && defsText != "") {
             activeMacros = collectObjectMacrosFromDefs(defsText, dirBasename(opts.input), opts.input)
         }
@@ -3282,7 +3290,7 @@ func main() {
         if (defsRc != 0) {
             die("macro preprocessor pass failed with exit code " @ to_string(defsRc))
         }
-        let defsText = (await fs.read_file(defsPath))
+        let defsText = fs.read_file(defsPath).await.unwrap()
         if (defsText != null && defsText != "") {
             let wantedMacros = {}
             for (macro in rawMacros) {
@@ -3313,7 +3321,7 @@ func main() {
         if (astRc != 0) {
             die("clang JSON AST dump failed with exit code " @ to_string(astRc) @ " (use clang or clang-cl in --cc)")
         }
-        let astText = (await fs.read_file(astPath))
+        let astText = fs.read_file(astPath).await.unwrap()
         if (astText == null || astText == "") {
             die("clang JSON AST output is empty: " @ astPath)
         }
@@ -3331,7 +3339,7 @@ func main() {
             die("preprocessor failed with exit code " @ to_string(rc))
         }
 
-        let pp = (await fs.read_file(ppPath))
+        let pp = fs.read_file(ppPath).await.unwrap()
         if (pp == null || pp == "") {
             die("preprocessed output is empty: " @ ppPath)
         }
@@ -3401,7 +3409,7 @@ func main() {
                         skipped.push("struct without name: " @ decl)
                         continue
                     }
-                    structs.push({ name: parsed.name, fields: parsed.fields })
+                    structs.push({ name: parsed.name, fields: parsed.fields, isUnion: parsed.isUnion })
                     aliases[parsed.name] = makeStructType(parsed.name)
                     for (aliasDecl in parsed.aliasDecls) {
                         if (aliasDecl == null || aliasDecl.name == null) {
@@ -3469,7 +3477,7 @@ func main() {
                 continue
             }
 
-            if (tokens[0] == "struct") {
+            if (tokens[0] == "struct" || tokens[0] == "union") {
                 let parsed = parseStructDecl(tokens, opts.abi)
                 if (parsed == null) continue
                 if (parsed.kind == "skip") {
@@ -3481,7 +3489,7 @@ func main() {
                         skipped.push("struct without name: " @ decl)
                         continue
                     }
-                    structs.push({ name: parsed.name, fields: parsed.fields })
+                    structs.push({ name: parsed.name, fields: parsed.fields, isUnion: parsed.isUnion })
                     aliases[parsed.name] = makeStructType(parsed.name)
                 }
                 continue
@@ -3510,19 +3518,19 @@ func main() {
         emitPackage(opts, aliases, enumAliasNames, enums, structs, functions, activeMacros, skipped)
     } else {
         let output = emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, activeMacros, skipped, null)
-        let _ = fs.write_file(opts.output, output).value
+        let _ = fs.write_file(opts.output, output).await.unwrap()
         print("Generated " @ opts.output)
         print("Structs: " @ to_string(structs.length()) @ ", typedefs: " @ to_string(aliases.keys().length()) @ ", functions: " @ to_string(functions.length()))
     }
 
     if (!opts.keep_pp && pathExists(ppPath)) {
-        let _ = fs.delete_file(ppPath).value
+        let _ = fs.delete_file(ppPath).await.unwrap()
     }
     if (!opts.keep_pp && pathExists(defsPath)) {
-        let _ = fs.delete_file(defsPath).value
+        let _ = fs.delete_file(defsPath).await.unwrap()
     }
     if (!opts.keep_pp && pathExists(astPath)) {
-        let _ = fs.delete_file(astPath).value
+        let _ = fs.delete_file(astPath).await.unwrap()
     }
 }
 

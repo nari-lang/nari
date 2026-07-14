@@ -36,7 +36,13 @@ Value ScriptRuntime::builtin_ffi_membersof(const Value *argvals, size_t argc, co
 
     std::string resolved_type_name = type_name;
     const nari::TypeDecl *resolved_decl = type_decl;
+    std::vector<std::string> aliases;
     while (resolved_decl && resolved_decl->is_alias()) {
+        if (std::find(aliases.begin(), aliases.end(), resolved_decl->name) != aliases.end()) {
+            fprintf(stderr, "ERROR: Cyclic FFI type alias involving '%s'\n", resolved_decl->name.c_str());
+            return Value::none();
+        }
+        aliases.push_back(resolved_decl->name);
         if (!resolved_decl->alias_target) {
             fprintf(stderr, "ERROR: Type alias '%s' has no target\n", resolved_type_name.c_str());
             return Value::none();
@@ -99,7 +105,7 @@ Value ScriptRuntime::builtin_ffi_membersof(const Value *argvals, size_t argc, co
             return "pointer";
         }
 
-        return "int";
+        return nari_type;
     };
 
     std::vector<Value> fields_array;
@@ -109,12 +115,17 @@ Value ScriptRuntime::builtin_ffi_membersof(const Value *argvals, size_t argc, co
         ObjectObj *fobj = field_val.get_obj_ptr();
         fobj->set_field("name", Value::make_string(field.name));
         fobj->set_field("type", Value::make_string(map_type_to_ffi(field.type->name)));
+        if (field.type->fixed_array_count > 0) {
+            fobj->set_field("count", Value::make_int(field.type->fixed_array_count));
+        }
         fields_array.push_back(field_val);
     }
 
     Value result_val = Value::make_object();
     ObjectObj *res_oobj = result_val.get_obj_ptr();
-    res_oobj->set_field("struct", Value::make_string(resolved_type_name));
+    res_oobj->set_field(
+        resolved_decl->kind == nari::TypeDeclKind::Union ? "union" : "struct",
+        Value::make_string(resolved_type_name));
     res_oobj->set_field("fields", Value::make_array(std::move(fields_array)));
 
     return result_val;
@@ -334,35 +345,6 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
         return Value::none();
     }
 
-    // cached parsed signatures keyed by sig object pointer identity
-    struct CachedSig {
-        FFISignature sig;
-        const void *identity;
-    };
-    static std::unordered_map<const void *, CachedSig> sig_cache;
-
-    const void *sig_identity = sig_oobj;
-    auto sig_it = sig_cache.find(sig_identity);
-    if (sig_it != sig_cache.end()) {
-        const FFISignature &sig = sig_it->second.sig;
-
-        std::vector<Value> func_args;
-        if (argc > 3 && argvals[3].is_array()) {
-            const auto &args_array = argvals[3].get_array();
-            func_args.assign(args_array.begin(), args_array.end());
-        } else {
-            for (size_t i = 3; i < argc; i++) {
-                func_args.push_back(argvals[i]);
-            }
-        }
-
-        if (sig.is_variadic) {
-            return FFICaller::call_function_variadic(func_ptr, sig, func_args);
-        } else {
-            return FFICaller::call_function(func_ptr, sig, func_args);
-        }
-    }
-
     FFISignature sig;
 
     auto parse_ffi_type = [&sig](const Value &type_val, bool is_return) -> FFIType {
@@ -404,8 +386,9 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
         } else if (type_val.is_object()) {
             const ObjectObj *type_oobj = type_val.get_obj_ptr();
 
-            if (type_oobj->has_field("struct") && type_oobj->has_field("fields")) {
-                std::string struct_name = type_oobj->get_field("struct")->get_string();
+            const bool is_union = type_oobj->has_field("union");
+            if ((type_oobj->has_field("struct") || is_union) && type_oobj->has_field("fields")) {
+                std::string struct_name = type_oobj->get_field(is_union ? "union" : "struct")->get_string();
                 const Value *fields_v = type_oobj->get_field("fields");
 
                 std::vector<FFIStructField> fields;
@@ -452,13 +435,31 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
                                     field_type = FFIType::Pointer;
                                 }
 
-                                fields.emplace_back(field_name, field_type);
+                                size_t field_count = 1;
+                                if (field_oobj->has_field("count")) {
+                                    const Value *count_v = field_oobj->get_field("count");
+                                    if (!count_v || !count_v->is_int() || count_v->get_int() <= 0) {
+                                        fprintf(stderr, "ERROR: FFI struct field '%s' has an invalid fixed count\n", field_name.c_str());
+                                        continue;
+                                    }
+                                    field_count = static_cast<size_t>(count_v->get_int());
+                                }
+                                fields.emplace_back(field_name, field_type, field_count);
+                                if (field_type == FFIType::Void) {
+                                    fields.back().aggregate_def = create_struct_def_from_type(field_type_str);
+                                    if (!fields.back().aggregate_def) {
+                                        fprintf(stderr, "ERROR: Unsupported FFI aggregate field type '%s'\n", field_type_str.c_str());
+                                        fields.pop_back();
+                                    } else {
+                                        fields.back().type = FFIType::Struct;
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
-                auto struct_def = std::make_shared<FFIStructDef>(struct_name, fields);
+                auto struct_def = std::make_shared<FFIStructDef>(struct_name, fields, is_union);
 
                 if (is_return) {
                     sig.return_struct_def = struct_def;
@@ -484,8 +485,12 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
     if (sig_oobj->has_field("variadic")) {
         const Value *variadic_v = sig_oobj->get_field("variadic");
         if (variadic_v->is_int()) {
+            if (variadic_v->get_int() < 0) {
+                fprintf(stderr, "ERROR: FFI variadic fixed parameter count cannot be negative\n");
+                return Value::none();
+            }
             sig.is_variadic = true;
-            sig.fixed_param_count = variadic_v->get_int();
+            sig.fixed_param_count = static_cast<size_t>(variadic_v->get_int());
         } else if (variadic_v->is_bool() && variadic_v->get_bool()) {
             sig.is_variadic = true;
             sig.fixed_param_count = 0;
@@ -505,11 +510,15 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
             }
         }
 
-        // if variadic was set to true without a count, use param array size as
-        // fixed count
+        // if variadic was set to true without a count, use param array size as fixed count
         if (sig.is_variadic && sig.fixed_param_count == 0) {
             sig.fixed_param_count = params_array.size();
         }
+    }
+
+    if (sig.is_variadic && sig.fixed_param_count > sig.param_types.size()) {
+        fprintf(stderr, "ERROR: FFI variadic fixed parameter count exceeds declared parameters\n");
+        return Value::none();
     }
 
     // function arguments (everything after the first 3 args)
@@ -523,11 +532,14 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
             func_args.push_back(argvals[i]);
         }
     }
+    if (sig.is_variadic && func_args.size() < sig.fixed_param_count) {
+        fprintf(stderr, "ERROR: Variadic FFI call has fewer arguments than fixed parameters\n");
+        return Value::none();
+    }
 
     if (sig.is_variadic && func_args.size() > sig.fixed_param_count) {
         // try to infer variadic types from a printf-style format string found in
-        // the fixed arguments. Scan fixed params in reverse so the last string
-        // containing '%' wins (the format string is usually the last fixed param).
+        // the fixed arguments, this scans fixed params in reverse.
         std::vector<FFIType> fmt_types;
         for (size_t i = sig.fixed_param_count; i-- > 0;) {
             if (func_args[i].is_string()) {
@@ -556,18 +568,11 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
                 } else if (arg.is_bool()) {
                     sig.param_types.push_back(FFIType::Bool);
                 } else {
-                    // realistically I don't think there will be a scenario where we ever
-                    // get here, but default to int
-                    printf("Unable to infer FFI variadic argument type, defaulting to "
-                           "int32\n");
-                    sig.param_types.push_back(FFIType::Int32);
+                    fprintf(stderr, "ERROR: Cannot infer FFI type for variadic object or array argument\n");
+                    return Value::none();
                 }
             }
         }
-    }
-
-    if (!sig.is_variadic) {
-        sig_cache[sig_identity] = CachedSig{ sig, sig_identity };
     }
 
     if (sig.is_variadic) {
@@ -664,13 +669,17 @@ Value ScriptRuntime::builtin_ffi_utf16_read(const Value *argvals, size_t argc, c
 }
 
 Value ScriptRuntime::builtin_ffi_free(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc > 0 && argvals[0].is_object() && argvals[0].get_obj_ptr()->is_managed_native_struct()) {
+        fprintf(stderr, "ERROR: __ffi_free() cannot free a managed FFI struct\n");
+        return Value::none();
+    }
     if ((argc == 0) || !argvals[0].is_int()) {
         return Value::none();
     }
 
     uintptr_t ptr_value = argvals[0].get_ptr_bits();
     if (ptr_value != 0) {
-        std::free(reinterpret_cast<void *>(ptr_value));
+        std::free((void *)ptr_value);
     }
 
     return Value::none();
@@ -697,13 +706,47 @@ Value ScriptRuntime::builtin_ffi_alloc_struct(const Value *argvals, size_t argc,
         return Value::none();
     }
 
-    return Value::make_int(reinterpret_cast<int64_t>(ptr));
+    return Value::make_int((int64_t)ptr);
+}
+
+// __ffi_managed_struct(typename) - create an ordinary GC object owning zeroed struct memory
+Value ScriptRuntime::builtin_ffi_managed_struct(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc == 0 || !argvals[0].is_string()) {
+        fprintf(stderr, "ERROR: __ffi_managed_struct() requires a type name string\n");
+        return Value::none();
+    }
+
+    const std::string &type_name = argvals[0].get_string();
+    size_t struct_size = nari::get_struct_size(type_name);
+    if (struct_size == 0) {
+        fprintf(stderr, "ERROR: __ffi_managed_struct() failed to get size for type '%s'\n", type_name.c_str());
+        return Value::none();
+    }
+
+    Value owner = Value::make_object();
+    ObjectObj *obj = owner.get_obj_ptr();
+    obj->native_struct_type = type_name;
+    obj->native_struct_storage.assign(struct_size, 0);
+    return owner;
 }
 
 // __ffi_read_struct(ptr, typename) - read struct from memory into Nari object
 Value ScriptRuntime::builtin_ffi_read_struct(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc == 1 && argvals[0].is_object()) {
+        const ObjectObj *owner = argvals[0].get_obj_ptr();
+        if (!owner->is_managed_native_struct()) {
+            fprintf(stderr, "ERROR: __ffi_read_struct() object is not a managed FFI struct\n");
+            return Value::none();
+        }
+        size_t expected_size = nari::get_struct_size(owner->native_struct_type);
+        if (expected_size == 0 || expected_size != owner->native_struct_storage.size()) {
+            fprintf(stderr, "ERROR: __ffi_read_struct() managed struct type or size is invalid\n");
+            return Value::none();
+        }
+        return nari::read_struct_from_memory(nari::managed_struct_pointer(argvals[0]), owner->native_struct_type);
+    }
     if (argc < 2 || !argvals[0].is_int() || !argvals[1].is_string()) {
-        fprintf(stderr, "ERROR: __ffi_read_struct() requires (pointer_int, type_name_string)\n");
+        fprintf(stderr, "ERROR: __ffi_read_struct() requires (owner) or (pointer_int, type_name_string)\n");
         return Value::none();
     }
 
@@ -721,8 +764,22 @@ Value ScriptRuntime::builtin_ffi_read_struct(const Value *argvals, size_t argc, 
 
 // __ffi_write_struct(ptr, typename, obj) - write nari object to struct memory
 Value ScriptRuntime::builtin_ffi_write_struct(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc == 2 && argvals[0].is_object() && argvals[1].is_object()) {
+        const ObjectObj *owner = argvals[0].get_obj_ptr();
+        if (!owner->is_managed_native_struct()) {
+            fprintf(stderr, "ERROR: __ffi_write_struct() first object is not a managed FFI struct\n");
+            return Value::none();
+        }
+        size_t expected_size = nari::get_struct_size(owner->native_struct_type);
+        if (expected_size == 0 || expected_size != owner->native_struct_storage.size()) {
+            fprintf(stderr, "ERROR: __ffi_write_struct() managed struct type or size is invalid\n");
+            return Value::none();
+        }
+        return Value::make_bool(nari::write_struct_to_memory(
+            nari::managed_struct_pointer(argvals[0]), owner->native_struct_type, argvals[1]));
+    }
     if (argc < 3 || !argvals[0].is_int() || !argvals[1].is_string() || !argvals[2].is_object()) {
-        fprintf(stderr, "ERROR: __ffi_write_struct() requires (pointer_int, type_name_string, object)\n");
+        fprintf(stderr, "ERROR: __ffi_write_struct() requires (owner, object) or (pointer_int, type_name_string, object)\n");
         return Value::none();
     }
 
@@ -736,9 +793,7 @@ Value ScriptRuntime::builtin_ffi_write_struct(const Value *argvals, size_t argc,
     }
 
     void *ptr = reinterpret_cast<void *>(ptr_value);
-    nari::write_struct_to_memory(ptr, type_name, obj);
-
-    return Value::none();
+    return Value::make_bool(nari::write_struct_to_memory(ptr, type_name, obj));
 }
 
 // __ffi_sizeof(typename) - get size of a struct type
@@ -770,8 +825,9 @@ Value ScriptRuntime::builtin_ffi_create_callback(const Value *argvals, size_t ar
 
     // Parse signature (same as in __ffi_call)
     FFISignature sig;
+    bool invalid_callback_type = false;
 
-    auto parse_ffi_type = [&sig](const Value &type_val, bool is_return) -> FFIType {
+    auto parse_ffi_type = [&invalid_callback_type](const Value &type_val, bool is_return) -> FFIType {
         if (type_val.is_string()) {
             std::string type_str = type_val.get_string();
 
@@ -808,7 +864,19 @@ Value ScriptRuntime::builtin_ffi_create_callback(const Value *argvals, size_t ar
             }
         }
 
+        if (type_val.is_object()) {
+            const ObjectObj *descriptor = type_val.get_obj_ptr();
+            if (descriptor->has_field("union")) {
+                fprintf(stderr, "ERROR: Passing unions by value in callbacks is not supported, pass a union pointer instead!\n");
+            } else {
+                fprintf(stderr, "ERROR: Aggregate types are not supported in callbacks\n");
+            }
+            invalid_callback_type = true;
+            return FFIType::Void;
+        }
+
         fprintf(stderr, "ERROR: Unsupported FFI type for callback\n");
+        invalid_callback_type = true;
         return FFIType::Void;
     };
 
@@ -826,6 +894,10 @@ Value ScriptRuntime::builtin_ffi_create_callback(const Value *argvals, size_t ar
                 sig.param_types.push_back(parse_ffi_type(param_val, false));
             }
         }
+    }
+
+    if (invalid_callback_type) {
+        return Value::none();
     }
 
     void *callback_ptr = FFICallbackManager::instance().create_callback(sig, nari_func, this);

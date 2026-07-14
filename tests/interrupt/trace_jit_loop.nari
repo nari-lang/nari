@@ -1,0 +1,10 @@
+func spin() {
+    let value = 0;
+    while (true) {
+        value = value + 1;
+    }
+}
+
+func start() {
+    spin();
+}

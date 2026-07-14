@@ -1,0 +1,11 @@
+func start() {
+    let not_a_function = "not_a_function";
+
+    try {
+        not_a_function();
+    } catch (error) {
+        print("non-function runtime panic was incorrectly caught: " @ error);
+    }
+
+    print("execution continued after non-function runtime panic");
+}

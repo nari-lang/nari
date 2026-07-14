@@ -21,7 +21,63 @@ using namespace nari::bytecode;
 // Same operations as execute_instruction() but as standalone functions
 // so the JIT can call them directly.
 
+template <typename Call>
+static auto jit_runtime_call(VM *vm, Call &&call) -> decltype(call()) {
+    try {
+        auto result = call();
+        if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
+            std::longjmp(*vm->overflow_jmp, 1);
+        }
+        if (NARI_UNLIKELY(vm->runtime->has_pending_throw())) {
+            Value err = vm->runtime->take_pending_throw();
+            bool caught = vm->dispatch_throw(err);
+            vm->has_error = !caught;
+            if (vm->overflow_jmp) {
+                std::longjmp(*vm->overflow_jmp, caught ? 2 : 1);
+            }
+        }
+        return result;
+    } catch (const RuntimeError &) {
+        vm->has_error = true;
+        if (vm->overflow_jmp) {
+            std::longjmp(*vm->overflow_jmp, 1);
+        }
+        return {};
+    }
+}
+
+template <typename Call>
+static void jit_runtime_call_void(VM *vm, Call &&call) {
+    try {
+        call();
+        if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
+            std::longjmp(*vm->overflow_jmp, 1);
+        }
+        if (NARI_UNLIKELY(vm->runtime->has_pending_throw())) {
+            Value err = vm->runtime->take_pending_throw();
+            bool caught = vm->dispatch_throw(err);
+            vm->has_error = !caught;
+            if (vm->overflow_jmp) {
+                std::longjmp(*vm->overflow_jmp, caught ? 2 : 1);
+            }
+        }
+    } catch (const RuntimeError &) {
+        vm->has_error = true;
+        if (vm->overflow_jmp) {
+            std::longjmp(*vm->overflow_jmp, 1);
+        }
+    }
+}
+
+static inline void jit_abort_on_runtime_error(VM *vm);
+
 extern "C" {
+
+void jit_poll_shutdown(VM *vm) {
+    if (NARI_UNLIKELY(Runtime::g_shutdown_requested.load()) && vm->overflow_jmp) {
+        std::longjmp(*vm->overflow_jmp, 3);
+    }
+}
 
 // Push an immediate int/float. Used by the optimizing-IR lowering, whose IConst/
 // FConst carry the value directly (not a constant-pool index). make_int_checked
@@ -345,6 +401,7 @@ void jit_format_value(VM *vm, uint32_t spec_idx) {
     } else {
         Value args[2] = { value, Value::make_string(vm->chunk->strings[spec_idx]) };
         vm->push(vm->call_builtin("__format_value", args, 2));
+        jit_abort_on_runtime_error(vm);
     }
 }
 
@@ -474,11 +531,17 @@ static inline void jit_deliver_pending_throw(VM *vm) {
     }
 }
 
+static inline void jit_abort_on_runtime_error(VM *vm) {
+    if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
+        std::longjmp(*vm->overflow_jmp, 1);
+    }
+}
+
 // Forward declaration (defined below jit_call_value)
 void jit_call(VM *vm, uint32_t argc);
 
 // fast-dispatch call when caller loaded the function from a variable (not a statically-resolved global)
-static void jit_call_value_impl(VM *vm, uint32_t argc) {
+static void jit_call_value_impl(VM *vm, uint32_t argc, uint32_t callee_label_idx) {
     jit_check_call_depth(vm);
     const size_t args_base = vm->stack.size() - argc;
     const size_t slot_base = args_base - 1; // func_val slot
@@ -493,9 +556,12 @@ static void jit_call_value_impl(VM *vm, uint32_t argc) {
             jit_call(vm, argc);
             return;
         }
+        std::string attempted = func_val.to_string();
         vm->stack.resize(slot_base);
-        fprintf(stderr, "bytecode: attempt to call non-function value: %s\n", func_val.to_string().c_str());
-        vm->push(Value::none());
+        vm->runtime_panic(Value::make_string("called a non-function value '" + vm->chunk->strings[callee_label_idx] + "'"));
+        if (vm->overflow_jmp) {
+            std::longjmp(*vm->overflow_jmp, 1);
+        }
         return;
     }
 
@@ -562,6 +628,7 @@ static void jit_call_value_impl(VM *vm, uint32_t argc) {
             }
         }
         vm->jit_call_depth--;
+        jit_abort_on_runtime_error(vm);
         return;
     }
 
@@ -572,8 +639,8 @@ static void jit_call_value_impl(VM *vm, uint32_t argc) {
 
 // Public wrapper: a called value may be an allocating builtin/lambda that never
 // hits the interpreter safe-point; poll here on return (result on stack).
-void jit_call_value(VM *vm, uint32_t argc) {
-    jit_call_value_impl(vm, argc);
+void jit_call_value(VM *vm, uint32_t argc, uint32_t callee_label_idx) {
+    jit_call_value_impl(vm, argc, callee_label_idx);
     vm->jit_safepoint();
 }
 
@@ -586,17 +653,19 @@ static void jit_call_impl(VM *vm, uint32_t argc) {
     Value func = vm->stack[args_base - 1]; // func_val sits just below the args
 
     if (!func.is_function()) {
-        // Delegate call trap: d(args) -> handler.call(target, [args]). 
+        // Delegate call trap: d(args) -> handler.call(target, [args]).
         // After the is_function() fast path so ordinary calls are untouched
         if (func.is_delegate()) {
             std::vector<Value> args(vm->stack.begin() + args_base, vm->stack.end());
             vm->stack.resize(args_base - 1); // pop args + func
-            vm->push(vm->runtime->delegate_call(func, args));
+            vm->push(jit_runtime_call(vm, [&] { return vm->runtime->delegate_call(func, args); }));
             return;
         }
         vm->stack.resize(args_base - 1); // pop args + func
-        fprintf(stderr, "bytecode: attempt to call non-function value: %s\n", func.to_string().c_str());
-        vm->push(Value::none());
+        vm->runtime_panic(Value::make_string("attempt to call non-function value: " + func.to_string()));
+        if (vm->overflow_jmp) {
+            std::longjmp(*vm->overflow_jmp, 1);
+        }
         return;
     }
 
@@ -604,45 +673,33 @@ static void jit_call_impl(VM *vm, uint32_t argc) {
     const std::string &fname = fdata.name;
     const auto &func_ptr = fdata.func_ptr;
 
-    // Fast path: builtin's member-fn pointer is pre-resolved on FunctionData
-    // (filled by VM::register_builtin). One indirect call, no hash lookups.
-    // jit_builtin_fn is non-null iff this Value represents a registered
-    // global builtin -- so it also serves as the "is builtin" predicate,
-    // letting us drop the per-call `vm->builtins.find(fname)` hash probe
-    // that previously dominated string-heavy workloads.
+    // fast path: builtin's member-fn pointer is pre-resolved on FunctionData, skips a name-hash lookup
     if (fdata.jit_builtin_fn_valid) {
         ScriptRuntime::BuiltinFn fn;
         std::memcpy(&fn, fdata.jit_builtin_fn, sizeof(fn));
         Value *argv = (argc > 0) ? &vm->stack[args_base] : nullptr;
-        Value result = vm->runtime->call_builtin_member(fn, argv, argc, nullptr);
+        Value result = vm->call_builtin_member(fn, argv, argc);
         vm->stack.resize(args_base - 1); // pop args + func
         vm->push(result);
+        jit_abort_on_runtime_error(vm);
         jit_deliver_pending_throw(vm);
         return;
     }
 
-    // User-function call IC: `jit_func_idx` is pre-resolved on the FunctionData
-    // at registration (VM::run, top-level fns) and at OP_CLOSURE creation, so a
-    // repeat call to a user bytecode function can skip BOTH the
-    // `builtins.find(fname)` (miss) and `func_indices.find(fname)` (hit) string
-    // hashes that otherwise run on every call. It is only ever set to a valid
-    // bytecode function index (never for builtins, which use jit_builtin_fn, nor
-    // for AST lambdas, which use func_ptr), so short-circuiting on it is
-    // behavior-preserving. This mirrors the interpreter CALL fast path
-    // (bytecode.cpp) and the builtin IC above. The `_M_locate_tr<string,uint32_t>`
-    // probe (LBR) showed this pair dominated call-heavy workloads (~6% in json).
+    // user function call cache: `jit_func_idx` is pre-resolved on the FunctionData
+    // at registration (VM::run, top-level fns) and at OP_CLOSURE creation
+    // so that a repeat call to a user bytecode function can skip builtins.find(fname) and func_indices.find(fname).
     int32_t user_idx = fdata.jit_func_idx;
     if (user_idx < 0) {
-        // Slow path: extension builtins (registered via ScriptRuntime::register_extension)
-        // aren't in the member-fn table, so they have no cached pointer. They
-        // still go through the name-keyed call_builtin which checks the
-        // extension table.
+        // extension builtins (registered via ScriptRuntime::register_extension)
+        // aren't in the member-fn table, so they have no cached pointer.
         auto bit = vm->builtins.find(fname);
         if (bit != vm->builtins.end()) {
             Value *argv = (argc > 0) ? &vm->stack[args_base] : nullptr;
             Value result = vm->call_builtin(fname, argv, argc);
             vm->stack.resize(args_base - 1); // pop args + func
             vm->push(result);
+            jit_abort_on_runtime_error(vm);
             jit_deliver_pending_throw(vm);
             return;
         }
@@ -670,8 +727,7 @@ static void jit_call_impl(VM *vm, uint32_t argc) {
         } else {
             // no captures
             // pass args_base and argc; call_user_function_stack reads them and pops func+args itself.
-            vm->call_user_function_stack(static_cast<uint32_t>(user_idx), args_base,
-                                         argc);
+            vm->call_user_function_stack((uint32_t)user_idx, args_base, argc);
         }
 
         // run the callee to completion (interpreter loop)
@@ -682,6 +738,7 @@ static void jit_call_impl(VM *vm, uint32_t argc) {
             }
         }
         vm->jit_call_depth--;
+        jit_abort_on_runtime_error(vm);
         return;
     }
 
@@ -690,18 +747,17 @@ static void jit_call_impl(VM *vm, uint32_t argc) {
     vm->stack.resize(args_base - 1);
 
     if (func_ptr) {
-        Value result = vm->runtime->call_user_function(func_ptr.get(), args);
+        Value result = jit_runtime_call(vm, [&] { return vm->runtime->call_user_function(func_ptr.get(), args); });
         vm->push(result);
     } else {
         Value func_val_copy = func;
-        Value result = vm->runtime->call_function_value(func_val_copy, args);
+        Value result = jit_runtime_call(vm, [&] { return vm->runtime->call_function_value(func_val_copy, args); });
         vm->push(result);
     }
 }
 
 // the called global may be an allocating builtin (to_string, etc.)
 // that never re-enters the interpreter safe-point, poll here on return.
-// The bytecode-function path already polls via the interpreter loop above.
 void jit_call(VM *vm, uint32_t argc) {
     jit_call_impl(vm, argc);
     vm->jit_safepoint();
@@ -714,8 +770,7 @@ void jit_call_method(VM *vm, uint32_t method_name_idx, uint32_t argc) {
     const size_t obj_idx = args_base - 1;
     Value obj = vm->stack[obj_idx];
 
-    // Match the interpreter's OP_CALL_METHOD precedence:
-    // an object's / class instance's OWN callable field shadows any builtin member of the same name.
+    // an object's / class instance's own callable field shadows any builtin member of the same name.
     const Value *method = nullptr;
     if (obj.is_object()) {
         method = obj.get_obj_ptr()->get_field(method_name);
@@ -729,15 +784,13 @@ void jit_call_method(VM *vm, uint32_t method_name_idx, uint32_t argc) {
     }
 
     if (obj.is_delegate()) {
-        // Delegate method call. After the object fast path so shape prop-IC is
-        // untouched. has_key routes to the has trap (Proxy `in` semantics);
-        // every other method resolves through the get trap then is invoked.
+        // delegate method call. After the object fast path so shape prop-IC is untouched.
         std::vector<Value> args(vm->stack.begin() + args_base, vm->stack.end());
         vm->stack.resize(obj_idx);
         if (method_name == "has_key" && args.size() == 1) {
-            vm->push(Value::make_bool(vm->runtime->delegate_has(obj, args[0])));
+            vm->push(Value::make_bool(jit_runtime_call(vm, [&] { return vm->runtime->delegate_has(obj, args[0]); })));
         } else {
-            vm->push(vm->runtime->delegate_call_method(obj, method_name, std::move(args)));
+            vm->push(jit_runtime_call(vm, [&] { return vm->runtime->delegate_call_method(obj, method_name, std::move(args)); }));
         }
         vm->jit_safepoint();
         return;
@@ -761,26 +814,25 @@ void jit_call_method(VM *vm, uint32_t method_name_idx, uint32_t argc) {
             args.push_back(vm->stack[args_base + i]);
         }
         vm->stack.resize(obj_idx);
-        vm->push(vm->runtime->call_builtin_member(fn, args.data(), args.size(), nullptr));
+        vm->push(vm->call_builtin_member(fn, args.data(), args.size()));
+        jit_abort_on_runtime_error(vm);
         jit_deliver_pending_throw(vm);
         vm->jit_safepoint();
         return;
     }
 
-    fprintf(stderr, "bytecode: cannot call method '%s' on non-object\n", method_name.c_str());
     vm->stack.resize(obj_idx);
-    vm->push(Value::none());
+    vm->runtime_panic(Value::make_string("'" + method_name + "' is not a method!"));
+    if (vm->overflow_jmp) {
+        std::longjmp(*vm->overflow_jmp, 1);
+    }
 }
 
-// Shared shadow-precedence guard for the inline method fast paths below.
-// These helpers are selected by method name only
+// shared shadow-precedence guard for the inline method fast paths below.
 static inline bool jit_try_shadow_method(VM *vm, const char *name, uint32_t argc) {
     const size_t obj_idx = vm->stack.size() - argc - 1;
     const Value &obj = vm->stack[obj_idx];
     // Only user objects / class instances can carry a shadowing field.
-    // Read the heap tag ONCE (heap_tag() is null-safe: returns String for non-heap) and
-    // bail immediately for the common string / array / number receivers, so
-    // those hot paths pay a single load instead of two.
     const ValueTag t = obj.heap_tag();
     const Value *method = nullptr;
     if (t == ValueTag::Object) {
@@ -794,9 +846,9 @@ static inline bool jit_try_shadow_method(VM *vm, const char *name, uint32_t argc
         std::vector<Value> args(vm->stack.begin() + args_base, vm->stack.end());
         vm->stack.resize(obj_idx);
         if (args.size() == 1 && std::strcmp(name, "has_key") == 0) {
-            vm->push(Value::make_bool(vm->runtime->delegate_has(del, args[0])));
+            vm->push(Value::make_bool(jit_runtime_call(vm, [&] { return vm->runtime->delegate_has(del, args[0]); })));
         } else {
-            vm->push(vm->runtime->delegate_call_method(del, name, std::move(args)));
+            vm->push(jit_runtime_call(vm, [&] { return vm->runtime->delegate_call_method(del, name, std::move(args)); }));
         }
         return true;
     } else {
@@ -847,13 +899,12 @@ void jit_method_char_code_at(VM *vm) {
     Value args[2] = { vm->peek(1), vm->peek(0) };
     vm->pop();
     vm->pop();
-    vm->push(vm->runtime->call_builtin_member(fn, args, 2, nullptr));
+    vm->push(vm->call_builtin_member(fn, args, 2));
+    jit_abort_on_runtime_error(vm);
 }
 
 void jit_method_starts_with(VM *vm) {
-    // Fast path: plain string receiver + plain string arg. starts_with cannot be
-    // shadowed on a string receiver (jit_try_shadow_method only fires for Object/ClassInstance),
-    // and neither operand needs coercion, so we skip the 4-layer dispatch
+    // fast path: plain string receiver + plain string arg. starts_with cannot be shadowed on a string receiver
     {
         const Value &recv = vm->peek(1);
         const Value &arg = vm->peek(0);
@@ -874,11 +925,11 @@ void jit_method_starts_with(VM *vm) {
     Value args[2] = { vm->peek(1), vm->peek(0) };
     vm->pop();
     vm->pop();
-    vm->push(vm->runtime->call_builtin_member(fn, args, 2, nullptr));
+    vm->push(vm->call_builtin_member(fn, args, 2));
+    jit_abort_on_runtime_error(vm);
 }
 
-// Inline version of collections.cpp:coerce_numeric_index.
-// Accepts ints and floats that can be coerced without loss, rejects fractional floats and non-numerics.
+// accepts ints and floats that can be coerced without loss, rejects fractional floats and non-numerics.
 static inline bool jit_coerce_index(const Value &v, int &out) {
     if (v.is_int()) {
         out = static_cast<int>(v.get_int());
@@ -896,7 +947,7 @@ static inline bool jit_coerce_index(const Value &v, int &out) {
 }
 
 void jit_method_substr(VM *vm, uint32_t argc) {
-    // plain string receiver with the arg count the asmjit call site allows (0..2). 
+    // plain string receiver with the arg count the asmjit call site allows (0..2).
     // Avoids BOTH the 4-layer dispatch AND the per-call std::vector<Value> heap alloc/free
     if (argc <= 2) {
         const Value &recv = vm->peek(argc); // receiver is below the args
@@ -949,7 +1000,8 @@ void jit_method_substr(VM *vm, uint32_t argc) {
     for (int64_t i = (int64_t)argc; i >= 0; i--) {
         args[(size_t)i] = vm->pop();
     }
-    vm->push(vm->runtime->call_builtin_member(fn, args.data(), args.size(), nullptr));
+    vm->push(vm->call_builtin_member(fn, args.data(), args.size()));
+    jit_abort_on_runtime_error(vm);
 }
 
 // handles OP_RETURN: pop result, pop frame, restore stack, push result
@@ -995,7 +1047,7 @@ void jit_make_object(VM *vm, uint32_t size) {
     vm->jit_safepoint(); // result is on the stack (rooted) before any collect
 }
 
-// Normalize an iterable to a plain array for the desugared for-in index loop.
+// normalize an iterable to a plain array for the desugared for-in index loop.
 //   array  -> itself (no allocation)
 //   object -> its keys materialized as an array
 void jit_iter_array(VM *vm) {
@@ -1015,20 +1067,17 @@ void jit_iter_array(VM *vm) {
         return;
     }
     fprintf(stderr, "bytecode: for-each requires an array or object\n");
-    vm->has_error = true; // match the interpreter's OP_ITER_ARRAY path
+    vm->has_error = true;          // match the interpreter's OP_ITER_ARRAY path
     vm->push(Value::make_array()); // dummy empty array keeps the VM sane
 }
 
-// Like jit_make_object but uses the per-site shape cache (VM::make_object_cached)
-// keyed by the literal's bytecode address, so repeated builds of the same object
-// literal skip the per-field intern/transition hashing.
+// similar to jit_make_object but uses the per-site shape cache keyed by the literal's bytecode address
 void jit_make_object_site(VM *vm, uint32_t size, void *site) {
     vm->push(vm->make_object_cached(static_cast<const uint8_t *>(site), size));
     vm->jit_safepoint(); // result is on the stack (rooted) before any collect
 }
 
-// Ensure the VM value stack has headroom for `n` more entries before JIT code
-// manually advances _M_finish to batch-store, this may reallocate.
+// ensure the VM value stack has headroom for `n` more entries before JIT code manually advances _M_finish to batch-store
 void jit_reserve(VM *vm, uint32_t n) {
     vm->stack.reserve(vm->stack.size() + (size_t)n);
 }
@@ -1053,7 +1102,7 @@ void jit_get_index(VM *vm) {
         vm->push(v ? *v : Value::none());
     } else if (obj.is_delegate()) {
         // Delegate get trap. After the object fast path so shape prop-IC is untouched.
-        vm->push(vm->runtime->delegate_get(obj, key));
+        vm->push(jit_runtime_call(vm, [&] { return vm->runtime->delegate_get(obj, key); }));
     } else if (obj.is_string()) {
         int64_t idx = key.get_int();
         const std::string &s = obj.get_string();
@@ -1090,9 +1139,8 @@ void jit_set_index(VM *vm) {
     } else if (obj.is_object()) {
         obj.get_obj_ptr()->set_field(key.to_string(), val);
     } else if (obj.is_delegate()) {
-        // Delegate set trap. After the object fast path so shape prop-IC is
-        // untouched. Mirrors the VM executor.
-        vm->runtime->delegate_set(obj, key, val);
+        // delegate set trap, after the object fast path so shape prop-IC is untouched.
+        jit_runtime_call_void(vm, [&] { vm->runtime->delegate_set(obj, key, val); });
     }
     vm->push(val);
 }
@@ -1115,9 +1163,9 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
             vm->push(fv ? *fv : Value::none());
         }
     } else if (obj.is_delegate()) {
-        // Delegate get trap. After the object fast path so shape prop-IC is untouched,
+        // delegate get trap, after the object fast path so shape prop-IC is untouched.
         // a delegate (tag 11) misses the inline caches emitted by the method JIT and lowers to this helper.
-        vm->push(vm->runtime->delegate_get(obj, Value::make_string(name)));
+        vm->push(jit_runtime_call(vm, [&] { return vm->runtime->delegate_get(obj, Value::make_string(name)); }));
     } else if (obj.is_array() && name == "length") {
         vm->push(Value::make_int(static_cast<int64_t>(obj.get_array().size())));
     } else if (obj.is_string() && name == "length") {
@@ -1184,7 +1232,7 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
             vm->push(Value::none());
         }
     } else {
-        // Compiler-internal properties (like __variant, __data) are used as speculative probes in match/pattern expressions
+        // compiler-internal properties (like __variant, __data) are used as speculative probes in match/pattern expressions
         if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
             vm->push(Value::none());
         } else {
@@ -1218,27 +1266,23 @@ void jit_set_property(VM *vm, uint32_t name_idx) {
             Parser::get_static_fields()[cname + "." + name] = val;
         }
     } else if (obj.is_delegate()) {
-        // Delegate set trap. After the object fast path so shape prop-IC is
-        // untouched. Mirrors the VM executor.
-        vm->runtime->delegate_set(obj, Value::make_string(name), val);
+        // delegate set trap, after the object fast path so shape prop-IC is untouched.
+        jit_runtime_call_void(vm, [&] { vm->runtime->delegate_set(obj, Value::make_string(name), val); });
     }
     vm->push(val);
 }
 
 } // extern "C"
 
-// jit_check_type: Called by OP_CHECK_TYPE in strict mode.
+// called by OP_CHECK_TYPE in strict mode.
 // Peeks TOS, verifies it matches type_name, throws TypeError on mismatch.
-//
-// packed = (context & 0xFF) | ((source_line & 0xFFFFFF) << 8)
-//  context: 0=param, 1=return value, 2=variable
 extern "C" {
 void jit_check_type(VM *vm, uint32_t type_str_idx, uint32_t packed) {
     uint8_t context = (uint8_t)(packed & 0xFF);
     int src_line = (int)((packed >> 8) & 0xFFFFFF);
     // Peek the TOS value.
     if (vm->stack.empty()) {
-        return; // should never happen; be defensive
+        return; // should never happen! (TODO: add unreachable() here?)
     }
     const Value &val = vm->stack.back();
 
@@ -1274,7 +1318,7 @@ void jit_check_type(VM *vm, uint32_t type_str_idx, uint32_t packed) {
         return; // fast path: type matches
     }
 
-    // Build the error message.
+    // build the error message.
     std::string actual;
     if (val.is_none()) {
         actual = "null";
@@ -1302,7 +1346,7 @@ void jit_check_type(VM *vm, uint32_t type_str_idx, uint32_t packed) {
 
     const char *ctx_str = context == 0 ? "parameter" : (context == 1 ? "return value" : "variable");
 
-    // Resolve source location from the active call frame.
+    // resolve source location from the active call frame
     std::string fn_name = "<anonymous>";
     std::string src_file;
     if (!vm->frames.empty()) {
@@ -1340,8 +1384,10 @@ void jit_check_type(VM *vm, uint32_t type_str_idx, uint32_t packed) {
 namespace nari {
 namespace jit {
 
-// One-time probe of every container layout the generated code touches
+// one-time probe of every container layout the generated code touches,
 // failure causes the jit to be disabled
+
+// MAJOR TODO: I should implement my own vector type, since that would eliminate this scuffed (and probably UB) code. 
 bool stl_layouts_ok() {
     static const bool ok = [] {
         bool good = stl::probe_vec<std::vector<Value>>().ok &&
@@ -1361,7 +1407,6 @@ bool stl_layouts_ok() {
 MethodJITBase *g_jit_compiler = nullptr;
 
 void init_jit() {
-    // Allow disabling JIT for debugging via env var.
     if (getenv("NARI_DISABLE_JIT")) {
         return;
     }

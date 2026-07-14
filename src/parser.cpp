@@ -536,9 +536,19 @@ class Parser {
                 std::string prev_file = current_filename;
                 set_source_filename(inc_path);
 
-                auto more_funcs = parse_program_from_source(included_src, false);
-                for (auto &f : more_funcs) {
-                    functions.push_back(std::move(f));
+                if (recover_mode) {
+                    auto included = parse_program_recovering(included_src, false);
+                    for (auto &error : included.errors) {
+                        errors_.push_back(std::move(error));
+                    }
+                    for (auto &f : included.functions) {
+                        functions.push_back(std::move(f));
+                    }
+                } else {
+                    auto more_funcs = parse_program_from_source(included_src, false);
+                    for (auto &f : more_funcs) {
+                        functions.push_back(std::move(f));
+                    }
                 }
 
                 set_source_filename(prev_file);
@@ -553,8 +563,10 @@ class Parser {
         auto parse_one = [&]() -> bool {
             const Token &tok = peek();
 
-            // type declaration: type Name<T> { field: type; ... }
-            if (tok.kind == TokenKind::TK_IDENT && tok.text == "type" && looks_like_type_decl()) {
+            // aggregate declaration: type Name<T> { ... } or union Name { ... }
+            if (tok.kind == TokenKind::TK_IDENT &&
+                ((tok.text == "type" && looks_like_type_decl()) ||
+                 (tok.text == "union" && looks_like_union_decl()))) {
                 auto type_decl = parse_type_decl();
                 register_type(std::move(type_decl));
                 return true;
@@ -632,7 +644,7 @@ class Parser {
                 }
 
                 if (peek().kind == TokenKind::TK_IDENT &&
-                    (peek().text == "let" || peek().text == "global")) {
+                    (peek().text == "let" || peek().text == "global" || peek().text == "const")) {
                     auto stmt = parse_stmt();
                     auto *var_decl = dynamic_cast<nari::VarDeclStmt *>(stmt.get());
                     if (!var_decl) {
@@ -655,7 +667,7 @@ class Parser {
                     return true;
                 }
 
-                error_and_exit("Top-level export currently supports 'export func ...', 'export let/global ...', or 'export { ... }'");
+                error_and_exit("Top-level export currently supports 'export func ...', 'export let/global/const ...', or 'export { ... }'");
             }
 
             // import "file.nari" OR import name from "library.so"
@@ -886,8 +898,7 @@ class Parser {
             // build an aggregator __top_level__ function only if requested
             if (create_aggregator) {
                 // build an aggregator __top_level__ function that will call all
-                // per-module synthetic top functions discovered in this module's
-                // function list.
+                // per-module top functions discovered in this module's function list.
                 auto agg_fn = std::make_unique<nari::Function>();
                 agg_fn->name = std::string("__top_level__");
                 auto aggregate_block = std::make_unique<nari::BlockStmt>();
@@ -953,7 +964,7 @@ class Parser {
     // top-level loop can attempt to parse the next construct cleanly.
     void synchronize() {
         static const std::unordered_set<std::string> boundaryKeywords = {
-            "func", "let", "const", "var", "if", "while", "for",
+            "func", "let", "const", "if", "while", "for",
             "foreach", "return", "continue", "break", "import", "export", "type",
             "enum", "class", "match"
         };
@@ -1202,6 +1213,11 @@ class Parser {
         return false;
     }
 
+    bool looks_like_union_decl() {
+        return peek().kind == TokenKind::TK_IDENT && peek().text == "union" &&
+               peek(1).kind == TokenKind::TK_IDENT && peek(2).kind == TokenKind::TK_LBRACE;
+    }
+
     bool looks_like_enum_decl() {
         // enum IDENT { or enum IDENT< (generics)
         if (peek().kind != TokenKind::TK_IDENT || peek().text != "enum") {
@@ -1252,17 +1268,21 @@ class Parser {
     }
 
     nari::TypeDeclPtr parse_type_decl() {
-        next(); // consume 'type'
+        const bool is_union = peek().text == "union";
+        next(); // consume 'type' or 'union'
         const Token &nameTok = next();
         if (nameTok.kind != TokenKind::TK_IDENT) {
-            error_and_exit("Expected type name after 'type'");
+            error_and_exit(is_union ? "Expected union name after 'union'" : "Expected type name after 'type'");
         }
-        auto type_decl = std::make_unique<nari::TypeDecl>(nameTok.text);
+        auto type_decl = std::make_unique<nari::TypeDecl>(
+            nameTok.text, is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
         type_decl->line = nameTok.line;
         type_decl->col = nameTok.col;
         type_decl->filename = nameTok.filename.empty() ? current_filename : nameTok.filename;
 
-        parse_generic_arguments(type_decl.get());
+        if (!is_union) {
+            parse_generic_arguments(type_decl.get());
+        }
 
         // Check if this is a type alias or a struct definition
         if (peek().kind == TokenKind::TK_LBRACE) {
@@ -1286,7 +1306,7 @@ class Parser {
             }
 
             expect(TokenKind::TK_RBRACE, "type body end '}'");
-        } else if (peek().kind == TokenKind::TK_IDENT) {
+        } else if (!is_union && peek().kind == TokenKind::TK_IDENT) {
             // type alias: type NewName ExistingType
             type_decl->alias_target = parse_type_annotation();
 
@@ -1310,12 +1330,27 @@ class Parser {
 
         parse_generic_arguments(type_ann.get());
 
-        // is it type[]?
-        if (peek().kind == TokenKind::TK_LBRACKET &&
-            peek(1).kind == TokenKind::TK_RBRACKET) {
+        if (peek().kind == TokenKind::TK_LBRACKET) {
             next(); // consume '['
-            next(); // consume ']'
-            type_ann->is_array = true;
+            if (peek().kind == TokenKind::TK_RBRACKET) {
+                next(); // consume ']'
+                type_ann->is_array = true;
+            } else {
+                if (peek().kind != TokenKind::TK_NUMBER) {
+                    error_and_exit("Expected a positive integer fixed array size");
+                }
+                const std::string count_text = next().text;
+                if (count_text.empty() || count_text.find_first_not_of("0123456789") != std::string::npos) {
+                    error_and_exit("Fixed array size must be a positive integer literal");
+                }
+                char *end = nullptr;
+                unsigned long long count = std::strtoull(count_text.c_str(), &end, 10);
+                if (!end || *end != '\0' || count == 0 || count > MAX_FIXED_ARRAY_COUNT) {
+                    error_and_exit("Fixed array size is out of range");
+                }
+                expect(TokenKind::TK_RBRACKET, "']' after fixed array size");
+                type_ann->fixed_array_count = static_cast<size_t>(count);
+            }
         }
 
         return type_ann;
@@ -1927,7 +1962,11 @@ class Parser {
         } else if (auto *ue = dynamic_cast<nari::UnaryExpr *>(expr.get())) {
             ue->operand = subst_fold(std::move(ue->operand), m);
         } else if (auto *ce = dynamic_cast<nari::CallExpr *>(expr.get())) {
-            ce->callee = subst_fold(std::move(ce->callee), m);
+            // Keep identifier callees intact so runtime call diagnostics retain
+            // the source-level name instead of seeing only a folded literal.
+            if (!dynamic_cast<nari::IdentExpr *>(ce->callee.get())) {
+                ce->callee = subst_fold(std::move(ce->callee), m);
+            }
             for (auto &a : ce->args) {
                 a = subst_fold(std::move(a), m);
             }
@@ -3056,7 +3095,7 @@ class Parser {
                 // either a declaration or an expression statement (or empty)
                 StmtPtr init = nullptr;
                 if (peek().kind != TokenKind::TK_SEMICOLON) {
-                    if (peek().kind == TokenKind::TK_IDENT && (peek().text == "let" || peek().text == "global")) {
+                    if (peek().kind == TokenKind::TK_IDENT && (peek().text == "let" || peek().text == "global" || peek().text == "const")) {
                         init = parse_stmt();
                     } else {
                         // Handle assignment (i = 0) or expression
@@ -3198,12 +3237,18 @@ class Parser {
                 }
             }
 
-            // variable declaration: `let IDENT = expr` or `global IDENT = expr`
-            // or destructuring: `let [a, b] = expr` or `let {x, y} = expr`
-            if (tok.text == "let" || tok.text == "global") {
+            if (tok.text == "var" && peek(1).kind == TokenKind::TK_IDENT &&
+                (peek(2).kind == TokenKind::TK_EQUAL || peek(2).kind == TokenKind::TK_SEMICOLON)) {
+                error_and_exit("'var' is not a valid variable declaration; use 'let', 'global', or 'const'");
+            }
+
+            // variable declaration: `let IDENT = expr`, `global IDENT = expr`, or `const IDENT = expr`
+            // or destructuring: `let/const [a, b] = expr` or `let/const {x, y} = expr`
+            if (tok.text == "let" || tok.text == "global" || tok.text == "const") {
                 VarDeclCtrl is_global = (VarDeclCtrl)(tok.text == "global");
+                bool is_const = tok.text == "const";
                 Token keyword = tok;
-                next(); // consume 'let' or 'global'
+                next(); // consume declaration keyword
 
                 // Check for array destructuring: let [a, b, c] = ...
                 if (peek().kind == TokenKind::TK_LBRACKET) {
@@ -3236,7 +3281,7 @@ class Parser {
                         next();
                     }
 
-                    auto decl = std::make_unique<nari::VarDeclStmt>("", std::move(init), is_global);
+                    auto decl = std::make_unique<nari::VarDeclStmt>("", std::move(init), is_global, is_const);
                     decl->destructure_kind = nari::DestructureKind::Array;
                     decl->array_names = std::move(names);
                     decl->line = keyword.line;
@@ -3288,7 +3333,7 @@ class Parser {
                         next();
                     }
 
-                    auto decl = std::make_unique<nari::VarDeclStmt>("", std::move(init), is_global);
+                    auto decl = std::make_unique<nari::VarDeclStmt>("", std::move(init), is_global, is_const);
                     decl->destructure_kind = nari::DestructureKind::Object;
                     decl->object_bindings = std::move(bindings);
                     decl->line = keyword.line;
@@ -3300,7 +3345,7 @@ class Parser {
                 // simple variable declaration
                 const Token &nameTok = peek();
                 if (nameTok.kind != TokenKind::TK_IDENT) {
-                    error_and_exit("Expected identifier after " + std::string(is_global ? "'global'" : "'let'"));
+                    error_and_exit("Expected identifier after '" + keyword.text + "'");
                 }
                 std::string name = next().text;
                 ExprPtr init = nullptr;
@@ -3308,10 +3353,13 @@ class Parser {
                     next(); // consume '='
                     init = parse_expression();
                 }
+                if (is_const && !init) {
+                    error_and_exit("Const declaration requires initialization");
+                }
                 if (peek().kind == TokenKind::TK_SEMICOLON) {
                     next();
                 }
-                auto decl = std::make_unique<nari::VarDeclStmt>(name, std::move(init), is_global);
+                auto decl = std::make_unique<nari::VarDeclStmt>(name, std::move(init), is_global, is_const);
                 decl->line = keyword.line;
                 decl->col = keyword.col;
                 decl->filename = keyword.filename.empty() ? current_filename : keyword.filename;
@@ -4394,18 +4442,29 @@ class Parser {
 // pre-parse expression fragments in StringInterpolationExpr nodes so the
 // runtime and bytecode compiler don't need to re-invoke the parser.
 
-static void ri_stmt(nari::Stmt *s);
-static void ri_block(nari::BlockStmt *blk);
+static void ri_stmt(nari::Stmt *s, std::vector<ParseError> *errors);
+static void ri_block(nari::BlockStmt *blk, std::vector<ParseError> *errors);
 
-static void ri_expr(nari::Expr *e) {
+static void ri_expr(nari::Expr *e, std::vector<ParseError> *errors) {
     if (!e) {
         return;
     }
     if (auto *sie = dynamic_cast<nari::StringInterpolationExpr *>(e)) {
         if (sie->exprs.empty() && !sie->expr_sources.empty()) {
             for (const auto &src : sie->expr_sources) {
+                std::string previous_filename = current_filename;
                 set_source_filename(sie->filename);
-                auto funcs = parse_program_from_source(src);
+                FuncList funcs;
+                if (errors) {
+                    auto result = parse_program_recovering(src);
+                    for (auto &error : result.errors) {
+                        errors->push_back(std::move(error));
+                    }
+                    funcs = std::move(result.functions);
+                } else {
+                    funcs = parse_program_from_source(src);
+                }
+                set_source_filename(previous_filename);
                 nari::ExprPtr parsed;
                 if (funcs.size() >= 2 && funcs[1] && funcs[1]->body && !funcs[1]->body->stmts.empty()) {
                     if (auto *es = dynamic_cast<nari::ExprStmt *>(funcs[1]->body->stmts[0].get())) {
@@ -4418,156 +4477,165 @@ static void ri_expr(nari::Expr *e) {
         return;
     }
     if (auto *be = dynamic_cast<nari::BinaryExpr *>(e)) {
-        ri_expr(be->left.get());
-        ri_expr(be->right.get());
+        ri_expr(be->left.get(), errors);
+        ri_expr(be->right.get(), errors);
         return;
     }
     if (auto *ue = dynamic_cast<nari::UnaryExpr *>(e)) {
-        ri_expr(ue->operand.get());
+        ri_expr(ue->operand.get(), errors);
         return;
     }
     if (auto *ce = dynamic_cast<nari::CallExpr *>(e)) {
-        ri_expr(ce->callee.get());
+        ri_expr(ce->callee.get(), errors);
         for (auto &a : ce->args) {
-            ri_expr(a.get());
+            ri_expr(a.get(), errors);
         }
         return;
     }
     if (auto *ae = dynamic_cast<nari::ArrayLiteralExpr *>(e)) {
         for (auto &el : ae->elements) {
-            ri_expr(el.get());
+            ri_expr(el.get(), errors);
         }
         return;
     }
     if (auto *oe = dynamic_cast<nari::ObjectLiteralExpr *>(e)) {
         for (auto &kv : oe->entries) {
-            ri_expr(kv.second.get());
+            ri_expr(kv.second.get(), errors);
         }
         return;
     }
     if (auto *ie = dynamic_cast<nari::IndexExpr *>(e)) {
-        ri_expr(ie->object.get());
-        ri_expr(ie->index.get());
+        ri_expr(ie->object.get(), errors);
+        ri_expr(ie->index.get(), errors);
         return;
     }
     if (auto *me = dynamic_cast<nari::MemberExpr *>(e)) {
-        ri_expr(me->object.get());
+        ri_expr(me->object.get(), errors);
         return;
     }
     if (auto *ne = dynamic_cast<nari::NewExpr *>(e)) {
         for (auto &a : ne->args) {
-            ri_expr(a.get());
+            ri_expr(a.get(), errors);
         }
         return;
     }
     if (auto *te = dynamic_cast<nari::TernaryExpr *>(e)) {
-        ri_expr(te->condition.get());
-        ri_expr(te->true_expr.get());
-        ri_expr(te->false_expr.get());
+        ri_expr(te->condition.get(), errors);
+        ri_expr(te->true_expr.get(), errors);
+        ri_expr(te->false_expr.get(), errors);
         return;
     }
     if (auto *fe = dynamic_cast<nari::FunctionExpr *>(e)) {
         for (auto &p : fe->params) {
-            ri_expr(p.default_value.get());
+            ri_expr(p.default_value.get(), errors);
         }
-        ri_block(fe->body.get());
+        ri_block(fe->body.get(), errors);
         return;
     }
     if (auto *se = dynamic_cast<nari::SpawnExpr *>(e)) {
-        ri_block(se->body.get());
+        ri_block(se->body.get(), errors);
         return;
     }
     if (auto *me2 = dynamic_cast<nari::MatchExpr *>(e)) {
-        ri_expr(me2->scrutinee.get());
+        ri_expr(me2->scrutinee.get(), errors);
         for (auto &arm : me2->arms) {
-            ri_expr(arm.body.get());
+            ri_expr(arm.body.get(), errors);
         }
         return;
     }
 }
 
-static void ri_stmt(nari::Stmt *s) {
+static void ri_stmt(nari::Stmt *s, std::vector<ParseError> *errors) {
     if (!s) {
         return;
     }
     if (auto *es = dynamic_cast<nari::ExprStmt *>(s)) {
-        ri_expr(es->expr.get());
+        ri_expr(es->expr.get(), errors);
         return;
     }
     if (auto *vd = dynamic_cast<nari::VarDeclStmt *>(s)) {
-        ri_expr(vd->initializerExpr.get());
+        ri_expr(vd->initializerExpr.get(), errors);
         return;
     }
     if (auto *as = dynamic_cast<nari::AssignStmt *>(s)) {
-        ri_expr(as->value.get());
+        ri_expr(as->value.get(), errors);
         return;
     }
     if (auto *ia = dynamic_cast<nari::IndexAssignStmt *>(s)) {
-        ri_expr(ia->target.get());
-        ri_expr(ia->value.get());
+        ri_expr(ia->target.get(), errors);
+        ri_expr(ia->value.get(), errors);
         return;
     }
     if (auto *rs = dynamic_cast<nari::ReturnStmt *>(s)) {
-        ri_expr(rs->value.get());
+        ri_expr(rs->value.get(), errors);
         return;
     }
     if (auto *blk = dynamic_cast<nari::BlockStmt *>(s)) {
-        ri_block(blk);
+        ri_block(blk, errors);
         return;
     }
     if (auto *is = dynamic_cast<nari::IfStmt *>(s)) {
-        ri_expr(is->cond.get());
-        ri_stmt(is->then_branch.get());
-        ri_stmt(is->else_branch.get());
+        ri_expr(is->cond.get(), errors);
+        ri_stmt(is->then_branch.get(), errors);
+        ri_stmt(is->else_branch.get(), errors);
         return;
     }
     if (auto *ws = dynamic_cast<nari::WhileStmt *>(s)) {
-        ri_expr(ws->cond.get());
-        ri_stmt(ws->body.get());
+        ri_expr(ws->cond.get(), errors);
+        ri_stmt(ws->body.get(), errors);
         return;
     }
     if (auto *fs = dynamic_cast<nari::ForStmt *>(s)) {
-        ri_stmt(fs->init.get());
-        ri_expr(fs->cond.get());
-        ri_stmt(fs->post.get());
-        ri_stmt(fs->body.get());
+        ri_stmt(fs->init.get(), errors);
+        ri_expr(fs->cond.get(), errors);
+        ri_stmt(fs->post.get(), errors);
+        ri_stmt(fs->body.get(), errors);
         return;
     }
     if (auto *fes = dynamic_cast<nari::ForEachStmt *>(s)) {
-        ri_expr(fes->iterable.get());
-        ri_stmt(fes->body.get());
+        ri_expr(fes->iterable.get(), errors);
+        ri_stmt(fes->body.get(), errors);
         return;
     }
     if (auto *ss = dynamic_cast<nari::SwitchStmt *>(s)) {
-        ri_expr(ss->value.get());
+        ri_expr(ss->value.get(), errors);
         for (auto &c : ss->cases) {
-            ri_expr(c.match.get());
-            ri_block(c.body.get());
+            ri_expr(c.match.get(), errors);
+            ri_block(c.body.get(), errors);
         }
-        ri_block(ss->default_body.get());
+        ri_block(ss->default_body.get(), errors);
         return;
     }
 }
 
-static void ri_block(nari::BlockStmt *blk) {
+static void ri_block(nari::BlockStmt *blk, std::vector<ParseError> *errors) {
     if (!blk) {
         return;
     }
     for (auto &s : blk->stmts) {
-        ri_stmt(s.get());
+        ri_stmt(s.get(), errors);
     }
 }
 
-static void resolve_interp_exprs(std::vector<FunctionPtr> &funcs) {
+static void resolve_interp_exprs(std::vector<FunctionPtr> &funcs, std::vector<ParseError> *errors = nullptr) {
     for (auto &fn : funcs) {
         if (fn && fn->body) {
-            ri_block(fn->body.get());
+            ri_block(fn->body.get(), errors);
         }
     }
 }
 
 static ParseResult parse_impl(const std::string &src, bool create_aggregator, bool recover_mode) {
-    std::vector<Token> tokens_out = tokenize(src, current_filename);
+    std::vector<LexError> lex_errors;
+    std::vector<Token> tokens_out = tokenize(src, current_filename, recover_mode ? &lex_errors : nullptr);
+    if (!lex_errors.empty()) {
+        std::vector<ParseError> errors;
+        errors.reserve(lex_errors.size());
+        for (auto &error : lex_errors) {
+            errors.push_back({ std::move(error.filename), error.line, error.col, std::move(error.message) });
+        }
+        return ParseResult{ {}, std::move(errors) };
+    }
 
     // invoke parser with the specified aggregator creation flag
     Parser parser(tokens_out, recover_mode);
@@ -4584,7 +4652,7 @@ std::vector<FunctionPtr> parse_program_from_source(const std::string &src, bool 
 
 ParseResult parse_program_recovering(const std::string &src, bool create_aggregator) {
     auto result = parse_impl(src, create_aggregator, true);
-    resolve_interp_exprs(result.functions);
+    resolve_interp_exprs(result.functions, &result.errors);
     return result;
 }
 

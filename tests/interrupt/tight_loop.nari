@@ -1,0 +1,6 @@
+while (true) {
+}
+
+func start() {
+    panic("start() ran after interruption");
+}

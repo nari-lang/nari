@@ -1,4 +1,4 @@
-// -- type inspection and conversion --
+// -- type inspection --
 
 /// Returns a string describing the runtime type of value.
 /// Possible results: "number", "string", "bool", "array", "object",
@@ -14,236 +14,225 @@ func is_function(value) -> bool {}
 
 // -- type conversions --
 
-/// Converts value to a number. Returns 0 if conversion fails.
+// Converts value to a number. Returns 0 if conversion fails.
 func to_number(value) -> number {}
 
-/// Converts value to its string representation.
+// Converts value to its string representation.
 func to_string(value) -> string {}
 
-/// Converts value to a boolean.
+// Converts value to a boolean.
 func to_bool(value) -> bool {}
 
-/// Parses a string as a decimal integer. Accepts an optional radix (base).
+// Parses a string as a decimal integer. Accepts an optional radix (base).
 func parse_int(str: string, radix: number) -> number {}
 
-/// Parses a string as a floating-point number.
+// Parses a string as a floating-point number.
 func parse_float(str: string) -> number {}
 
-/// Creates a single-character string from an ASCII code (0 - 127).
+// Creates a single-character string from an ASCII code (0 - 127).
 func from_char_code(code: number) -> string {}
 
-/// Prints values to stdout separated by spaces with no trailing newline.
+// Prints values to stdout separated by spaces with no trailing newline.
 func print(...values) {}
 
-// -------------------------------------------------------------
 // Random / time
-// -------------------------------------------------------------
 
-/// Returns a random float in [0, 1).
+// Returns a random float in [0, 1).
 func random() -> number {}
 
-/// Returns a numeric timestamp (milliseconds since Unix epoch by default).
+// Returns a numeric timestamp (milliseconds since Unix epoch by default).
 func time() -> number {}
 
-// -------------------------------------------------------------
 // Ranges
-// -------------------------------------------------------------
 
-/// Returns an array of integers from start (inclusive) to end (exclusive),
-/// stepping by step (default 1).
+// Returns an array of integers from start (inclusive) to end (exclusive), stepping by `step`` (default 1).
 func range(start: number, end: number, step: number) -> number[] {}
 
-// -------------------------------------------------------------
 // Async
-// -------------------------------------------------------------
 
-/// Schedules fn to run after delay milliseconds. Returns a handle.
+// schedules fn to run after delay milliseconds. Returns a handle.
 func set_timeout(fn: func, delay: number) {}
 
-/// Schedules fn to run repeatedly every interval milliseconds. Returns an id.
+// schedules fn to run repeatedly every interval milliseconds. Returns an id.
 func set_interval(fn: func, interval: number) -> number {}
 
-/// Cancels a repeating interval previously created by set_interval.
+// cancels a repeating interval previously created by set_interval.
 func clear_interval(id: number) {}
 
-// -------------------------------------------------------------
 // I/O
-// -------------------------------------------------------------
 
-/// Reads a single line from stdin (blocking).
+// reads a single line from stdin (blocking).
 func read_line() -> string {}
 
-// -- dot-methods ---------------------------------------------
+// dot-methods
 // These are called as method syntax only (arr.push(), str.trim(), etc.).
-// They are NOT available as free functions.
 
-// -- arrays --
+// arrays
 
-/// Appends value to the array and returns the new length.
+// Appends value to the array and returns the new length.
 func push(value) -> number {}
 
-/// Removes and returns the last element.
+// Removes and returns the last element.
 func pop() -> any {}
 
-/// Returns the number of elements (or characters in a string).
+// Returns the number of elements (or characters in a string).
 func length() -> number {}
 
-/// Returns a shallow copy from start (inclusive) to end (exclusive).
+// Returns a shallow copy from start (inclusive) to end (exclusive).
 func slice(start: number, end: number) -> any[] {}
 
-/// Returns a new array formed by concatenating with one or more values/arrays.
+// Returns a new array formed by concatenating with one or more values/arrays.
 func concat(...others) -> any[] {}
 
-/// Joins all elements into a string separated by separator.
+// Joins all elements into a string separated by separator.
 func join(separator: string) -> string {}
 
-/// Returns the first index of value, or -1 if not found.
+// Returns the first index of value, or -1 if not found.
 func index_of(value) -> number {}
 
-/// Returns the last index of value, or -1 if not found.
+// Returns the last index of value, or -1 if not found.
 func last_index_of(value) -> number {}
 
-/// Returns true if array contains value.
+// Returns true if array contains value.
 func includes(value) -> bool {}
 
-/// Reverses the array in place and returns it.
+// Reverses the array in place and returns it.
 func reverse() -> any[] {}
 
-/// Sorts the array in place. Accepts an optional comparator function.
+// Sorts the array in place. Accepts an optional comparator function.
 func sort(comparator: func) -> any[] {}
 
-/// Removes deleteCount elements at start and optionally inserts items.
+// Removes deleteCount elements at start and optionally inserts items.
 func splice(start: number, deleteCount: number, ...items) -> any[] {}
 
-/// Returns true if every element satisfies predicate.
+// Returns true if every element satisfies predicate.
 func every(predicate: func) -> bool {}
 
-/// Returns true if at least one element satisfies predicate.
+// Returns true if at least one element satisfies predicate.
 func some(predicate: func) -> bool {}
 
-/// Returns the first element for which predicate returns true, or null.
+// Returns the first element for which predicate returns true, or null.
 func find(predicate: func) -> any {}
 
-/// Returns the index of the first element for which predicate returns true, or -1.
+// Returns the index of the first element for which predicate returns true, or -1.
 func find_index(predicate: func) -> number {}
 
-/// Returns a new array containing only elements for which predicate returns true.
+// Returns a new array containing only elements for which predicate returns true.
 func filter(predicate: func) -> any[] {}
 
-/// Returns a new array formed by calling transform on each element.
+// Returns a new array formed by calling transform on each element.
 func map(transform: func) -> any[] {}
 
-/// Reduces the array to a single value by calling fn(accumulator, element).
+// Reduces the array to a single value by calling fn(accumulator, element).
 func reduce(fn: func, initialValue: any) -> any {}
 
-/// Calls fn once for each element.
+// Calls fn once for each element.
 func for_each(fn: func) {}
 
-/// Returns a new array with sub-array elements flattened to the specified depth (default 1).
+// Returns a new array with sub-array elements flattened to the specified depth (default 1).
 func flat(depth: number) -> any[] {}
 
-/// Maps each element using a callback, then flattens the result by one level.
+// Maps each element using a callback, then flattens the result by one level.
 func flat_map(callback: func) -> any[] {}
 
-// -- objects --
+// objects
 
-/// Returns an array of all enumerable property keys.
+// Returns an array of all enumerable property keys.
 func keys() -> string[] {}
 
-/// Returns an array of all enumerable property values.
+// Returns an array of all enumerable property values.
 func values() -> any[] {}
 
-/// Returns true if object has its own property named key.
+// Returns true if object has its own property named key.
 func has_key(key: string) -> bool {}
 
-/// Returns an array of [key, value] pairs for all properties.
+// Returns an array of [key, value] pairs for all properties.
 func entries() -> any[] {}
 
-/// Copies all properties from source into this object, overwriting existing keys.
+// Copies all properties from source into this object, overwriting existing keys.
 func assign(source: object) -> object {}
 
-/// Prevents any further modification to the object.
+// Prevents any further modification to the object.
 func freeze() -> void {}
 
-/// Returns true if the object has been frozen.
+// Returns true if the object has been frozen.
 func is_frozen() -> bool {}
 
-// -- strings --
+// strings
 
-/// Returns a substring starting at start with the given length.
+// Returns a substring starting at start with the given length.
 func substr(start: number, length: number) -> string {}
 
-/// Returns the character at position index.
+// Returns the character at position index.
 func char_at(index: number) -> string {}
 
-/// Returns the UTF-16 code unit value of the character at index.
+// Returns the UTF-16 code unit value of the character at index.
 func char_code_at(index: number) -> number {}
 
-/// Splits the string by separator and returns an array of substrings.
+// Splits the string by separator and returns an array of substrings.
 func split(separator: string) -> string[] {}
 
-/// Replaces the first occurrence of search with replacement.
+// Replaces the first occurrence of search with replacement.
 func replace(search: string, replacement: string) -> string {}
 
-/// Replaces all occurrences of search with replacement.
+// Replaces all occurrences of search with replacement.
 func replace_all(search: string, replacement: string) -> string {}
 
-/// Removes leading and trailing whitespace.
+// Removes leading and trailing whitespace.
 func trim() -> string {}
 
-/// Converts to uppercase.
+// Converts to uppercase.
 func to_upper() -> string {}
 
-/// Converts to lowercase.
+// Converts to lowercase.
 func to_lower() -> string {}
 
-/// Returns true if the string starts with prefix.
+// Returns true if the string starts with prefix.
 func starts_with(prefix: string) -> bool {}
 
-/// Returns true if the string ends with suffix.
+// Returns true if the string ends with suffix.
 func ends_with(suffix: string) -> bool {}
 
-/// Pads the start of the string to targetLength using padString (default: space).
+// Pads the start of the string to targetLength using padString (default: space).
 func pad_start(targetLength: number, padString: string) -> string {}
 
-/// Pads the end of the string to targetLength using padString (default: space).
+// Pads the end of the string to targetLength using padString (default: space).
 func pad_end(targetLength: number, padString: string) -> string {}
 
-/// Repeats the string count times.
+// Repeats the string count times.
 func repeat(count: number) -> string {}
 
-/// Removes leading whitespace.
+// Removes leading whitespace.
 func trim_start() -> string {}
 
-/// Removes trailing whitespace.
+// Removes trailing whitespace.
 func trim_end() -> string {}
 
-/// Returns the character at the given index (supports negative indices).
+// Returns the character at the given index (supports negative indices).
 func at(index: number) -> string {}
 
-/// Splits the string into an array of individual characters.
+// Splits the string into an array of individual characters.
 func to_char_array() -> string[] {}
 
-/// Returns true if the string contains substring.
+// Returns true if the string contains substring.
 func contains(substring: string) -> bool {}
 
-// -- regex --
+// regex
 
-/// Returns true if the regex matches anywhere in subject.
+// Returns true if the regex matches anywhere in subject.
 func test(subject: string) -> bool {}
 
-/// Searches subject for the regex. Returns an object with `value`, `index`,
-/// and `groups` fields on match, or null if there is no match.
+// Searches subject for the regex. Returns an object with `value`, `index`, and `groups` fields on match, or null if there is no match.
 func exec(subject: string) -> any {}
 
 
-/// Represents a value that may be present (Some) or absent (None).
+// Represents a value that may be present (Some) or absent (None).
 enum Option<T> {
     Some(T),
     None
 }
 
-/// Represents either a success (Ok) or a failure (Err).
+// Represents either a success (Ok) or a failure (Err).
 enum Result<T, E> {
     Ok(T),
     Err(E)

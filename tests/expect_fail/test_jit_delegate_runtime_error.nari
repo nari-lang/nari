@@ -1,0 +1,25 @@
+func read_delegate(value) {
+    return value["/"];
+}
+
+func start() {
+    let valid = Delegate("package/name", {
+        get: func(target, key) { return target.index_of(key); }
+    });
+
+    for (let i = 0; i < 60; i++) {
+        read_delegate(valid);
+    }
+
+    let invalid = Delegate(null, {
+        get: func(target, key) { return target.index_of(key); }
+    });
+
+    try {
+        read_delegate(invalid);
+    } catch (error) {
+        print("delegate runtime error was incorrectly caught: " @ error);
+    }
+
+    print("execution continued after delegate runtime error");
+}

@@ -1,0 +1,14 @@
+func spin() {
+    let outer = 0;
+    while (true) {
+        let inner = 0;
+        while (inner < 1000) {
+            inner = inner + 1;
+        }
+        outer = outer + 1;
+    }
+}
+
+func start() {
+    spin();
+}

@@ -46,6 +46,7 @@ void run_program_with_runtime(FuncList &funcs);
 #endif
 extern std::atomic<bool> g_shutdown_requested;
 extern std::atomic<bool> g_runtime_error_occurred;
+void reset_shutdown_flag();
 void reset_runtime_error_flag();
 } // namespace Runtime
 
@@ -174,7 +175,6 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                 case OpCode::OP_ARRAY_PUSH:
                 case OpCode::OP_ARRAY_SPREAD:
                 case OpCode::OP_OBJECT_SPREAD:
-                case OpCode::OP_CALL_SPREAD:
                 case OpCode::OP_GET_INDEX:
                 case OpCode::OP_SET_INDEX:
                 case OpCode::OP_MAKE_ITERATOR:
@@ -195,6 +195,7 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                 case OpCode::OP_STORE_VAR:
                 case OpCode::OP_LOAD_CAPTURE:
                 case OpCode::OP_STORE_CAPTURE:
+                case OpCode::OP_FORMAT_VALUE:
                 case OpCode::OP_MAKE_ARRAY:
                 case OpCode::OP_MAKE_OBJECT:
                 case OpCode::OP_JUMP:
@@ -210,13 +211,32 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                     break;
 
                 // 1-byte argc only
-                case OpCode::OP_CALL:
                 case OpCode::OP_SELF_TAIL_CALL:
                     if (!need(pc, 1)) {
                         fprintf(stderr, "merge_naric_into_chunk: truncated argc at pc=%zu\n", op_pc);
                         return false;
                     }
                     pc += 1;
+                    break;
+
+                // 2-byte string index (remap)
+                case OpCode::OP_CALL_SPREAD:
+                    if (!remap_string_operand(pc, "callee label")) {
+                        return false;
+                    }
+                    pc += 2;
+                    break;
+
+                // 1-byte argc + 2-byte string index (remap)
+                case OpCode::OP_CALL:
+                    if (!need(pc, 3)) {
+                        fprintf(stderr, "merge_naric_into_chunk: truncated call operands at pc=%zu\n", op_pc);
+                        return false;
+                    }
+                    if (!remap_string_operand(pc + 1, "callee label")) {
+                        return false;
+                    }
+                    pc += 3;
                     break;
 
                 // 2-byte string index (remap)
@@ -462,6 +482,7 @@ int main(int argc, char **argv) {
 
     // install signal handlers if possible for graceful shutdown
     // TODO: eventually i'll figure out how to do this on Windows too, but for now just ignore it there
+    Runtime::reset_shutdown_flag();
 #ifndef _WIN32
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
@@ -585,13 +606,15 @@ int main(int argc, char **argv) {
                     if (Parser::is_registered_type(ti.name)) {
                         continue;
                     }
-                    auto type_decl = std::make_unique<nari::TypeDecl>(ti.name);
+                    auto type_decl = std::make_unique<nari::TypeDecl>(
+                        ti.name, ti.is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
                     if (!ti.alias_target.empty()) {
                         type_decl->alias_target = std::make_unique<nari::TypeAnnotation>(ti.alias_target);
                     }
                     for (const auto &fi : ti.fields) {
-                        type_decl->fields.emplace_back(
-                            fi.name, std::make_unique<nari::TypeAnnotation>(fi.type_name, fi.is_array));
+                        auto field_type = std::make_unique<nari::TypeAnnotation>(fi.type_name, fi.is_array);
+                        field_type->fixed_array_count = fi.fixed_array_count;
+                        type_decl->fields.emplace_back(fi.name, std::move(field_type));
                     }
                     Parser::register_type(std::move(type_decl));
                 }
@@ -643,12 +666,15 @@ int main(int argc, char **argv) {
                         if (Parser::is_registered_type(ti.name)) {
                             continue;
                         }
-                        auto type_decl = std::make_unique<nari::TypeDecl>(ti.name);
+                        auto type_decl = std::make_unique<nari::TypeDecl>(
+                            ti.name, ti.is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
                         if (!ti.alias_target.empty()) {
                             type_decl->alias_target = std::make_unique<nari::TypeAnnotation>(ti.alias_target);
                         }
                         for (const auto &fi : ti.fields) {
-                            type_decl->fields.emplace_back(fi.name, std::make_unique<nari::TypeAnnotation>(fi.type_name, fi.is_array));
+                            auto field_type = std::make_unique<nari::TypeAnnotation>(fi.type_name, fi.is_array);
+                            field_type->fixed_array_count = fi.fixed_array_count;
+                            type_decl->fields.emplace_back(fi.name, std::move(field_type));
                         }
                         Parser::register_type(std::move(type_decl));
                     }

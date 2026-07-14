@@ -9,7 +9,7 @@ func greet(name: string) -> string {
 }
 
 // Mixed typed and untyped parameters
-func process(data, multiplier: number) {
+func scale(data, multiplier: number) {
     return data * multiplier;
 }
 
@@ -54,7 +54,7 @@ func start() {
     print(greet("World"));
     
     print("Mixed parameters");
-    print(process(7, 3));
+    print(scale(7, 3));
     
     print("Default values with types");
     print(multiply(4));

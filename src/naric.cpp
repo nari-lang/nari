@@ -153,21 +153,38 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
                         printf(" (.%s)", chunk.strings[val].c_str());
                     }
                     printf("\n");
+                } else if (op == OpCode::OP_CALL_SPREAD) {
+                    printf("%-16s callee=#%u", opcode_name(op), val);
+                    if (val < chunk.strings.size()) {
+                        printf(" (\"%s\")", chunk.strings[val].c_str());
+                    }
+                    printf("\n");
                 } else {
                     printf("%-16s %u\n", opcode_name(op), val);
                 }
             } else if (operand_size == 3) {
-                uint16_t val = (func.code[ip] << 8) | func.code[ip + 1];
-                ip += 2;
-                uint8_t argc = func.code[ip++];
-                if (op == OpCode::OP_CALL_METHOD) {
-                    printf("%-16s #%u", opcode_name(op), val);
-                    if (val < chunk.strings.size()) {
-                        printf(" (.%s)", chunk.strings[val].c_str());
+                if (op == OpCode::OP_CALL) {
+                    uint8_t argc = func.code[ip++];
+                    uint16_t label = (func.code[ip] << 8) | func.code[ip + 1];
+                    ip += 2;
+                    printf("%-16s argc=%u callee=#%u", opcode_name(op), argc, label);
+                    if (label < chunk.strings.size()) {
+                        printf(" (\"%s\")", chunk.strings[label].c_str());
                     }
-                    printf(" argc=%u\n", argc);
+                    printf("\n");
                 } else {
-                    printf("%-16s #%u argc=%u\n", opcode_name(op), val, argc);
+                    uint16_t val = (func.code[ip] << 8) | func.code[ip + 1];
+                    ip += 2;
+                    uint8_t argc = func.code[ip++];
+                    if (op == OpCode::OP_CALL_METHOD) {
+                        printf("%-16s #%u", opcode_name(op), val);
+                        if (val < chunk.strings.size()) {
+                            printf(" (.%s)", chunk.strings[val].c_str());
+                        }
+                        printf(" argc=%u\n", argc);
+                    } else {
+                        printf("%-16s #%u argc=%u\n", opcode_name(op), val, argc);
+                    }
                 }
             } else if (operand_size == 4) {
                 uint16_t a = (func.code[ip] << 8) | func.code[ip + 1];

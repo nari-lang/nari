@@ -1,0 +1,39 @@
+let libc = __ffi_load_library("libc.so.6")
+
+let negative = __ffi_call(libc, "printf", {
+    returns: "int",
+    params: [],
+    variadic: -1
+}, [])
+if (negative != null) {
+    panic("negative variadic fixed count was accepted")
+}
+
+let excessive = __ffi_call(libc, "printf", {
+    returns: "int",
+    params: [],
+    variadic: 1
+}, [])
+if (excessive != null) {
+    panic("excessive variadic fixed count was accepted")
+}
+
+let object_arg = __ffi_call(libc, "printf", {
+    returns: "int",
+    params: ["string"],
+    variadic: true
+}, ["", {}])
+if (object_arg != null) {
+    panic("inferred variadic object argument was accepted")
+}
+
+let array_arg = __ffi_call(libc, "printf", {
+    returns: "int",
+    params: ["string"],
+    variadic: true
+}, ["", []])
+if (array_arg != null) {
+    panic("inferred variadic array argument was accepted")
+}
+
+print("ffi variadic validation test passed")

@@ -1,0 +1,51 @@
+union FFIUnionPayload {
+    bytes: u8[12];
+    word: u32;
+    wide: u64;
+}
+
+type FFIUnionEnvelope {
+    tag: u8;
+    payload: FFIUnionPayload;
+    tail: u16;
+}
+
+let members = __ffi_membersof("FFIUnionPayload")
+if (members.union != "FFIUnionPayload" || members.struct != null) {
+    panic("union declaration kind was not preserved")
+}
+if (members.fields.length != 3 || members.fields[0].count != 12) {
+    panic("union field metadata was not preserved")
+}
+
+// max(sizeof(u8[12]), sizeof(u32), sizeof(u64)) rounded to alignof(u64).
+if (__ffi_sizeof("FFIUnionPayload") != 16) {
+    panic("union has the wrong ABI size")
+}
+// tag@0, payload@8, tail@24, rounded to 8-byte alignment.
+if (__ffi_sizeof("FFIUnionEnvelope") != 32) {
+    panic("embedded union has the wrong ABI layout")
+}
+
+let ptr = __ffi_alloc_struct("FFIUnionPayload")
+if (!__ffi_write_struct(ptr, "FFIUnionPayload", { bytes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] })) {
+    panic("union write failed")
+}
+let value = __ffi_read_struct(ptr, "FFIUnionPayload")
+__ffi_free(ptr)
+if (value.word == 0 || value.wide == 0 || value.bytes[0] != 1 || value.bytes[11] != 12) {
+    panic("union fields did not overlap at offset zero")
+}
+
+// libffi has no union type and a layout-equivalent carrier does not preserve
+// every platform's register classification, by value use should be rejected!
+let libc = __ffi_load_library("libc.so.6")
+let rejected = __ffi_call(libc, "memset", {
+    returns: "pointer",
+    params: [members, "int", "ulong"]
+}, [{ word: 0 }, 0, 0])
+if (rejected != null) {
+    panic("by-value union call was not rejected")
+}
+
+print("ffi union test passed")

@@ -3,6 +3,7 @@
 #ifndef DISABLE_FFI
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -65,24 +66,27 @@ enum class FFIType {
 struct FFIStructField {
     std::string name;
     FFIType type;
+    size_t count;
+    std::shared_ptr<struct FFIStructDef> aggregate_def;
 
-    FFIStructField(const std::string &n, FFIType t) : name(n), type(t) {
+    FFIStructField(const std::string &n, FFIType t, size_t c = 1) : name(n), type(t), count(c) {
     }
 
-    bool operator==(const FFIStructField &other) const {
-        return name == other.name && type == other.type;
-    }
+    bool operator==(const FFIStructField &other) const;
 };
 
 struct FFIStructDef {
     std::string name;
+    bool is_union = false;
     std::vector<FFIStructField> fields;
     // cached ffi_types for this struct
     mutable ffi_type *ffi_struct_type = nullptr;
     mutable std::vector<ffi_type *> ffi_field_types;
+    mutable std::vector<size_t> ffi_field_offsets;
 
     FFIStructDef() = default;
-    FFIStructDef(const std::string &n, const std::vector<FFIStructField> &f) : name(n), fields(f) {
+    FFIStructDef(const std::string &n, const std::vector<FFIStructField> &f, bool u = false)
+        : name(n), is_union(u), fields(f) {
     }
 
     ~FFIStructDef() {
@@ -91,22 +95,29 @@ struct FFIStructDef {
         }
     }
 
-    FFIStructDef(const FFIStructDef &other) : name(other.name), fields(other.fields), ffi_struct_type(nullptr) {
+    FFIStructDef(const FFIStructDef &other)
+        : name(other.name), is_union(other.is_union), fields(other.fields), ffi_struct_type(nullptr) {
     }
 
     FFIStructDef(FFIStructDef &&other) noexcept
-        : name(std::move(other.name)), fields(std::move(other.fields)),
+        : name(std::move(other.name)), is_union(other.is_union), fields(std::move(other.fields)),
           ffi_struct_type(other.ffi_struct_type),
-          ffi_field_types(std::move(other.ffi_field_types)) {
+          ffi_field_types(std::move(other.ffi_field_types)),
+          ffi_field_offsets(std::move(other.ffi_field_offsets)) {
         other.ffi_struct_type = nullptr;
     }
 
     FFIStructDef &operator=(const FFIStructDef &other) {
         if (this != &other) {
+            if (ffi_struct_type) {
+                delete ffi_struct_type;
+            }
             name = other.name;
+            is_union = other.is_union;
             fields = other.fields;
             ffi_struct_type = nullptr;
             ffi_field_types.clear();
+            ffi_field_offsets.clear();
         }
         return *this;
     }
@@ -114,21 +125,31 @@ struct FFIStructDef {
     FFIStructDef &operator=(FFIStructDef &&other) noexcept {
         if (this != &other) {
             name = std::move(other.name);
+            is_union = other.is_union;
             fields = std::move(other.fields);
             if (ffi_struct_type) {
                 delete ffi_struct_type;
             }
             ffi_struct_type = other.ffi_struct_type;
             ffi_field_types = std::move(other.ffi_field_types);
+            ffi_field_offsets = std::move(other.ffi_field_offsets);
             other.ffi_struct_type = nullptr;
         }
         return *this;
     }
 
     bool operator==(const FFIStructDef &other) const {
-        return name == other.name && fields == other.fields;
+        return name == other.name && is_union == other.is_union && fields == other.fields;
     }
 };
+
+inline bool FFIStructField::operator==(const FFIStructField &other) const {
+    if (name != other.name || type != other.type || count != other.count ||
+        (aggregate_def == nullptr) != (other.aggregate_def == nullptr)) {
+        return false;
+    }
+    return !aggregate_def || aggregate_def->name == other.aggregate_def->name;
+}
 
 struct FFISignature {
     FFIType return_type;
@@ -195,6 +216,8 @@ struct FFISignatureHash {
 
         // hash struct definitions
         if (sig.return_struct_def) {
+            h ^= static_cast<size_t>(sig.return_struct_def->is_union);
+            h *= 0x100000001B3ULL;
             for (char c : sig.return_struct_def->name) {
                 h ^= c;
                 h *= 0x100000001B3ULL;
@@ -206,11 +229,15 @@ struct FFISignatureHash {
                 }
                 h ^= (size_t)field.type;
                 h *= 0x100000001B3ULL;
+                h ^= field.count;
+                h *= 0x100000001B3ULL;
             }
         }
 
         for (const auto &sdef : sig.param_struct_defs) {
             if (sdef) {
+                h ^= static_cast<size_t>(sdef->is_union);
+                h *= 0x100000001B3ULL;
                 for (char c : sdef->name) {
                     h ^= c;
                     h *= 0x100000001B3ULL;
@@ -221,6 +248,8 @@ struct FFISignatureHash {
                         h *= 0x100000001B3ULL;
                     }
                     h ^= static_cast<size_t>(field.type);
+                    h *= 0x100000001B3ULL;
+                    h ^= field.count;
                     h *= 0x100000001B3ULL;
                 }
             }
@@ -291,10 +320,9 @@ class FFILibrary {
     std::unordered_map<std::string, void *> symbol_cache_;
 };
 
-// reused scratch buffers for ffi arg conversion - avoids per-call heap
-// allocations
 struct FFIArgStorage {
-    std::vector<std::string> string_storage;
+    // deque keeps c_str() addresses stable while nested aggregate fields append.
+    std::deque<std::string> string_storage;
     std::vector<int32_t> int32_storage;
     std::vector<int64_t> int64_storage;
     std::vector<int8_t> int8_storage;
@@ -326,9 +354,6 @@ struct FFIArgStorage {
         pointer_storage.clear();
         struct_storage.clear();
         arg_pointers.clear();
-        if (string_storage.capacity() < n) {
-            string_storage.reserve(n);
-        }
         if (int32_storage.capacity() < n) {
             int32_storage.reserve(n);
         }
@@ -385,6 +410,7 @@ class FFICaller {
     struct CIFCache {
         ffi_cif cif;
         std::vector<ffi_type *> param_types;
+        bool prepared = false;
     };
 
     static std::unordered_map<FFISignature, CIFCache, FFISignatureHash> cif_cache;
@@ -399,7 +425,8 @@ std::shared_ptr<FFIStructDef>
 create_struct_def_from_type(const std::string &type_name);
 size_t get_struct_size(const std::string &type_name);
 Value read_struct_from_memory(void *ptr, const std::string &type_name);
-void write_struct_to_memory(void *ptr, const std::string &type_name, const Value &obj);
+bool write_struct_to_memory(void *ptr, const std::string &type_name, const Value &obj);
+void *managed_struct_pointer(const Value &value);
 
 // FFI Callback support for creating native function pointers from Nari functions
 struct FFICallback {

@@ -1,11 +1,12 @@
 // #ifndef DISABLE_JIT
 #include "trace_jit_asmjit.h"
-#include "stl_layout.h"
 #include "asmjit_jit.h"
 #include "bytecode.h"
 #include "core_types.h"
+#include "jit_helpers.h"
 #include "jit_layout.h"
 #include "jit_tls.h"
+#include "stl_layout.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -120,8 +121,8 @@ static SignedDivMagic sdiv_magic(int64_t d) {
 static const int64_t ValSize = sizeof(Value);
 
 // NaN-boxing: tag is upper 2 bytes (offset 6) of 8-byte Value
-static const int64_t tagWordOff = 6; // offset of NaN-box tag word within Value
-static const int64_t tagInt = (int64_t)0xFFFC; // upper16 for Int
+static const int64_t tagWordOff = 6;             // offset of NaN-box tag word within Value
+static const int64_t tagInt = (int64_t)0xFFFC;   // upper16 for Int
 static const int64_t tagFloat = (int64_t)0x0000; // floats: upper16 < 0xFFFB
 static const int64_t tagBool = (int64_t)0xFFFE;
 static const int64_t FrameSize = sizeof(nari::bytecode::CallFrame);
@@ -295,13 +296,13 @@ static std::vector<TraceStep> optimize_object_update_traces(const std::vector<Tr
 
 // virtual operand stack entry during compilation
 struct AsmVEntry {
-    arch::Gp gp; // valid for Int/Bool (materialized)
+    arch::Gp gp;     // valid for Int/Bool (materialized)
     arch::Gp aux_gp; // optional auxiliary pointer, e.g. ObjectObj::fields._M_start
-    arch::Vec xmm; // valid for Float
+    arch::Vec xmm;   // valid for Float
     TraceType type;
     bool has_aux_gp = false;
-    
-    // For TraceType::Array entries: 
+
+    // For TraceType::Array entries:
     //  original slot index of the live-var
     //  ArrayObj Value on the interpreter stack. Consumed by ArrayGetIdx / ArraySetIdx
     //  to re-materialize the NaN-boxed array pointer onto vm->stack when emitting an OOB side-exit
@@ -625,7 +626,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 
             auto ait = arr_guards.find(lv.slot);
             if (ait != arr_guards.end()) {
-                // Optional identity guard on the ArrayObj*. 
+                // Optional identity guard on the ArrayObj*.
                 // This is stricter than needed but matches ObjGuard's shape guard
                 arch::Gp expected_arr = cc.new_gp64();
                 cc.mov(expected_arr, (int64_t)(intptr_t)ait->second.expected_arr);
@@ -654,7 +655,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
         if (lv.type == TraceType::Int) {
             arch::Gp vr = var_ireg.at(lv.slot);
             arch::load(cc, vr, arch::ptr(ar, 0)); // load NaN-boxed qword
-            arch::sign_extend_48(cc, vr); // decode: now plain int64
+            arch::sign_extend_48(cc, vr);         // decode: now plain int64
         } else if (lv.type == TraceType::Obj) {
             // extract raw heap pointer (lower 48 bits)
             arch::Gp vr = var_ireg.at(lv.slot);
@@ -920,6 +921,11 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
         }
         arch::add_imm(cc, ireg, 1);
         arch::add_imm(cc, iter_ctr, 1); // count iteration (profitability)
+        {
+            InvokeNode *invoke;
+            arch::invoke_imm(cc, &invoke, (uint64_t)(uintptr_t)jit_poll_shutdown, FuncSignature::build<void, void *>());
+            invoke->set_arg(0, vm_ptr);
+        }
         arch::jmp(cc, bo_loop);
 
         cc.bind(bo_done);
@@ -1468,7 +1474,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 break;
             }
 
-            // Float equality/inequality cannot be folded into a single x86 condition code (NaN sets the parity flag), 
+            // Float equality/inequality cannot be folded into a single x86 condition code (NaN sets the parity flag),
             // so unlike the relational floats above we eagerly materialize a NaN-correct 0/1 bool here and push it as a normal value.
             case Kind::FloatEq:
             case Kind::FloatNe: {
@@ -1537,6 +1543,11 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 
             case Kind::LoopBack:
                 arch::add_imm(cc, iter_ctr, 1); // count this completed iteration
+                {
+                    InvokeNode *invoke;
+                    arch::invoke_imm(cc, &invoke, (uint64_t)(uintptr_t)jit_poll_shutdown, FuncSignature::build<void, void *>());
+                    invoke->set_arg(0, vm_ptr);
+                }
                 arch::jmp(cc, lbl_loop);
                 break;
 
@@ -1616,7 +1627,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 cc.cmp(byte_off, size_r);
                 arch::jcc(cc, arch::CC::kUGE, lbl_side);
 
-                // Prepare OOB side-exit metadata: 
+                // Prepare OOB side-exit metadata:
                 //  interpreter re-executes OP_GET_INDEX with [array, index] on vm->stack.
                 if (!arr_entry.has_array_slot) {
                     compilation_ok = false;
@@ -1700,7 +1711,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 
                 store_int_or_float_on_overflow(slot_addr, val_entry.gp);
 
-                // Assignment result. 
+                // Assignment result.
                 //  In statement position, SET_INDEX is followed by Pop, so avoid materializing the discarded result on the vstack
                 if (step_idx + 1 < opt_steps.size() &&
                     opt_steps[step_idx + 1].kind == Kind::Pop) {
@@ -1901,10 +1912,10 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 arch::load32_zx_mem(cc, inline_kind, arch::ptr(fn_ptr, (int)FDInlineKindOff));
                 arch::cmp_imm_jcc(
                     cc,
-                    inline_kind, 
+                    inline_kind,
                     (int32_t)(step.kind == Kind::ClosureAddConst
-                        ? JitInlineKind::ClosureAddConst
-                        : JitInlineKind::ClosureInc),
+                                  ? JitInlineKind::ClosureAddConst
+                                  : JitInlineKind::ClosureInc),
                     arch::CC::kNE, lbl_done);
 
                 if (step.kind == Kind::ClosureAddConst) {

@@ -50,7 +50,7 @@ void jit_ge(VM *);
 int64_t jit_check_truthy(VM *);
 int64_t jit_check_none(VM *);
 void jit_call(VM *, uint32_t);
-void jit_call_value(VM *, uint32_t);
+void jit_call_value(VM *, uint32_t, uint32_t);
 void jit_return(VM *);
 void jit_make_array(VM *, uint32_t);
 void jit_iter_array(VM *);
@@ -74,8 +74,8 @@ void jit_method_length(VM *);
 void jit_method_char_code_at(VM *);
 void jit_method_starts_with(VM *);
 void jit_method_substr(VM *, uint32_t);
-// strict-mode type check: peek top of stack, throw TypeError on mismatch.
 void jit_check_type(VM *, uint32_t type_str_idx, uint32_t packed);
+void jit_poll_shutdown(VM *);
 
 void jit_slot_store_raw(VM *, uint32_t idx, uint64_t raw);
 void jit_slot_copy(VM *, uint32_t src_idx, uint32_t dst_idx);

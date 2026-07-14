@@ -37,8 +37,8 @@ static const std::unordered_map<uint64_t, const char *> &jit_helper_symbols() {
         auto add = [&](const void *p, const char *name) {
             t.emplace(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(p)), name);
         };
-        
-        #define NARI_JIT_SYM(fn) add(reinterpret_cast<const void *>(&fn), #fn)
+
+#define NARI_JIT_SYM(fn) add(reinterpret_cast<const void *>(&fn), #fn)
 
         NARI_JIT_SYM(jit_load_const);
         NARI_JIT_SYM(jit_push_int);
@@ -93,7 +93,7 @@ static const std::unordered_map<uint64_t, const char *> &jit_helper_symbols() {
         NARI_JIT_SYM(jit_set_property);
         NARI_JIT_SYM(jit_load_capture);
         NARI_JIT_SYM(jit_store_capture);
-        
+
         // NOTE: jit_make_closure/jit_spawn/jit_pow/jit_throw/jit_new_instance/jit_load_this
         //  are declared in jit_helpers.h but have no definition since the JIT never emits calls to them
         NARI_JIT_SYM(jit_call_method);
@@ -102,6 +102,7 @@ static const std::unordered_map<uint64_t, const char *> &jit_helper_symbols() {
         NARI_JIT_SYM(jit_method_starts_with);
         NARI_JIT_SYM(jit_method_substr);
         NARI_JIT_SYM(jit_check_type);
+        NARI_JIT_SYM(jit_poll_shutdown);
         NARI_JIT_SYM(jit_slot_store_raw);
         NARI_JIT_SYM(jit_slot_copy);
 #undef NARI_JIT_SYM
@@ -649,9 +650,9 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         inv->set_arg(2, Imm(b));
     };
 
-    auto emit_ir_call_value = [&](uint32_t argc) {
+    auto emit_ir_call_value = [&](uint32_t argc, uint32_t callee_label_idx) {
         if (argc > 4) {
-            call_u32((const void *)jit_call_value, argc);
+            call_u32_u32((const void *)jit_call_value, argc, callee_label_idx);
             return;
         }
         Label slow = cc.new_label();
@@ -751,7 +752,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         arch::jmp(cc, done);
 
         cc.bind(slow);
-        call_u32((const void *)jit_call_value, argc);
+        call_u32_u32((const void *)jit_call_value, argc, callee_label_idx);
         cc.bind(done);
     };
     // register lowering
@@ -1104,7 +1105,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 arch::shl(cc, r_sbb, r_sbb, 3);
             }
             // load params from frame slot memory into their slot registers.
-            // 
+            //
             // Int48-typed param slots (the speculation) get a NaN-box tag guard,
             // non-int argument gets general path.
             Label spec_fail = cc.new_label();
@@ -1316,7 +1317,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                     call_u32_u32(helper, immA, immB);
                 } else {
                     // the inline call fast path
-                    emit_ir_call_value(immA);
+                    emit_ir_call_value(immA, immB);
                 }
                 RE out;
                 out.ty = result_ty;
@@ -1434,7 +1435,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                    irFuncs.inst(last.operands[0]).type == ir::Ty::Float &&
                                    irFuncs.inst(last.operands[1]).type == ir::Ty::Float;
                     // fusion emits a raw register cmp, so both
-                    // operands must be raw-rep  
+                    // operands must be raw-rep
                     bool cmp_operands_raw = true;
                     if (is_cmp) {
                         for (ir::ValueId ov : last.operands) {
@@ -1555,7 +1556,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 // write the value's XMM form into the slot's fixed vreg.
                                 arch::vec_copy(cc, slot_vec[s], vec_of(st.back()));
                             } else if (raw_rep(slot_types[s])) {
-                                // raw-rep slot, store boxed bits and write through to frame slot memory    
+                                // raw-rep slot, store boxed bits and write through to frame slot memory
                                 arch::mov_reg(cc, slot_reg[s], box_re(st.back()));
                                 slot_write_through(s);
                             } else {
@@ -1949,7 +1950,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             for (uint32_t k = 0; k < argc + 1; k++) {
                                 aptrs[k] = &args[k];
                             }
-                            RE r = escape_ex(nullptr, 3, argc, 0,
+                            RE r = escape_ex(nullptr, 3, argc, (uint32_t)in.imm_int,
                                              aptrs, argc + 1, true, in.type);
                             st.push_back(r);
                             break;
@@ -2100,7 +2101,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             st.pop_back();
                             RE ra = st.back();
                             st.pop_back();
-                            // non-raw operand (boxed bits, e.g. a Call result). 
+                            // non-raw operand (boxed bits, e.g. a Call result).
                             // Speculative both-int inline path
                             if (!re_raw(ra) || !re_raw(rb)) {
                                 const bool is_add = in.op == ir::Op::DynAdd || in.op == ir::Op::IAdd;
@@ -2223,7 +2224,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             // reuses `fr` instead of gp_to_vec-ing `g` back.
                             re.vec = fr;
                             re.has_vec = true;
-                            // defer the vec_to_gp. The GP form is only emitted if a non-float consumer 
+                            // defer the vec_to_gp. The GP form is only emitted if a non-float consumer
                             // reads it via reg_of/box_re
                             re.has_reg = false;
                             st.push_back(re);
@@ -2334,11 +2335,18 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 if (t.op == ir::Op::Jump) {
                     // 0 stack items consumed by Jump, all residual items are phi sources for the successor.
                     emit_phi_writes_to(t.target0, /*st_top_offset=*/0);
+                    if (irFuncs.blocks[t.target0].start_pc <= b.start_pc) {
+                        call0((const void *)jit_poll_shutdown);
+                    }
                     // skip the jump if the target is the next block
                     if (!(fallthrough_opt && t.target0 == fallthrough_bid[bid])) {
                         arch::jmp(cc, rlabels[t.target0]);
                     }
                 } else if (t.op == ir::Op::Branch) {
+                    if (irFuncs.blocks[t.target0].start_pc <= b.start_pc ||
+                        irFuncs.blocks[t.target1].start_pc <= b.start_pc) {
+                        call0((const void *)jit_poll_shutdown);
+                    }
                     if (fuse_fcmp) {
                         // fused ordered float-cmp -> branch.
                         RE rb = st.back();
@@ -2378,7 +2386,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                         st.pop_back();
                         RE ra = st.back();
                         st.pop_back();
-                        // if the truthy target is the fallthrough, invert the condition 
+                        // if the truthy target is the fallthrough, invert the condition
                         // so the jcc takes the falsy edge and the truthy edge falls through
                         arch::CC::Cond cond = cmp_cond(fused_op);
                         bool ft_truthy = fallthrough_opt && t.target0 == fallthrough_bid[bid];
@@ -2424,7 +2432,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             arch::jmp(cc, rlabels[other]);
                         }
                     }
-                } else { 
+                } else {
                     // fused return: box the result in a register, pop the frame,
                     // and store the result directly at the popped frame's slot_base
                     arch::Gp rv;
@@ -2764,7 +2772,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     };
     auto emit_ir_dup = [&]() {
         // Plain 8-byte copy. Value has no dtor/refcount, so dup of a heap value is
-        // the same raw store as a non-heap one. 
+        // the same raw store as a non-heap one.
         // Capacity check is covered by the function-entry reservation.
         arch::Gp endp = fc.get();
         arch::Gp raw = cc.new_gp64("ir_dup_raw");
@@ -2840,7 +2848,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         arch::add_imm(cc, endp, (int)ValSize);
         fc.set(endp);
     };
-    // Push a string constant inline. 
+    // Push a string constant inline.
     // LoadConst only carries STRING/FUNCTION/NONE (ir_build siphons INT->IConst, FLOAT->FConst).
     auto emit_ir_sconst_inline = [&](uint32_t const_idx) -> bool {
         auto &fmeta = chunk.functions[chunk_idx];
@@ -2866,7 +2874,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     auto emit_ir_call_method = [&](const ir::Inst &in) {
         uint32_t method_idx = in.imm_u32;
         uint32_t argc = (uint32_t)in.imm_int;
-        // receiver is a LoadSlot of a proven int-array slot and the push arg is Int48. 
+        // receiver is a LoadSlot of a proven int-array slot and the push arg is Int48.
         bool push_skip_arr_guard = false;
         bool push_skip_val_guard = false;
         if (!in.operands.empty()) {
@@ -2993,7 +3001,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         arch::Gp elem = cc.new_gp64("ir_gi_elem");
         arch::shl(cc, elem, idx, 3);
         arch::add2(cc, elem, start);
-        
+
         arch::Gp val = cc.new_gp64("ir_gi_val");
         arch::load(cc, val, arch::ptr(elem, 0));
         arch::store(cc, arch::ptr(endp, (int)(-2 * ValSize)), val);
@@ -3465,7 +3473,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 call0((const void *)jit_iter_array);
                 break;
             case ir::Op::Call:
-                emit_ir_call_value(in.imm_u32);
+                emit_ir_call_value(in.imm_u32, (uint32_t)in.imm_int);
                 break;
             case ir::Op::CallMethod:
                 emit_ir_call_method(in);
@@ -3527,7 +3535,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             case ir::Op::ICmpNe:
                 // Inline int fast-path with a runtime tag guard; slow path falls back
                 // to the matching jit_lt/le/gt/ge/eq/ne helper.
-                // 
+                //
                 // when IR proves both operands Int48, skip the tag guard.
                 emit_int_cmp(in.op, both_int(in));
                 break;
@@ -3546,14 +3554,22 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         }
     };
     // lower a block terminator (Jump/Branch/Return).
+    ir::BlockId lowering_block = ir::InvalidBlock;
     auto lower_term = [&](const ir::Inst &t) {
         // any deferred finish-store must hit memory before control leaves the block
         fc.flush_invalidate();
         switch (t.op) {
             case ir::Op::Jump:
+                if (irFuncs.blocks[t.target0].start_pc <= irFuncs.blocks[lowering_block].start_pc) {
+                    call0((const void *)jit_poll_shutdown);
+                }
                 arch::jmp(cc, blabels[t.target0]);
                 break;
             case ir::Op::Branch: {
+                if (irFuncs.blocks[t.target0].start_pc <= irFuncs.blocks[lowering_block].start_pc ||
+                    irFuncs.blocks[t.target1].start_pc <= irFuncs.blocks[lowering_block].start_pc) {
+                    call0((const void *)jit_poll_shutdown);
+                }
                 // Fast path: condition is statically Bool. The boxed bool value
                 // is `NB_BOOL_TAG | (truth ? 1 : 0)`; the NaN-box tag has zero
                 // in the low byte, so the low byte of the Value's raw bits IS
@@ -3638,7 +3654,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                irFuncs.inst(cmp.operands[1]).type == ir::Ty::Float;
     };
     auto lower_fused_float_cmp_branch = [&](const ir::Inst &cmp, const ir::Inst &term) {
-        // terminator branches out of this block. 
+        // terminator branches out of this block.
         // Both successors re-enter via `cc.bind(blabels[..])`
         arch::Gp endp = fc.get();
         arch::Vec fa = arch::new_vec_f64(cc, "ffcb_a");
@@ -3738,6 +3754,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             continue; // unreachable after optimization -> don't lower
         }
         const ir::Block &b = irFuncs.blocks[bid];
+        lowering_block = static_cast<ir::BlockId>(bid);
         cc.bind(blabels[bid]);
         // every predecessor flushed before its terminator
         fc.invalidate();
@@ -3749,15 +3766,10 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         if (b.terminator != ir::InvalidValue && !b.insts.empty()) {
             const ir::Inst &term = irFuncs.inst(b.terminator);
             const ir::Inst &last = irFuncs.inst(b.insts.back());
-            bool branch_to_last = term.op == ir::Op::Branch &&
-                                  !term.operands.empty() &&
-                                  term.operands[0] == b.insts.back();
-            // Fuse compare-and-branch for both statically-typed int compares and
-            // dynamically-typed compares; the fused emitter has a runtime tag guard
-            // whose slow path falls back to the generic cmp + branch lowering.
+            bool branch_to_last = term.op == ir::Op::Branch && !term.operands.empty() && term.operands[0] == b.insts.back();
+            // Fuse compare-and-branch for both statically-typed int compares and dynamically-typed compares
             fuse_cmp_branch = branch_to_last && is_cmp_op(last.op);
-            // Static-Float ordered cmp + branch -> ucomisd + jcc, skipping
-            // bool synthesis and check_truthy. Disjoint with the int fuse above.
+            // Static-Float ordered cmp + branch -> ucomisd + jcc, skipping bool synthesis and check_truthy
             if (!fuse_cmp_branch && branch_to_last && is_fcmp_branch_fusable(last)) {
                 fuse_fcmp_branch = true;
             }

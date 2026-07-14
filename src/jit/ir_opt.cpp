@@ -2405,23 +2405,12 @@ GlobalTypeMap analyze_const_globals(const nari::bytecode::Chunk &chunk) {
         while (pc < code.size()) {
             OpCode op = OpCode(code[pc]);
             size_t op_pc = pc;
-            int osz = opcode_operand_size(op);
-            // For unknown opcodes opcode_operand_size returns -1,
-            // bail on this function entirely (we cannot safely advance pc)
-            if (osz < 0) {
+            size_t instruction_size = decoded_instruction_size(code, pc);
+            if (instruction_size == 0) {
                 clear_all();
                 break;
             }
-            // OP_MAKE_CLOSURE is variable-length: 3-byte header
-            //  (func_idx:u16 + capture_count:u8) plus capture_count * 3 bytes
-            size_t step_after = size_t(osz);
             if (op == OpCode::OP_MAKE_CLOSURE) {
-                if (pc + 1 + 3 > code.size()) {
-                    clear_all();
-                    break;
-                }
-                uint8_t cc = code[pc + 1 + 2];
-                step_after = 3 + size_t(cc) * 3;
                 // MAKE_CLOSURE pushes a function value; treat as unknown tos.
                 tos = Ty::Unknown;
             }
@@ -2512,7 +2501,7 @@ GlobalTypeMap analyze_const_globals(const nari::bytecode::Chunk &chunk) {
                     tos = Ty::Bottom;
                     break;
             }
-            pc = op_pc + 1 + step_after;
+            pc = op_pc + instruction_size;
         }
     }
 
@@ -3319,18 +3308,9 @@ uint32_t analyze_frozen_builtin(const nari::bytecode::Chunk &chunk, const char *
         size_t pc = 0;
         while (pc < code.size()) {
             OpCode op = OpCode(code[pc]);
-            int osz = opcode_operand_size(op);
-            if (osz < 0) {
-                // unknown opcode, bail just in case.
+            size_t instruction_size = decoded_instruction_size(code, pc);
+            if (instruction_size == 0) {
                 return UINT32_MAX;
-            }
-            size_t step_after = size_t(osz);
-            if (op == OpCode::OP_MAKE_CLOSURE) {
-                if (pc + 1 + 3 > code.size()) {
-                    return UINT32_MAX;
-                }
-                uint8_t cc = code[pc + 1 + 2];
-                step_after = 3 + size_t(cc) * 3;
             }
             if (op == OpCode::OP_STORE_GLOBAL) {
                 if (pc + 3 > code.size()) {
@@ -3340,7 +3320,7 @@ uint32_t analyze_frozen_builtin(const nari::bytecode::Chunk &chunk, const char *
                     return UINT32_MAX;
                 }
             }
-            pc = pc + 1 + step_after;
+            pc += instruction_size;
         }
     }
     return name_idx;
@@ -3402,9 +3382,9 @@ bool fuse_tostring_concat(Func &f, uint32_t tostring_name_idx) {
     bool changed = false;
     for (Block &b : f.blocks) {
         // find fusable triples in this block.
-        std::unordered_set<ValueId> fuse_call; // committed call result ids to drop
+        std::unordered_set<ValueId> fuse_call;         // committed call result ids to drop
         std::unordered_map<ValueId, ValueId> pend_arg; // pending callResult -> arg
-        std::unordered_set<ValueId> drop_callee; // callee LoadGlobal ids to drop
+        std::unordered_set<ValueId> drop_callee;       // callee LoadGlobal ids to drop
         std::unordered_map<ValueId, ValueId> retarget; // strConcat id -> new rhs (=arg)
 
         for (ValueId v : b.insts) {

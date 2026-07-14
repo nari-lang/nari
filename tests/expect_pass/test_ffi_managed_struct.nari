@@ -1,0 +1,46 @@
+type ManagedFFILayout {
+    first: u32;
+    second: u16;
+}
+
+let owner = __ffi_managed_struct("ManagedFFILayout")
+if (typeof(owner) != "object") {
+    panic("managed FFI struct is not an ordinary object")
+}
+
+let zeroed = __ffi_read_struct(owner)
+if (zeroed.first != 0 || zeroed.second != 0) {
+    panic("managed FFI struct storage was not zero initialized")
+}
+
+if (!__ffi_write_struct(owner, { first: 305419896, second: 43981 })) {
+    panic("managed FFI struct write failed")
+}
+let value = __ffi_read_struct(owner)
+if (value.first != 305419896 || value.second != 43981) {
+    panic("managed FFI struct did not round-trip")
+}
+
+// Pointer marshalling must expose the owned storage to native calls.
+let libc = __ffi_load_library("libc.so.6")
+let memset_sig = { returns: "pointer", params: ["pointer", "int", "ulong"] }
+__ffi_call(libc, "memset", memset_sig, [owner, 0, __ffi_sizeof("ManagedFFILayout")])
+let cleared = __ffi_read_struct(owner)
+if (cleared.first != 0 || cleared.second != 0) {
+    panic("managed FFI struct was not accepted as a pointer argument")
+}
+
+// Existing raw-pointer overloads remain available.
+let raw = __ffi_alloc_struct("ManagedFFILayout")
+if (!__ffi_write_struct(raw, "ManagedFFILayout", { first: 7, second: 9 })) {
+    panic("raw FFI struct write overload regressed")
+}
+let raw_value = __ffi_read_struct(raw, "ManagedFFILayout")
+__ffi_free(raw)
+if (raw_value.first != 7 || raw_value.second != 9) {
+    panic("raw FFI struct read overload regressed")
+}
+
+// This must reject the owner rather than passing its object address to free().
+__ffi_free(owner)
+print("ffi managed struct test passed")

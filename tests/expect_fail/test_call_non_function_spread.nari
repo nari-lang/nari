@@ -1,0 +1,12 @@
+func start() {
+    let not_a_function = "spread_target";
+    let args = [1, 2];
+
+    try {
+        not_a_function(...args);
+    } catch (error) {
+        print("spread runtime panic was incorrectly caught: " @ error);
+    }
+
+    print("execution continued after spread runtime panic");
+}

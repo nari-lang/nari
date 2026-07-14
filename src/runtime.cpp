@@ -1,7 +1,7 @@
 #include "runtime.h"
 #include "ast.h"
-#include "nari_ffi.h"
 #include "int_overflow.h"
+#include "nari_ffi.h"
 #include "parser_api.h"
 #include "util.h"
 
@@ -289,9 +289,15 @@ void ScriptRuntime::run_top_level() {
 
         found_toplevel = true;
         execute_toplevel_function(it->second.get());
+        if (Runtime::g_shutdown_requested.load()) {
+            return;
+        }
     }
 
     run_event_loop();
+    if (Runtime::g_shutdown_requested.load()) {
+        return;
+    }
     run_start(found_toplevel);
     run_event_loop();
 }
@@ -307,8 +313,11 @@ void ScriptRuntime::step_task(HandlePtr handle) {
     }
 
     auto saved_block_scopes = block_scope_stack;
+    auto saved_block_const_scopes = block_const_scope_stack;
     block_scope_stack = task->block_scopes;
+    block_const_scope_stack = task->block_const_scopes;
     call_stack.push_back(task->locals);
+    call_const_stack.push_back(task->const_locals);
 
     Flags saved_flags = flags;
     flags = task->flags;
@@ -347,11 +356,15 @@ void ScriptRuntime::step_task(HandlePtr handle) {
     }
 
     task->locals = call_stack.back();
+    task->const_locals = call_const_stack.back();
     task->block_scopes = block_scope_stack;
+    task->block_const_scopes = block_const_scope_stack;
     task->flags = flags;
 
     call_stack.pop_back();
+    call_const_stack.pop_back();
     block_scope_stack = saved_block_scopes;
+    block_const_scope_stack = saved_block_const_scopes;
     flags = saved_flags;
 }
 
@@ -389,7 +402,6 @@ void ScriptRuntime::run_event_loop() {
     // final GC pass after event loop completes
     collect_garbage();
 }
-
 
 // Default get: behave like a normal property/index read on the wrapped target.
 Value ScriptRuntime::delegate_default_get(const Value &target, const Value &key) {
@@ -867,6 +879,10 @@ Value ScriptRuntime::lookup_variable(const std::string &name, const std::string 
 
 // store variable through scopes (block -> call -> module -> global)
 void ScriptRuntime::store_variable(const std::string &name, const std::string &filename, const Value &value) {
+    if (is_const_binding(name, filename)) {
+        runtime_fatal("TypeError: Assignment to constant variable '" + name + "'");
+    }
+
     // try block scopes first
     for (int i = block_scope_stack.size() - 1; i >= 0; i--) {
         auto &block_scope = block_scope_stack[i];
@@ -914,6 +930,36 @@ void ScriptRuntime::store_variable(const std::string &name, const std::string &f
 
     // fall back to globals
     globals[name] = value;
+}
+
+bool ScriptRuntime::is_const_binding(const std::string &name, const std::string &filename) const {
+    for (int i = static_cast<int>(block_scope_stack.size()) - 1; i >= 0; --i) {
+        if (block_scope_stack[i].count(name)) {
+            return block_const_scope_stack[i].count(name) != 0;
+        }
+    }
+
+    if (!call_stack.empty() && call_stack.back().count(name)) {
+        return call_const_stack.back().count(name) != 0;
+    }
+
+    if (!module_stack.empty()) {
+        auto vars = module_local_vars.find(module_stack.back());
+        if (vars != module_local_vars.end() && vars->second.count(name)) {
+            auto consts = module_local_consts.find(module_stack.back());
+            return consts != module_local_consts.end() && consts->second.count(name);
+        }
+    }
+
+    if (!filename.empty()) {
+        auto vars = module_local_vars.find(filename);
+        if (vars != module_local_vars.end() && vars->second.count(name)) {
+            auto consts = module_local_consts.find(filename);
+            return consts != module_local_consts.end() && consts->second.count(name);
+        }
+    }
+
+    return globals.count(name) && global_consts.count(name);
 }
 
 void ScriptRuntime::collect_garbage() {
@@ -1459,6 +1505,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     current_class_name = instance->class_name;
 
                     call_stack.emplace_back();
+                    call_const_stack.emplace_back();
 
                     for (size_t i = 0; i < method->params.size(); ++i) {
                         call_stack.back()[method->params[i].name] = arg_values[i];
@@ -1480,6 +1527,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     }
 
                     call_stack.pop_back();
+                    call_const_stack.pop_back();
                     current_instance = saved_instance;
                     current_class_name = saved_class;
 
@@ -1510,6 +1558,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                             current_class_name = class_name;
 
                             call_stack.emplace_back();
+                            call_const_stack.emplace_back();
                             for (size_t i = 0;
                                  i < method->params.size() && i < arg_values.size(); ++i) {
                                 call_stack.back()[method->params[i].name] = arg_values[i];
@@ -1529,6 +1578,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                             }
 
                             call_stack.pop_back();
+                            call_const_stack.pop_back();
                             current_instance = saved_instance;
                             current_class_name = saved_class;
                             return return_value;
@@ -1713,6 +1763,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                         current_instance = instance;
                         current_class_name = class_name;
                         call_stack.emplace_back();
+                        call_const_stack.emplace_back();
                         for (size_t i = 0; i < ctor->params.size() && i < argvals.size(); ++i) {
                             call_stack.back()[ctor->params[i].name] = argvals[i];
                         }
@@ -1729,6 +1780,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                             }
                         }
                         call_stack.pop_back();
+                        call_const_stack.pop_back();
                         current_instance = saved_instance;
                         current_class_name = saved_class;
                     }
@@ -1768,6 +1820,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 Value bindings;
                 if (match_pattern(arm.pattern.get(), scrutinee, bindings)) {
                     block_scope_stack.push_back({});
+                    block_const_scope_stack.push_back({});
                     auto &scope = block_scope_stack.back();
 
                     if (bindings.is_object()) {
@@ -1782,6 +1835,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     Value result = eval_expr(arm.body.get());
 
                     block_scope_stack.pop_back();
+                    block_const_scope_stack.pop_back();
 
                     return result;
                 }
@@ -1801,8 +1855,10 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 
             if (!call_stack.empty()) {
                 task->locals = call_stack.back();
+                task->const_locals = call_const_stack.back();
             }
             task->block_scopes = block_scope_stack;
+            task->block_const_scopes = block_const_scope_stack;
 
             handle->task = std::move(task);
             handle->state = HandleData::Running;
@@ -1897,9 +1953,16 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 if (!current_scope_closure) {
                     current_scope_closure = std::make_shared<std::map<std::string, Value>>(call_stack.back());
                 }
+                if (!current_scope_closure_consts) {
+                    current_scope_closure_consts = std::make_shared<std::unordered_set<std::string>>(call_const_stack.back());
+                }
                 func->closure_env_ptr = new std::shared_ptr<std::map<std::string, Value>>(current_scope_closure);
                 func->closure_deleter = [](void *ptr) {
                     delete static_cast<std::shared_ptr<std::map<std::string, Value>> *>(ptr);
+                };
+                func->closure_const_env_ptr = new std::shared_ptr<std::unordered_set<std::string>>(current_scope_closure_consts);
+                func->closure_const_deleter = [](void *ptr) {
+                    delete static_cast<std::shared_ptr<std::unordered_set<std::string>> *>(ptr);
                 };
             }
 
@@ -1911,8 +1974,8 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
             }
             func->body = std::make_unique<BlockStmt>();
 
-            // don't add lambdas to global functions map, store them directly in the
-            // Value This allows them to be garbage collected when no longer referenced
+            // don't add lambdas to global functions map, store them directly in the Value.
+            // This allows them to be garbage collected
             return Value::make_function(func_name, func);
         }
 
@@ -2186,6 +2249,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 current_class_name = newExpr->class_name;
 
                 call_stack.emplace_back();
+                call_const_stack.emplace_back();
 
                 for (size_t i = 0; i < constructor->params.size(); ++i) {
                     call_stack.back()[constructor->params[i].name] = arg_values[i];
@@ -2201,6 +2265,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 }
 
                 call_stack.pop_back();
+                call_const_stack.pop_back();
                 current_instance = saved_instance;
                 current_class_name = saved_class;
 
@@ -2225,6 +2290,10 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 void ScriptRuntime::exec_stmt(const Stmt *s) {
     if (!s) {
         fprintf(stderr, "Runtime trace: exec_stmt received null statement\n");
+        return;
+    }
+    if (Runtime::g_shutdown_requested.load()) {
+        flags.shutdown_flag = true;
         return;
     }
 
@@ -2267,18 +2336,30 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                     const std::string &name = varDecl->array_names[i];
                     if (varDecl->is_global) {
                         globals[name] = element;
+                        if (varDecl->is_const) {
+                            global_consts.insert(name);
+                        }
                     } else if (!block_scope_stack.empty()) {
                         auto &block_scope = block_scope_stack.back();
                         if (block_scope.find(name) != block_scope.end()) {
                             runtime_fatal("Variable already declared in current block: '" + name + "'", varDecl);
                         }
                         block_scope[name] = element;
+                        if (varDecl->is_const) {
+                            block_const_scope_stack.back().insert(name);
+                        }
                     } else if (!call_stack.empty()) {
                         auto &locals = call_stack.back();
                         if (locals.find(name) != locals.end()) {
                             runtime_fatal("Variable already declared: '" + name + "'", varDecl);
                         }
                         locals[name] = element;
+                        if (varDecl->is_const) {
+                            call_const_stack.back().insert(name);
+                            if (current_scope_closure_consts) {
+                                current_scope_closure_consts->insert(name);
+                            }
+                        }
                     } else {
                         if (!module_stack.empty()) {
                             const std::string &modfn = module_stack.back();
@@ -2287,17 +2368,26 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                                 runtime_fatal("Module-local already declared: '" + name + "'", varDecl);
                             }
                             module[name] = element;
+                            if (varDecl->is_const) {
+                                module_local_consts[modfn].insert(name);
+                            }
                         } else if (!varDecl->filename.empty()) {
                             auto &module = module_local_vars[varDecl->filename];
                             if (module.find(name) != module.end()) {
                                 runtime_fatal("Module-local already declared: '" + name + "'", varDecl);
                             }
                             module[name] = element;
+                            if (varDecl->is_const) {
+                                module_local_consts[varDecl->filename].insert(name);
+                            }
                         } else {
                             if (globals.find(name) != globals.end()) {
                                 runtime_fatal("Global already declared: '" + name + "'", varDecl);
                             }
                             globals[name] = element;
+                            if (varDecl->is_const) {
+                                global_consts.insert(name);
+                            }
                         }
                     }
                 }
@@ -2325,18 +2415,30 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
 
                     if (varDecl->is_global) {
                         globals[name] = element;
+                        if (varDecl->is_const) {
+                            global_consts.insert(name);
+                        }
                     } else if (!block_scope_stack.empty()) {
                         auto &block_scope = block_scope_stack.back();
                         if (block_scope.find(name) != block_scope.end()) {
                             runtime_fatal("Variable already declared in current block: '" + name + "'", varDecl);
                         }
                         block_scope[name] = element;
+                        if (varDecl->is_const) {
+                            block_const_scope_stack.back().insert(name);
+                        }
                     } else if (!call_stack.empty()) {
                         auto &locals = call_stack.back();
                         if (locals.find(name) != locals.end()) {
                             runtime_fatal("Variable already declared: '" + name + "'", varDecl);
                         }
                         locals[name] = element;
+                        if (varDecl->is_const) {
+                            call_const_stack.back().insert(name);
+                            if (current_scope_closure_consts) {
+                                current_scope_closure_consts->insert(name);
+                            }
+                        }
                     } else {
                         if (!module_stack.empty()) {
                             const std::string &modfn = module_stack.back();
@@ -2345,17 +2447,26 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                                 runtime_fatal("Module-local already declared: '" + name + "'", varDecl);
                             }
                             module[name] = element;
+                            if (varDecl->is_const) {
+                                module_local_consts[modfn].insert(name);
+                            }
                         } else if (!varDecl->filename.empty()) {
                             auto &module = module_local_vars[varDecl->filename];
                             if (module.find(name) != module.end()) {
                                 runtime_fatal("Module-local already declared: '" + name + "'", varDecl);
                             }
                             module[name] = element;
+                            if (varDecl->is_const) {
+                                module_local_consts[varDecl->filename].insert(name);
+                            }
                         } else {
                             if (globals.find(name) != globals.end()) {
                                 runtime_fatal("Global already declared: '" + name + "'", varDecl);
                             }
                             globals[name] = element;
+                            if (varDecl->is_const) {
+                                global_consts.insert(name);
+                            }
                         }
                     }
                 }
@@ -2370,6 +2481,9 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
             if (varDecl->is_global) {
                 // declare or overwrite a global explicitly requested by `global`
                 globals[varDecl->name] = val;
+                if (varDecl->is_const) {
+                    global_consts.insert(varDecl->name);
+                }
             } else {
                 if (!block_scope_stack.empty()) {
                     auto &block_scope = block_scope_stack.back();
@@ -2378,6 +2492,9 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                         runtime_fatal(error_msg, varDecl);
                     }
                     block_scope[varDecl->name] = val;
+                    if (varDecl->is_const) {
+                        block_const_scope_stack.back().insert(varDecl->name);
+                    }
                 } else if (!call_stack.empty()) {
                     auto &locals = call_stack.back();
                     if (locals.find(varDecl->name) != locals.end()) {
@@ -2385,6 +2502,12 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                         runtime_fatal(error_msg, varDecl);
                     }
                     locals[varDecl->name] = val;
+                    if (varDecl->is_const) {
+                        call_const_stack.back().insert(varDecl->name);
+                        if (current_scope_closure_consts) {
+                            current_scope_closure_consts->insert(varDecl->name);
+                        }
+                    }
                     if (current_scope_closure) {
                         (*current_scope_closure)[varDecl->name] = val;
                     }
@@ -2399,6 +2522,9 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                             runtime_fatal(error_msg, varDecl);
                         }
                         module[varDecl->name] = val;
+                        if (varDecl->is_const) {
+                            module_local_consts[modfn].insert(varDecl->name);
+                        }
                     } else if (!varDecl->filename.empty()) {
                         auto &module = module_local_vars[varDecl->filename];
                         if (module.find(varDecl->name) != module.end()) {
@@ -2406,6 +2532,9 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                             runtime_fatal(error_msg, varDecl);
                         }
                         module[varDecl->name] = val;
+                        if (varDecl->is_const) {
+                            module_local_consts[varDecl->filename].insert(varDecl->name);
+                        }
                     } else {
                         // fallback to global if no module context or filename is available.
                         if (globals.find(varDecl->name) != globals.end()) {
@@ -2413,6 +2542,9 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                             runtime_fatal(error_msg, varDecl);
                         }
                         globals[varDecl->name] = val;
+                        if (varDecl->is_const) {
+                            global_consts.insert(varDecl->name);
+                        }
                     }
                 }
             }
@@ -2429,6 +2561,9 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
             if (!as->value) {
                 std::string error_msg = "Attempt to assign from null expression for target '" + as->target + "'";
                 runtime_fatal(error_msg, as);
+            }
+            if (is_const_binding(as->target, as->filename)) {
+                runtime_fatal("TypeError: Assignment to constant variable '" + as->target + "'", as);
             }
             Value v = eval_expr(as->value.get());
             // check block scopes first (innermost out), then locals, then module/globals
@@ -2853,11 +2988,15 @@ Value ScriptRuntime::call_user_function(Function *func, const std::vector<Value>
     }
 
     auto saved_scope_closure = current_scope_closure;
+    auto saved_scope_closure_consts = current_scope_closure_consts;
     current_scope_closure = nullptr;
+    current_scope_closure_consts = nullptr;
 
     // every function gets a clean block scope stack
     auto saved_block_scopes = block_scope_stack;
+    auto saved_block_const_scopes = block_const_scope_stack;
     block_scope_stack.clear();
+    block_const_scope_stack.clear();
 
     // push module context
     module_stack.push_back(func->filename.empty() ? std::string("<unknown>") : func->filename);
@@ -2865,6 +3004,7 @@ Value ScriptRuntime::call_user_function(Function *func, const std::vector<Value>
 
     // create locals frame, pushed once per call and not once per tail-call restart.
     call_stack.emplace_back();
+    call_const_stack.emplace_back();
 
     // current_args is mutable: replaced with new args on each tail-call restart.
     std::vector<Value> current_args(args);
@@ -2874,17 +3014,26 @@ Value ScriptRuntime::call_user_function(Function *func, const std::vector<Value>
     if (func->closure_env_ptr) {
         closure_env_ref = *static_cast<std::shared_ptr<std::map<std::string, Value>> *>(func->closure_env_ptr);
     }
+    std::shared_ptr<std::unordered_set<std::string>> closure_const_env_ref;
+    if (func->closure_const_env_ptr) {
+        closure_const_env_ref = *static_cast<std::shared_ptr<std::unordered_set<std::string>> *>(func->closure_const_env_ptr);
+    }
 
     // restart loop for TCE
     while (true) {
         auto &locals = call_stack.back();
         locals.clear();
+        auto &const_locals = call_const_stack.back();
+        const_locals.clear();
 
         // copy captured environment to local scope
         if (closure_env_ref) {
             for (const auto &[var_name, var_value] : *closure_env_ref) {
                 locals[var_name] = var_value;
             }
+        }
+        if (closure_const_env_ref) {
+            const_locals = *closure_const_env_ref;
         }
 
         size_t arg_index = 0;
@@ -3016,6 +3165,7 @@ Value ScriptRuntime::call_user_function(Function *func, const std::vector<Value>
     }
 
     call_stack.pop_back();
+    call_const_stack.pop_back();
     if (!func_stack.empty()) {
         func_stack.pop_back();
     }
@@ -3024,7 +3174,9 @@ Value ScriptRuntime::call_user_function(Function *func, const std::vector<Value>
     }
 
     block_scope_stack = saved_block_scopes;
+    block_const_scope_stack = saved_block_const_scopes;
     current_scope_closure = saved_scope_closure;
+    current_scope_closure_consts = saved_scope_closure_consts;
 
     if (Runtime::runtime_trace_enabled()) {
         std::string trace_msg = "exit function: " + func->name;

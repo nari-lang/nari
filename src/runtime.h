@@ -39,7 +39,10 @@ enum class TraceLevel {
 };
 
 // global flag for graceful shutdown on SIGINT/SIGTERM
-inline std::atomic<bool> g_shutdown_requested{ false };
+inline std::atomic<bool> g_shutdown_requested = false;
+inline void reset_shutdown_flag() {
+    g_shutdown_requested.store(false);
+}
 // global flag to signal runtime error occurred and execution should halt
 inline std::atomic<bool> g_runtime_error_occurred{ false };
 // reset the runtime error flag (useful for running multiple scripts or REPL scenarios)
@@ -92,6 +95,7 @@ void runtime_log(TraceLevel level, const std::string &msg);
     X("__ffi_membersof", builtin_ffi_membersof)             \
     X("__ffi_alloc", builtin_ffi_alloc)                     \
     X("__ffi_alloc_struct", builtin_ffi_alloc_struct)       \
+    X("__ffi_managed_struct", builtin_ffi_managed_struct)   \
     X("__ffi_read_struct", builtin_ffi_read_struct)         \
     X("__ffi_write_struct", builtin_ffi_write_struct)       \
     X("__ffi_sizeof", builtin_ffi_sizeof)                   \
@@ -409,11 +413,13 @@ class ScriptRuntime {
 
     void push_block_scope() {
         block_scope_stack.emplace_back();
+        block_const_scope_stack.emplace_back();
     }
 
     void pop_block_scope() {
         if (!block_scope_stack.empty()) {
             block_scope_stack.pop_back();
+            block_const_scope_stack.pop_back();
         }
     }
 
@@ -423,6 +429,7 @@ class ScriptRuntime {
 
     Value lookup_variable(const std::string &name, const std::string &filename, bool &found);
     void store_variable(const std::string &name, const std::string &filename, const Value &value);
+    bool is_const_binding(const std::string &name, const std::string &filename) const;
     const std::map<std::string, Value> *debug_call_stack_frame(size_t index) const {
         if (index >= call_stack.size()) {
             return nullptr;
@@ -668,15 +675,20 @@ class ScriptRuntime {
     std::unordered_map<std::string, std::unique_ptr<Function>> functions;
     std::vector<std::string> toplevel_order; // preserves import execution order
     std::vector<std::map<std::string, Value>> call_stack;
+    std::vector<std::unordered_set<std::string>> call_const_stack;
     std::map<std::string, Value> globals;
+    std::unordered_set<std::string> global_consts;
     std::unordered_map<std::string, std::map<std::string, Value>> module_local_vars;
+    std::unordered_map<std::string, std::unordered_set<std::string>> module_local_consts;
     std::unordered_set<std::string> executed_toplevel_modules;
     std::vector<std::string> module_stack;
     std::vector<std::string> func_stack;
     std::vector<std::map<std::string, Value>> block_scope_stack;
+    std::vector<std::unordered_set<std::string>> block_const_scope_stack;
     Flags flags;
 
     std::shared_ptr<std::map<std::string, Value>> current_scope_closure;
+    std::shared_ptr<std::unordered_set<std::string>> current_scope_closure_consts;
     ClassInstancePtr current_instance; // current 'this' context
     std::string current_class_name;    // class name context for access control
     std::queue<HandlePtr> task_queue;
@@ -873,6 +885,7 @@ class ScriptRuntime {
     Value builtin_ffi_membersof(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_ffi_alloc(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_ffi_alloc_struct(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_managed_struct(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_ffi_read_struct(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_ffi_write_struct(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_ffi_sizeof(const Value *argvals, size_t argc, const CallExpr *);

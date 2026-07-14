@@ -1,0 +1,42 @@
+func assert(cond, msg) {
+    if (!cond) {
+        panic(msg);
+    }
+}
+
+const answer = 42;
+assert(answer == 42, "const value should be readable");
+
+const values = [1];
+values.push(2);
+assert(values.length() == 2, "const should prevent rebinding, not mutation");
+
+func readAnswer() {
+    return answer;
+}
+assert(readAnswer() == 42, "functions should read top-level const bindings");
+
+func localConst() {
+    const local = 7;
+    let readLocal = func() {
+        return local;
+    };
+    return readLocal();
+}
+assert(localConst() == 7, "closures should read local const bindings");
+
+const [first, second] = [1, 2];
+const {value: destructured} = {value: 3};
+assert(first + second + destructured == 6, "const destructuring should bind values");
+
+func shadowConst() {
+    let answer = 5;
+    answer = 6;
+    return answer;
+}
+assert(shadowConst() == 6, "a local let should shadow a top-level const");
+
+func identity(var) {
+    return var;
+}
+assert(identity(9) == 9, "var should remain valid as an ordinary identifier");

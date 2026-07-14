@@ -24,94 +24,108 @@ class AsmJITMethodCompiler;
 namespace nari {
 namespace bytecode {
 
-#define OPCODE_LIST(X)   \
-    X(LOAD_CONST)        \
-    X(LOAD_VAR)          \
-    X(STORE_VAR)         \
-    X(LOAD_GLOBAL)       \
-    X(STORE_GLOBAL)      \
-    X(POP)               \
-    X(DUP)               \
-    X(LOAD_NONE)         \
-    X(LOAD_TRUE)         \
-    X(LOAD_FALSE)        \
-    X(LOAD_ZERO)         \
-    X(LOAD_ONE)          \
-    X(ADD)               \
-    X(SUB)               \
-    X(MUL)               \
-    X(DIV)               \
-    X(MOD)               \
-    X(POW)               \
-    X(NEG)               \
-    X(STR_CONCAT)        \
-    X(STR_APPEND_VAR)    \
-    X(STR_APPEND_GLOBAL) \
-    X(BIT_AND)           \
-    X(BIT_OR)            \
-    X(BIT_XOR)           \
-    X(BIT_NOT)           \
-    X(LSHIFT)            \
-    X(RSHIFT)            \
-    X(NOT)               \
-    X(EQ)                \
-    X(NE)                \
-    X(LT)                \
-    X(LE)                \
-    X(GT)                \
-    X(GE)                \
-    X(JUMP)              \
-    X(JUMP_IF_FALSE)     \
-    X(JUMP_IF_TRUE)      \
-    X(JUMP_IF_NONE)      \
-    X(CALL)              \
-    X(SELF_TAIL_CALL)    \
-    X(RETURN)            \
-    X(MAKE_CLOSURE)      \
-    X(SPAWN)             \
-    X(MAKE_ARRAY)        \
-    X(MAKE_OBJECT)       \
-    X(ARRAY_PUSH)        \
-    X(ARRAY_SPREAD)      \
-    X(OBJECT_SPREAD)     \
-    X(OBJECT_SET)        \
-    X(CALL_SPREAD)       \
-    X(MAKE_REGEX)        \
-    X(GET_INDEX)         \
-    X(SET_INDEX)         \
-    X(GET_PROPERTY)      \
-    X(SET_PROPERTY)      \
-    X(MAKE_ITERATOR)     \
-    X(ITER_NEXT)         \
-    X(MAKE_ITERATOR_KV)  \
-    X(ITER_NEXT_KV)      \
-    X(LOAD_CAPTURE)      \
-    X(STORE_CAPTURE)     \
-    X(THROW)             \
-    X(SETUP_TRY)         \
-    X(POP_TRY)           \
-    X(BEGIN_CATCH)       \
-    X(BEGIN_FINALLY)     \
-    X(NEW_INSTANCE)      \
-    X(LOAD_THIS)         \
-    X(CALL_METHOD)       \
-    X(CHECK_TYPE)        \
-    X(FORMAT_VALUE)      \
-    X(ITER_ARRAY)
+#define OPCODE_LIST(X)              \
+    X(LOAD_CONST, 2, false)          \
+    X(LOAD_VAR, 2, false)            \
+    X(STORE_VAR, 2, false)           \
+    X(LOAD_GLOBAL, 2, false)         \
+    X(STORE_GLOBAL, 2, false)        \
+    X(POP, 0, false)                 \
+    X(DUP, 0, false)                 \
+    X(LOAD_NONE, 0, false)           \
+    X(LOAD_TRUE, 0, false)           \
+    X(LOAD_FALSE, 0, false)          \
+    X(LOAD_ZERO, 0, false)           \
+    X(LOAD_ONE, 0, false)            \
+    X(ADD, 0, false)                 \
+    X(SUB, 0, false)                 \
+    X(MUL, 0, false)                 \
+    X(DIV, 0, false)                 \
+    X(MOD, 0, false)                 \
+    X(POW, 0, false)                 \
+    X(NEG, 0, false)                 \
+    X(STR_CONCAT, 0, false)          \
+    X(STR_APPEND_VAR, 2, false)      \
+    X(STR_APPEND_GLOBAL, 2, false)   \
+    X(BIT_AND, 0, false)             \
+    X(BIT_OR, 0, false)              \
+    X(BIT_XOR, 0, false)             \
+    X(BIT_NOT, 0, false)             \
+    X(LSHIFT, 0, false)              \
+    X(RSHIFT, 0, false)              \
+    X(NOT, 0, false)                 \
+    X(EQ, 0, false)                  \
+    X(NE, 0, false)                  \
+    X(LT, 0, false)                  \
+    X(LE, 0, false)                  \
+    X(GT, 0, false)                  \
+    X(GE, 0, false)                  \
+    X(JUMP, 2, false)                \
+    X(JUMP_IF_FALSE, 2, false)       \
+    X(JUMP_IF_TRUE, 2, false)        \
+    X(JUMP_IF_NONE, 2, false)        \
+    X(CALL, 3, false)                \
+    X(SELF_TAIL_CALL, 1, false)      \
+    X(RETURN, 0, false)              \
+    X(MAKE_CLOSURE, 3, true)         \
+    X(SPAWN, 0, false)               \
+    X(MAKE_ARRAY, 2, false)          \
+    X(MAKE_OBJECT, 2, false)         \
+    X(ARRAY_PUSH, 0, false)          \
+    X(ARRAY_SPREAD, 0, false)        \
+    X(OBJECT_SPREAD, 0, false)       \
+    X(OBJECT_SET, 2, false)          \
+    X(CALL_SPREAD, 2, false)         \
+    X(MAKE_REGEX, 4, false)          \
+    X(GET_INDEX, 0, false)           \
+    X(SET_INDEX, 0, false)           \
+    X(GET_PROPERTY, 2, false)        \
+    X(SET_PROPERTY, 2, false)        \
+    X(MAKE_ITERATOR, 0, false)       \
+    X(ITER_NEXT, 0, false)           \
+    X(MAKE_ITERATOR_KV, 0, false)    \
+    X(ITER_NEXT_KV, 0, false)        \
+    X(LOAD_CAPTURE, 2, false)        \
+    X(STORE_CAPTURE, 2, false)       \
+    X(THROW, 0, false)               \
+    X(SETUP_TRY, 4, false)           \
+    X(POP_TRY, 0, false)             \
+    X(BEGIN_CATCH, 0, false)         \
+    X(BEGIN_FINALLY, 0, false)       \
+    X(NEW_INSTANCE, 3, false)        \
+    X(LOAD_THIS, 0, false)           \
+    X(CALL_METHOD, 3, false)         \
+    X(CHECK_TYPE, 3, false)          \
+    X(FORMAT_VALUE, 2, false)        \
+    X(ITER_ARRAY, 0, false)
 
 enum class OpCode : uint8_t {
-#define X(name) OP_##name,
+#define X(name, operands, variable) OP_##name,
     OPCODE_LIST(X)
 #undef X
 };
 
-inline const char *opcode_name(OpCode op) {
-    switch (op) {
-#define X(name)             \
-    case OpCode::OP_##name: \
-        return #name;
-        OPCODE_LIST(X)
+struct OpcodeInfo {
+    const char *name;
+    uint8_t operand_size;
+    bool variable_size;
+};
+
+inline constexpr OpcodeInfo OPCODE_INFO[] = {
+#define X(name, operands, variable) { #name, operands, variable },
+    OPCODE_LIST(X)
 #undef X
+};
+
+inline constexpr const OpcodeInfo *opcode_info(OpCode op) {
+    size_t index = static_cast<size_t>(op);
+    return index < sizeof(OPCODE_INFO) / sizeof(OPCODE_INFO[0]) ? &OPCODE_INFO[index] : nullptr;
+}
+
+inline const char *opcode_name(OpCode op) {
+    const OpcodeInfo *info = opcode_info(op);
+    if (info) {
+        return info->name;
     }
     return "???";
 }
@@ -121,92 +135,37 @@ inline const char *opcode_name(OpCode op) {
 // fixed header is 3 bytes (func_idx:u16 + capture_count:u8), followed by
 // capture_count * 3 bytes.
 inline int opcode_operand_size(OpCode op) {
-    switch (op) {
-        case OpCode::OP_POP:
-        case OpCode::OP_DUP:
-        case OpCode::OP_LOAD_NONE:
-        case OpCode::OP_LOAD_TRUE:
-        case OpCode::OP_LOAD_FALSE:
-        case OpCode::OP_LOAD_ZERO:
-        case OpCode::OP_LOAD_ONE:
-        case OpCode::OP_ADD:
-        case OpCode::OP_SUB:
-        case OpCode::OP_MUL:
-        case OpCode::OP_DIV:
-        case OpCode::OP_MOD:
-        case OpCode::OP_POW:
-        case OpCode::OP_NEG:
-        case OpCode::OP_STR_CONCAT:
-        case OpCode::OP_BIT_AND:
-        case OpCode::OP_BIT_OR:
-        case OpCode::OP_BIT_XOR:
-        case OpCode::OP_BIT_NOT:
-        case OpCode::OP_LSHIFT:
-        case OpCode::OP_RSHIFT:
-        case OpCode::OP_NOT:
-        case OpCode::OP_EQ:
-        case OpCode::OP_NE:
-        case OpCode::OP_LT:
-        case OpCode::OP_LE:
-        case OpCode::OP_GT:
-        case OpCode::OP_GE:
-        case OpCode::OP_RETURN:
-        case OpCode::OP_SPAWN:
-        case OpCode::OP_ARRAY_PUSH:
-        case OpCode::OP_ARRAY_SPREAD:
-        case OpCode::OP_OBJECT_SPREAD:
-        case OpCode::OP_CALL_SPREAD:
-        case OpCode::OP_GET_INDEX:
-        case OpCode::OP_SET_INDEX:
-        case OpCode::OP_MAKE_ITERATOR:
-        case OpCode::OP_MAKE_ITERATOR_KV:
-        case OpCode::OP_ITER_NEXT:
-        case OpCode::OP_ITER_NEXT_KV:
-        case OpCode::OP_ITER_ARRAY:
-        case OpCode::OP_THROW:
-        case OpCode::OP_POP_TRY:
-        case OpCode::OP_BEGIN_CATCH:
-        case OpCode::OP_BEGIN_FINALLY:
-        case OpCode::OP_LOAD_THIS:
-            return 0;
-        case OpCode::OP_CALL:
-        case OpCode::OP_SELF_TAIL_CALL:
-            return 1;
-        case OpCode::OP_LOAD_CONST:
-        case OpCode::OP_LOAD_VAR:
-        case OpCode::OP_STORE_VAR:
-        case OpCode::OP_LOAD_GLOBAL:
-        case OpCode::OP_STORE_GLOBAL:
-        case OpCode::OP_FORMAT_VALUE:
-        case OpCode::OP_STR_APPEND_VAR:
-        case OpCode::OP_STR_APPEND_GLOBAL:
-        case OpCode::OP_LOAD_CAPTURE:
-        case OpCode::OP_STORE_CAPTURE:
-        case OpCode::OP_JUMP:
-        case OpCode::OP_JUMP_IF_FALSE:
-        case OpCode::OP_JUMP_IF_TRUE:
-        case OpCode::OP_JUMP_IF_NONE:
-        case OpCode::OP_MAKE_ARRAY:
-        case OpCode::OP_MAKE_OBJECT:
-        case OpCode::OP_OBJECT_SET:
-        case OpCode::OP_GET_PROPERTY:
-        case OpCode::OP_SET_PROPERTY:
-            return 2;
-        case OpCode::OP_MAKE_CLOSURE:
-        case OpCode::OP_CHECK_TYPE:
-        case OpCode::OP_NEW_INSTANCE:
-        case OpCode::OP_CALL_METHOD:
-            return 3;
-        case OpCode::OP_MAKE_REGEX:
-        case OpCode::OP_SETUP_TRY:
-            return 4;
-    }
-    return -1;
+    const OpcodeInfo *info = opcode_info(op);
+    return info ? info->operand_size : -1;
 }
 
 inline size_t opcode_fixed_size(OpCode op) {
     int operands = opcode_operand_size(op);
     return operands < 0 ? 0 : 1 + static_cast<size_t>(operands);
+}
+
+template <typename Bytecode>
+inline size_t decoded_instruction_size(const Bytecode &code, size_t pc) {
+    if (pc >= code.size()) {
+        return 0;
+    }
+
+    const OpcodeInfo *info = opcode_info(static_cast<OpCode>(code[pc]));
+    if (!info) {
+        return 0;
+    }
+
+    size_t size = 1 + info->operand_size;
+    if (size > code.size() - pc) {
+        return 0;
+    }
+    if (info->variable_size) {
+        size += static_cast<size_t>(code[pc + 3]) * 3;
+        if (size > code.size() - pc) {
+            return 0;
+        }
+    }
+    return size;
 }
 
 struct Constant {
@@ -491,15 +450,18 @@ struct TypeFieldInfo {
     std::string name;
     std::string type_name;
     bool is_array;
+    uint64_t fixed_array_count;
 
-    TypeFieldInfo() : is_array(false) {
+    TypeFieldInfo() : is_array(false), fixed_array_count(0) {
     }
-    TypeFieldInfo(std::string n, std::string t, bool arr = false) : name(std::move(n)), type_name(std::move(t)), is_array(arr) {
+    TypeFieldInfo(std::string n, std::string t, bool arr = false, uint64_t fixed_count = 0)
+        : name(std::move(n)), type_name(std::move(t)), is_array(arr), fixed_array_count(fixed_count) {
     }
 };
 
 struct TypeInfo {
     std::string name;
+    bool is_union = false;
     std::vector<TypeFieldInfo> fields;
     std::string alias_target; // non-empty if this is a type alias
 };
@@ -774,9 +736,8 @@ class VM {
     // runtime error flag, set by JIT helpers or execute_instruction on unrecoverable error.
     bool has_error = false;
 
-    // setjmp target for stack-overflow recovery.
-    // C++ exceptions cannot unwind through JIT-generated machine code (no DWARF tables)
-    // so we longjmp out instead. Set to non-null only while vm.run() is active.
+    // setjmp target for fatal runtime recovery.
+    // C++ exceptions cannot unwind through JIT-generated code, so helpers longjmp out instead.
     std::jmp_buf *overflow_jmp = nullptr;
 
     // Depth counter for active JIT-compiled function calls on the C++ stack.
@@ -793,6 +754,8 @@ class VM {
     }
     // dispatch a throw to the nearest try/catch handler (returns false if uncaught)
     bool dispatch_throw(Value error);
+    // report an uncatchable runtime panic and terminate execution.
+    void runtime_panic(Value error);
     // poll pending I/O completions (usable from JIT helpers)
     void poll_io();
 
@@ -824,6 +787,7 @@ class VM {
     bool execute_instruction();
     Value call_builtin(const std::string &name, const std::vector<Value> &args);
     Value call_builtin(const std::string &name, const Value *argv, size_t argc);
+    Value call_builtin_member(ScriptRuntime::BuiltinFn fn, const Value *argv, size_t argc);
     // pushes a builtin's return value, but first promotes any pending
     // ScriptRuntime throw_flag into a bytecode-VM throw via dispatch_throw, false when the throw is uncaught.
     bool push_builtin_result(Value result);

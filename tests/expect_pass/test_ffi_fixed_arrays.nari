@@ -1,0 +1,60 @@
+type FixedArrayLayout {
+    prefix: u8;
+    values: u16[3];
+    suffix: u32;
+}
+
+type FixedArrayWord u16
+type FixedArrayWordAlias FixedArrayWord
+type FixedArrayAliasLayout {
+    values: FixedArrayWordAlias[3];
+}
+
+let members = __ffi_membersof("FixedArrayLayout")
+if (members.fields.length != 3) {
+    panic("fixed FFI array was expanded into multiple logical fields")
+}
+if (members.fields[1].name != "values" || members.fields[1].count != 3) {
+    panic("fixed FFI array metadata was not preserved")
+}
+
+// C ABI layout: prefix@0, values@2, suffix@8, sizeof=12.
+if (__ffi_sizeof("FixedArrayLayout") != 12) {
+    panic("fixed FFI array layout has the wrong ABI size")
+}
+if (__ffi_sizeof("FixedArrayAliasLayout") != 6) {
+    panic("primitive aliases were not resolved in fixed FFI arrays")
+}
+
+let ptr = __ffi_alloc_struct("FixedArrayLayout")
+if (ptr == 0) {
+    panic("could not allocate fixed-array FFI struct")
+}
+
+if (!__ffi_write_struct(ptr, "FixedArrayLayout", {
+    prefix: 7,
+    values: [100, 200, 300],
+    suffix: 400000
+})) {
+    panic("valid fixed FFI array write failed")
+}
+
+if (__ffi_write_struct(ptr, "FixedArrayLayout", {
+    prefix: 9,
+    values: [1, 2],
+    suffix: 10
+})) {
+    panic("wrong-length fixed FFI array write succeeded")
+}
+
+let value = __ffi_read_struct(ptr, "FixedArrayLayout")
+__ffi_free(ptr)
+
+if (value.prefix != 7 || value.suffix != 400000) {
+    panic("fixed FFI array corrupted neighboring fields")
+}
+if (value.values.length != 3 || value.values[0] != 100 || value.values[1] != 200 || value.values[2] != 300) {
+    panic("fixed FFI array did not round-trip")
+}
+
+print("ffi fixed array test passed")

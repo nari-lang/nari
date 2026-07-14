@@ -32,6 +32,7 @@ done
 
 INTERP="build/${BUILD_TYPE}/nari"
 NARIC="build/${BUILD_TYPE}/naric"
+LSP="build/${BUILD_TYPE}/nari-lsp"
 
 # Sanitizer runtime options.
 # This suite targets undefined-behaviour / use-after-free / out-of-bounds /
@@ -123,8 +124,25 @@ while IFS= read -r _t; do FAIL_TESTS+=("$_t"); done < <(find tests/expect_fail -
 for t in "${FAIL_TESTS[@]}"; do
     if [[ -f "$t" ]]; then
         echo "[expected_fail] $t"
-        if $TIMEOUT_PREFIX "$INTERP" ${FLAGS[@]+"${FLAGS[@]}"} "$t"; then
+        set +e
+        output="$($TIMEOUT_PREFIX "$INTERP" ${FLAGS[@]+"${FLAGS[@]}"} "$t" 2>&1)"
+        exit_code=$?
+        set -e
+        printf '%s\n' "$output"
+        if [ "$exit_code" -eq 0 ]; then
             echo "Unexpected success for $t" >&2
+            FAILED_LIST+=("$t")
+            ((FAILED_TESTS += 1))
+        elif [ "$exit_code" -eq 124 ]; then
+            echo "[timeout] $t (killed after ${TEST_TIMEOUT}s)" >&2
+            FAILED_LIST+=("$t")
+            ((FAILED_TESTS += 1))
+        elif [ "$exit_code" -ge 128 ]; then
+            echo "[signal] $t terminated with exit code $exit_code" >&2
+            FAILED_LIST+=("$t")
+            ((FAILED_TESTS += 1))
+        elif [[ "$output" == *"execution continued after"* ]]; then
+            echo "[continued] $t executed after its fatal runtime error" >&2
             FAILED_LIST+=("$t")
             ((FAILED_TESTS += 1))
         else
@@ -144,23 +162,30 @@ if (( FAILED_TESTS > 0 )); then
     exit 1
 fi
 
+echo "Running FFI bindgen union tests..."
+if ! NARI="$INTERP" bash tests/ffi_bindgen_union.sh; then
+    echo "[fail] tests/ffi_bindgen_union.sh" >&2
+    exit 1
+fi
+
 # Shell-level suites that can't be expressed as .nari files
 EXTRA_SUITES=(
     "tests/naric_robustness.sh"
+    "tests/interrupt_shutdown.sh"
     # "tests/npkg_workspace_smoke.sh"
     # "tests/npkg_publish_polish.sh"
     # "tests/npkg_search_smoke.sh"
     # "tests/npkg_owner_smoke.sh"
 )
 
-# for suite in "${EXTRA_SUITES[@]}"; do
-#   if [ -x "$suite" ] || [ -f "$suite" ]; then
-#   echo "Running $suite..."
-#   if ! INTERP="$INTERP" NARIC="$NARIC" bash "$suite"; then
-#   echo "[fail] $suite" >&2
-#   exit 1
-#   fi
-#   fi
-# done
+for suite in "${EXTRA_SUITES[@]}"; do
+    if [ -x "$suite" ] || [ -f "$suite" ]; then
+        echo "Running $suite..."
+        if ! INTERP="$INTERP" NARIC="$NARIC" LSP="$LSP" bash "$suite"; then
+            echo "[fail] $suite" >&2
+            exit 1
+        fi
+    fi
+done
 
 echo "All tests completed!"

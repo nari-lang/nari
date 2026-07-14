@@ -1,0 +1,14 @@
+func call_missing_method(value) {
+    return value.sha256File();
+}
+
+func start() {
+    let i = 0;
+    while (i < 60) {
+        "warmup".length();
+        i++;
+    }
+
+    call_missing_method({});
+    print("execution continued after missing method runtime error");
+}
