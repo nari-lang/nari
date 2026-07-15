@@ -294,12 +294,7 @@ class ScriptRuntime {
     };
 
     // Async callback roots: a pending I/O op captures Values (callbacks) in a
-    // lambda that lives in the io_pool's queues, out of reach of the normal root
-    // scan. Without RC, the captured function/object would be swept while the op
-    // is in flight. We keep them alive here, keyed by the op pointer. Both the
-    // register (at submit) and release (at completion in run_event_loop) happen
-    // on the MAIN thread; io threads only perform socket I/O and never touch
-    // Values, so this map needs no locking. Scanned by collect_gc_roots.
+    // lambda that lives in the io_pool's queues, out of reach of the normal root scan.
     std::unordered_map<const void *, std::vector<Value>> gc_async_roots;
     void async_root_set(const void *key, std::vector<Value> vals) {
         gc_async_roots[key] = std::move(vals);
@@ -308,11 +303,8 @@ class ScriptRuntime {
         gc_async_roots.erase(key);
     }
 
-    // Persistent GC roots that outlive any single async op: a TCP server's
-    // handler function is held by a long-lived accept thread (which
-    // only copies the Value's raw bits and never dereferences it off-thread), so
-    // it must stay alive for the server's lifetime. Registered on the main thread
-    // at server creation; scanned by collect_gc_roots; never auto-cleared.
+    // Persistent GC roots that outlive any single async op. 
+    // A TCP server's handler function is held by a long-lived accept thread, so it must stay alive for the server's lifetime.
     std::vector<Value> gc_persistent_roots;
     void persistent_root_add(const Value &v) {
         gc_persistent_roots.push_back(v);
@@ -320,6 +312,7 @@ class ScriptRuntime {
 
     // callback for dispatching function calls to the bytecode VM (for FFI callbacks)
     std::function<Value(const Value &, const std::vector<Value> &)> external_call_function_value;
+    std::function<Value(const Value &, const Value *, size_t)> external_call_function_value_span;
     // resolve a global by name from the active execution tier
     std::function<Value(const std::string &)> external_global_lookup;
     // optional stdout sink used by the DAP server
@@ -327,21 +320,16 @@ class ScriptRuntime {
     // optional statement hook used by the bytecode debugger
     std::function<void(const Stmt *)> debug_stmt_hook;
 
-    // Raise a throw (panic) from a builtin. Sets flags.throw_flag +
-    // throw_value; runtime checks at every statement boundary. Nari has no
-    // try/catch, so a throw is an uncatchable panic that unwinds to the top.
-    // Prefer returning a Result (make_err) for recoverable errors and reserve
-    // this / runtime_fatal for unrecoverable conditions.
-    // Callers that hold non-RAII resources must release them before return.
+    // Panic from a builtin.
+    // throwing is an *uncatchable* panic, since we have no try/catch by design.
+    // This should *only* be used for situations where it's literally impossible to recover.
+    // Otherwise you should be using Result/Option return values.
     Value script_throw(std::string msg) {
         flags.throw_value = Value::make_string(std::move(msg));
         flags.throw_flag = true;
         return Value::none();
     }
 
-    // Inspect / consume a pending throw. Used by the JIT call helpers to
-    // propagate a builtin's throw out of a JIT frame (the interpreter uses
-    // flags.throw_flag directly via push_builtin_result).
     bool has_pending_throw() const {
         return flags.throw_flag;
     }
@@ -462,6 +450,36 @@ class ScriptRuntime {
         return Value::none();
     }
 
+    // span form: same resolution order, but this case passes the args straight through without making a vector<Value>.
+    Value call_function_value(const Value &func_val, const Value *args, size_t argc) {
+        if (!func_val.is_function()) {
+            return Value::none();
+        }
+        const auto &fn = func_val.get_function();
+
+        // a cached bytecode index means the VM already resolved this function, dispatch straight to it.
+        if (fn.jit_func_idx >= 0 && external_call_function_value_span) {
+            return external_call_function_value_span(func_val, args, argc);
+        }
+
+        if (fn.func_ptr) {
+            return call_user_function(fn.func_ptr.get(), std::vector<Value>(args, args + argc));
+        }
+
+        auto it = functions.find(fn.name);
+        if (it != functions.end()) {
+            return call_user_function(it->second.get(), std::vector<Value>(args, args + argc));
+        }
+
+        if (external_call_function_value_span) {
+            return external_call_function_value_span(func_val, args, argc);
+        }
+        if (external_call_function_value) {
+            return external_call_function_value(func_val, std::vector<Value>(args, args + argc));
+        }
+        return Value::none();
+    }
+
     // resolve a global by name from whichever execution tier is active
     Value resolve_global(const std::string &name) {
         if (external_global_lookup) {
@@ -475,10 +493,14 @@ class ScriptRuntime {
     }
 
     Value make_ok(const Value &value) {
-        return construct_variant("Ok", "Result", { value }, true);
+        Value ctor = resolve_global("Ok");
+        return ctor.is_function() ? construct_result_variant("Ok", value, ctor)
+                                  : construct_variant("Ok", "Result", { value }, true);
     }
     Value make_err(const Value &error) {
-        return construct_variant("Err", "Result", { error }, true);
+        Value ctor = resolve_global("Err");
+        return ctor.is_function() ? construct_result_variant("Err", error, ctor)
+                                  : construct_variant("Err", "Result", { error }, true);
     }
     Value make_some(const Value &value) {
         return construct_variant("Some", "Option", { value }, true);
@@ -488,9 +510,44 @@ class ScriptRuntime {
     }
 
   private:
+    struct ResultMethodTmpl {
+        size_t slot = 0;
+        std::string name;
+        int32_t jit_func_idx = -1;
+        uint32_t jit_locals_count = 0;
+        nari::bytecode::FunctionMeta *jit_meta = nullptr;
+        JitInlineKind jit_inline_kind = JitInlineKind::None;
+        int32_t jit_native_kind = 0;
+        int64_t jit_inline_imm = 0;
+    };
+    struct ResultConstructorTmpl {
+        Value constructor;
+        const ObjectShape *shape = nullptr;
+        std::vector<Value> fields;
+        std::vector<ResultMethodTmpl> methods;
+        size_t data_slot = 0;
+        uint32_t shape_version = 0;
+        bool initialized = false;
+        bool usable = false;
+        bool unwrap_returns_payload = false;
+    };
+    ResultConstructorTmpl ok_template;
+    ResultConstructorTmpl err_template;
+    Value standard_ok_constructor;
+    Value standard_err_constructor;
+
+    Value construct_result_variant(const char *variant, const Value &payload, const Value &constructor);
+    bool initialize_result_template(ResultConstructorTmpl &cache, const Value &constructor, const Value &result, const Value &payload);
+    Value instantiate_result_template(const ResultConstructorTmpl &cache, const Value &payload);
+    static Value make_result_method(void *context, ObjectObj *obj, uint32_t slot);
+    static bool invoke_result_method(void *context, ObjectObj *obj, uint32_t slot, const Value *args, size_t argc, Value &result);
+
     Value construct_variant(const char *variant, const char *enum_name, std::vector<Value> args, bool has_data) {
         Value ctor = resolve_global(variant);
         if (ctor.is_function()) {
+            if (has_data && !args.empty() && std::strcmp(enum_name, "Result") == 0) {
+                return construct_result_variant(variant, args[0], ctor);
+            }
             return call_function_value(ctor, args);
         }
         // fallback to building a lite variant object so at least pattern matching keeps working
@@ -510,25 +567,20 @@ class ScriptRuntime {
     void delegate_set(const Value &del, const Value &key, const Value &val);
     bool delegate_has(const Value &del, const Value &key);
     Value delegate_call(const Value &del, const std::vector<Value> &args);
-    Value delegate_call_method(const Value &del, const std::string &method,
-                               std::vector<Value> args);
+    Value delegate_call(const Value &del, const Value *args, size_t argc);
+    Value delegate_call_method(const Value &del, const std::string &method, std::vector<Value> args);
 
-    // Reusable scratch storage for the fixed-arity trap argument lists
-    // (get/has: {target,key}; set: {target,key,val}; call: {target,argsArr})
-    std::vector<Value> trap_scratch_;
-    bool trap_scratch_busy_ = false;
+    // Fixed-arity trap invocation
+    //  (get/has: {target,key}; set: {target,key,val}; call: {target,argsArr})
     Value invoke_trap(const Value &trap, const Value &a0, const Value &a1);
     Value invoke_trap(const Value &trap, const Value &a0, const Value &a1, const Value &a2);
-    // Default (no-trap) behavior against the wrapped target; also used directly
-    // by the trap dispatchers.
+    // default (no-trap) behavior against the wrapped target, also used directly by the trap dispatchers.
     Value delegate_default_get(const Value &target, const Value &key);
     void delegate_default_set(const Value &target, const Value &key, const Value &val);
     bool delegate_default_has(const Value &target, const Value &key);
 
-    // pattern matching helper
     bool match_pattern(const Pattern *pattern, const Value &value, Value &bindings);
 
-    // garbage collection
     void collect_garbage();
     std::vector<const Value *> collect_gc_roots() const;
 
@@ -537,19 +589,17 @@ class ScriptRuntime {
     }
 
     // Extension builtin registration. Call register_extension(name, fn)
-    // BEFORE constructing the VM; the name becomes a regular Nari builtin.
+    // BEFORE constructing the VM, the name becomes a regular Nari builtin.
     using ExtBuiltinFn = Value (*)(const Value *, size_t);
     static void register_extension(const std::string &name, ExtBuiltinFn fn) {
         get_extension_table()[name] = fn;
     }
 
-    // Pointer to a builtin member function. Public so the VM can cache resolved
-    // builtins per call site (method inline cache).
+    // Pointer to a builtin member function. Public so the VM can cache resolved builtins per call site
     using BuiltinFn = Value (ScriptRuntime::*)(const Value *, size_t, const CallExpr *);
 
     // Resolve a builtin name to its member-function pointer (global table first, then method-only table).
     // Returns nullptr if `name` is not a member builtin (e.g. an extension builtin).
-    // Lets the VM build a per-name_idx inline cache that skips the per-call hash lookups.
     BuiltinFn lookup_builtin_member(const std::string &name) const {
         const auto &gt = get_global_builtin_table();
         auto it = gt.find(name);
@@ -564,9 +614,8 @@ class ScriptRuntime {
         return nullptr;
     }
 
-    // Invoke a previously-resolved builtin member pointer directly.
-    Value call_builtin_member(BuiltinFn fn, const Value *argv, size_t argc,
-                              const CallExpr *callExpr) {
+    // invoke a previously-resolved builtin member pointer directly.
+    Value call_builtin_member(BuiltinFn fn, const Value *argv, size_t argc, const CallExpr *callExpr) {
         return (this->*fn)(argv, argc, callExpr);
     }
 
@@ -613,7 +662,7 @@ class ScriptRuntime {
         return names;                                                          \
     }
 
-    // Type-specific method tables for validation
+    // type-specific method tables for validation
     GET_TYPE_METHODS(string);
     GET_TYPE_METHODS(array);
     GET_TYPE_METHODS(object);

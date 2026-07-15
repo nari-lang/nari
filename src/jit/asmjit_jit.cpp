@@ -223,14 +223,9 @@ static const int64_t HeapTypeTagOff = field_offset(&HeapHeader::type_tag);
 static const int64_t ObjShapeVersionOff = field_offset(&ObjectObj::shape_version);
 static const int64_t ObjShapeOff = field_offset(&ObjectObj::shape);
 static const int64_t ObjFieldsOff = field_offset(&ObjectObj::fields);
-// std::vector internal {begin, end, cap} pointer offsets are PROBED at startup
-// (stl_layout.h), never assumed -- layouts differ across libstdc++/libc++/MSVC
-// (and MSVC debug iterators shift them). stl_layouts_ok() gates JIT creation.
-static const stl::VecOffsets kVecVal = stl::probe_vec<std::vector<Value>>();
-static const stl::VecOffsets kVecFrame = stl::probe_vec<std::vector<CallFrame>>();
-static const stl::VecOffsets kVecByte = stl::probe_vec<std::vector<uint8_t>>();
-static const int64_t ObjFieldsStartOff = ObjFieldsOff + kVecVal.begin;
-static const int64_t ObjFieldsFinishOff = ObjFieldsOff + kVecVal.end;
+// JIT-visible containers expose an explicit {begin, end, capacity} layout.
+static const int64_t ObjFieldsStartOff = ObjFieldsOff + offsetof(Array, storage_begin);
+static const int64_t ObjFieldsFinishOff = ObjFieldsOff + offsetof(Array, storage_end);
 static const int64_t ObjFrozenOff = field_offset(&ObjectObj::frozen);
 static const int64_t ObjDictModeOff = field_offset(&ObjectObj::dict_mode);
 static const int64_t FDCapturesOff = field_offset(&FunctionData::captures);
@@ -241,28 +236,25 @@ static const int64_t FDInlineKindOff = field_offset(&FunctionData::jit_inline_ki
 static const int64_t FDNativeKindOff = field_offset(&FunctionData::jit_native_kind);
 static const int64_t FDInlineImmOff = field_offset(&FunctionData::jit_inline_imm);
 static const int64_t FDCapture0RawOff = field_offset(&FunctionData::jit_capture0_raw);
-// (std::string layout constants used to live here -- they were dead code and
-// assumed a specific STL; string access goes through helpers instead.)
-static const int64_t FMCodeDataOff = field_offset(&FunctionMeta::code) + kVecByte.begin;
+static const int64_t FMCodeDataOff = field_offset(&FunctionMeta::code) + offsetof(ByteArray, storage_begin);
 static const int64_t VMCapturesRawOff = field_offset(&VM::jit_captures_raw);
 
-// VM::stack vector internal pointers (offsets within the vector are probed)
-static const int64_t VMStackStartOff = field_offset(&VM::stack) + kVecVal.begin;
-static const int64_t VMStackFinishOff = field_offset(&VM::stack) + kVecVal.end;
-static const int64_t VMStackCapacityOff = field_offset(&VM::stack) + kVecVal.cap;
-static const int64_t VMGlobalCacheStartOff = field_offset(&VM::global_cache) + kVecVal.begin;
-static const int64_t VMGlobalCacheValidStartOff = field_offset(&VM::global_cache_valid) + kVecByte.begin;
-static const int64_t VMGlobalCacheValidFinishOff = field_offset(&VM::global_cache_valid) + kVecByte.end;
+// VM::stack storage pointers.
+static const int64_t VMStackStartOff = field_offset(&VM::stack) + offsetof(Array, storage_begin);
+static const int64_t VMStackFinishOff = field_offset(&VM::stack) + offsetof(Array, storage_end);
+static const int64_t VMStackCapacityOff = field_offset(&VM::stack) + offsetof(Array, storage_capacity);
+static const int64_t VMGlobalCacheStartOff = field_offset(&VM::global_cache) + offsetof(Array, storage_begin);
+static const int64_t VMGlobalCacheValidStartOff = field_offset(&VM::global_cache_valid) + offsetof(ByteArray, storage_begin);
+static const int64_t VMGlobalCacheValidFinishOff = field_offset(&VM::global_cache_valid) + offsetof(ByteArray, storage_end);
 
-// std::vector<Value> pointers inside ArrayObj.
-static const int64_t ArrayVecStartOff = field_offset(&ArrayObj::v) + kVecVal.begin;
-static const int64_t ArrayVecFinishOff = field_offset(&ArrayObj::v) + kVecVal.end;
-static const int64_t ArrayVecCapacityOff = field_offset(&ArrayObj::v) + kVecVal.cap;
+static const int64_t ArrayVecStartOff = field_offset(&ArrayObj::v) + offsetof(Array, storage_begin);
+static const int64_t ArrayVecFinishOff = field_offset(&ArrayObj::v) + offsetof(Array, storage_end);
+static const int64_t ArrayVecCapacityOff = field_offset(&ArrayObj::v) + offsetof(Array, storage_capacity);
 
-// VM::frames vector internal pointers
-static const int64_t FramesStartOff = field_offset(&VM::frames) + kVecFrame.begin;
-static const int64_t FramesFinishOff = field_offset(&VM::frames) + kVecFrame.end;
-static const int64_t VMFramesCapacityOff = field_offset(&VM::frames) + kVecFrame.cap;
+// VM::frames storage pointers
+static const int64_t FramesStartOff = field_offset(&VM::frames) + offsetof(FrameArray, storage_begin);
+static const int64_t FramesFinishOff = field_offset(&VM::frames) + offsetof(FrameArray, storage_end);
+static const int64_t VMFramesCapacityOff = field_offset(&VM::frames) + offsetof(FrameArray, storage_capacity);
 
 // CallFrame field offsets
 static const int64_t FrameSize = static_cast<int64_t>(sizeof(CallFrame));
@@ -531,9 +523,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             chunk_idx,
             ir::dump(irFuncs).c_str());
     }
-    // Report only: quantify cross-block redundant expressions that a
-    // future global-CSE/GVN pass could eliminate. Pure analysis; does not touch
-    // irFuncs or codegen. Runs on the FINAL typed IR so op costs are accurate.
+    // quantify cross-block redundant expressions that a future global-CSE/GVN pass could eliminate.
+    // pure analysis: does not touch irFuncs or codegen. Runs on the final typed IR.
     static const bool kGvnReport = getenv("NARI_IR_GVN_REPORT") != nullptr;
     if (kGvnReport) {
         ir::gvn_report(irFuncs, chunk.functions[chunk_idx].name.c_str(), chunk_idx);
@@ -589,12 +580,6 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         void invalidate() {
             have_reg = false;
         }
-        // Compatibility shim for Phase 1 auto-flush call sites. Since there
-        // is no deferred store, this is just invalidate(). Retained so the
-        // helper wrappers and terminator/branch emitters compile unchanged.
-        void flush_invalidate() {
-            invalidate();
-        }
         void reload() {
             invalidate();
             (void)get();
@@ -606,10 +591,22 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     FinishCache fc(cc, vm_reg);
 
     auto call0 = [&](const void *helper) {
-        fc.flush_invalidate();
+        fc.invalidate();
         InvokeNode *inv;
         arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper, FuncSignature::build<void, void *>());
         inv->set_arg(0, vm_reg);
+    };
+    Label shutdown_requested = cc.new_label();
+    auto poll_shutdown = [&] {
+        Label running = cc.new_label();
+        arch::Gp flag_addr = cc.new_gp64("shutdown_addr");
+        arch::Gp requested = cc.new_gp64("shutdown_requested");
+        cc.mov(flag_addr, Imm((uint64_t)(uintptr_t)&Runtime::g_shutdown_requested));
+        arch::load8_zx(cc, requested, arch::ptr8(flag_addr));
+        arch::test_zero(cc, requested);
+        arch::jcc(cc, arch::CC::kEQ, running);
+        arch::jmp(cc, shutdown_requested);
+        cc.bind(running);
     };
 
     typedef void (*VMFunc)(nari::bytecode::VM *);
@@ -618,14 +615,14 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         helper(vm);
     };
     auto call_u32 = [&](const void *helper, uint32_t a) {
-        fc.flush_invalidate();
+        fc.invalidate();
         InvokeNode *inv;
         arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper, FuncSignature::build<void, void *, uint32_t>());
         inv->set_arg(0, vm_reg);
         inv->set_arg(1, Imm(a));
     };
     auto call_u32_u32 = [&](const void *helper, uint32_t a, uint32_t b) {
-        fc.flush_invalidate();
+        fc.invalidate();
         InvokeNode *inv;
         arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper, FuncSignature::build<void, void *, uint32_t, uint32_t>());
         inv->set_arg(0, vm_reg);
@@ -633,7 +630,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         inv->set_arg(2, Imm(b));
     };
     auto call_i64 = [&](const void *helper, int64_t a) {
-        fc.flush_invalidate();
+        fc.invalidate();
         InvokeNode *inv;
         arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper, FuncSignature::build<void, void *, int64_t>());
         inv->set_arg(0, vm_reg);
@@ -641,7 +638,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     };
     // jit_slot_store_raw(vm, uint32_t idx, uint64_t raw).
     auto call_u32_u64 = [&](const void *helper, uint32_t a, uint64_t b) {
-        fc.flush_invalidate();
+        fc.invalidate();
         InvokeNode *inv;
         arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper,
                          FuncSignature::build<void, void *, uint32_t, uint64_t>());
@@ -2336,7 +2333,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                     // 0 stack items consumed by Jump, all residual items are phi sources for the successor.
                     emit_phi_writes_to(t.target0, /*st_top_offset=*/0);
                     if (irFuncs.blocks[t.target0].start_pc <= b.start_pc) {
-                        call0((const void *)jit_poll_shutdown);
+                        poll_shutdown();
                     }
                     // skip the jump if the target is the next block
                     if (!(fallthrough_opt && t.target0 == fallthrough_bid[bid])) {
@@ -2345,7 +2342,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 } else if (t.op == ir::Op::Branch) {
                     if (irFuncs.blocks[t.target0].start_pc <= b.start_pc ||
                         irFuncs.blocks[t.target1].start_pc <= b.start_pc) {
-                        call0((const void *)jit_poll_shutdown);
+                        poll_shutdown();
                     }
                     if (fuse_fcmp) {
                         // fused ordered float-cmp -> branch.
@@ -2480,6 +2477,13 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 fb_inv->set_arg(0, vm_reg);
                 cc.ret();
             }
+            cc.bind(shutdown_requested);
+            {
+                InvokeNode *invoke;
+                arch::invoke_imm(cc, &invoke, (uint64_t)(uintptr_t)jit_poll_shutdown, FuncSignature::build<void, void *>());
+                invoke->set_arg(0, vm_reg);
+            }
+            cc.ret();
             cc.end_func();
             if (cc.finalize() != kErrorOk) {
                 return nullptr;
@@ -2497,23 +2501,21 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 asm_logger.data(),
                 (uint64_t)(uintptr_t)spec_fallback,
                 spec_fallback ? "spec_fallback (general tier)" : nullptr);
+
             {
                 std::string sym =
                     chunk.functions[chunk_idx].name.empty()
                         ? std::string(spec ? "anon_ir_reg_spec" : "anon_ir_reg")
                         : chunk.functions[chunk_idx].name +
                               (spec ? "_ir_reg_spec" : "_ir_reg");
-                register_gdb_jit_function(
-                    sym, reinterpret_cast<const void *>(fn), sz);
-                perf_jitdump_register(
-                    sym, reinterpret_cast<const void *>(fn), sz);
+                register_gdb_jit_function(sym, reinterpret_cast<const void *>(fn), sz);
+                perf_jitdump_register(sym, reinterpret_cast<const void *>(fn), sz);
             }
             report(spec ? "OK  [ir-reg spec-param]" : "OK  [ir-reg fast path]");
             return fn;
         }
     }
-    // Speculative mode compiles only the register tier; the general-path
-    // version already exists (it's `spec_fallback`).
+    // speculative mode compiles only the register tier, the general-path version already exists (it's `spec_fallback`).
     if (spec) {
         report("spec param tier ineligible");
         return nullptr;
@@ -2527,7 +2529,6 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
 
     bool ok = true;
     ir::Op unhandled_op = ir::Op::Return; // captured for NARI_JIT_REPORT
-    // typed fast path:
     // both operands proven Float -> inline native f64 op on the value stack (no helper call, no runtime type dispatch).
     auto emit_float_binop = [&](ir::Op op) {
         // fc.get()/set() so the finish load is reused by any following emitter in the same block.
@@ -2618,10 +2619,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         explicit SlotRegCache(arch::Compiler &cc_, uint32_t num_slots)
             : cc(cc_), entries(num_slots) {
         }
-        // If slot is cached, return true and set out_reg to a vreg holding
-        // the raw slot value; else return false. The caller is responsible
-        // for NOT mutating the returned reg (readers should copy into a
-        // fresh vreg if they need to modify).
+        // If slot is cached, return true and set out_reg to a vreg holding the raw slot value, else return false.
         bool try_get(uint32_t s, arch::Gp &out_reg) {
             if (s >= entries.size() || !entries[s].valid) {
                 return false;
@@ -3557,25 +3555,20 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     ir::BlockId lowering_block = ir::InvalidBlock;
     auto lower_term = [&](const ir::Inst &t) {
         // any deferred finish-store must hit memory before control leaves the block
-        fc.flush_invalidate();
+        fc.invalidate();
         switch (t.op) {
             case ir::Op::Jump:
                 if (irFuncs.blocks[t.target0].start_pc <= irFuncs.blocks[lowering_block].start_pc) {
-                    call0((const void *)jit_poll_shutdown);
+                    poll_shutdown();
                 }
                 arch::jmp(cc, blabels[t.target0]);
                 break;
             case ir::Op::Branch: {
                 if (irFuncs.blocks[t.target0].start_pc <= irFuncs.blocks[lowering_block].start_pc ||
                     irFuncs.blocks[t.target1].start_pc <= irFuncs.blocks[lowering_block].start_pc) {
-                    call0((const void *)jit_poll_shutdown);
+                    poll_shutdown();
                 }
-                // Fast path: condition is statically Bool. The boxed bool value
-                // is `NB_BOOL_TAG | (truth ? 1 : 0)`; the NaN-box tag has zero
-                // in the low byte, so the low byte of the Value's raw bits IS
-                // the truth bit (Value is 8 bytes, little-endian, _raw is the
-                // only field). Inline a load-low-byte + pop + test instead of
-                // calling jit_check_truthy.
+                // fast path: condition is statically Bool
                 bool cond_is_bool = !t.operands.empty() &&
                                     t.operands[0] != ir::InvalidValue &&
                                     irFuncs.inst(t.operands[0]).type == ir::Ty::Bool;
@@ -3593,7 +3586,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                     break;
                 }
                 // jit_check_truthy pops the condition and returns 1 (truthy) / 0.
-                fc.flush_invalidate();
+                fc.invalidate();
                 InvokeNode *inv;
                 arch::invoke_imm(
                     cc,
@@ -3612,7 +3605,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 if (t.operands.empty()) {
                     call0((const void *)jit_load_none); // implicit return none
                 }
-                fc.flush_invalidate();
+                fc.invalidate();
                 emit_inline_return(cc, vm_reg);
                 cc.ret();
                 break;
@@ -3636,10 +3629,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                op == ir::Op::ICmpEq ||
                op == ir::Op::ICmpNe;
     };
-    // Fusable only when both operands are statically Float and the op is an
-    // ordered relational (Lt/Le/Gt/Ge). FCmpEq/Ne need NaN-aware boolean
-    // synthesis that doesn't trivially map to a single jcc, so we keep those
-    // on the slow (synthesize bool, then test/jcc) path.
+    // fusable only when both operands are statically Float and the op is an ordered relational (Lt/Le/Gt/Ge)
     auto is_fcmp_branch_fusable = [&](const ir::Inst &cmp) {
         switch (cmp.op) {
             case ir::Op::FCmpLt:
@@ -3767,9 +3757,9 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             const ir::Inst &term = irFuncs.inst(b.terminator);
             const ir::Inst &last = irFuncs.inst(b.insts.back());
             bool branch_to_last = term.op == ir::Op::Branch && !term.operands.empty() && term.operands[0] == b.insts.back();
-            // Fuse compare-and-branch for both statically-typed int compares and dynamically-typed compares
+            // fuse compare-and-branch for both statically-typed int compares and dynamically-typed compares
             fuse_cmp_branch = branch_to_last && is_cmp_op(last.op);
-            // Static-Float ordered cmp + branch -> ucomisd + jcc, skipping bool synthesis and check_truthy
+            // static-float ordered cmp + branch -> ucomisd + jcc, skipping bool synthesis and check_truthy
             if (!fuse_cmp_branch && branch_to_last && is_fcmp_branch_fusable(last)) {
                 fuse_fcmp_branch = true;
             }
@@ -3804,13 +3794,19 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         return nullptr; // unhandled op; VM runs this function in the interpreter
     }
 
+    cc.bind(shutdown_requested);
+    {
+        InvokeNode *invoke;
+        arch::invoke_imm(cc, &invoke, (uint64_t)(uintptr_t)jit_poll_shutdown, FuncSignature::build<void, void *>());
+        invoke->set_arg(0, vm_reg);
+    }
+    cc.ret();
     cc.end_func();
     if (getenv("NARI_JIT_DUMP_NODES") != nullptr) {
         asmjit::String nodes_sb;
         asmjit::FormatOptions fo;
         asmjit::Formatter::format_node_list(nodes_sb, fo, &cc);
-        fprintf(stderr, "==== pre-RA nodes for '%s' ====\n%s\n",
-                chunk.functions[chunk_idx].name.c_str(), nodes_sb.data());
+        fprintf(stderr, "==== pre-RA nodes for '%s' ====\n%s\n", chunk.functions[chunk_idx].name.c_str(), nodes_sb.data());
     }
     Error err = cc.finalize();
     if (err != kErrorOk) {
@@ -3821,8 +3817,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                         : chunk.functions[chunk_idx].name.c_str(),
                     err, asmjit::DebugUtils::error_as_string(err));
             if (jit_dump_asm_enabled()) {
-                fprintf(stderr, "---- partial asm ----\n%s---------------------\n",
-                        asm_logger.data());
+                fprintf(stderr, "---- partial asm ----\n%s---------------------\n", asm_logger.data());
             }
         }
         return nullptr;
@@ -3838,14 +3833,13 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     if (err != kErrorOk || !fn) {
         return nullptr;
     }
+
     {
         std::string sym = chunk.functions[chunk_idx].name.empty()
                               ? std::string("anon_ir")
                               : chunk.functions[chunk_idx].name + "_ir";
-        register_gdb_jit_function(
-            sym, reinterpret_cast<const void *>(fn), generated_code_size);
-        perf_jitdump_register(
-            sym, reinterpret_cast<const void *>(fn), generated_code_size);
+        register_gdb_jit_function(sym, reinterpret_cast<const void *>(fn), generated_code_size);
+        perf_jitdump_register(sym, reinterpret_cast<const void *>(fn), generated_code_size);
     }
     report("OK  [ir-stack general path]");
     return fn;

@@ -1,5 +1,9 @@
 // Test Result<T, E> enum and pattern matching
 
+func assert(cond, msg) {
+    if (!cond) { panic(msg); }
+}
+
 // Function that returns a Result
 func divide(a, b) {
     if (b == 0) {
@@ -79,11 +83,74 @@ func test_binding() {
     print(result);  // "The value is: 42"
 }
 
+// Result methods remain independent closures and retain their payload after
+// extraction from the Result object.
+func test_extracted_result_methods() {
+    let first = Ok(41);
+    let second = Ok(99);
+    let unwrap_first = first.unwrap;
+    let unwrap_second = second.unwrap;
+    first = null;
+    second = null;
+    __gc_collect();
+    assert(unwrap_first() == 41, "extracted method lost first payload");
+    assert(unwrap_second() == 99, "Result methods shared the wrong payload");
+}
+
+func test_overridden_result_constructors() {
+    let original_ok = Ok;
+    let original_err = Err;
+    Ok = func(value) { return { custom_ok: value }; };
+    Err = func(error) { return { custom_err: error }; };
+    let parsed = JSON.parse("42");
+    let failed = JSON.parse("{");
+    assert(parsed.custom_ok == 42, "builtin bypassed overridden Ok constructor");
+    assert(typeof(failed.custom_err) == "string", "builtin bypassed overridden Err constructor");
+    Ok = original_ok;
+    Err = original_err;
+}
+
+func test_builtin_result_surface() {
+    let ok = JSON.parse("7");
+    let other = JSON.parse("8");
+    assert(ok.is_ok() && !ok.is_err(), "fast Ok predicates differ");
+    assert(ok.expect("unused") == 7, "fast Ok expect differs");
+    assert(ok.unwrap_or(0) == 7, "fast Ok unwrap_or differs");
+    assert(ok.map(func(x) { return x + 1; }).unwrap() == 8, "fast Ok map differs");
+    assert(ok.map_err(func(x) { return x; }).unwrap() == 7, "fast Ok map_err differs");
+    assert(ok.and_then(func(x) { return Ok(x + 2); }).unwrap() == 9, "fast Ok and_then differs");
+    assert(ok.or_else(func(x) { return Ok(0); }).unwrap() == 7, "fast Ok or_else differs");
+    assert(ok.unwrap != other.unwrap, "capturing methods must have fresh identity");
+    assert(ok.unwrap == ok.unwrap, "repeated method reads must preserve identity");
+    assert(keys(ok).length() == 13, "fast Ok keys differ");
+    let reflected = values(other);
+    assert(typeof(reflected[6]) == "function", "values() must materialize lazy methods");
+
+    let err = JSON.parse("{");
+    assert(!err.is_ok() && err.is_err(), "fast Err predicates differ");
+    assert(err.unwrap_or(12) == 12, "fast Err unwrap_or differs");
+    assert(typeof(err.unwrap_err()) == "string", "fast Err unwrap_err differs");
+    assert(err.map(func(x) { return x; }).is_err(), "fast Err map differs");
+    assert(err.map_err(func(x) { return "changed"; }).unwrap_err() == "changed", "fast Err map_err differs");
+    assert(err.and_then(func(x) { return Ok(x); }).is_err(), "fast Err and_then differs");
+    assert(err.or_else(func(x) { return Ok(13); }).unwrap() == 13, "fast Err or_else differs");
+
+    ok.unwrap = func() { return 99; };
+    assert(ok.unwrap() == 99, "fast Result method field is not mutable");
+    let untouched = JSON.parse("10");
+    untouched.map = func(f) { return Ok(123); };
+    assert(untouched.map(func(x) { return x; }).unwrap() == 123,
+           "unread fast Result method field is not mutable");
+}
+
 // Run all tests
 test_result_match();
 test_error_match();
 test_option();
 test_literal_patterns();
 test_binding();
+test_extracted_result_methods();
+test_overridden_result_constructors();
+test_builtin_result_surface();
 
 print("All tests passed!");

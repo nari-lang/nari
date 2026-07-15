@@ -66,6 +66,7 @@ void PooledHeapObject<Derived>::operator delete(void *ptr) noexcept {
 template struct PooledHeapObject<StringObj>;
 template struct PooledHeapObject<ArrayObj>;
 template struct PooledHeapObject<ObjectObj>;
+template struct PooledHeapObject<FunctionData>;
 
 Value Value::make_array() {
     Value val;
@@ -81,6 +82,19 @@ Value Value::make_array(std::vector<Value> elements) {
     auto *arr = new ArrayObj();
     arr->type_tag = ValueTag::Array;
     arr->v = std::move(elements);
+    GarbageCollector::instance().track(arr, GarbageCollector::TrackedType::Array);
+    val._raw = NB_HEAP_TAG | reinterpret_cast<uint64_t>(arr);
+    return val;
+}
+
+Value Value::make_array(const Value *elements, size_t count) {
+    Value val;
+    auto *arr = new ArrayObj();
+    arr->type_tag = ValueTag::Array;
+    arr->v.reserve(count);
+    for (size_t i = 0; i < count; i++) {
+        arr->v.push_back(elements[i]);
+    }
     GarbageCollector::instance().track(arr, GarbageCollector::TrackedType::Array);
     val._raw = NB_HEAP_TAG | reinterpret_cast<uint64_t>(arr);
     return val;
@@ -150,6 +164,12 @@ std::vector<std::string> ObjectObj::get_keys() const {
 
 void ObjectObj::clear_fields() {
     fields.clear();
+    lazy_field_context = nullptr;
+    lazy_field_factory = nullptr;
+    lazy_field_invoker = nullptr;
+    lazy_payload = Value::none();
+    lazy_captures.reset();
+    lazy_field_mask = 0;
     if (dict) {
         dict->map.clear();
     }
@@ -161,7 +181,7 @@ Value *ObjectObj::get_field(const std::string &name) noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     auto it = shape->index.find(intern_field(name));
-    return it != shape->index.end() ? &fields[it->second] : nullptr;
+    return it != shape->index.end() ? materialize_lazy_field(it->second) : nullptr;
 }
 
 const Value *ObjectObj::get_field(const std::string &name) const noexcept {
@@ -170,7 +190,9 @@ const Value *ObjectObj::get_field(const std::string &name) const noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     auto it = shape->index.find(intern_field(name));
-    return it != shape->index.end() ? &fields[it->second] : nullptr;
+    return it != shape->index.end()
+               ? const_cast<ObjectObj *>(this)->materialize_lazy_field(it->second)
+               : nullptr;
 }
 
 const Value *ObjectObj::get_field_by_id(uint32_t fid) const noexcept {
@@ -181,12 +203,57 @@ const Value *ObjectObj::get_field_by_id(uint32_t fid) const noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     auto it = shape->index.find(fid);
-    return it != shape->index.end() ? &fields[it->second] : nullptr;
+    return it != shape->index.end()
+               ? const_cast<ObjectObj *>(this)->materialize_lazy_field(it->second)
+               : nullptr;
+}
+
+Value *ObjectObj::materialize_lazy_field(uint32_t slot) {
+    if (slot >= fields.size()) {
+        return nullptr;
+    }
+    const uint64_t bit = slot < 64 ? uint64_t{ 1 } << slot : 0;
+    if (bit && (lazy_field_mask & bit) && lazy_field_factory) {
+        fields[slot] = lazy_field_factory(lazy_field_context, this, slot);
+        lazy_field_mask &= ~bit;
+        if (lazy_field_mask == 0) {
+            lazy_field_context = nullptr;
+            lazy_field_factory = nullptr;
+            lazy_field_invoker = nullptr;
+            lazy_payload = Value::none();
+            lazy_captures.reset();
+        }
+    }
+    return &fields[slot];
+}
+
+void ObjectObj::clear_lazy_field(uint32_t slot) noexcept {
+    if (slot < 64) {
+        lazy_field_mask &= ~(uint64_t{ 1 } << slot);
+    }
+    if (lazy_field_mask == 0) {
+        lazy_field_context = nullptr;
+        lazy_field_factory = nullptr;
+        lazy_field_invoker = nullptr;
+        lazy_payload = Value::none();
+        lazy_captures.reset();
+    }
+}
+
+bool ObjectObj::invoke_lazy_field(uint32_t slot, const Value *args, size_t argc, Value &result) {
+    const uint64_t bit = slot < 64 ? uint64_t{ 1 } << slot : 0;
+    return bit && (lazy_field_mask & bit) && lazy_field_invoker &&
+           lazy_field_invoker(lazy_field_context, this, slot, args, argc, result);
 }
 
 void ObjectObj::promote_to_dict_mode() {
     if (dict_mode) {
         return;
+    }
+    // Dict storage has no slot-level lazy hook, so realize pending fields first.
+    while (lazy_field_mask) {
+        const uint32_t slot = static_cast<uint32_t>(__builtin_ctzll(lazy_field_mask));
+        materialize_lazy_field(slot);
     }
     // move existing shape-mode fields into the hash map, preserving values.
     dict.reset(new ObjectDict());
@@ -223,6 +290,7 @@ void ObjectObj::set_field(const std::string &name, Value val) {
     uint32_t fid = intern_field(name);
     auto it = shape->index.find(fid);
     if (it != shape->index.end()) {
+        clear_lazy_field(it->second);
         fields[it->second] = std::move(val);
         return;
     }

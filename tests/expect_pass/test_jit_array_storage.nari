@@ -1,0 +1,22 @@
+func assert(cond, msg) {
+    if (!cond) panic(msg);
+}
+
+func exercise_array(seed) {
+    let values = [];
+    values.push(seed);
+    values.push(seed + 1);
+    values.push(seed + 2);
+    values.push(seed + 3);
+    values.push(seed + 4);
+    values[1] = values[4] + 10;
+    return values[0] + values[1] + values[2] + values[3] + values[4];
+}
+
+let result = 0;
+for (let i = 0; i < 200; i++) {
+    result = exercise_array(i);
+}
+
+assert(result == 1018, "JIT array push/index result was " @ result);
+print("JIT array storage ok");

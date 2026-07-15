@@ -1,23 +1,12 @@
 // Regression test: a JIT-compiled closure invoked via call_function_value_sync
 // (delegate traps, array higher-order callbacks, timers, FFI callbacks) must
 // read its captured variables correctly.
-//
-// Bug (fixed): call_function_value_sync pushed the callee frame WITHOUT its
-// captures, then patched frames.back().captures afterward. The interpreter
-// tolerated this (body ran after the patch), but a JIT-compiled body executes
-// inline during the frame push (compiled(this)) reading an EMPTY capture list,
-// and had already popped its own frame — so the post-hoc patch also corrupted
-// the caller. Any hot closure-with-captures reached through that path returned
-// wrong results. Fixed by passing captures up front (bytecode.cpp
-// call_function_value_sync). These loops run long enough to cross the JIT
-// threshold (50), so they exercise the JIT path; --tree-walk covers the
-// interpreter. Both must agree with the arithmetic ground truth.
 
 func assert(cond, msg) {
     if (!cond) { panic(msg); }
 }
 
-// --- Delegate get/set traps capturing a local ---------------------------
+// Delegate get/set traps capturing a local
 func delegate_capture_sum(n, secret) {
     let store = {}
     let d = Delegate(store, {
@@ -46,7 +35,53 @@ func nested_delegate_sum(n) {
     return cs
 }
 
-// --- Array higher-order callback capturing a local -----------------------
+// Delegate call/has fast paths preserve observable arguments
+let call_args = []
+let call_handler = {
+    call: func(t, args) {
+        call_args.push(args)
+        return t + args[0] + args[1]
+    },
+    has: func(t, key) { return key == "present" }
+}
+let callable = Delegate(10, call_handler)
+assert(callable(2, 3) == 15, "delegate call forwards all arguments")
+assert(callable(4, 5) == 19, "delegate call remains reusable")
+assert(call_args.length() == 2 && call_args[0] != call_args[1], "delegate call creates a fresh argument array")
+assert(call_args[0][0] == 2 && call_args[1][1] == 5, "retained delegate argument arrays keep independent values")
+assert(callable.has_key("present") && !callable.has_key("missing"), "delegate has_key routes through the has trap")
+call_handler.call = func(t, args) { return args.length() }
+assert(callable(1, 2, 3) == 3, "replacing a call trap takes effect immediately")
+
+let forwarded = Delegate(callable, {})
+assert(forwarded(7, 8, 9, 10) == 4, "chained delegates forward pointer/count arguments")
+
+// Trap slot cache: handler shape transitions and dict-mode handlers
+// The trap dispatcher caches (shape, slot) per delegate, these cover the
+// invalidation edges: a trap ADDED after first dispatch
+// and a handler promoted to dict mode (>32 fields) before/after first use.
+let grow_store = {}
+let grow_handler = { get: func(t, k) { let v = t[k]; if (v == null) { return -7 } return v } }
+let gd = Delegate(grow_store, grow_handler)
+assert(gd["x"] == -7, "get trap active before handler grows")
+gd["x"] = 5 // no set trap yet -> default set on target
+assert(gd["x"] == 5, "default set stored on target")
+grow_handler.set = func(t, k, v) { t[k] = v + 100 } // new field: handler shape changes
+gd["x"] = 5
+assert(gd["x"] == 105, "set trap added after first dispatch is picked up")
+
+let promo_handler = { get: func(t, k) { return 88 } }
+let pd = Delegate({}, promo_handler)
+assert(pd["k"] == 88, "get trap before handler promotes to dict mode")
+for (let i = 0; i < 40; i++) { promo_handler["p" @ to_string(i)] = i }
+assert(pd["k"] == 88, "get trap after handler promotes to dict mode")
+
+let big_handler = { get: func(t, k) { return 77 } }
+for (let i = 0; i < 40; i++) { big_handler["q" @ to_string(i)] = i }
+let bd = Delegate({}, big_handler)
+assert(bd["whatever"] == 77, "dict-mode handler dispatches get trap")
+
+// Array higher-order callback capturing a local
 func reduce_capture(n, base) {
     let arr = [1, 2, 3, 4, 5]   // sum 15; + base per element
     let total = 0

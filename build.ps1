@@ -9,12 +9,10 @@ param(
   [switch]$Emscripten
 )
 
-# ---------------------------------------------------------------------------
 # Activate the VS x64 environment so clang-cl / MSVC find the right 64-bit
 # MSVC libs (LIB, INCLUDE, PATH, etc. all need to point to x64 variants).
 # Without this, clang-cl defaults to x86 libs regardless of --target.
 # Skip for Emscripten which manages its own environment.
-# ---------------------------------------------------------------------------
 function Invoke-VsVars64 {
   $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
   if (-not (Test-Path $vswhere)) {

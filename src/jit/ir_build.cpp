@@ -84,7 +84,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         return false;
     }
     const FunctionMeta &fm = chunk.functions[func_idx];
-    const std::vector<uint8_t> &code = fm.code;
+    const ByteArray &code = fm.code;
     if (code.empty()) {
         return false;
     }
@@ -99,7 +99,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
 
     static const bool kBuildReport = getenv("NARI_IR_BUILD_REPORT") != nullptr;
 
-    // --- pass 1: eligibility + block leaders -------------------------------
+    // eligibility and block leaders
     std::set<size_t> leaders;
     leaders.insert(0);
     for (size_t pc = 0; pc < code.size();) {
@@ -126,7 +126,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         pc += w;
     }
 
-    // --- create blocks (one per in-range leader) ---------------------------
+    // create blocks (one per in-range leader)
     out.meta = &fm;
     out.num_slots = (uint32_t)fm.var_names.size();
     out.num_params = fm.param_count;
@@ -147,11 +147,8 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         return it == at.end() ? InvalidBlock : it->second;
     };
 
-    // --- pass 1.5: structural CFG (succs/preds) ---------------------------
-    // We need predecessors known before emitting each block so pass 2 can seed
-    // entry vstk (phi at merges, inherited from single fwd pred otherwise).
-    // We use local arrays here; b.succs/b.preds remain populated at the end
-    // from the actual emitted terminators (kept unchanged for downstream passes).
+    // structural CFG (succs/preds)
+    // we need predecessors known before emitting each block so step 2 can seed entry vstk
     std::vector<std::vector<BlockId>> cfg_succs(out.blocks.size());
     std::vector<std::vector<BlockId>> cfg_preds(out.blocks.size());
     for (size_t li = 0; li < leader_vec.size(); li++) {
@@ -216,7 +213,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
     std::vector<int> entry_depth(out.blocks.size(), -1);
     entry_depth[out.entry] = 0;
 
-    // --- pass 2: emit each block -------------------------------------------
+    // emit each block
     auto emit_push = [&](Block &b, std::vector<ValueId> &vstk, Inst in) {
         ValueId v = out.add_inst(std::move(in));
         b.insts.push_back(v);
@@ -232,11 +229,8 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         Block &b = out.blocks[bid];
         std::vector<ValueId> vstk;
 
-        // Seed entry vstk from predecessors. Forward preds (lower id) have
-        // already been processed; back-edge preds have not. Blocks are emitted
-        // in pc order, so all forward predecessors of a forward merge are
-        // available. Loop headers (any back-edge pred) MUST have entry depth 0:
-        // back-edges carrying values are rejected as too risky.
+        // Seed entry vstk from predecessors. 
+        // forward preds (lower id) have already been processed, back-edge preds have not.
         {
             const auto &preds = cfg_preds[bid];
             int depth = -1;
@@ -908,7 +902,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         }
     }
 
-    // --- CFG edges (succs/preds) -------------------------------------------
+    // CFG edges (succs/preds)
     for (Block &b : out.blocks) {
         if (b.terminator == InvalidValue) {
             continue;

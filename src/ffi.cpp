@@ -762,6 +762,106 @@ static bool contains_union(const std::shared_ptr<FFIStructDef> &def) {
                        [](const FFIStructField &field) { return contains_union(field.aggregate_def); });
 }
 
+template <typename T>
+static void store_ffi_argument(std::vector<T> &values, std::vector<void *> &arg_pointers, T value) {
+    values.push_back(value);
+    arg_pointers.push_back(&values.back());
+}
+
+static bool marshal_ffi_scalar_argument(FFIArgStorage &storage, FFIType type, const Value &arg) {
+    switch (type) {
+        case FFIType::Int8:
+            store_ffi_argument(
+                storage.int8_storage, storage.arg_pointers,
+                arg.is_int() ? (int8_t)arg.get_int()
+                             : arg.is_float() 
+                                ? (int8_t)arg.get_float()
+                                : (int8_t)0);
+            return true;
+        case FFIType::UInt8:
+            store_ffi_argument(storage.uint8_storage, storage.arg_pointers,
+                               arg.is_int()     ? (uint8_t)arg.get_int()
+                               : arg.is_float() ? (uint8_t)arg.get_float()
+                               : arg.is_bool()  ? (uint8_t)(arg.get_bool() ? 1 : 0)
+                                                : (uint8_t)0);
+            return true;
+        case FFIType::Int16:
+            store_ffi_argument(storage.int16_storage, storage.arg_pointers,
+                               arg.is_int()     ? (int16_t)arg.get_int()
+                               : arg.is_float() ? (int16_t)arg.get_float()
+                                                : (int16_t)0);
+            return true;
+        case FFIType::UInt16:
+            store_ffi_argument(storage.uint16_storage, storage.arg_pointers,
+                               arg.is_int()     ? (uint16_t)arg.get_int()
+                               : arg.is_float() ? (uint16_t)arg.get_float()
+                               : arg.is_bool()  ? (uint16_t)(arg.get_bool() ? 1 : 0)
+                                                : (uint16_t)0);
+            return true;
+        case FFIType::Int32:
+            store_ffi_argument(storage.int32_storage, storage.arg_pointers,
+                               arg.is_int()     ? (int32_t)arg.get_int()
+                               : arg.is_float() ? (int32_t)arg.get_float()
+                                                : (int32_t)0);
+            return true;
+        case FFIType::Int64:
+            store_ffi_argument(storage.int64_storage, storage.arg_pointers,
+                               arg.is_int()     ? arg.get_int()
+                               : arg.is_float() ? (int64_t)(arg.get_float())
+                                                : (int64_t)0);
+            return true;
+        case FFIType::UInt32:
+            store_ffi_argument(storage.uint32_storage, storage.arg_pointers,
+                               arg.is_int()     ? (uint32_t)arg.get_int()
+                               : arg.is_float() ? (uint32_t)arg.get_float()
+                               : arg.is_bool()  ? (uint32_t)(arg.get_bool() ? 1 : 0)
+                                                : (uint32_t)0);
+            return true;
+        case FFIType::UInt64:
+            store_ffi_argument(storage.uint64_storage, storage.arg_pointers,
+                               arg.is_int()     ? (uint64_t)arg.get_int()
+                               : arg.is_float() ? (uint64_t)arg.get_float()
+                               : arg.is_bool()  ? (uint64_t)(arg.get_bool() ? 1 : 0)
+                                                : (uint64_t)0);
+            return true;
+        case FFIType::Float:
+            store_ffi_argument(storage.float_storage, storage.arg_pointers,
+                               arg.is_float() ? (float)arg.get_float()
+                               : arg.is_int() ? (float)arg.get_int()
+                                              : 0.0f);
+            return true;
+        case FFIType::Double:
+            store_ffi_argument(storage.double_storage, storage.arg_pointers,
+                               arg.is_float() ? arg.get_float()
+                               : arg.is_int() ? (double)arg.get_int()
+                                              : 0.0);
+            return true;
+        case FFIType::Bool:
+            store_ffi_argument(storage.bool_storage, storage.arg_pointers,
+                               arg.is_bool()  ? (uint8_t)(arg.get_bool() ? 1 : 0)
+                               : arg.is_int() ? (uint8_t)(arg.get_int() != 0 ? 1 : 0)
+                                              : (uint8_t)0);
+            return true;
+        case FFIType::Pointer: {
+            void *ptr = nullptr;
+            if (arg.is_string()) {
+                storage.string_storage.push_back(arg.get_string());
+                ptr = const_cast<char *>(storage.string_storage.back().c_str());
+            } else if (arg.is_int()) {
+                ptr = arg.get_ptr();
+            } else {
+                ptr = managed_struct_pointer(arg);
+            }
+            store_ffi_argument(storage.pointer_storage, storage.arg_pointers, ptr);
+            return true;
+        }
+        case FFIType::Struct:
+        case FFIType::Void:
+            return false;
+    }
+    return false;
+}
+
 Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const std::vector<Value> &args) {
     if (!func_ptr) {
         return Value::none();
@@ -790,145 +890,14 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
     FFIArgStorage storage;
     storage.clear_and_reserve(args.size());
 
-    auto &string_storage = storage.string_storage;
-    auto &int32_storage = storage.int32_storage;
-    auto &int64_storage = storage.int64_storage;
-    auto &int8_storage = storage.int8_storage;
-    auto &uint8_storage = storage.uint8_storage;
-    auto &int16_storage = storage.int16_storage;
-    auto &uint16_storage = storage.uint16_storage;
-    auto &uint32_storage = storage.uint32_storage;
-    auto &uint64_storage = storage.uint64_storage;
-    auto &float_storage = storage.float_storage;
-    auto &double_storage = storage.double_storage;
-    auto &bool_storage = storage.bool_storage;
-    auto &pointer_storage = storage.pointer_storage;
-    auto &struct_storage = storage.struct_storage;
-    auto &arg_pointers = storage.arg_pointers;
-
     for (size_t i = 0; i < args.size() && i < sig.param_types.size(); i++) {
         const Value &arg = args[i];
         FFIType type = sig.param_types[i];
 
+        if (marshal_ffi_scalar_argument(storage, type, arg)) {
+            continue;
+        }
         switch (type) {
-            case FFIType::Int8: {
-                int8_t val = arg.is_int()     ? static_cast<int8_t>(arg.get_int())
-                             : arg.is_float() ? static_cast<int8_t>(arg.get_float())
-                                              : 0;
-                int8_storage.push_back(val);
-                arg_pointers.push_back(&int8_storage.back());
-                break;
-            }
-
-            case FFIType::UInt8: {
-                uint8_t val = arg.is_int()     ? static_cast<uint8_t>(arg.get_int())
-                              : arg.is_float() ? static_cast<uint8_t>(arg.get_float())
-                              : arg.is_bool()  ? (arg.get_bool() ? 1u : 0u)
-                                               : 0u;
-                uint8_storage.push_back(val);
-                arg_pointers.push_back(&uint8_storage.back());
-                break;
-            }
-
-            case FFIType::Int16: {
-                int16_t val = arg.is_int()     ? static_cast<int16_t>(arg.get_int())
-                              : arg.is_float() ? static_cast<int16_t>(arg.get_float())
-                                               : 0;
-                int16_storage.push_back(val);
-                arg_pointers.push_back(&int16_storage.back());
-                break;
-            }
-
-            case FFIType::UInt16: {
-                uint16_t val = arg.is_int()     ? static_cast<uint16_t>(arg.get_int())
-                               : arg.is_float() ? static_cast<uint16_t>(arg.get_float())
-                               : arg.is_bool()  ? (arg.get_bool() ? 1u : 0u)
-                                                : 0u;
-                uint16_storage.push_back(val);
-                arg_pointers.push_back(&uint16_storage.back());
-                break;
-            }
-
-            case FFIType::Int32: {
-                int32_t val = arg.is_int()     ? arg.get_int()
-                              : arg.is_float() ? (int32_t)arg.get_float()
-                                               : 0;
-                int32_storage.push_back(val);
-                arg_pointers.push_back(&int32_storage.back());
-                break;
-            }
-
-            case FFIType::Int64: {
-                int64_t val = arg.is_int()     ? arg.get_int()
-                              : arg.is_float() ? (int64_t)arg.get_float()
-                                               : 0;
-                int64_storage.push_back(val);
-                arg_pointers.push_back(&int64_storage.back());
-                break;
-            }
-
-            case FFIType::UInt32: {
-                uint32_t val = arg.is_int()     ? static_cast<uint32_t>(arg.get_int())
-                               : arg.is_float() ? static_cast<uint32_t>(arg.get_float())
-                               : arg.is_bool()  ? (arg.get_bool() ? 1u : 0u)
-                                                : 0u;
-                uint32_storage.push_back(val);
-                arg_pointers.push_back(&uint32_storage.back());
-                break;
-            }
-
-            case FFIType::UInt64: {
-                uint64_t val = arg.is_int()     ? static_cast<uint64_t>(arg.get_int())
-                               : arg.is_float() ? static_cast<uint64_t>(arg.get_float())
-                               : arg.is_bool()  ? (arg.get_bool() ? 1ull : 0ull)
-                                                : 0ull;
-                uint64_storage.push_back(val);
-                arg_pointers.push_back(&uint64_storage.back());
-                break;
-            }
-
-            case FFIType::Float: {
-                float val = arg.is_float() ? (float)arg.get_float()
-                            : arg.is_int() ? (float)arg.get_int()
-                                           : 0.0f;
-                float_storage.push_back(val);
-                arg_pointers.push_back(&float_storage.back());
-                break;
-            }
-
-            case FFIType::Double: {
-                double val = arg.is_float() ? arg.get_float()
-                             : arg.is_int() ? (double)arg.get_int()
-                                            : 0.0;
-                double_storage.push_back(val);
-                arg_pointers.push_back(&double_storage.back());
-                break;
-            }
-
-            case FFIType::Bool: {
-                uint8_t val = arg.is_bool()  ? (arg.get_bool() ? 1 : 0)
-                              : arg.is_int() ? (arg.get_int() != 0 ? 1 : 0)
-                                             : 0;
-                bool_storage.push_back(val);
-                arg_pointers.push_back(&bool_storage.back());
-                break;
-            }
-
-            case FFIType::Pointer: {
-                void *ptr = nullptr;
-                if (arg.is_string()) {
-                    string_storage.push_back(arg.get_string());
-                    ptr = (char *)string_storage.back().c_str();
-                } else if (arg.is_int()) {
-                    ptr = arg.get_ptr();
-                } else {
-                    ptr = managed_struct_pointer(arg);
-                }
-                pointer_storage.push_back(ptr);
-                arg_pointers.push_back(&pointer_storage.back());
-                break;
-            }
-
             case FFIType::Struct: {
                 // marshal struct from Nari object
                 if (i >= sig.param_struct_defs.size() || !sig.param_struct_defs[i]) {
@@ -948,18 +917,19 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
                     fprintf(stderr, "ERROR: Could not compute FFI struct layout for parameter %zu\n", i);
                     break;
                 }
-                struct_storage.emplace_back(ffi_struct->size, 0);
-                char *struct_buf = struct_storage.back().data();
-                if (!write_ffi_struct(struct_buf, *struct_def, arg, &string_storage)) {
+                storage.struct_storage.emplace_back(ffi_struct->size, 0);
+                char *struct_buf = storage.struct_storage.back().data();
+                if (!write_ffi_struct(struct_buf, *struct_def, arg, &storage.string_storage)) {
                     fprintf(stderr, "ERROR: Could not marshal FFI struct parameter %zu\n", i);
                     break;
                 }
 
-                arg_pointers.push_back(struct_buf);
+                storage.arg_pointers.push_back(struct_buf);
                 break;
             }
-
             case FFIType::Void:
+                break;
+            default:
                 break;
         }
     }
@@ -990,12 +960,12 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
         return_ptr = struct_return_storage.data();
     }
 
-    if (arg_pointers.size() != cache.param_types.size()) {
+    if (storage.arg_pointers.size() != cache.param_types.size()) {
         fprintf(stderr, "ERROR: Could not marshal all FFI call arguments\n");
         return Value::none();
     }
 
-    ffi_call(&cache.cif, FFI_FN(func_ptr), return_ptr, arg_pointers.data());
+    ffi_call(&cache.cif, FFI_FN(func_ptr), return_ptr, storage.arg_pointers.data());
 
     switch (sig.return_type) {
         case FFIType::Void:
@@ -1064,150 +1034,8 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
     FFIArgStorage storage_v;
     storage_v.clear_and_reserve(args.size());
 
-    auto &string_storage = storage_v.string_storage;
-    auto &int32_storage = storage_v.int32_storage;
-    auto &int64_storage = storage_v.int64_storage;
-    auto &int8_storage = storage_v.int8_storage;
-    auto &uint8_storage = storage_v.uint8_storage;
-    auto &int16_storage = storage_v.int16_storage;
-    auto &uint16_storage = storage_v.uint16_storage;
-    auto &uint32_storage = storage_v.uint32_storage;
-    auto &uint64_storage = storage_v.uint64_storage;
-    auto &float_storage = storage_v.float_storage;
-    auto &double_storage = storage_v.double_storage;
-    auto &bool_storage = storage_v.bool_storage;
-    auto &pointer_storage = storage_v.pointer_storage;
-    auto &arg_pointers = storage_v.arg_pointers;
-
     for (size_t i = 0; i < args.size() && i < sig.param_types.size(); i++) {
-        const Value &arg = args[i];
-        FFIType type = sig.param_types[i];
-
-        switch (type) {
-            case FFIType::Int8: {
-                int8_t val = arg.is_int()     ? static_cast<int8_t>(arg.get_int())
-                             : arg.is_float() ? static_cast<int8_t>(arg.get_float())
-                                              : 0;
-                int8_storage.push_back(val);
-                arg_pointers.push_back(&int8_storage.back());
-                break;
-            }
-
-            case FFIType::UInt8: {
-                uint8_t val = arg.is_int()     ? static_cast<uint8_t>(arg.get_int())
-                              : arg.is_float() ? static_cast<uint8_t>(arg.get_float())
-                              : arg.is_bool()  ? (arg.get_bool() ? 1u : 0u)
-                                               : 0u;
-                uint8_storage.push_back(val);
-                arg_pointers.push_back(&uint8_storage.back());
-                break;
-            }
-
-            case FFIType::Int16: {
-                int16_t val = arg.is_int()     ? static_cast<int16_t>(arg.get_int())
-                              : arg.is_float() ? static_cast<int16_t>(arg.get_float())
-                                               : 0;
-                int16_storage.push_back(val);
-                arg_pointers.push_back(&int16_storage.back());
-                break;
-            }
-
-            case FFIType::UInt16: {
-                uint16_t val = arg.is_int()     ? static_cast<uint16_t>(arg.get_int())
-                               : arg.is_float() ? static_cast<uint16_t>(arg.get_float())
-                               : arg.is_bool()  ? (arg.get_bool() ? 1u : 0u)
-                                                : 0u;
-                uint16_storage.push_back(val);
-                arg_pointers.push_back(&uint16_storage.back());
-                break;
-            }
-
-            case FFIType::Int32: {
-                int32_t val = arg.is_int()     ? arg.get_int()
-                              : arg.is_float() ? (int32_t)arg.get_float()
-                                               : 0;
-                int32_storage.push_back(val);
-                arg_pointers.push_back(&int32_storage.back());
-                break;
-            }
-
-            case FFIType::Int64: {
-                int64_t val = arg.is_int()     ? arg.get_int()
-                              : arg.is_float() ? (int64_t)arg.get_float()
-                                               : 0;
-                int64_storage.push_back(val);
-                arg_pointers.push_back(&int64_storage.back());
-                break;
-            }
-
-            case FFIType::UInt32: {
-                uint32_t val = arg.is_int()     ? static_cast<uint32_t>(arg.get_int())
-                               : arg.is_float() ? static_cast<uint32_t>(arg.get_float())
-                               : arg.is_bool()  ? (arg.get_bool() ? 1u : 0u)
-                                                : 0u;
-                uint32_storage.push_back(val);
-                arg_pointers.push_back(&uint32_storage.back());
-                break;
-            }
-
-            case FFIType::UInt64: {
-                uint64_t val = arg.is_int()     ? static_cast<uint64_t>(arg.get_int())
-                               : arg.is_float() ? static_cast<uint64_t>(arg.get_float())
-                               : arg.is_bool()  ? (arg.get_bool() ? 1ull : 0ull)
-                                                : 0ull;
-                uint64_storage.push_back(val);
-                arg_pointers.push_back(&uint64_storage.back());
-                break;
-            }
-
-            case FFIType::Float: {
-                float val = arg.is_float() ? (float)arg.get_float()
-                            : arg.is_int() ? (float)arg.get_int()
-                                           : 0.0f;
-                float_storage.push_back(val);
-                arg_pointers.push_back(&float_storage.back());
-                break;
-            }
-
-            case FFIType::Double: {
-                double val = arg.is_float() ? arg.get_float()
-                             : arg.is_int() ? (double)arg.get_int()
-                                            : 0.0;
-                double_storage.push_back(val);
-                arg_pointers.push_back(&double_storage.back());
-                break;
-            }
-
-            case FFIType::Bool: {
-                uint8_t val = arg.is_bool()  ? (arg.get_bool() ? 1 : 0)
-                              : arg.is_int() ? (arg.get_int() != 0 ? 1 : 0)
-                                             : 0;
-                bool_storage.push_back(val);
-                arg_pointers.push_back(&bool_storage.back());
-                break;
-            }
-
-            case FFIType::Pointer: {
-                void *ptr = nullptr;
-                if (arg.is_string()) {
-                    string_storage.push_back(arg.get_string());
-                    ptr = (char *)string_storage.back().c_str();
-                } else if (arg.is_int()) {
-                    ptr = arg.get_ptr();
-                } else {
-                    ptr = managed_struct_pointer(arg);
-                }
-                pointer_storage.push_back(ptr);
-                arg_pointers.push_back(&pointer_storage.back());
-                break;
-            }
-
-            case FFIType::Struct:
-                break;
-
-            case FFIType::Void:
-                break;
-        }
+        marshal_ffi_scalar_argument(storage_v, sig.param_types[i], args[i]);
     }
 
     union {
@@ -1226,11 +1054,11 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
         char struct_buf[256];
     } return_value;
 
-    if (arg_pointers.size() != cache.param_types.size()) {
+    if (storage_v.arg_pointers.size() != cache.param_types.size()) {
         fprintf(stderr, "ERROR: Could not prepare variadic FFI call\n");
         return Value::none();
     }
-    ffi_call(&cache.cif, FFI_FN(func_ptr), &return_value, arg_pointers.data());
+    ffi_call(&cache.cif, FFI_FN(func_ptr), &return_value, storage_v.arg_pointers.data());
 
     switch (sig.return_type) {
         case FFIType::Void:
@@ -1733,8 +1561,8 @@ FFICallback::~FFICallback() {
     }
 }
 
-// Nonzero inside an FFI callback. The JIT entry path falls back to the interpreter when set,
-// callback reentry has a bad memory leak I haven't fixed yet.
+// Nonzero inside an FFI callback.
+// The JIT entry path falls back to the interpreter when set, callback reentry has a bad memory leak I haven't fixed yet.
 thread_local int g_ffi_reentry_depth = 0;
 extern "C" int ffi_reentry_depth() {
     return g_ffi_reentry_depth;

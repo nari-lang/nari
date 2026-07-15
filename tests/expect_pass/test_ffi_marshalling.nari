@@ -1,0 +1,20 @@
+let libc = __ffi_load_library("libc.so.6")
+
+let parsed = __ffi_call(libc, "strtod", {
+    returns: "double",
+    params: ["string", "pointer"]
+}, ["12.5", 0])
+if (parsed != 12.5) {
+    panic("fixed FFI scalar marshalling failed")
+}
+
+let written = __ffi_call(libc, "printf", {
+    returns: "int",
+    params: ["string"],
+    variadic: true
+}, ["ffi variadic marshalling: %d %.1f %s\n", 42, 2.5, "ok"])
+if (written <= 0) {
+    panic("variadic FFI scalar marshalling failed")
+}
+
+print("ffi marshalling test passed")

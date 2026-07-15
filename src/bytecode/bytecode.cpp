@@ -206,7 +206,7 @@ Value VM::jit_lookup_object_property(ObjectObj *oobj, uint16_t name_idx) {
     auto &ic = prop_ic[((unsigned)name_idx) & PROP_IC_MASK];
     if (!oobj->dict_mode && ic.shape == oobj->shape &&
         ic.name_idx == name_idx && ic.slot < oobj->fields.size()) {
-        return oobj->fields[ic.slot]; // IC hit means no name/fid hashing
+        return *oobj->materialize_lazy_field(ic.slot); // IC hit means no name/fid hashing
     }
     const std::string &name = chunk->strings[name_idx];
     Value *val = oobj->get_field(name);
@@ -248,38 +248,44 @@ void VM::gc_collect_roots() {
 }
 
 Value VM::make_object_cached(const uint8_t *site, uint32_t size) {
-    // collect pairs in insertion order
-    std::vector<std::pair<std::string, Value>> pairs(size);
-    for (int i = (int)size - 1; i >= 0; i--) {
-        pairs[i].second = pop();
-        pairs[i].first = pop().to_string();
-    }
-    Value obj_val = Value::make_object();
-    ObjectObj *oobj = obj_val.get_obj_ptr();
+    const size_t pairs_base = stack.size() - static_cast<size_t>(size) * 2;
 
-    // Fast path: reuse this site's cached shape when the keys still match, filling fields by slot directly
+    // Fast path: compare keys in place, then move values directly from the VM stack.
     auto cit = make_object_shape_cache.find(site);
     if (cit != make_object_shape_cache.end()) {
         const ObjectShape *cached = cit->second;
         if (cached->names.size() == size) {
             bool match = true;
             for (uint32_t i = 0; i < size; i++) {
-                if (pairs[i].first != cached->names[i]) {
+                const Value &key = stack[pairs_base + static_cast<size_t>(i) * 2];
+                if (!key.is_string() || key.get_string() != cached->names[i]) {
                     match = false;
                     break;
                 }
             }
             if (match) {
+                Value obj_val = Value::make_object();
+                ObjectObj *oobj = obj_val.get_obj_ptr();
                 oobj->shape = cached;
                 oobj->fields.resize(size);
                 for (uint32_t i = 0; i < size; i++) {
-                    oobj->fields[i] = std::move(pairs[i].second);
+                    oobj->fields[i] = std::move(stack[pairs_base + static_cast<size_t>(i) * 2 + 1]);
                 }
                 oobj->shape_version = size;
+                stack.resize(pairs_base);
                 return obj_val;
             }
         }
     }
+
+    // Slow path: materialize dynamic keys and establish the site's shape.
+    std::vector<std::pair<std::string, Value>> pairs(size);
+    for (int i = static_cast<int>(size) - 1; i >= 0; i--) {
+        pairs[i].second = pop();
+        pairs[i].first = pop().to_string();
+    }
+    Value obj_val = Value::make_object();
+    ObjectObj *oobj = obj_val.get_obj_ptr();
 
     // slow path: build via set_field, then cache the resulting shape.
     if (size <= ObjectObj::kDictModeThreshold) {
@@ -559,8 +565,7 @@ void VM::register_all_builtins() {
     // mark push as an inlineable native builtin (kind 1 = array_push)
     builtins["push"].get_function().jit_native_kind = 1;
 
-    // TODO: I forgot what this is, still needed?
-    //  "File I/O aliases" supposedly.
+    // TODO: I forgot what this is, still needed? "File I/O aliases" supposedly.
     register_builtin("read_file");
     register_builtin("write_file");
     register_builtin("append_file");
@@ -608,9 +613,7 @@ bool VM::push_builtin_result(Value result) {
 
 bool VM::has_profitable_trace(uint32_t func_idx) const {
 #ifndef DISABLE_JIT
-    // Tunable: iterations/entry to call a trace profitable, and minimum sampled
-    // entries to trust the average. A long single loop runs thousands+ iters per
-    // entry; a short re-entered loop runs tens.
+    // this is tunable if need be, but it should be about tuned to the point where a trace is likely to be profitable to compile.
     static const uint64_t kMinAvgIters = 1000;
     static const uint32_t kMinEntries = 4;
     for (const auto &kv : trace_iter_stats_) {
@@ -636,7 +639,7 @@ void VM::note_jit_callee(uint32_t func_idx) {
 #endif
 }
 
-void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures, CapturesList cell_captures) {
+void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures, const CapturesList &cell_captures) {
     if (frames.size() >= MAX_CALL_DEPTH) {
         fprintf(stderr, "Stack Overflow: maximum call-depth exceeded!\n");
         has_error = true;
@@ -716,10 +719,10 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
     if (jit_safe && jit::g_jit_compiler && jit::g_jit_compiler->is_compiled(func_idx)) {
         auto compiled = jit::g_jit_compiler->get_compiled(func_idx);
         if (compiled) {
-            // A JIT-compiled closure reads its captures from jit_captures_raw (frame.captures is only read by the interpreter).
-            // Set it as the borrowed raw ptr for the callee, save/restore for correct nesting.
+            // generated returns only move frames.storage_end, so keep ownership outside the frame while compiled code runs.
+            CapturesList compiled_captures = std::move(frame.captures);
             auto *prev_captures = jit_captures_raw;
-            jit_captures_raw = frame.captures.get();
+            jit_captures_raw = compiled_captures.get();
             // JIT function executes the body and handles OP_RETURN
             compiled(this);
             jit_captures_raw = prev_captures;
@@ -732,7 +735,7 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
 
 // Allocation-free variant: stack[args_base..args_base+argc] are the args on entry.
 // Pops args + func (at args_base-1), then sets up the new call frame.
-void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t argc, CapturesList cell_captures) {
+void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t argc, const CapturesList &cell_captures) {
     if (frames.size() >= MAX_CALL_DEPTH) {
         fprintf(stderr, "Stack Overflow: maximum call-depth exceeded!\n");
         has_error = true;
@@ -809,14 +812,107 @@ void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t ar
     if (jit_safe2 && jit::g_jit_compiler && jit::g_jit_compiler->is_compiled(func_idx)) {
         auto compiled = jit::g_jit_compiler->get_compiled(func_idx);
         if (compiled) {
-            // Borrow captures for the compiled callee via jit_captures_raw (read by JIT's OP_LOAD_CAPTURE lowering),
-            // null when not a closure.
+            CapturesList compiled_captures = std::move(frame.captures);
             auto *prev_captures = jit_captures_raw;
-            jit_captures_raw = frame.captures.get();
+            jit_captures_raw = compiled_captures.get();
             compiled(this);
             jit_captures_raw = prev_captures;
             return;
         }
+    }
+#endif
+}
+
+// Span variant of call_user_function for runtime re-entry, this avoids creating a Vector<Value>.
+void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t argc, const CapturesList &cell_captures) {
+    if (frames.size() >= MAX_CALL_DEPTH) {
+        fprintf(stderr, "Stack Overflow: maximum call-depth exceeded!\n");
+        has_error = true;
+        if (this->overflow_jmp) {
+            std::longjmp(*this->overflow_jmp, 1);
+        }
+        return;
+    }
+
+    FunctionMeta *func = &chunk->functions[func_idx];
+
+#ifndef DISABLE_JIT
+    // single virtual lookup instead of the is_compiled + get_compiled pair
+    auto compiled = jit::g_jit_compiler ? jit::g_jit_compiler->get_compiled_fast(func_idx) : nullptr;
+    if (jit::g_jit_compiler && !compiled &&
+        ++call_counts[func_idx] == JIT_THRESHOLD &&
+        !has_profitable_trace(func_idx)) {
+        jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
+        compiled = jit::g_jit_compiler->get_compiled_fast(func_idx);
+    }
+#endif
+
+    size_t slot_base = stack.size();
+    size_t locals_needed = func->var_names.size();
+
+    if (NARI_UNLIKELY(func->rest_param_index >= 0)) {
+        // pack extra args into the rest array (same as call_user_function)
+        size_t rest_idx = static_cast<size_t>(func->rest_param_index);
+        std::vector<Value> argv(args, args + argc);
+        for (size_t i = 0; i < locals_needed; i++) {
+            if (i < rest_idx) {
+                stack.push_back(i < argv.size() ? argv[i] : Value::none());
+            } else if (i == rest_idx) {
+                std::vector<Value> rest_arr;
+                for (size_t j = rest_idx; j < argv.size(); j++) {
+                    rest_arr.push_back(argv[j]);
+                }
+                stack.push_back(Value::make_array(std::move(rest_arr)));
+            } else {
+                stack.push_back(Value::none());
+            }
+        }
+    } else {
+        size_t need = slot_base + locals_needed;
+        Value arg_buf[8];
+        std::vector<Value> arg_vec;
+        if (NARI_UNLIKELY(need > stack.capacity())) {
+            // growing would invalidate a span that points into the stack
+            if (argc <= 8) {
+                for (size_t i = 0; i < argc; i++) {
+                    arg_buf[i] = args[i];
+                }
+                args = arg_buf;
+            } else {
+                arg_vec.assign(args, args + argc);
+                args = arg_vec.data();
+            }
+            stack.reserve(std::max(need, stack.capacity() * 2));
+        }
+        // assign through storage_end exactly like push_back, minus the per-push check
+        Value *dst = stack.storage_end;
+        size_t arg_fill = argc < locals_needed ? argc : locals_needed;
+        for (size_t i = 0; i < arg_fill; i++) {
+            dst[i] = args[i];
+        }
+        for (size_t i = arg_fill; i < locals_needed; i++) {
+            dst[i] = Value::none();
+        }
+        stack.storage_end = dst + locals_needed;
+    }
+
+    frames.emplace_back();
+    CallFrame &frame = frames.back();
+    frame.function = func;
+    frame.ip = func->code.data();
+    frame.slot_base = slot_base;
+    if (cell_captures && !cell_captures->empty()) {
+        frame.captures = cell_captures;
+    }
+
+#ifndef DISABLE_JIT
+    if (compiled && ::ffi_reentry_depth() == 0) {
+        CapturesList compiled_captures = std::move(frame.captures);
+        auto *prev_captures = jit_captures_raw;
+        jit_captures_raw = compiled_captures.get();
+        compiled(this);
+        jit_captures_raw = prev_captures;
+        return;
     }
 #endif
 }
@@ -1479,10 +1575,10 @@ bool VM::execute_instruction() {
                     // Delegate call trap: d(args) -> handler.call(target, [args]),
                     // after the is_function() fast path so ordinary calls are untouched.
                     if (func_ref.is_delegate()) {
-                        std::vector<Value> args(stack.begin() + args_base, stack.begin() + args_base + argc);
-                        Value del = std::move(stack[args_base - 1]);
+                        Value del = stack[args_base - 1];
+                        Value result = runtime->delegate_call(del, stack.data() + args_base, argc);
                         stack.resize(args_base - 1);
-                        VM::push(runtime->delegate_call(del, args));
+                        VM::push(std::move(result));
                         break;
                     }
                     runtime_panic(Value::make_string("called a non-function value: '" + chunk->strings[callee_label_idx] + "'"));
@@ -1501,8 +1597,7 @@ bool VM::execute_instruction() {
 
                 // fast path: cached function index avoids hash lookup on repeated calls.
                 if (fn.jit_func_idx >= 0) {
-                    auto cell_captures = fn.captures;
-                    call_user_function_stack(static_cast<uint32_t>(fn.jit_func_idx), args_base, argc, cell_captures);
+                    call_user_function_stack(static_cast<uint32_t>(fn.jit_func_idx), args_base, argc, fn.captures);
                     break;
                 }
 
@@ -1513,8 +1608,7 @@ bool VM::execute_instruction() {
                 if (fit != func_indices.end()) {
                     // cache the index for future fast-path hits.
                     const_cast<FunctionData &>(fn).jit_func_idx = static_cast<int32_t>(fit->second);
-                    auto cell_captures = fn.captures;
-                    call_user_function_stack(fit->second, args_base, argc, cell_captures);
+                    call_user_function_stack(fit->second, args_base, argc, fn.captures);
                     break;
                 }
 
@@ -1630,47 +1724,59 @@ bool VM::execute_instruction() {
                 uint16_t func_idx = read_short();
                 uint8_t capture_count = read_byte();
                 FunctionMeta *func = &chunk->functions[func_idx];
-                // create captures vector with shared cells
-                auto captures = std::make_shared<std::vector<std::shared_ptr<Value>>>();
-                captures->resize(capture_count);
+                CapturesList captures;
+                std::shared_ptr<Value> single_cell;
                 for (int i = 0; i < capture_count; i++) {
                     uint8_t source = read_byte();
                     uint16_t idx = read_short();
+                    std::shared_ptr<Value> cell;
                     if (source == 0) {
                         // parent local: get or create cell from parent frame
-                        auto cell = current_frame().get_or_create_cell(idx, stack[current_frame().slot_base + idx]);
+                        cell = current_frame().get_or_create_cell(idx, stack[current_frame().slot_base + idx]);
                         // keep local in sync with cell
                         stack[current_frame().slot_base + idx] = *cell;
-                        (*captures)[i] = cell;
                     } else if (source == 1) {
                         // parent capture: share the same cell
                         auto &parent_caps = current_frame().captures;
                         if (parent_caps && idx < parent_caps->size()) {
-                            (*captures)[i] = (*parent_caps)[idx];
+                            cell = (*parent_caps)[idx];
                         } else {
-                            (*captures)[i] = std::make_shared<Value>(Value::none());
+                            cell = std::make_shared<Value>(Value::none());
                         }
                     } else {
                         // global
                         const std::string &name = chunk->strings[idx];
-                        (*captures)[i] = std::make_shared<Value>(get_global(name));
+                        cell = std::make_shared<Value>(get_global(name));
+                    }
+                    if (capture_count == 1 && source != 2) {
+                        single_cell = std::move(cell);
+                    } else {
+                        if (!captures) {
+                            captures = std::make_shared<std::vector<std::shared_ptr<Value>>>(capture_count);
+                        }
+                        (*captures)[i] = std::move(cell);
+                    }
+                }
+                if (capture_count == 1 && single_cell) {
+                    captures = current_frame().single_capture_cache;
+                    if (!captures || captures->size() != 1 || (*captures)[0] != single_cell) {
+                        captures = std::make_shared<std::vector<std::shared_ptr<Value>>>();
+                        captures->push_back(std::move(single_cell));
+                        current_frame().single_capture_cache = captures;
                     }
                 }
                 // create a function value with captures
                 Value closure = Value::make_function(func->name);
-                closure.get_function().captures = captures;
+                closure.get_function().captures = std::move(captures);
                 if (capture_count > 0) {
-                    closure.get_function().jit_capture0_raw = (*captures)[0].get();
+                    closure.get_function().jit_capture0_raw = (*closure.get_function().captures)[0].get();
                 }
                 GarbageCollector::instance().track(&closure.get_function(), GarbageCollector::TrackedType::Function);
                 closure.get_function().jit_func_idx = (int32_t)func_idx;
                 closure.get_function().jit_locals_count = (uint32_t)chunk->functions[func_idx].var_names.size();
                 closure.get_function().jit_meta = &chunk->functions[func_idx];
-                {
-                    auto cls = jit_classify_inline(chunk->functions[func_idx]);
-                    closure.get_function().jit_inline_kind = cls.kind;
-                    closure.get_function().jit_inline_imm = cls.imm;
-                }
+                closure.get_function().jit_inline_kind = func->jit_inline_kind;
+                closure.get_function().jit_inline_imm = func->jit_inline_imm;
                 func_indices[func->name] = func_idx;
                 VM::push(closure);
                 break;
@@ -1682,9 +1788,8 @@ bool VM::execute_instruction() {
                 Value func_val = pop();
                 auto handle = Value::make_handle_ptr();
                 handle->state = HandleData::Running;
-                // func_val and the handle are live across call_function_value_sync,
-                // which runs nested bytecode (safe-points). Root them so a collection
-                // there can't sweep them. handle_val owns the handle for marking.
+                // func_val and the handle are live across call_function_value_sync, which runs nested bytecode.
+                // Root them so a collection there can't sweep them. handle_val owns the handle for marking.
                 Value handle_val = Value::make_handle(handle);
                 {
                     TempRootScope rs(*this);
@@ -1833,16 +1938,14 @@ bool VM::execute_instruction() {
                     break;
                 }
                 if (fn.jit_func_idx >= 0) {
-                    auto cell_captures = fn.captures;
-                    call_user_function_stack(static_cast<uint32_t>(fn.jit_func_idx), args_base, argc, cell_captures);
+                    call_user_function_stack(static_cast<uint32_t>(fn.jit_func_idx), args_base, argc, fn.captures);
                     break;
                 }
                 const std::string &fname = fn.name;
                 auto fit = func_indices.find(fname);
                 if (fit != func_indices.end()) {
                     const_cast<FunctionData &>(fn).jit_func_idx = static_cast<int32_t>(fit->second);
-                    auto cell_captures = fn.captures;
-                    call_user_function_stack(fit->second, args_base, argc, cell_captures);
+                    call_user_function_stack(fit->second, args_base, argc, fn.captures);
                     break;
                 }
                 Value arg_buf[16];
@@ -2027,7 +2130,7 @@ bool VM::execute_instruction() {
                     if (!oobj->dict_mode && ic.shape == oobj->shape &&
                         ic.name_idx == name_idx &&
                         ic.slot < oobj->fields.size()) {
-                        VM::push(oobj->fields[ic.slot]); // IC hit
+                        VM::push(*oobj->materialize_lazy_field(ic.slot)); // IC hit
                     } else {
                         const std::string &name = chunk->strings[name_idx];
                         Value *v = oobj->get_field(name);
@@ -2193,6 +2296,7 @@ bool VM::execute_instruction() {
                     if (!oobj->dict_mode && !oobj->frozen &&
                         ic.shape == oobj->shape && ic.name_idx == name_idx &&
                         ic.slot < oobj->fields.size()) {
+                        oobj->clear_lazy_field(ic.slot);
                         oobj->fields[ic.slot] = val; // IC hit, direct write
                     } else {
                         const std::string &name = chunk->strings[name_idx];
@@ -2636,19 +2740,32 @@ bool VM::execute_instruction() {
                 if (obj_ref.is_delegate()) {
                     // has_key routes to the `has` trap,
                     // every other method resolves through the get trap then is invoked
-                    std::vector<Value> args(stack.begin() + args_base, stack.end());
                     Value obj = std::move(stack[obj_idx]);
-                    stack.resize(obj_idx);
-                    if (method_name == "has_key" && args.size() == 1) {
-                        VM::push(Value::make_bool(runtime->delegate_has(obj, args[0])));
+                    if (method_name == "has_key" && argc == 1) {
+                        Value key = stack[args_base];
+                        bool result = runtime->delegate_has(obj, key);
+                        stack.resize(obj_idx);
+                        VM::push(Value::make_bool(result));
                     } else {
+                        std::vector<Value> args(stack.begin() + args_base, stack.end());
+                        stack.resize(obj_idx);
                         VM::push(runtime->delegate_call_method(obj, method_name, std::move(args)));
                     }
                     break;
                 }
 
                 if (obj_ref.is_object()) {
-                    const Value *it_v = obj_ref.get_obj_ptr()->get_field(method_name);
+                    ObjectObj *method_obj = obj_ref.get_obj_ptr();
+                    auto method_slot = method_obj->shape->index.find(intern_field(method_name));
+                    Value lazy_result;
+                    if (!method_obj->dict_mode && method_slot != method_obj->shape->index.end() &&
+                        method_obj->invoke_lazy_field(method_slot->second, stack.data() + args_base, argc,
+                                                      lazy_result)) {
+                        stack.resize(obj_idx);
+                        VM::push(std::move(lazy_result));
+                        break;
+                    }
+                    const Value *it_v = method_obj->get_field(method_name);
                     if (it_v && it_v->is_function()) {
                         // Object property is a callable, dispatch it.
                         Value func = *it_v;
@@ -2788,7 +2905,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
         return;
     }
 
-    // Skip instructions from inlined function bodies.
+    // skip instructions from inlined function bodies.
     // When OP_CALL is successfully inlined (e.g. IntAdd), the interpreter still enters the called function,
     // so we track call depth and ignore all instructions until the matching RETURN pops us back to the recording function.
     if (rec.inline_depth > 0) {
@@ -3500,6 +3617,10 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
 #endif // !DISABLE_JIT
 
 Value VM::call_function_value_sync(const Value &func_val, const std::vector<Value> &args) {
+    return call_function_value_span(func_val, args.data(), args.size());
+}
+
+Value VM::call_function_value_span(const Value &func_val, const Value *args, size_t argc) {
     if (!func_val.is_function()) {
         return Value::none();
     }
@@ -3523,13 +3644,8 @@ Value VM::call_function_value_sync(const Value &func_val, const std::vector<Valu
     size_t saved_frame_depth = frames.size();
     size_t saved_stack_size = stack.size();
 
-    // Push a new call frame for this function.
-    // Pass the closure's captures as the 4th arg so the frame owns them BEFORE the body runs.
-    if (fn.captures && !fn.captures->empty()) {
-        call_user_function(func_idx, args, nullptr, fn.captures);
-    } else {
-        call_user_function(func_idx, args);
-    }
+    // Pass the closure's captures so the frame owns them before the body runs.
+    call_user_function_span(func_idx, args, argc, fn.captures);
 
     // Execute instructions until this function returns
     while (frames.size() > saved_frame_depth) {
@@ -3657,6 +3773,9 @@ bool VM::run(Chunk *compiled_chunk) {
     // register user-defined functions by name -> index
     for (size_t i = 0; i < chunk->functions.size(); i++) {
         FunctionMeta &fmeta = chunk->functions[i];
+        auto cls = jit_classify_inline(fmeta);
+        fmeta.jit_inline_kind = cls.kind;
+        fmeta.jit_inline_imm = cls.imm;
         const std::string &name = fmeta.name;
         if (name != "<main>" && !name.empty()) {
             func_indices[name] = i;
@@ -3668,9 +3787,8 @@ bool VM::run(Chunk *compiled_chunk) {
             fd.jit_locals_count = fmeta.var_names.size();
             fd.jit_meta = &fmeta;
 
-            auto cls = jit_classify_inline(fmeta);
-            fd.jit_inline_kind = cls.kind;
-            fd.jit_inline_imm = cls.imm;
+            fd.jit_inline_kind = fmeta.jit_inline_kind;
+            fd.jit_inline_imm = fmeta.jit_inline_imm;
 
             std::string local_alias = Parser::get_exported_function_local_name(name);
             if (!local_alias.empty()) {
@@ -3682,6 +3800,10 @@ bool VM::run(Chunk *compiled_chunk) {
     // set up FFI callback dispatch so native callbacks can re-enter the VM
     runtime->external_call_function_value = [&](const Value &func_val, const std::vector<Value> &args) -> Value {
         return call_function_value_sync(func_val, args);
+    };
+    // span form used by the hot delegate-trap path (no vector<Value> creation)
+    runtime->external_call_function_value_span = [&](const Value &func_val, const Value *args, size_t argc) -> Value {
+        return call_function_value_span(func_val, args, argc);
     };
 
     runtime->external_global_lookup = [&](const std::string &name) -> Value {
@@ -3707,6 +3829,9 @@ bool VM::run(Chunk *compiled_chunk) {
             }
         }
     }
+
+    runtime->standard_ok_constructor = get_global("Ok");
+    runtime->standard_err_constructor = get_global("Err");
 
     // build indexed global cache now that all globals (builtins + user funcs + __stdlib_init__) are registered
     rebuild_global_cache();
@@ -3738,8 +3863,8 @@ bool VM::run(Chunk *compiled_chunk) {
             int backward_jump_count = 0;
             const auto &code = fm.code;
             size_t pc = 0;
-            // Track the last LOAD_GLOBAL seen (for LOAD_GLOBAL + args + CALL detection).
-            // Reset only on non-argument-loading instructions (not LOAD_VAR/LOAD_CONST etc.).
+            // track the last LOAD_GLOBAL seen (for LOAD_GLOBAL + args + CALL detection).
+            // reset on non-argument loading instructions.
             bool pending_global = false;
             uint16_t pending_global_name_idx = 0;
             bool pending_load_var = false; // tracks LOAD_VAR preceding a CALL (potential closure)
@@ -3885,11 +4010,7 @@ bool VM::run(Chunk *compiled_chunk) {
     }
 #endif
 
-    // Set up longjmp recovery for fatal errors raised from JIT helpers.
-    // C++ exceptions cannot unwind through JIT-generated machine code, so
-    // call_user_function_stack/jit_check_call_depth longjmp here instead.
-    // longjmp value 1 = uncaught; 2 = caught by Nari try-catch (resume loop);
-    // 3 = graceful shutdown (the instruction loop observes the shutdown flag).
+    // Set up longjmp recovery for fatal errors raised from JIT helpers
     std::jmp_buf overflow_jmp_buf;
     overflow_jmp = &overflow_jmp_buf;
     {

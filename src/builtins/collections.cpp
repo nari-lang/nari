@@ -99,7 +99,7 @@ Value ScriptRuntime::builtin_concat(const Value *argvals, size_t argc, const nar
         auto &arr1 = argvals[0].get_array();
         auto &arr2 = argvals[1].get_array();
 
-        std::vector<Value> result = arr1;
+        std::vector<Value> result(arr1.begin(), arr1.end());
         result.insert(result.end(), arr2.begin(), arr2.end());
         return Value::make_array(std::move(result));
     }
@@ -1113,7 +1113,7 @@ Value ScriptRuntime::builtin_fill(const Value *argvals, size_t argc, const nari:
     return argvals[0];
 }
 
-static void flatten_into(std::vector<Value> &result, const std::vector<Value> &arr, int64_t depth) {
+static void flatten_into(std::vector<Value> &result, const Array &arr, int64_t depth) {
     for (const auto &v : arr) {
         if (depth > 0 && v.is_array()) {
             flatten_into(result, v.get_array(), depth - 1);
@@ -1905,15 +1905,48 @@ struct JsonDirectParser {
         return out;
     }
 
+    bool match_shape_key(const std::string &expected) {
+        if (p >= end || *p != '"') {
+            return false;
+        }
+        for (unsigned char c : expected) {
+            if (c < 0x20 || c == '"' || c == '\\') {
+                return false;
+            }
+        }
+        const size_t size = expected.size();
+        if ((size_t)(end - p) < size + 2 || p[size + 1] != '"' ||
+            std::memcmp(p + 1, expected.data(), size) != 0) {
+            return false;
+        }
+        p += size + 2;
+        return true;
+    }
+
     Value parse_number() {
         const char *start = p;
+        bool negative = false;
         if (p < end && *p == '-') {
+            negative = true;
             p++;
         }
         bool is_float = false;
+        bool have_digit = false;
+        bool int_overflow = false;
+        uint64_t magnitude = 0;
+        const uint64_t max_magnitude = negative ? uint64_t(INT64_MAX) + 1 : uint64_t(INT64_MAX);
         while (p < end) {
             char c = *p;
             if (c >= '0' && c <= '9') {
+                have_digit = true;
+                if (!is_float && !int_overflow) {
+                    const uint64_t digit = (uint64_t)(c - '0');
+                    if (magnitude > (max_magnitude - digit) / 10) {
+                        int_overflow = true;
+                    } else {
+                        magnitude = magnitude * 10 + digit;
+                    }
+                }
                 p++;
             } else if (c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') {
                 is_float = true;
@@ -1922,9 +1955,17 @@ struct JsonDirectParser {
                 break;
             }
         }
-        // Fast path: a plain integer (no '.'/'e'/'E'/'+'). The scanner already
-        // delimited [start, p), std::from_chars parses it in place with NO string
-        // allocation and no locale, ~2.6x faster than the string+strtoll path.
+        // Fast path: a plain integer (no '.'/'e'/'E'/'+').
+        // The scanner already delimited [start, p), std::from_chars parses it in place with no string allocation and no locale.
+        if (!is_float && have_digit && !int_overflow) {
+            if (negative) {
+                if (magnitude == uint64_t(INT64_MAX) + 1) {
+                    return Value::make_int(INT64_MIN);
+                }
+                return Value::make_int(-(int64_t)magnitude);
+            }
+            return Value::make_int((int64_t)magnitude);
+        }
         if (!is_float) {
             int64_t iv = 0;
             auto [ptr, ec] = std::from_chars(start, p, iv);
@@ -1958,6 +1999,7 @@ struct JsonDirectParser {
             p++;
             return Value::make_array(std::move(arr));
         }
+        arr.reserve(4);
         while (ok) {
             arr.push_back(parse_value());
             if (!ok) {
@@ -1988,13 +2030,14 @@ struct JsonDirectParser {
             return Value::make_object();
         }
 
-        // Collect key/value pairs first (stack buffer, no heap for typical
-        // objects), then build -- so we can install a cached shape in one shot.
+        // collect key/value pairs first then build, so we can add a cached shape in one shot.
         constexpr size_t kInline = 8;
         std::string ik[kInline];
         Value iv[kInline];
         std::vector<std::pair<std::string, Value>> overflow;
         size_t count = 0;
+        const ObjectShape *expected_shape = spec_shape;
+        bool shape_matches = expected_shape != nullptr;
 
         while (ok) {
             skip_ws();
@@ -2002,7 +2045,21 @@ struct JsonDirectParser {
                 fail("expected string key in object");
                 break;
             }
-            std::string key = parse_string();
+            std::string key;
+            if (!shape_matches || count >= expected_shape->names.size() ||
+                !match_shape_key(expected_shape->names[count])) {
+                if (shape_matches) {
+                    for (size_t i = 0; i < count; i++) {
+                        if (i < kInline) {
+                            ik[i] = expected_shape->names[i];
+                        } else {
+                            overflow[i - kInline].first = expected_shape->names[i];
+                        }
+                    }
+                    shape_matches = false;
+                }
+                key = parse_string();
+            }
             if (!ok) {
                 break;
             }
@@ -2040,6 +2097,17 @@ struct JsonDirectParser {
             return Value::make_object();
         }
 
+        if (shape_matches && expected_shape->names.size() != count) {
+            for (size_t i = 0; i < count; i++) {
+                if (i < kInline) {
+                    ik[i] = expected_shape->names[i];
+                } else {
+                    overflow[i - kInline].first = expected_shape->names[i];
+                }
+            }
+            shape_matches = false;
+        }
+
         Value obj = Value::make_object();
         ObjectObj *oobj = obj.get_obj_ptr();
         auto key_at = [&](size_t i) -> std::string & {
@@ -2049,25 +2117,17 @@ struct JsonDirectParser {
             return i < kInline ? iv[i] : overflow[i - kInline].second;
         };
 
-        // Fast path: same keys (in order) as the previous object -> reuse its
-        // shape, fill fields by slot, zero interning/transition hashing.
-        if (spec_shape != nullptr && count > 0 && spec_shape->names.size() == count) {
-            bool match = true;
-            for (size_t i = 0; i < count; i++) {
-                if (key_at(i) != spec_shape->names[i]) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                oobj->shape = spec_shape;
+        // Fast path: same keys (in order) as the previous object, we reuse its
+        // shape, fill fields by slot, skips interning/transition hashing.
+        if (shape_matches && count > 0 && expected_shape->names.size() == count) {
+                oobj->shape = expected_shape;
                 oobj->fields.resize(count);
                 for (size_t i = 0; i < count; i++) {
                     oobj->fields[i] = std::move(val_at(i));
                 }
                 oobj->shape_version = (uint32_t)count;
+                spec_shape = expected_shape;
                 return obj;
-            }
         }
         // slow path: build via set_field, then remember the resulting shape.
         for (size_t i = 0; i < count; i++) {
@@ -2358,20 +2418,26 @@ Value ScriptRuntime::builtin_json_stringify(const Value *argvals, size_t argc, c
     seen.clear();
     // attempt to use our implementation instead of nlohmann's slower (DOM-based) code
     if (indent < 0) {
+        static thread_local size_t output_size_hint = 64;
         std::string out;
-        out.reserve(64);
+        out.reserve(output_size_hint);
         if (!value_to_json_string(argvals[0], out, seen)) {
-            return make_err(Value::make_string(
-                "TypeError: JSON.stringify: cyclic or too deeply nested structure"));
+            return make_err(Value::make_string("TypeError: JSON.stringify: cyclic or too deeply nested structure"));
         }
+        size_t new_hint = out.size();
+        if (new_hint < 64) {
+            new_hint = 64;
+        } else if (new_hint > 64 * 1024) {
+            new_hint = 64 * 1024;
+        }
+        output_size_hint = new_hint;
         return make_ok(Value::make_string(std::move(out)));
     }
     bool ok = true;
     try {
         nlohmann::json j = value_to_json(argvals[0], seen, ok);
         if (!ok) {
-            return make_err(Value::make_string(
-                "TypeError: JSON.stringify: cyclic or too deeply nested structure"));
+            return make_err(Value::make_string("TypeError: JSON.stringify: cyclic or too deeply nested structure"));
         }
         return make_ok(Value::make_string(j.dump(indent)));
     } catch (...) {

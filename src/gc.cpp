@@ -17,13 +17,13 @@ void GarbageCollector::track(HeapHeader *p, TrackedType type) noexcept {
     size_t est = 0;
     switch (type) {
         case TrackedType::Array:
-            est = 40 + static_cast<ArrayObj *>(p)->v.capacity() * VALUE_SIZE_ESTIMATE;
+            est = 40 + ((ArrayObj *)p)->v.capacity() * VALUE_SIZE_ESTIMATE;
             break;
         case TrackedType::Object:
-            est = 64 + static_cast<ObjectObj *>(p)->field_count() * VALUE_SIZE_ESTIMATE;
+            est = 64 + ((ObjectObj *)p)->field_count() * VALUE_SIZE_ESTIMATE;
             break;
         case TrackedType::ClassInstance:
-            est = 64 + static_cast<ClassInstance *>(p)->field_values.capacity() * VALUE_SIZE_ESTIMATE;
+            est = 64 + ((ClassInstance *)p)->field_values.capacity() * VALUE_SIZE_ESTIMATE;
             break;
         case TrackedType::String:
             est = 32;
@@ -34,7 +34,7 @@ void GarbageCollector::track(HeapHeader *p, TrackedType type) noexcept {
     }
 
     // intrusive list push-front. No allocation, no hashing, cannot fail.
-    p->gc_est = (est > 0xFFFFFFFFull) ? 0xFFFFFFFFu : static_cast<uint32_t>(est);
+    p->gc_est = (est > 0xFFFFFFFFull) ? 0xFFFFFFFFu : (uint32_t)est;
     p->gc_prev = nullptr;
     p->gc_next = gc_list_head;
     if (gc_list_head) {
@@ -117,16 +117,17 @@ void GarbageCollector::mark_value(const Value &root) {
         p->gc_marked = true;
         switch (p->type_tag) {
             case ValueTag::Array:
-                for (const auto &elem : static_cast<ArrayObj *>(p)->v) {
+                for (const auto &elem : ((ArrayObj *)p)->v) {
                     push(elem);
                 }
                 break;
             case ValueTag::Object: {
-                auto *obj = static_cast<ObjectObj *>(p);
+                auto *obj = ((ObjectObj *)p);
                 // shape-mode storage.
                 for (const Value &f : obj->fields) {
                     push(f);
                 }
+                push(obj->lazy_payload);
                 // dict-mode storage
                 if (obj->dict_mode) {
                     for (const auto &name : obj->get_keys()) {
@@ -138,7 +139,7 @@ void GarbageCollector::mark_value(const Value &root) {
                 break;
             }
             case ValueTag::Handle: {
-                auto *h = static_cast<HandleData *>(p);
+                auto *h = ((HandleData *)p);
                 push(h->result);
                 push(h->error);
                 if (h->task) {
@@ -158,13 +159,13 @@ void GarbageCollector::mark_value(const Value &root) {
                 break;
             }
             case ValueTag::ClassInstance:
-                for (const Value &f : static_cast<ClassInstance *>(p)->field_values) {
+                for (const Value &f : ((ClassInstance *)p)->field_values) {
                     push(f);
                 }
                 break;
             case ValueTag::Function: {
                 // only closures have captures (and only they are GC-tracked)
-                auto *fd = static_cast<FunctionData *>(p);
+                auto *fd = ((FunctionData *)p);
                 if (fd->captures) {
                     for (const auto &cell : *fd->captures) {
                         if (cell) {
@@ -175,7 +176,7 @@ void GarbageCollector::mark_value(const Value &root) {
                 break;
             }
             case ValueTag::Delegate: {
-                auto *d = static_cast<DelegateData *>(p);
+                auto *d = ((DelegateData *)p);
                 push(d->target);
                 push(d->handler);
                 break;
@@ -226,26 +227,28 @@ size_t GarbageCollector::sweep() {
     for (HeapHeader *g : garbage) {
         switch (g->type_tag) {
             case ValueTag::Array:
-                static_cast<ArrayObj *>(g)->v.clear();
+                ((ArrayObj *)g)->v.clear();
                 break;
             case ValueTag::Object:
-                static_cast<ObjectObj *>(g)->clear_fields();
+                ((ObjectObj *)g)->clear_fields();
+                ((ObjectObj *)g)->lazy_payload = Value::none();
+                ((ObjectObj *)g)->lazy_captures.reset();
                 break;
             case ValueTag::Handle: {
-                auto *h = static_cast<HandleData *>(g);
+                auto *h = ((HandleData *)g);
                 h->result = Value::none();
                 h->error = Value::none();
                 h->task.reset();
                 break;
             }
             case ValueTag::ClassInstance:
-                static_cast<ClassInstance *>(g)->field_values.clear();
+                ((ClassInstance *)g)->field_values.clear();
                 break;
             case ValueTag::Function:
-                static_cast<FunctionData *>(g)->captures.reset();
+                ((FunctionData *)g)->captures.reset();
                 break;
             case ValueTag::Delegate: {
-                auto *d = static_cast<DelegateData *>(g);
+                auto *d = ((DelegateData *)g);
                 d->target = Value::none();
                 d->handler = Value::none();
                 break;
@@ -259,25 +262,25 @@ size_t GarbageCollector::sweep() {
     for (HeapHeader *g : garbage) {
         switch (g->type_tag) {
             case ValueTag::Array:
-                delete static_cast<ArrayObj *>(g);
+                delete ((ArrayObj *)g);
                 break;
             case ValueTag::Object:
-                delete static_cast<ObjectObj *>(g);
+                delete ((ObjectObj *)g);
                 break;
             case ValueTag::Handle:
-                delete static_cast<HandleData *>(g);
+                delete ((HandleData *)g);
                 break;
             case ValueTag::ClassInstance:
-                delete static_cast<ClassInstance *>(g);
+                delete ((ClassInstance *)g);
                 break;
             case ValueTag::Function:
-                delete static_cast<FunctionData *>(g);
+                delete ((FunctionData *)g);
                 break;
             case ValueTag::String:
-                delete static_cast<StringObj *>(g);
+                delete ((StringObj *)g);
                 break;
             case ValueTag::Delegate:
-                delete static_cast<DelegateData *>(g);
+                delete ((DelegateData *)g);
                 break;
             default:
                 break;

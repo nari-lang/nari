@@ -464,11 +464,8 @@ bool ScriptRuntime::delegate_default_has(const Value &target, const Value &key) 
 }
 
 // The four handler trap names, interned to their stable field ids once. The
-// ids are process-global (field_intern_map never renumbers), so a Delegate
-// handler's trap can be resolved via ObjectObj::get_field_by_id, skipping the
-// per-access intern_field() string hash that dominated proxy_delegate (~9% of
-// cycles). Resolved lazily on first use to avoid a static-init ordering
-// dependency on field_intern_map().
+// ids are process-global (field_intern_map never renumbers), 
+// so a Delegate handler's trap can be resolved via ObjectObj::get_field_by_id
 enum class TrapId {
     Get,
     Set,
@@ -485,64 +482,54 @@ static uint32_t trap_field_id(TrapId which) {
     return ids[static_cast<int>(which)];
 }
 
-// Look up a trap on the handler object by its interned id; returns a function
-// Value or none. Semantically identical to reading handler[name] each call.
+// Look up a trap on the handler object, returns a function Value or none.
+// Semantically identical to reading handler[name] each call.
 static Value delegate_trap(const Value &del, TrapId which) {
     DelegateData *d = del.get_delegate();
     if (!d || !d->handler.is_object()) {
         return Value::none();
     }
-    const Value *t = d->handler.get_obj_ptr()->get_field_by_id(trap_field_id(which));
+    ObjectObj *h = d->handler.get_obj_ptr();
+    if (!h->dict_mode && h->lazy_field_mask == 0) {
+        if (NARI_UNLIKELY(h->shape != d->trap_shape)) {
+            // (re)resolve all four trap slots against this shape
+            const auto &index = h->shape->index;
+            for (int i = 0; i < 4; i++) {
+                auto it = index.find(trap_field_id(static_cast<TrapId>(i)));
+                d->trap_slots[i] = it != index.end() ? static_cast<int32_t>(it->second) : -1;
+            }
+            d->trap_shape = h->shape;
+        }
+        int32_t slot = d->trap_slots[static_cast<int>(which)];
+        if (slot < 0 || static_cast<size_t>(slot) >= h->fields.size()) {
+            return Value::none();
+        }
+        const Value &t = h->fields[static_cast<size_t>(slot)];
+        return t.is_function() ? t : Value::none();
+    }
+    // dict-mode or pending-lazy handler: full id lookup
+    const Value *t = h->get_field_by_id(trap_field_id(which));
     return (t && t->is_function()) ? *t : Value::none();
 }
 
 // Invoke a resolved trap function with a fixed-arity argument list
-// use a scratch vector to avoid heap alloc on every trap call.
-namespace {
-struct ScratchBorrow {
-    bool &flag;
-    explicit ScratchBorrow(bool &f) : flag(f) {
-        f = true;
-    }
-    ~ScratchBorrow() {
-        flag = false;
-    }
-    ScratchBorrow(const ScratchBorrow &) = delete;
-    ScratchBorrow &operator=(const ScratchBorrow &) = delete;
-};
-} // namespace
-
 Value ScriptRuntime::invoke_trap(const Value &trap, const Value &a, const Value &b) {
     GcTempRoot gcRoot(*this);
     gcRoot.add(&trap);
-    if (trap_scratch_busy_) {
-        std::vector<Value> args = { a, b };
-        gcRoot.add_vec(&args);
-        return call_function_value(trap, args);
-    }
-    ScratchBorrow busy(trap_scratch_busy_);
-    trap_scratch_.clear();
-    trap_scratch_.push_back(a);
-    trap_scratch_.push_back(b);
-    gcRoot.add_vec(&trap_scratch_);
-    return call_function_value(trap, trap_scratch_);
+    Value args[2] = { a, b };
+    gcRoot.add(&args[0]);
+    gcRoot.add(&args[1]);
+    return call_function_value(trap, args, 2);
 }
 
 Value ScriptRuntime::invoke_trap(const Value &trap, const Value &a, const Value &b, const Value &c) {
     GcTempRoot gcRoot(*this);
     gcRoot.add(&trap);
-    if (trap_scratch_busy_) {
-        std::vector<Value> args = { a, b, c };
-        gcRoot.add_vec(&args);
-        return call_function_value(trap, args);
-    }
-    ScratchBorrow busy(trap_scratch_busy_);
-    trap_scratch_.clear();
-    trap_scratch_.push_back(a);
-    trap_scratch_.push_back(b);
-    trap_scratch_.push_back(c);
-    gcRoot.add_vec(&trap_scratch_);
-    return call_function_value(trap, trap_scratch_);
+    Value args[3] = { a, b, c };
+    gcRoot.add(&args[0]);
+    gcRoot.add(&args[1]);
+    gcRoot.add(&args[2]);
+    return call_function_value(trap, args, 3);
 }
 
 Value ScriptRuntime::delegate_get(const Value &del, const Value &key) {
@@ -589,6 +576,10 @@ bool ScriptRuntime::delegate_has(const Value &del, const Value &key) {
 }
 
 Value ScriptRuntime::delegate_call(const Value &del, const std::vector<Value> &args) {
+    return delegate_call(del, args.data(), args.size());
+}
+
+Value ScriptRuntime::delegate_call(const Value &del, const Value *args, size_t argc) {
     DelegateData *d = del.get_delegate();
     if (!d) {
         return Value::none();
@@ -599,23 +590,22 @@ Value ScriptRuntime::delegate_call(const Value &del, const std::vector<Value> &a
         GcTempRoot gcRoot(*this);
         gcRoot.add(&target);
         gcRoot.add(&trap);
-        std::vector<Value> args_arr = args;
-        gcRoot.add_vec(&args_arr);
         // The trap receives the call args as a Nari array
         // that allocation is inherent. invoke_trap then avoids the extra {target, arr} vector.
-        Value arr = Value::make_array(std::move(args_arr));
+        Value arr = Value::make_array(args, argc);
         gcRoot.add(&arr);
         // trap(target, argsArray)
         return invoke_trap(trap, target, arr);
     }
-    // No call trap: forward to the target if it is itself callable.
+    // No call trap, forward to the target if it is itself callable.
+    // The span passes through unchanged, its values stay rooted at the source until the VM copies them.
     if (target.is_function()) {
         GcTempRoot gcRoot(*this);
         gcRoot.add(&target);
-        return call_function_value(target, args);
+        return call_function_value(target, args, argc);
     }
     if (target.is_delegate()) {
-        return delegate_call(target, args);
+        return delegate_call(target, args, argc);
     }
     return Value::none();
 }
@@ -731,6 +721,143 @@ bool ScriptRuntime::match_pattern(const Pattern *pattern, const Value &value, Va
     return false;
 }
 
+Value ScriptRuntime::construct_result_variant(const char *variant, const Value &payload, const Value &constructor) {
+    ResultConstructorTmpl &cache = std::strcmp(variant, "Ok") == 0 ? ok_template : err_template;
+    const Value &standard = std::strcmp(variant, "Ok") == 0 ? standard_ok_constructor : standard_err_constructor;
+    if (constructor.raw_bits() != standard.raw_bits()) {
+        std::vector<Value> args{ payload };
+        return call_function_value(constructor, args);
+    }
+    if (cache.initialized && cache.constructor.raw_bits() == constructor.raw_bits() && cache.usable) {
+        return instantiate_result_template(cache, payload);
+    }
+
+    std::vector<Value> args{ payload };
+    Value result = call_function_value(constructor, args);
+    if (!cache.initialized) {
+        initialize_result_template(cache, constructor, result, payload);
+    }
+    return result;
+}
+
+bool ScriptRuntime::initialize_result_template(ResultConstructorTmpl &cache, const Value &constructor, const Value &result, const Value &payload) {
+    cache.initialized = true;
+    cache.constructor = constructor;
+    if (!result.is_object()) {
+        return false;
+    }
+
+    const ObjectObj *obj = result.get_obj_ptr();
+    if (obj->dict_mode || !obj->shape || obj->shape->names.size() != obj->fields.size()) {
+        return false;
+    }
+
+    cache.shape = obj->shape;
+    cache.fields.assign(obj->fields.begin(), obj->fields.end());
+    cache.shape_version = obj->shape_version;
+    if (const Value *variant = obj->get_field("__variant")) {
+        cache.unwrap_returns_payload = variant->is_string() && variant->get_string() == "Ok";
+    }
+    bool found_data = false;
+    std::shared_ptr<Value> payload_cell;
+    for (size_t slot = 0; slot < obj->shape->names.size(); ++slot) {
+        if (obj->shape->names[slot] == "__data") {
+            cache.data_slot = slot;
+            found_data = true;
+        }
+
+        const Value &field = obj->fields[slot];
+        if (!field.is_function() || !field.get_function().captures) {
+            continue;
+        }
+        const FunctionData &fn = field.get_function();
+        if (fn.captures->size() != 1 || !(*fn.captures)[0] ||
+            !Value::values_equal(*(*fn.captures)[0], payload)) {
+            cache.fields.clear();
+            cache.methods.clear();
+            return false;
+        }
+        if (!payload_cell) {
+            payload_cell = (*fn.captures)[0];
+        } else if (payload_cell != (*fn.captures)[0]) {
+            cache.fields.clear();
+            cache.methods.clear();
+            return false;
+        }
+        cache.methods.push_back(ResultMethodTmpl {
+            slot, fn.name, fn.jit_func_idx, fn.jit_locals_count, fn.jit_meta,
+            fn.jit_inline_kind, fn.jit_native_kind, fn.jit_inline_imm
+        });
+        cache.fields[slot] = Value::none();
+    }
+    cache.usable = found_data && !cache.methods.empty();
+    return cache.usable;
+}
+
+Value ScriptRuntime::instantiate_result_template(const ResultConstructorTmpl &cache, const Value &payload) {
+    Value result = Value::make_object();
+    ObjectObj *obj = result.get_obj_ptr();
+    obj->shape = cache.shape;
+    obj->fields.resize(cache.fields.size());
+    std::copy(cache.fields.begin(), cache.fields.end(), obj->fields.begin());
+    obj->fields[cache.data_slot] = payload;
+    obj->shape_version = cache.shape_version;
+
+    for (const ResultMethodTmpl &method : cache.methods) {
+        if (method.slot < 64) {
+            obj->lazy_field_mask |= uint64_t{ 1 } << method.slot;
+        }
+    }
+    obj->lazy_field_context = const_cast<ResultConstructorTmpl *>(&cache);
+    obj->lazy_field_factory = &ScriptRuntime::make_result_method;
+    obj->lazy_field_invoker = &ScriptRuntime::invoke_result_method;
+    obj->lazy_payload = payload;
+    return result;
+}
+
+Value ScriptRuntime::make_result_method(void *context, ObjectObj *obj, uint32_t slot) {
+    const auto *cache = static_cast<const ResultConstructorTmpl *>(context);
+    const ResultMethodTmpl *method = nullptr;
+    for (const ResultMethodTmpl &candidate : cache->methods) {
+        if (candidate.slot == slot) {
+            method = &candidate;
+            break;
+        }
+    }
+    if (!method) {
+        return Value::none();
+    }
+    if (!obj->lazy_captures) {
+        obj->lazy_captures = std::make_shared<std::vector<std::shared_ptr<Value>>>();
+        obj->lazy_captures->push_back(std::make_shared<Value>(obj->lazy_payload));
+    }
+    Value closure = Value::make_function(method->name);
+    FunctionData &fn = closure.get_function();
+    fn.captures = obj->lazy_captures;
+    fn.jit_capture0_raw = (*fn.captures)[0].get();
+    fn.jit_func_idx = method->jit_func_idx;
+    fn.jit_locals_count = method->jit_locals_count;
+    fn.jit_meta = method->jit_meta;
+    fn.jit_inline_kind = method->jit_inline_kind;
+    fn.jit_native_kind = method->jit_native_kind;
+    fn.jit_inline_imm = method->jit_inline_imm;
+    GarbageCollector::instance().track(&fn, GarbageCollector::TrackedType::Function);
+    return closure;
+}
+
+bool ScriptRuntime::invoke_result_method(void *context, ObjectObj *obj, uint32_t slot, const Value *, size_t argc, Value &result) {
+    if (argc != 0) {
+        return false;
+    }
+    const auto *cache = (const ResultConstructorTmpl *)context;
+    if (cache->unwrap_returns_payload && slot < cache->shape->names.size() &&
+        cache->shape->names[slot] == "unwrap") {
+        result = obj->lazy_payload;
+        return true;
+    }
+    return false;
+}
+
 // collects from
 //  globals call stack, block scopes, module-local vars, closure scope, task queue,
 //  flags, external roots, async roots, builtin roots, persistent roots, and static class fields.
@@ -740,6 +867,17 @@ std::vector<const Value *> ScriptRuntime::collect_gc_roots() const {
     for (const auto &[key, val] : globals) {
         roots.push_back(&val);
     }
+
+    for (const auto *cache : { &ok_template, &err_template }) {
+        if (cache->initialized) {
+            roots.push_back(&cache->constructor);
+            for (const Value &field : cache->fields) {
+                roots.push_back(&field);
+            }
+        }
+    }
+    roots.push_back(&standard_ok_constructor);
+    roots.push_back(&standard_err_constructor);
 
     for (const auto &frame : call_stack) {
         for (const auto &[key, val] : frame) {
@@ -2766,14 +2904,14 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
             bool is_kv = !forEachStmt->val_var.empty();
 
             // for objects, iterate over the keys (string values)
-            std::vector<Value> obj_keys;
+            Array obj_keys;
             if (iterable.is_object()) {
                 const ObjectObj *oobj = iterable.get_obj_ptr();
                 for (const auto &name : oobj->get_keys()) {
                     obj_keys.push_back(Value::make_string(name));
                 }
             }
-            const std::vector<Value> &items = iterable.is_object() ? obj_keys : iterable.get_array();
+            const Array &items = iterable.is_object() ? obj_keys : iterable.get_array();
 
             auto assign_var = [&](const std::string &name, Value val) {
                 if (!call_stack.empty()) {

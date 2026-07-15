@@ -357,7 +357,7 @@ class BytecodeVerifier {
     }
 
     static bool verify_function(const Chunk &chunk, const FunctionMeta &fn, size_t n_strs, size_t n_funcs, size_t fn_idx) {
-        const std::vector<uint8_t> &code = fn.code;
+        const ByteArray &code = fn.code;
         const size_t n_code = code.size();
         const size_t n_consts = fn.constants.size();
         const size_t n_locals = fn.var_names.size();

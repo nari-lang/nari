@@ -233,7 +233,7 @@ struct LineEntry {
 struct FunctionMeta {
     std::string name;
     std::string source_file;            // original source filename (for error messages)
-    std::vector<uint8_t> code;          // bytecode instructions
+    ByteArray code;                     // bytecode instructions
     std::vector<Constant> constants;    // constant pool
     std::vector<std::string> var_names; // local variable names
     std::vector<LineEntry> line_map;    // pc -> source line (sorted, sparse)
@@ -244,6 +244,8 @@ struct FunctionMeta {
     bool strict_mode; // true when function was compiled under "use strict"
     int8_t return_vt; // JIT vt of return value: 0=unknown, 1=int, 2=float (set
     // for strict-mode annotated functions)
+    JitInlineKind jit_inline_kind = JitInlineKind::None;
+    int64_t jit_inline_imm = 0;
 
     FunctionMeta() : param_count(0), capture_count(0), rest_param_index(-1), is_lambda(false), strict_mode(false), return_vt(0) {
     }
@@ -278,9 +280,7 @@ struct InlineClassification {
 inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
     const auto &func_code = func_meta.code;
 
-    // Skip the strict-mode CHECK_TYPE parameter preamble (if any).
-    // Each typed param emits: LOAD_VAR(3) + CHECK_TYPE(4, ctx=0) + STORE_VAR(3) +
-    // POP(1) = 11 bytes.
+    // Skip the strict-mode CHECK_TYPE parameter preamble if it exists.
     size_t base = 0;
     if (func_meta.strict_mode) {
         size_t pc = 0;
@@ -550,7 +550,14 @@ struct CallFrame {
 
     // lazily-allocated upvalue map, null for the common case (no closures in frame).
     std::unique_ptr<CaptureMap> open_upvalues;
+
+    // Consecutive closures commonly capture the same single cell.
+    // The frame already owns that cell, so it can retain and reuse the environment too.
+    CapturesList single_capture_cache;
 };
+
+using FrameArray = OwnedArray<CallFrame>;
+static_assert(std::is_standard_layout<FrameArray>::value, "FrameArray layout is part of the JIT ABI");
 
 class VM {
 #ifndef DISABLE_JIT
@@ -558,8 +565,8 @@ class VM {
 #endif
     // JIT helpers and internal code access stack/frame directly
   public:
-    std::vector<Value> stack;
-    std::vector<CallFrame> frames;
+    Array stack;
+    FrameArray frames;
     Chunk *chunk;
 
     CallFrame &current_frame() {
@@ -582,7 +589,6 @@ class VM {
     // Safe-point usable from JIT helpers: JITted code never re-enters execute_instruction, so allocating helpers poll here.
     void jit_safepoint();
     // Cached object-property read for the method-JIT LoadProperty helper.
-    // Mirrors the OP_GET_PROPERTY inline cache (prop_ic)
     Value jit_lookup_object_property(ObjectObj *oobj, uint16_t name_idx);
     void process_completed_io_for_jit();
     void ensure_static_fields_inited_for_jit(const std::string &class_name, const nari::ClassDecl *class_decl);
@@ -598,21 +604,17 @@ class VM {
     void ensure_static_fields_inited(const std::string &class_name, const nari::ClassDecl *class_decl);
 
     // indexed globals cache (keyed by bytecode name_idx).
-    // jit_load_global shares this fast path so JITted code skips the get_global hash lookup, exactly
-    // like the interpreter's OP_LOAD_GLOBAL.
+    // jit_load_global shares this fast path so JITted code skips the get_global hash lookup
   public:
-    std::vector<Value> global_cache;
-    std::vector<uint8_t> global_cache_valid;
+    Array global_cache;
+    ByteArray global_cache_valid;
 
   private:
     void rebuild_global_cache();
 
-    // mark-sweep GC roots: gather every Value reachable from the
-    // bytecode VM as a root, then collect. gc_stress is enabled via
-    // NARI_GC_STRESS and forces a full collection at every instruction boundary
+    // gather every Value reachable from the bytecode VM as a root, then collect
     bool gc_stress = false;
-    // Allocator-paced precise collection at interpreter/JIT safe-points.
-    // When the GC flags trigger_collection (allocation threshold reached), the next safe-point runs a full mark-sweep.
+    // allocator-paced precise collection
     bool gc_safepoints = false;
     void gc_collect_roots();
 
@@ -636,60 +638,29 @@ class VM {
     };
 
     // Builtin-method inline cache, keyed by CALL_METHOD's name_idx (string idx).
-    // Resolves a method name to its runtime builtin member-function pointer once,
-    // so repeated calls (e.g. str.startsWith / arr.push in a loop) skip the
-    // per-call hash lookups in builtins.find + runtime->call_builtin.
-    // state: 0 = unresolved, 1 = resolved to method_ic_fn[idx].
-    // Public: the JIT's jit_call_method helper (a free function) shares this cache.
+    // Resolves a method name to its runtime builtin member-function pointer once, repeated calls skip the hash lookup.
   public:
     std::vector<ScriptRuntime::BuiltinFn> method_ic_fn;
     std::vector<uint8_t> method_ic_state;
 
   private:
-    // Per-site shape cache for OP_MAKE_OBJECT (object literals). Keyed by the
-    // instruction address (bytecode is immutable after load). A literal builds
-    // the same field-name set every time, so once we've seen the resulting
-    // ObjectShape we can reuse it and fill fields by slot directly, skipping the
-    // per-field intern + shape-transition hashing in set_field. Verified each
-    // time by comparing keys (cheap string compare) so computed-key literals
-    // still fall back correctly.
+    // Per-site shape cache for OP_MAKE_OBJECT (object literals). Keyed by the instruction address
     std::unordered_map<const uint8_t *, const ObjectShape *> make_object_shape_cache;
 
   public:
-    // Pop `size` key/value pairs and build an object, using the per-site shape
-    // cache keyed by `site` (a stable bytecode address). Shared by the
-    // interpreter's OP_MAKE_OBJECT and the JIT's jit_make_object_site helper
-    // (a free function), so it must be public.
+    // Pop `size` key/value pairs and build an object, using the per-site shape cache keyed by `site`
     Value make_object_cached(const uint8_t *site, uint32_t size);
 
-    // Count a call to `func_idx` made from JIT-compiled code and compile it once
-    // it crosses JIT_THRESHOLD. The interpreter's call path already does this, but
-    // a function called only from JITted code (e.g. a pipeline callback) would
-    // otherwise never be counted and stay interpreted forever.
+    // Count a call to `func_idx` made from JIT-compiled code and compile it once it crosses JIT_THRESHOLD.
     void note_jit_callee(uint32_t func_idx);
 
-    // True if `func_idx` has a compiled trace running a profitable (long-running)
-    // loop -- enough sampled entries with a high iterations/entry average. When so,
-    // we SKIP method-compiling the function so it keeps using the register-flow
-    // trace (which beats the method JIT on long single loops; see the trace-JIT
-    // findings). Short re-entered loops never qualify, so they still method-compile.
+    // True if `func_idx` has a compiled trace running a profitable (long-running) loop
     bool has_profitable_trace(uint32_t func_idx) const;
 
   private:
     // Property inline cache
     // Direct-mapped, keyed by instruction pointer's name_idx hash.
-    //
-    // Validity check is shape-pointer based, NOT object-pointer based.
-    // ObjectShape pointers are uniqued in the global registry and never
-    // freed. Two distinct ObjectObjs with the same fields-in-the-same-order
-    // share the same shape pointer. Storing &fields[slot] directly is unsafe
-    // because the underlying ObjectObj (and its std::vector<Value> heap buffer)
-    // can be freed and re-allocated at the same address with the same
-    // shape_version - a classic ABA that yielded use-after-free reads of the
-    // freed vector buffer (e.g. regex.exec(s).value across repeated calls).
-    // Caching the shape pointer + field slot index instead lets us recompute
-    // &oobj->fields[slot] per access; the slot index is stable for any object
-    // whose shape pointer matches.
+    // Each entry is a shape pointer + name_idx + slot index.
     struct PropIC {
         const ObjectShape *shape; // cached shape pointer (uniqued, stable)
         uint16_t name_idx;        // string-table index at cache time (collision discriminator)
@@ -708,17 +679,15 @@ class VM {
     jit::TraceRecording trace_recorder;
     // Trace profitability measurement: a compiled trace writes the number of loop
     // iterations it ran into trace_last_iters before returning.
-    // The dispatcher accumulates per-(func_idx,anchor) totals so we can tell a profitable
-    // long-running loop (high iters/entry) from a short re-entered one.
   public:
     uint64_t trace_last_iters = 0;
 
   private:
     std::unordered_map<uint64_t, std::pair<uint64_t, uint32_t>> trace_iter_stats_;
-    // Scratch populated during OP_GET_PROPERTY / OP_SET_PROPERTY execution while a trace is recording.
+    // scratch populated during OP_GET_PROPERTY / OP_SET_PROPERTY execution while a trace is recording.
     uint32_t trace_prop_slot = 0;
     bool trace_prop_recordable = false;
-    // Scratch populated during OP_GET_INDEX / OP_SET_INDEX while a trace is recording.
+    // scratch populated during OP_GET_INDEX / OP_SET_INDEX while a trace is recording.
     void *trace_arr_ptr = nullptr;
     size_t trace_arr_size_bytes = 0;
     bool trace_arr_recordable = false;
@@ -736,16 +705,13 @@ class VM {
     // runtime error flag, set by JIT helpers or execute_instruction on unrecoverable error.
     bool has_error = false;
 
-    // setjmp target for fatal runtime recovery.
-    // C++ exceptions cannot unwind through JIT-generated code, so helpers longjmp out instead.
+    // setjmp target for fatal runtime recovery
     std::jmp_buf *overflow_jmp = nullptr;
 
-    // Depth counter for active JIT-compiled function calls on the C++ stack.
-    // Incremented by JIT helper paths when they enter a JIT-compiled callee, decremented on exit.
+    // depth counter for active JIT-compiled function calls on the C++ stack
     uint32_t jit_call_depth = 0;
 
-    // JIT-only: raw borrowed captures pointer for the current closure call.
-    // Set by jit_call_value to avoid shared_ptr ownership traffic
+    // JIT-only: raw borrowed captures pointer for the current closure call
     std::vector<std::shared_ptr<Value>> *jit_captures_raw = nullptr;
 
     // check if there is an active try/catch handler
@@ -791,10 +757,12 @@ class VM {
     // pushes a builtin's return value, but first promotes any pending
     // ScriptRuntime throw_flag into a bytecode-VM throw via dispatch_throw, false when the throw is uncaught.
     bool push_builtin_result(Value result);
-    void call_user_function(uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures = nullptr, CapturesList cell_captures = nullptr);
+    void call_user_function(uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures = nullptr, const CapturesList &cell_captures = {});
     // allocation-free variant: reads argc args from the top of the VM stack WITHOUT popping them.
     // The caller is responsible for popping args + func after this returns!!
-    void call_user_function_stack(uint32_t func_idx, size_t args_base, size_t argc, CapturesList cell_captures = nullptr);
+    void call_user_function_stack(uint32_t func_idx, size_t args_base, size_t argc, const CapturesList &cell_captures = {});
+    // span variant for runtime re-entry (delegate traps, FFI callbacks)
+    void call_user_function_span(uint32_t func_idx, const Value *args, size_t argc, const CapturesList &cell_captures = {});
 
   public:
     VM(int argc = 0, char **argv = nullptr);
@@ -803,8 +771,10 @@ class VM {
     // run a compiled chunk
     bool run(Chunk *compiled_chunk);
 
-    // synchronously execute a function to completion (for FFI callback re-entry)
+    // synchronously execute a function to completion
     Value call_function_value_sync(const Value &func_val, const std::vector<Value> &args);
+    // span variant: same semantics without making a vector
+    Value call_function_value_span(const Value &func_val, const Value *args, size_t argc);
 
     // create and return a new class instance
     Value instantiate_class(const std::string &class_name, std::vector<Value> args);

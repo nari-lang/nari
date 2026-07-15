@@ -129,28 +129,24 @@ static const int64_t FrameSize = sizeof(nari::bytecode::CallFrame);
 static const int64_t SlotBaseOff = field_offset(&nari::bytecode::CallFrame::slot_base);
 static const int64_t kIpOff = field_offset(&nari::bytecode::CallFrame::ip);
 
-// std::vector internal {begin, end, cap} pointer offsets are probed at startup, jit disabled if not found
-static const jit::stl::VecOffsets kVecVal = jit::stl::probe_vec<std::vector<Value>>();
-static const jit::stl::VecOffsets kVecFrame = jit::stl::probe_vec<std::vector<nari::bytecode::CallFrame>>();
-static const int64_t FramesFinishOff = jit::field_offset(&nari::bytecode::VM::frames) + kVecFrame.end;
+static const int64_t FramesFinishOff = jit::field_offset(&nari::bytecode::VM::frames) + offsetof(nari::bytecode::FrameArray, storage_end);
 
 // VM::trace_last_iters, a compiled trace writes its loop iteration count here before returning.
 static const int64_t kVmTraceItersOff = jit::field_offset(&nari::bytecode::VM::trace_last_iters);
 
-// ObjectObj::fields is a std::vector<Value>, so we need to probe it also
 static const int64_t HeapTypeTagOff = jit::field_offset(&::HeapHeader::type_tag);
 static const int64_t ObjShapeVersionOff = jit::field_offset(&::ObjectObj::shape_version);
 static const int64_t ObjShapeOff = jit::field_offset(&::ObjectObj::shape);
-static const int64_t ObjFieldsStartOff = jit::field_offset(&::ObjectObj::fields) + kVecVal.begin;
+static const int64_t ObjFieldsStartOff = jit::field_offset(&::ObjectObj::fields) + offsetof(Array, storage_begin);
 static const int64_t ObjFrozenOff = jit::field_offset(&::ObjectObj::frozen);
 static const int64_t ObjDictModeOff = jit::field_offset(&::ObjectObj::dict_mode);
 
-// ArrayObj::v is a std::vector<Value>, also need to probe it
-static const int64_t ArrayVBeginOff = nari::jit::field_offset(&::ArrayObj::v) + kVecVal.begin;
-static const int64_t ArrayVEndOff = nari::jit::field_offset(&::ArrayObj::v) + kVecVal.end;
+// Array has an explicit three-pointer layout shared with generated code.
+static const int64_t ArrayVBeginOff = nari::jit::field_offset(&::ArrayObj::v) + offsetof(Array, storage_begin);
+static const int64_t ArrayVEndOff = nari::jit::field_offset(&::ArrayObj::v) + offsetof(Array, storage_end);
 
 // same as above with VM operand stack
-static const int64_t VMStackFinishOff = jit::field_offset(&nari::bytecode::VM::stack) + kVecVal.end;
+static const int64_t VMStackFinishOff = jit::field_offset(&nari::bytecode::VM::stack) + offsetof(Array, storage_end);
 static const int64_t FDInlineKindOff = nari::jit::field_offset(&::FunctionData::jit_inline_kind);
 static const int64_t FDInlineImmOff = nari::jit::field_offset(&::FunctionData::jit_inline_imm);
 static const int64_t FDCapture0RawOff = nari::jit::field_offset(&::FunctionData::jit_capture0_raw);
@@ -697,6 +693,18 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
     // stored to vm->trace_last_iters at every exit (in emit_flush_and_ret).
     arch::Gp iter_ctr = cc.new_gp64("trace_iters");
     cc.mov(iter_ctr, 0);
+    Label shutdown_requested = cc.new_label();
+    auto poll_shutdown = [&] {
+        Label running = cc.new_label();
+        arch::Gp flag_addr = cc.new_gp64("shutdown_addr");
+        arch::Gp requested = cc.new_gp64("shutdown_requested");
+        cc.mov(flag_addr, Imm((uint64_t)(uintptr_t)&Runtime::g_shutdown_requested));
+        arch::load8_zx(cc, requested, arch::ptr8(flag_addr));
+        arch::test_zero(cc, requested);
+        arch::jcc(cc, arch::CC::kEQ, running);
+        arch::jmp(cc, shutdown_requested);
+        cc.bind(running);
+    };
 
     // loop start label
     cc.bind(lbl_loop);
@@ -921,11 +929,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
         }
         arch::add_imm(cc, ireg, 1);
         arch::add_imm(cc, iter_ctr, 1); // count iteration (profitability)
-        {
-            InvokeNode *invoke;
-            arch::invoke_imm(cc, &invoke, (uint64_t)(uintptr_t)jit_poll_shutdown, FuncSignature::build<void, void *>());
-            invoke->set_arg(0, vm_ptr);
-        }
+        poll_shutdown();
         arch::jmp(cc, bo_loop);
 
         cc.bind(bo_done);
@@ -1543,11 +1547,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 
             case Kind::LoopBack:
                 arch::add_imm(cc, iter_ctr, 1); // count this completed iteration
-                {
-                    InvokeNode *invoke;
-                    arch::invoke_imm(cc, &invoke, (uint64_t)(uintptr_t)jit_poll_shutdown, FuncSignature::build<void, void *>());
-                    invoke->set_arg(0, vm_ptr);
-                }
+                poll_shutdown();
                 arch::jmp(cc, lbl_loop);
                 break;
 
@@ -2024,6 +2024,15 @@ done:
         arch::Gp ip_val = cc.new_gp64();
         cc.mov(ip_val, (int64_t)entry_ip);
         arch::store(cc, arch::ptr(frames_end, (int32_t)(-FrameSize + kIpOff)), ip_val);
+    }
+    cc.ret();
+
+    cc.bind(shutdown_requested);
+    {
+        InvokeNode *invoke;
+        arch::invoke_imm(cc, &invoke, (uint64_t)(uintptr_t)jit_poll_shutdown,
+                         FuncSignature::build<void, void *>());
+        invoke->set_arg(0, vm_ptr);
     }
     cc.ret();
 

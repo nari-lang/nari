@@ -1,15 +1,19 @@
 #pragma once
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -22,6 +26,9 @@ namespace chrono = std::chrono;
 using namespace nari;
 
 struct Value;
+template <class T>
+class OwnedArray;
+using Array = OwnedArray<Value>;
 struct Task;
 struct HeapHeader;
 struct StringObj;
@@ -43,7 +50,6 @@ struct FunctionMeta;
 }
 } // namespace nari
 
-using Array = std::vector<Value>;
 using Object = ObjectObj *;
 using HandlePtr = HandleData *;
 using ClassInstancePtr = ClassInstance *;
@@ -158,6 +164,7 @@ struct Value {
     static Value make_const_string(const std::string &v);
     static Value make_array();
     static Value make_array(std::vector<Value> elements);
+    static Value make_array(const Value *elements, size_t count);
     static Value make_object();
     static Value make_object(ObjectObj *entries);
     static Value make_function(std::string name);
@@ -228,8 +235,217 @@ struct Value {
 };
 
 static_assert(sizeof(Value) == sizeof(uint64_t), "Value must stay NaN-boxed to 8 bytes!");
-// Keep Value trivially copyable so vector growth / call-frame setup relocate via memcpy.
+// Keep Value trivially copyable for generated stack and frame operations.
 static_assert(std::is_trivially_copyable<Value>::value, "Value must stay trivially copyable for memcpy relocation");
+
+// owned contiguous storage with an explicit layout shared with generated code.
+template <class T>
+class OwnedArray {
+  public:
+    using value_type = T;
+    using size_type = std::size_t;
+    using iterator = T *;
+    using const_iterator = const T *;
+    using reverse_iterator = std::reverse_iterator<iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+    T *storage_begin;
+    T *storage_end;
+    T *storage_capacity;
+
+    OwnedArray() noexcept
+        : storage_begin(empty_storage()), storage_end(storage_begin), storage_capacity(storage_begin) {}
+    OwnedArray(const OwnedArray &other) : OwnedArray() {
+        reserve(other.size());
+        std::copy(other.begin(), other.end(), storage_begin);
+        storage_end = storage_begin + other.size();
+    }
+    OwnedArray(OwnedArray &&other) noexcept
+        : storage_begin(other.storage_begin), storage_end(other.storage_end), storage_capacity(other.storage_capacity) {
+        other.reset_empty();
+    }
+    explicit OwnedArray(std::vector<T> elements) : OwnedArray() {
+        reserve(elements.size());
+        std::move(elements.begin(), elements.end(), storage_begin);
+        storage_end = storage_begin + elements.size();
+    }
+    OwnedArray &operator=(const OwnedArray &other) {
+        if (this != &other) {
+            OwnedArray copy(other);
+            swap(copy);
+        }
+        return *this;
+    }
+    OwnedArray &operator=(OwnedArray &&other) noexcept {
+        if (this != &other) {
+            release();
+            storage_begin = other.storage_begin;
+            storage_end = other.storage_end;
+            storage_capacity = other.storage_capacity;
+            other.reset_empty();
+        }
+        return *this;
+    }
+    OwnedArray &operator=(std::vector<T> elements) {
+        OwnedArray replacement(std::move(elements));
+        swap(replacement);
+        return *this;
+    }
+    ~OwnedArray() noexcept { release(); }
+
+    bool empty() const noexcept { return storage_end == storage_begin; }
+    size_type size() const noexcept { return static_cast<size_type>(storage_end - storage_begin); }
+    size_type capacity() const noexcept { return static_cast<size_type>(storage_capacity - storage_begin); }
+    T *data() noexcept { return storage_begin; }
+    const T *data() const noexcept { return storage_begin; }
+    iterator begin() noexcept { return storage_begin; }
+    const_iterator begin() const noexcept { return storage_begin; }
+    const_iterator cbegin() const noexcept { return storage_begin; }
+    iterator end() noexcept { return storage_end; }
+    const_iterator end() const noexcept { return storage_end; }
+    const_iterator cend() const noexcept { return storage_end; }
+    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+    T &operator[](size_type index) noexcept { return storage_begin[index]; }
+    const T &operator[](size_type index) const noexcept { return storage_begin[index]; }
+    T &back() noexcept { return storage_end[-1]; }
+    const T &back() const noexcept { return storage_end[-1]; }
+
+    void clear() noexcept {
+        while (!empty()) pop_back();
+    }
+    void reserve(size_type requested) {
+        if (requested <= capacity()) return;
+        if (requested > max_size()) throw std::length_error("owned array capacity exceeds maximum size");
+        const size_type old_size = size();
+        T *replacement = new T[requested];
+        if constexpr (std::is_trivially_copyable<T>::value) {
+            std::memcpy(replacement, storage_begin, old_size * sizeof(T));
+        } else {
+            for (size_type i = 0; i < old_size; ++i) replacement[i] = std::move(storage_begin[i]);
+        }
+        if (storage_begin != empty_storage()) delete[] storage_begin;
+        storage_begin = replacement;
+        storage_end = replacement + old_size;
+        storage_capacity = replacement + requested;
+    }
+    void shrink_to_fit() {
+        if (size() == capacity()) return;
+        OwnedArray replacement;
+        replacement.reserve(size());
+        for (T &value : *this) replacement.push_back(std::move(value));
+        swap(replacement);
+    }
+    void resize(size_type requested) {
+        if (requested > capacity()) reserve(growth_capacity(requested));
+        while (size() > requested) pop_back();
+        while (size() < requested) *storage_end++ = T{};
+    }
+    void resize(size_type requested, const T &value) {
+        T copy = value;
+        const size_type old_size = size();
+        if (requested <= old_size) {
+            while (size() > requested) pop_back();
+            return;
+        }
+        if (requested > capacity()) reserve(growth_capacity(requested));
+        std::fill(storage_end, storage_begin + requested, copy);
+        storage_end = storage_begin + requested;
+    }
+    void assign(size_type count, const T &value) {
+        clear();
+        resize(count, value);
+    }
+    void push_back(const T &value) {
+        T copy = value;
+        ensure_one_more();
+        *storage_end++ = std::move(copy);
+    }
+    void push_back(T &&value) {
+        ensure_one_more();
+        *storage_end++ = std::move(value);
+    }
+    template <class... Args>
+    T &emplace_back(Args &&...args) {
+        ensure_one_more();
+        *storage_end = T(std::forward<Args>(args)...);
+        return *storage_end++;
+    }
+    void pop_back() noexcept {
+        --storage_end;
+        if constexpr (!std::is_trivially_destructible<T>::value) {
+            *storage_end = T{};
+        }
+    }
+    iterator insert(const_iterator pos, const T &value) {
+        const size_type index = static_cast<size_type>(pos - storage_begin);
+        T copy = value;
+        ensure_one_more();
+        std::move_backward(storage_begin + index, storage_end, storage_end + 1);
+        storage_begin[index] = std::move(copy);
+        ++storage_end;
+        return storage_begin + index;
+    }
+    iterator insert(const_iterator pos, const_iterator first, const_iterator last) {
+        const size_type index = static_cast<size_type>(pos - storage_begin);
+        std::vector<T> copy(first, last);
+        const size_type requested = checked_size(copy.size());
+        if (requested > capacity()) reserve(growth_capacity(requested));
+        std::move_backward(storage_begin + index, storage_end, storage_end + copy.size());
+        std::move(copy.begin(), copy.end(), storage_begin + index);
+        storage_end += copy.size();
+        return storage_begin + index;
+    }
+    iterator erase(const_iterator first, const_iterator last) noexcept {
+        const size_type first_index = static_cast<size_type>(first - storage_begin);
+        const size_type removed = static_cast<size_type>(last - first);
+        std::move(storage_begin + first_index + removed, storage_end, storage_begin + first_index);
+        for (size_type i = 0; i < removed; ++i) pop_back();
+        return storage_begin + first_index;
+    }
+    void swap(OwnedArray &other) noexcept {
+        std::swap(storage_begin, other.storage_begin);
+        std::swap(storage_end, other.storage_end);
+        std::swap(storage_capacity, other.storage_capacity);
+    }
+
+  private:
+    static T *empty_storage() noexcept {
+        static T empty;
+        return &empty;
+    }
+    static constexpr size_type max_size() noexcept {
+        return std::numeric_limits<size_type>::max() / sizeof(T);
+    }
+    void reset_empty() noexcept {
+        storage_begin = empty_storage();
+        storage_end = storage_begin;
+        storage_capacity = storage_begin;
+    }
+    void release() noexcept {
+        if (storage_begin != empty_storage()) delete[] storage_begin;
+    }
+    size_type checked_size(size_type added) const {
+        if (added > max_size() - size()) throw std::length_error("owned array size exceeds maximum size");
+        return size() + added;
+    }
+    size_type growth_capacity(size_type requested) const {
+        if (requested > max_size()) throw std::length_error("owned array capacity exceeds maximum size");
+        size_type grown = capacity() ? capacity() + capacity() / 2 : 4;
+        if (grown < capacity() || grown > max_size()) grown = max_size();
+        return std::max(requested, grown);
+    }
+    void ensure_one_more() {
+        if (storage_end == storage_capacity) reserve(growth_capacity(checked_size(1)));
+    }
+};
+
+using ByteArray = OwnedArray<uint8_t>;
+
+static_assert(std::is_standard_layout<Array>::value, "Array layout is part of the JIT ABI");
+static_assert(std::is_standard_layout<ByteArray>::value, "ByteArray layout is part of the JIT ABI");
 
 struct StringObj : HeapHeader, PooledHeapObject<StringObj> {
     std::string s;
@@ -246,13 +462,13 @@ struct StringObj : HeapHeader, PooledHeapObject<StringObj> {
 };
 
 struct ArrayObj : HeapHeader, PooledHeapObject<ArrayObj> {
-    std::vector<Value> v;
+    Array v;
     ArrayObj() {
         type_tag = ValueTag::Array;
     }
     // Header free-list pool (see PooledHeapObject in core_types.cpp). 
     // Only the fixed-size header block is recycled. 
-    // The std::vector is constructed/destructed normally, so bytes are unchanged.
+    // The owned array storage is constructed/destructed normally.
 };
 
 uint32_t intern_field(const std::string &name);
@@ -281,14 +497,22 @@ ObjectShapeRegistry &object_shape_registry();
 void delete_object_dict(ObjectDict *p) noexcept;
 
 struct ObjectObj : HeapHeader, PooledHeapObject<ObjectObj> {
+    using LazyFieldFactory = Value (*)(void *, ObjectObj *, uint32_t);
+    using LazyFieldInvoker = bool (*)(void *, ObjectObj *, uint32_t, const Value *, size_t, Value &);
     static constexpr size_t kDictModeThreshold = 32;
 
     const ObjectShape *shape = nullptr;
-    std::vector<Value> fields;
+    Array fields;
     std::unique_ptr<ObjectDict, void (*)(ObjectDict *)> dict = { nullptr, delete_object_dict };
     std::string native_struct_type;
     std::vector<uint8_t> native_struct_storage;
     uint32_t shape_version = 0;
+    void *lazy_field_context = nullptr;
+    LazyFieldFactory lazy_field_factory = nullptr;
+    LazyFieldInvoker lazy_field_invoker = nullptr;
+    Value lazy_payload;
+    CapturesList lazy_captures;
+    uint64_t lazy_field_mask = 0;
     bool frozen = false;
     bool dict_mode = false;
 
@@ -301,6 +525,9 @@ struct ObjectObj : HeapHeader, PooledHeapObject<ObjectObj> {
     const Value *get_field(const std::string &name) const noexcept;
     // Lookup by a pre-interned field id, skipping the per-call intern_field() string hash.
     const Value *get_field_by_id(uint32_t fid) const noexcept;
+    Value *materialize_lazy_field(uint32_t slot);
+    void clear_lazy_field(uint32_t slot) noexcept;
+    bool invoke_lazy_field(uint32_t slot, const Value *args, size_t argc, Value &result);
     void promote_to_dict_mode();
     void set_field(const std::string &name, Value val);
     bool has_field(const std::string &name) const noexcept;
@@ -311,7 +538,7 @@ struct ObjectObj : HeapHeader, PooledHeapObject<ObjectObj> {
     }
 };
 
-struct FunctionData : HeapHeader {
+struct FunctionData : HeapHeader, PooledHeapObject<FunctionData> {
     std::string name;
     std::shared_ptr<nari::Function> func_ptr;
     CapturesList captures;
@@ -336,6 +563,8 @@ struct FunctionData : HeapHeader {
     FunctionData(std::string n, std::shared_ptr<nari::Function> ptr) : name(std::move(n)), func_ptr(std::move(ptr)) {
         type_tag = ValueTag::Function;
     }
+    // Capturing closures are short lived and allocation-heavy. Recycle only
+    // the fixed-size header; members still construct and destruct normally.
 };
 
 struct ClassLayout {
@@ -366,11 +595,14 @@ struct RegexObj : HeapHeader {
     }
 };
 
-// proxy-like interposer: wraps a target value with a handler object whose
+// wraps a target value with a handler object whose
 // optional get/set/has/call fields intercept the corresponding operations.
 struct DelegateData : HeapHeader {
     Value target;
     Value handler;
+    // delegate_trap() resolution cache
+    const ObjectShape *trap_shape = nullptr;
+    int32_t trap_slots[4] = { -1, -1, -1, -1 };
     DelegateData(Value t, Value h) : target(t), handler(h) {
         type_tag = ValueTag::Delegate;
     }
@@ -487,7 +719,7 @@ inline std::vector<std::string> &field_intern_names() {
     return names;
 }
 
-inline uint32_t intern_field(const std::string &name) {
+inline uint32_t intern_field_slow(const std::string &name) {
     auto &map = field_intern_map();
     auto it = map.find(name);
     if (it != map.end()) {
@@ -498,6 +730,32 @@ inline uint32_t intern_field(const std::string &name) {
     names.push_back(name);
     map.emplace(names.back(), id);
     return id;
+}
+
+inline uint32_t intern_field(const std::string &name) {
+    // short names hit a direct-mapped cache keyed by the packed name bytes
+    // this skips the string hash and bucket walk of field_intern_map.
+    const size_t len = name.size();
+    if (len - 1 < 8) { // 1..8 bytes (len 0 stays on the slow path)
+        struct ShortNameEntry {
+            uint64_t key;
+            uint32_t len;
+            uint32_t fid;
+        };
+        static ShortNameEntry short_cache[512] = {};
+        uint64_t key = 0;
+        std::memcpy(&key, name.data(), len);
+        ShortNameEntry &e = short_cache[(key * 0x9E3779B97F4A7C15ull >> 55) & 511];
+        if (e.key == key && e.len == static_cast<uint32_t>(len)) {
+            return e.fid;
+        }
+        uint32_t id = intern_field_slow(name);
+        e.key = key;
+        e.len = static_cast<uint32_t>(len);
+        e.fid = id;
+        return id;
+    }
+    return intern_field_slow(name);
 }
 
 inline const std::string &field_name(uint32_t id) {

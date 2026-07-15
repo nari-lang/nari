@@ -582,19 +582,12 @@ global JSON = {
     // parse a JSON string into Result<value, string>.
     // Ok(value) on success (object, array, string, number, bool, or null);
     // Err(message) on malformed input.
-    parse: func(text) {
-        return __json_parse(text);
-    },
+    parse: __json_parse,
 
     // serialize a Nari value to Result<string, string>.
     // Ok(json) on success; Err(message) on cyclic/too-deep structures.
     // optional second argument `indent` (integer) enables pretty-printing
-    stringify: func(value, indent) {
-        if (indent == null) {
-            return __json_stringify(value);
-        }
-        return __json_stringify(value, indent);
-    }
+    stringify: __json_stringify,
 };
 
 global system = {

@@ -656,9 +656,11 @@ static void jit_call_impl(VM *vm, uint32_t argc) {
         // Delegate call trap: d(args) -> handler.call(target, [args]).
         // After the is_function() fast path so ordinary calls are untouched
         if (func.is_delegate()) {
-            std::vector<Value> args(vm->stack.begin() + args_base, vm->stack.end());
+            Value result = jit_runtime_call(vm, [&] {
+                return vm->runtime->delegate_call(func, vm->stack.data() + args_base, argc);
+            });
             vm->stack.resize(args_base - 1); // pop args + func
-            vm->push(jit_runtime_call(vm, [&] { return vm->runtime->delegate_call(func, args); }));
+            vm->push(std::move(result));
             return;
         }
         vm->stack.resize(args_base - 1); // pop args + func
@@ -773,7 +775,22 @@ void jit_call_method(VM *vm, uint32_t method_name_idx, uint32_t argc) {
     // an object's / class instance's own callable field shadows any builtin member of the same name.
     const Value *method = nullptr;
     if (obj.is_object()) {
-        method = obj.get_obj_ptr()->get_field(method_name);
+        ObjectObj *method_obj = obj.get_obj_ptr();
+        if (!method_obj->dict_mode) {
+            auto method_slot = method_obj->shape->index.find(intern_field(method_name));
+            if (method_slot != method_obj->shape->index.end()) {
+                Value lazy_result;
+                if (method_obj->invoke_lazy_field(method_slot->second, vm->stack.data() + args_base, argc, lazy_result)) {
+                    vm->stack.resize(obj_idx);
+                    vm->push(std::move(lazy_result));
+                    return;
+                }
+                // reuse the resolved slot instead of a second get_field lookup
+                method = method_obj->materialize_lazy_field(method_slot->second);
+            }
+        } else {
+            method = method_obj->get_field(method_name);
+        }
     } else if (obj.is_class_instance()) {
         method = obj.get_class_instance()->get_field(method_name);
     }
@@ -784,12 +801,15 @@ void jit_call_method(VM *vm, uint32_t method_name_idx, uint32_t argc) {
     }
 
     if (obj.is_delegate()) {
-        // delegate method call. After the object fast path so shape prop-IC is untouched.
-        std::vector<Value> args(vm->stack.begin() + args_base, vm->stack.end());
-        vm->stack.resize(obj_idx);
-        if (method_name == "has_key" && args.size() == 1) {
-            vm->push(Value::make_bool(jit_runtime_call(vm, [&] { return vm->runtime->delegate_has(obj, args[0]); })));
+        // delegate method call, comes after the object fast path so shape prop-IC is untouched.
+        if (method_name == "has_key" && argc == 1) {
+            Value key = vm->stack[args_base];
+            bool result = jit_runtime_call(vm, [&] { return vm->runtime->delegate_has(obj, key); });
+            vm->stack.resize(obj_idx);
+            vm->push(Value::make_bool(result));
         } else {
+            std::vector<Value> args(vm->stack.begin() + args_base, vm->stack.end());
+            vm->stack.resize(obj_idx);
             vm->push(jit_runtime_call(vm, [&] { return vm->runtime->delegate_call_method(obj, method_name, std::move(args)); }));
         }
         vm->jit_safepoint();
@@ -807,14 +827,26 @@ void jit_call_method(VM *vm, uint32_t method_name_idx, uint32_t argc) {
         }
     }
     if (fn) {
-        std::vector<Value> args;
-        args.reserve((size_t)argc + 1);
-        args.push_back(obj);
-        for (uint32_t i = 0; i < argc; i++) {
-            args.push_back(vm->stack[args_base + i]);
+        // small fixed buffer for {receiver, args...}: no heap vector per call
+        Value arg_buf[9];
+        std::vector<Value> arg_vec;
+        const Value *args_ptr;
+        if (argc < 9) {
+            arg_buf[0] = obj;
+            for (uint32_t i = 0; i < argc; i++) {
+                arg_buf[1 + i] = vm->stack[args_base + i];
+            }
+            args_ptr = arg_buf;
+        } else {
+            arg_vec.reserve((size_t)argc + 1);
+            arg_vec.push_back(obj);
+            for (uint32_t i = 0; i < argc; i++) {
+                arg_vec.push_back(vm->stack[args_base + i]);
+            }
+            args_ptr = arg_vec.data();
         }
         vm->stack.resize(obj_idx);
-        vm->push(vm->call_builtin_member(fn, args.data(), args.size()));
+        vm->push(vm->call_builtin_member(fn, args_ptr, (size_t)argc + 1));
         jit_abort_on_runtime_error(vm);
         jit_deliver_pending_throw(vm);
         vm->jit_safepoint();
@@ -843,13 +875,15 @@ static inline bool jit_try_shadow_method(VM *vm, const char *name, uint32_t argc
         // A delegate receiver reached a name-dispatched inline method helper (length/char_code_at/starts_with/substr).
         const size_t args_base = obj_idx + 1;
         Value del = obj; // copy before resizing invalidates the stack ref
+        if (vm->stack.size() - args_base == 1 && std::strcmp(name, "has_key") == 0) {
+            Value key = vm->stack[args_base];
+            vm->stack.resize(obj_idx);
+            vm->push(Value::make_bool(jit_runtime_call(vm, [&] { return vm->runtime->delegate_has(del, key); })));
+            return true;
+        }
         std::vector<Value> args(vm->stack.begin() + args_base, vm->stack.end());
         vm->stack.resize(obj_idx);
-        if (args.size() == 1 && std::strcmp(name, "has_key") == 0) {
-            vm->push(Value::make_bool(jit_runtime_call(vm, [&] { return vm->runtime->delegate_has(del, args[0]); })));
-        } else {
-            vm->push(jit_runtime_call(vm, [&] { return vm->runtime->delegate_call_method(del, name, std::move(args)); }));
-        }
+        vm->push(jit_runtime_call(vm, [&] { return vm->runtime->delegate_call_method(del, name, std::move(args)); }));
         return true;
     } else {
         return false;
@@ -1384,20 +1418,15 @@ void jit_check_type(VM *vm, uint32_t type_str_idx, uint32_t packed) {
 namespace nari {
 namespace jit {
 
-// one-time probe of every container layout the generated code touches,
-// failure causes the jit to be disabled
-
-// MAJOR TODO: I should implement my own vector type, since that would eliminate this scuffed (and probably UB) code. 
+// generated frame setup clears smart-pointer slots with zero stores
+// we require that std::shared_ptr<Value> is all-zero when null, and that CapturesList is a pair of pointers without padding.
 bool stl_layouts_ok() {
     static const bool ok = [] {
-        bool good = stl::probe_vec<std::vector<Value>>().ok &&
-                    stl::probe_vec<std::vector<nari::bytecode::CallFrame>>().ok &&
-                    stl::probe_vec<std::vector<uint8_t>>().ok &&
-                    stl::null_is_all_zero<std::shared_ptr<Value>>() &&
+        bool good = stl::null_is_all_zero<std::shared_ptr<Value>>() &&
                     stl::null_is_all_zero<CapturesList>() &&
                     sizeof(CapturesList) == 2 * sizeof(void *);
         if (!good) {
-            fprintf(stderr, "nari: STL container layout probe failed; JIT disabled (interpreter only)\n");
+            fprintf(stderr, "nari: smart-pointer ABI check failed; JIT disabled (interpreter only)\n");
         }
         return good;
     }();

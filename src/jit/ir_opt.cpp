@@ -2385,12 +2385,12 @@ GlobalTypeMap analyze_const_globals(const nari::bytecode::Chunk &chunk) {
     std::unordered_map<uint32_t, GlobalStoreInfo> infos;
 
     // Bytecode shorts are big-endian
-    auto u16_at = [&](const std::vector<uint8_t> &code, size_t pc) -> uint16_t {
+    auto u16_at = [&](const ByteArray &code, size_t pc) -> uint16_t {
         return uint16_t((uint16_t(code[pc]) << 8) | uint16_t(code[pc + 1]));
     };
 
     for (const FunctionMeta &fn : chunk.functions) {
-        const std::vector<uint8_t> &code = fn.code;
+        const ByteArray &code = fn.code;
         // tos: type of value currently on top of abstract stack (Bottom = unknown / nothing tracked).
         Ty tos = Ty::Bottom;
         // local_ty[slot] = type if known, Bottom otherwise. Limited to function's locals.
@@ -3300,11 +3300,11 @@ uint32_t analyze_frozen_builtin(const nari::bytecode::Chunk &chunk, const char *
     }
     // check if any OP_STORE_GLOBAL to this name-index rebinds it at runtime.
     // Scan every function's full bytecode, any unknown opcode means we should bail just in case.
-    auto u16_at = [&](const std::vector<uint8_t> &code, size_t pc) -> uint16_t {
+    auto u16_at = [&](const ByteArray &code, size_t pc) -> uint16_t {
         return uint16_t((uint16_t(code[pc]) << 8) | uint16_t(code[pc + 1]));
     };
     for (const FunctionMeta &fn : chunk.functions) {
-        const std::vector<uint8_t> &code = fn.code;
+        const ByteArray &code = fn.code;
         size_t pc = 0;
         while (pc < code.size()) {
             OpCode op = OpCode(code[pc]);

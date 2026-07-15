@@ -75,7 +75,7 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      # ----- Toolchain -----
+      # Toolchain
       - name: Install Linux build tools
         if: matrix.os_label == 'linux'
         run: |

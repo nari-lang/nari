@@ -111,7 +111,7 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
         return true;
     };
 
-    auto remap_bytecode = [&](std::vector<uint8_t> &code) -> bool {
+    auto remap_bytecode = [&](ByteArray &code) -> bool {
         auto need = [&](size_t p, size_t n) -> bool {
             return p <= code.size() && n <= code.size() - p;
         };
@@ -266,7 +266,7 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                     wr16(pc, (uint16_t)func_remap[fidx]);
                     pc += 2;
                     uint8_t cap_count = code[pc++];
-                    if (!need(pc, static_cast<size_t>(cap_count) * 3)) {
+                    if (!need(pc, (size_t)(cap_count) * 3)) {
                         fprintf(stderr, "merge_naric_into_chunk: truncated closure captures at pc=%zu\n", op_pc);
                         return false;
                     }
@@ -514,7 +514,7 @@ int main(int argc, char **argv) {
         runtime_argv.push_back(arg.data());
     }
 
-    int runtime_argc = static_cast<int>(runtime_argv.size());
+    int runtime_argc = (int)runtime_argv.size();
     char **runtime_argv_ptr =
         runtime_argv.empty() ? nullptr : runtime_argv.data();
 
