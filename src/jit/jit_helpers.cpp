@@ -69,7 +69,11 @@ static void jit_runtime_call_void(VM *vm, Call &&call) {
     }
 }
 
-static inline void jit_abort_on_runtime_error(VM *vm);
+static inline void jit_abort_on_runtime_error(VM *vm) {
+    if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
+        std::longjmp(*vm->overflow_jmp, 1);
+    }
+}
 
 extern "C" {
 
@@ -528,12 +532,6 @@ static inline void jit_deliver_pending_throw(VM *vm) {
     vm->has_error = !caught;
     if (vm->overflow_jmp) {
         std::longjmp(*vm->overflow_jmp, caught ? 2 : 1);
-    }
-}
-
-static inline void jit_abort_on_runtime_error(VM *vm) {
-    if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
-        std::longjmp(*vm->overflow_jmp, 1);
     }
 }
 
