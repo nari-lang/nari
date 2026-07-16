@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include <map>
 #include <sstream>
+#include <stdlib.h>
 #include <string>
 #include <vector>
 
@@ -257,8 +258,17 @@ static std::map<std::string, std::string> parse_package_exports(const nari::fs::
     return result;
 }
 
-static std::map<std::string, std::string> parse_lockfile_store_paths(const nari::fs::Path &lockfile_path) {
-    std::map<std::string, std::string> result;
+// `store_path` is the absolute install location npkg recorded on this machine;
+// `version` + `integrity` are the portable fields the store location
+// can be derived from when the lockfile came from another machine
+struct LockfilePackage {
+    std::string store_path;
+    std::string version;
+    std::string integrity;
+};
+
+static std::map<std::string, LockfilePackage> parse_lockfile_packages(const nari::fs::Path &lockfile_path) {
+    std::map<std::string, LockfilePackage> result;
     std::string content = read_text_file(lockfile_path);
     std::stringstream ss(content);
     std::string line;
@@ -303,12 +313,62 @@ static std::map<std::string, std::string> parse_lockfile_store_paths(const nari:
             continue;
         }
         std::string key = unquote_toml(cleaned.substr(0, eq));
-        if (key != "storePath") {
-            continue;
+        std::string value = unquote_toml(cleaned.substr(eq + 1));
+        if (key == "storePath") {
+            result[current_package].store_path = value;
+        } else if (key == "version") {
+            result[current_package].version = value;
+        } else if (key == "integrity") {
+            result[current_package].integrity = value;
         }
-        result[current_package] = unquote_toml(cleaned.substr(eq + 1));
     }
     return result;
+}
+
+// $NARI_HOME if set, else ~/.nari. This is the interpreter's only piece of
+// built-in knowledge about where npkg keeps its store; everything below it
+// is derived from lockfile fields.
+static std::string nari_home_dir() {
+    const char *nari_home = getenv("NARI_HOME");
+    if (nari_home && *nari_home) {
+        return nari_home;
+    }
+    const char *home = getenv("HOME");
+#ifdef _WIN32
+    if (!home || !*home) {
+        home = getenv("USERPROFILE");
+    }
+#endif
+    if (!home || !*home) {
+        return {};
+    }
+    return (nari::fs::Path(home) / ".nari").string();
+}
+
+// Re-derive the store directory npkg would have installed a package into:
+//   <nari_home>/store/pkg/<name with '/' -> '-'>@<version>-<hash8> (first 8 chars of integrity)
+static nari::fs::Path derived_store_package_dir(const std::string &package_name, const LockfilePackage &locked) {
+    if (locked.version.empty()) {
+        return {};
+    }
+    std::string home = nari_home_dir();
+    if (home.empty()) {
+        return {};
+    }
+    std::string dir_name = package_name;
+    for (char &ch : dir_name) {
+        if (ch == '/') {
+            ch = '-';
+        }
+    }
+    dir_name += "@";
+    dir_name += locked.version;
+    size_t dash = locked.integrity.find('-');
+    if (dash != std::string::npos && locked.integrity.size() - dash - 1 >= 8) {
+        dir_name += "-";
+        dir_name += locked.integrity.substr(dash + 1, 8);
+    }
+    return (nari::fs::Path(home) / "store" / "pkg" / dir_name).lexically_normal();
 }
 
 static std::string package_short_name(const std::string &package_name) {
@@ -352,10 +412,10 @@ std::string resolve_package_import_path(const std::string &inc,
     }
 
     std::map<std::string, std::string> dependency_paths = parse_manifest_dependency_paths(project_root / "nari.toml");
-    std::map<std::string, std::string> lockfile_store_paths;
+    std::map<std::string, LockfilePackage> lockfile_packages;
     fs::Path lockfile_path = find_nearest_lockfile(project_root);
     if (!lockfile_path.empty()) {
-        lockfile_store_paths = parse_lockfile_store_paths(lockfile_path);
+        lockfile_packages = parse_lockfile_packages(lockfile_path);
     }
 
     std::map<std::string, std::string> alias_map;
@@ -377,7 +437,7 @@ std::string resolve_package_import_path(const std::string &inc,
     for (const auto &[package_name, _] : dependency_paths) {
         register_alias(package_name);
     }
-    for (const auto &[package_name, _] : lockfile_store_paths) {
+    for (const auto &[package_name, _] : lockfile_packages) {
         register_alias(package_name);
     }
 
@@ -395,7 +455,7 @@ std::string resolve_package_import_path(const std::string &inc,
     for (const auto &[package_name, _] : dependency_paths) {
         try_match(package_name, package_name);
     }
-    for (const auto &[package_name, _] : lockfile_store_paths) {
+    for (const auto &[package_name, _] : lockfile_packages) {
         try_match(package_name, package_name);
     }
     for (const auto &[alias, canonical_name] : alias_map) {
@@ -417,10 +477,22 @@ std::string resolve_package_import_path(const std::string &inc,
     }
 
     fs::Path package_root;
-    auto lock_it = lockfile_store_paths.find(matched_package);
-    if (lock_it != lockfile_store_paths.end() && !lock_it->second.empty()) {
-        package_root = fs::Path(lock_it->second);
-    } else {
+    fs::Path derived_dir;
+    auto lock_it = lockfile_packages.find(matched_package);
+    if (lock_it != lockfile_packages.end()) {
+        const LockfilePackage &locked = lock_it->second;
+        derived_dir = derived_store_package_dir(matched_package, locked);
+        // A storePath that is valid on this machine is prioritized, otherwise re-derive
+        // the store location from the portable lockfile fields.
+        if (!locked.store_path.empty() && fs::exists(fs::Path(locked.store_path) / "nari.toml")) {
+            package_root = fs::Path(locked.store_path);
+        } else if (!derived_dir.empty() && fs::exists(derived_dir / "nari.toml")) {
+            package_root = derived_dir;
+        } else if (!locked.store_path.empty()) {
+            package_root = fs::Path(locked.store_path);
+        }
+    }
+    if (package_root.empty()) {
         auto dep_it = dependency_paths.find(matched_package);
         if (dep_it != dependency_paths.end()) {
             package_root =
@@ -431,6 +503,9 @@ std::string resolve_package_import_path(const std::string &inc,
     if (package_root.empty()) {
         error_out =
             "Package import '" + inc + "' matched dependency '" + matched_package + "' but no installed package or local path could be resolved";
+        if (!derived_dir.empty()) {
+            error_out += " (looked for " + derived_dir.string() + ")";
+        }
         return "";
     }
 
@@ -440,6 +515,9 @@ std::string resolve_package_import_path(const std::string &inc,
             "Package import '" + inc + "' resolved to '" +
             package_root.lexically_normal().string() +
             "' but no nari.toml was found there";
+        if (!derived_dir.empty() && derived_dir != package_root) {
+            error_out += " (also looked for " + derived_dir.string() + ")";
+        }
         return "";
     }
 
