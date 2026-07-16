@@ -41,18 +41,18 @@ There's no Windows installer yet, so install from the release archive:
 
 ## Running Programs
 
-Execute a Nari script file with whichever build you created:
+Execute a Nari script file:
 
 ```bash
-./build/debug/nari script.nari
-./build/release/nari script.nari
+nari script.nari
+nari script.nari
 ```
 
 Compile a script to bytecode:
 
 ```bash
-./build/release/naric script.nari -o script.naric
-./build/release/nari script.naric
+naric script.nari -o script.naric
+nari script.naric
 ```
 
 ## Editor Support
