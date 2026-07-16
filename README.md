@@ -1,6 +1,9 @@
 
-![Nari logo](/assets/wordmark-light.svg#gh-light-mode-only)
-![Nari logo](/assets/wordmark-dark.svg#gh-dark-mode-only)
+<div align="center">
+  <img src="./assets/wordmark-light.svg#gh-light-mode-only" />
+  <img src="./assets/wordmark-dark.svg#gh-dark-mode-only" />
+</div>
+
 ---
 
 Nari is a dynamically typed scripting language designed for rapid development with support for asynchronous programming, first-class functions, and seamless C interoperability through its foreign function interface. The language combines modern features with a straightforward syntax, making it suitable for both quick scripts and more complex applications.
