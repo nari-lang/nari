@@ -5,10 +5,8 @@
 
 The Nari standard library is split into two surfaces:
 
-- **Prelude** - globals every program can use without an import (`Result`,
-  `Option`, `Ok`/`Err`/`Some`/`None`, `String`, `Array`, `Object`, `fs`, `io`,
-  `platform`, `process`, `math`, `net`, `http`, `JSON`, `system`, `yield`,
-  `Spawn`).
+- **Prelude** - globals every program can use without an import (`Result` (`Ok`/`Err`), `Option` (`Some`/`None`), `yield`, `String`, `Array`, `Object`, `Spawn`,
+  `math`, `platform`, `process`, `fs`, `net`, `http`, `JSON`).
 - **Importable modules** - opt-in domain modules pulled in via
   `import { Name } from "std/<name>";`. They live under
   `src/stdlib/std/<name>.nari` and are embedded into the runtime by
@@ -18,20 +16,18 @@ The Nari standard library is split into two surfaces:
 ## Contents
 
 - [Prelude](#prelude) _(always available)_
+  - [Globals](#globals)
   - [`String`](#string)
   - [`Array`](#array)
   - [`Object`](#object)
-  - [`fs`](#fs)
-  - [`io`](#io)
+  - [`Spawn`](#spawn)
+  - [`math`](#math)
   - [`platform`](#platform)
   - [`process`](#process)
-  - [`math`](#math)
+  - [`fs`](#fs)
   - [`net`](#net)
   - [`http`](#http)
   - [`JSON`](#json)
-  - [`system`](#system)
-  - [`Spawn`](#spawn)
-  - [Globals](#globals)
 
 ### Importable modules
 
@@ -150,85 +146,29 @@ _No description._
 
 _No description._
 
-### fs
+### Spawn
 
-#### `read_file(path)`
+#### `race(handles)`
 
-_No description._
+race: Returns the fastest completing handle
 
-#### `write_file(path, content)`
+#### `all(handles)`
 
-_No description._
+all: Wait for all handles to complete, return array of results
 
-#### `append_file(path, content)`
+#### `any(handles)`
 
-_No description._
+any: Return first successful handle (by completion time)
+Note: Returns fastest successful, not necessarily first to succeed
 
-#### `exists(path)`
+#### `map(items, fn)`
 
-_No description._
+Apply async operation to array of items
 
-#### `file_exists(path)`
-
-_No description._
-
-#### `is_directory(path)`
-
-_No description._
-
-#### `mkdir_all(path)`
-
-_No description._
-
-#### `delete_file(path)`
-
-_No description._
-
-#### `list_dir(path)`
-
-_No description._
-
-### io
-
-#### `stdin =  { ... }`
-
-_No description._
-
-### platform
-
-#### `arch = __platform_arch()`
-
-_No description._
-
-#### `os = __platform_os()`
-
-_No description._
-
-#### `endianness = __platform_endianness()`
-
-_No description._
-
-#### `hostname = __platform_hostname()`
-
-_No description._
-
-#### `getenv(var)`
-
-_No description._
-
-### process
-
-#### `exit(code)`
-
-_No description._
-
-#### `argc = __process_argc()`
-
-_No description._
-
-#### `argv = __process_argv()`
-
-_No description._
+Usage:
+```nari 
+Spawn.map(urls, func(url) { return http.fetch(url); })
+```
 
 ### math
 
@@ -320,6 +260,84 @@ _No description._
 
 _No description._
 
+### platform
+
+#### `arch = __platform_arch()`
+
+_No description._
+
+#### `os = __platform_os()`
+
+_No description._
+
+#### `endianness = __platform_endianness()`
+
+_No description._
+
+#### `hostname = __platform_hostname()`
+
+_No description._
+
+#### `getenv(var)`
+
+_No description._
+
+### process
+
+#### `argc = __process_argc()`
+
+_No description._
+
+#### `argv = __process_argv()`
+
+_No description._
+
+#### `stdin =  { ... }`
+
+_No description._
+
+#### `exit(code)`
+
+_No description._
+
+### fs
+
+#### `read_file(path)`
+
+_No description._
+
+#### `write_file(path, content)`
+
+_No description._
+
+#### `append_file(path, content)`
+
+_No description._
+
+#### `exists(path)`
+
+_No description._
+
+#### `file_exists(path)`
+
+_No description._
+
+#### `is_directory(path)`
+
+_No description._
+
+#### `mkdir_all(path)`
+
+_No description._
+
+#### `delete_file(path)`
+
+_No description._
+
+#### `list_dir(path)`
+
+_No description._
+
 ### net
 
 #### `create_server(port, on_connection)`
@@ -387,11 +405,7 @@ Close a UDP socket.
 
 ### http
 
-#### `get(url)`
-
-_No description._
-
-#### `request(options, callback)`
+#### `fetch(url, options)`
 
 _No description._
 
@@ -406,72 +420,6 @@ throws SyntaxError on malformed input
 
 serialize a Nari value to a JSON string
 optional second argument `indent` (integer) enables pretty-printing
-
-### system
-
-`system` is the small ambient utility namespace. Domain modules
-(Regex, Path, Date, Random, uuid, Hash, Archive, Hex, Base64, Map, Set,
-Logger) are NOT bundled here - import them from "std/<name>".
-
-#### `version = stdlib_version`
-
-_No description._
-
-#### `print = print`
-
-_No description._
-
-#### `math = math`
-
-_No description._
-
-#### `fs = fs`
-
-_No description._
-
-#### `io = io`
-
-_No description._
-
-#### `net = net`
-
-_No description._
-
-#### `http = http`
-
-_No description._
-
-#### `platform = platform`
-
-_No description._
-
-#### `json = JSON`
-
-_No description._
-
-#### `exec(command)`
-
-_No description._
-
-### Spawn
-
-#### `race(handles)`
-
-race: Returns the fastest completing handle
-
-#### `all(handles)`
-
-all: Wait for all handles to complete, return array of results
-
-#### `any(handles)`
-
-any: Return first successful handle (by completion time)
-Note: Returns fastest successful, not necessarily first to succeed
-
-#### `map(items, fn)`
-
-map: Apply async operation to array of items
-Usage: Spawn.map(urls, func(url) { return http.fetch(url); })
 
 ---
 

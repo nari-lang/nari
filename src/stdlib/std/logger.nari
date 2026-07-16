@@ -1,5 +1,5 @@
 // -- Logger ------------------------------------------------------------------
-// Leveled logging with timestamps. Routes to system.print by default;
+// Leveled logging with timestamps. Routes to print by default;
 // pass a `sink` function to capture (e.g. for tests or file output).
 // Levels: trace=10, debug=20, info=30, warn=40, error=50, fatal=60.
 // Set min level via Logger.create({ level: "info" }) - anything lower is

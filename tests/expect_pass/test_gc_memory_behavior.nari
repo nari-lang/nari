@@ -1,10 +1,10 @@
 // Test to verify GC doesn't hold unnecessary references
 // The collector should reclaim unreachable objects without keeping stale roots.
 
-system.print("GC Memory Behavior Test\n");
+print("GC Memory Behavior Test\n");
 
 // Test 1: Non-circular allocations should be collectable.
-system.print("[Test 1] Non-circular allocations (collectable)");
+print("[Test 1] Non-circular allocations (collectable)");
 let before1 = __gc_stats();
 
 for (let i = 0; i < 1000; i = i + 1) {
@@ -13,12 +13,12 @@ for (let i = 0; i < 1000; i = i + 1) {
 }
 
 let after1 = __gc_stats();
-system.print("  Allocated: 1000+");
-system.print("  Still tracked: " @ after1.tracked);
-system.print("  Note: If tracked is low, unreachable objects were collected (GOOD)");
+print("  Allocated: 1000+");
+print("  Still tracked: " @ after1.tracked);
+print("  Note: If tracked is low, unreachable objects were collected (GOOD)");
 
 // Test 2: Circular references need GC.
-system.print("\n[Test 2] Circular references (need GC collection)");
+print("\n[Test 2] Circular references (need GC collection)");
 let before2 = __gc_stats();
 
 for (let i = 0; i < 100; i = i + 1) {
@@ -29,16 +29,16 @@ for (let i = 0; i < 100; i = i + 1) {
 }
 
 let after2 = __gc_stats();
-system.print("  Created: 200 objects in 100 cycles");
-system.print("  Before GC tracked: " @ after2.tracked);
+print("  Created: 200 objects in 100 cycles");
+print("  Before GC tracked: " @ after2.tracked);
 
 // Force collection
 let collectResult = __gc_collect();
-system.print("  Circular refs collected: " @ collectResult.collected);
-system.print("  After GC tracked: " @ collectResult.tracked);
+print("  Circular refs collected: " @ collectResult.collected);
+print("  After GC tracked: " @ collectResult.tracked);
 
 // Test 3: Memory behavior comparison
-system.print("\n[Test 3] GC vs non-GC allocations");
+print("\n[Test 3] GC vs non-GC allocations");
 
 // Create short-lived acyclic objects.
 let stats3a = __gc_stats();
@@ -48,9 +48,9 @@ for (let i = 0; i < 5000; i = i + 1) {
 let stats3b = __gc_stats();
 let autoFreed = stats3b.tracked - stats3a.tracked;
 
-system.print("  After 5000 non-circular allocations:");
-system.print("  Tracked increase: " @ autoFreed);
-system.print("  Expected: low after safe-point collection");
+print("  After 5000 non-circular allocations:");
+print("  Tracked increase: " @ autoFreed);
+print("  Expected: low after safe-point collection");
 
 // Create circular references
 let stats3c = __gc_stats();
@@ -61,13 +61,13 @@ for (let i = 0; i < 100; i = i + 1) {
 let stats3d = __gc_stats();
 let cycleIncrease = stats3d.tracked - stats3c.tracked;
 
-system.print("\n  After 100 circular allocations:");
-system.print("  Tracked increase: " @ cycleIncrease);
-system.print("  Expected: ~100 (cycles need GC)");
+print("\n  After 100 circular allocations:");
+print("  Tracked increase: " @ cycleIncrease);
+print("  Expected: ~100 (cycles need GC)");
 
 // Collect cycles
 let final = __gc_collect();
-system.print("\n  After GC collection:");
-system.print("  Cycles collected: " @ final.collected);
+print("\n  After GC collection:");
+print("  Cycles collected: " @ final.collected);
 
-system.print("\ntest complete!");
+print("\ntest complete!");

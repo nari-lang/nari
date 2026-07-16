@@ -81,13 +81,6 @@ Value ScriptRuntime::builtin_platform_getenv(const Value *argvals, size_t argc, 
     return Value::make_string("");
 }
 
-Value ScriptRuntime::builtin_process_exit(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    int exit_code = 0;
-    if (argc >= 1 && argvals[0].is_int()) {
-        exit_code = static_cast<int>(argvals[0].get_int());
-    }
-    std::exit(exit_code);
-}
 
 Value ScriptRuntime::builtin_process_argc(const Value *, size_t, const nari::CallExpr *) {
     return Value::make_int(static_cast<int64_t>(this->process_argc));
@@ -102,7 +95,15 @@ Value ScriptRuntime::builtin_process_argv(const Value *, size_t, const nari::Cal
     return Value::make_array(std::move(args));
 }
 
-Value ScriptRuntime::builtin_system_exec(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_process_exit(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    int exit_code = 0;
+    if (argc >= 1 && argvals[0].is_int()) {
+        exit_code = static_cast<int>(argvals[0].get_int());
+    }
+    std::exit(exit_code);
+}
+
+Value ScriptRuntime::builtin_process_exec(const Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc >= 1 && argvals[0].is_string()) {
         std::string command = argvals[0].get_string();
         int ret = system(command.c_str());

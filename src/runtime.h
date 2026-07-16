@@ -109,7 +109,7 @@ void runtime_log(TraceLevel level, const std::string &msg);
 #endif
 
 #define BUILTIN_FUNCTIONS(X)                                        \
-    X("__system_exec", builtin_system_exec)                         \
+    X("__process_exec", builtin_process_exec)                         \
     X("print", builtin_print)                                       \
     X("panic", builtin_panic)                                       \
     X("set_timeout", builtin_setTimeout)                             \
@@ -951,11 +951,10 @@ class ScriptRuntime {
     Value builtin_platform_hostname(const Value *, size_t, const CallExpr *);
     Value builtin_platform_getenv(const Value *, size_t, const CallExpr *);
 
-    Value builtin_process_exit(const Value *, size_t, const CallExpr *);
     Value builtin_process_argc(const Value *, size_t, const CallExpr *);
     Value builtin_process_argv(const Value *, size_t, const CallExpr *);
-
-    Value builtin_system_exec(const Value *, size_t, const CallExpr *);
+    Value builtin_process_exec(const Value *, size_t, const CallExpr *);
+    Value builtin_process_exit(const Value *, size_t, const CallExpr *);
 
     Value builtin_gc_collect(const Value *, size_t, const CallExpr *);
     Value builtin_gc_stats(const Value *, size_t, const CallExpr *);

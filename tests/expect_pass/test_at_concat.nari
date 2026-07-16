@@ -4,43 +4,43 @@
 let hello = "Hello";
 let world = "World";
 let greeting = hello @ " " @ world @ "!";
-system.print(greeting);
+print(greeting);
 
 // Concatenating different types (should convert to string)
 let num = 42;
 let result = "The answer is " @ num;
-system.print(result);
+print(result);
 
 // Multiple concatenations
 let a = "A";
 let b = "B";
 let c = "C";
-system.print(a @ b @ c);
+print(a @ b @ c);
 
 // Empty strings
-system.print("" @ "text" @ "");
+print("" @ "text" @ "");
 
 // Numbers
 let x = 10;
 let y = 20;
-system.print(x @ " + " @ y @ " = " @ (x + y));
+print(x @ " + " @ y @ " = " @ (x + y));
 
 // With booleans
 let flag = true;
-system.print("Flag is: " @ flag);
+print("Flag is: " @ flag);
 
 // Mixed with string interpolation
 let name = "Alice";
-system.print("Hello " @ name @ ", your greeting is " @ `Welcome, {name}!`);
+print("Hello " @ name @ ", your greeting is " @ `Welcome, {name}!`);
 
 // Chained operations
 let msg = "First" @ " " @ "Second" @ " " @ "Third";
-system.print(msg);
+print(msg);
 
 // With object property
 let obj = {name: "Bob", age: 25};
-system.print("Name: " @ obj.name @ ", Age: " @ obj["age"]);
+print("Name: " @ obj.name @ ", Age: " @ obj["age"]);
 
 // With array element
 let arr = ["red", "green", "blue"];
-system.print("Colors: " @ arr[0] @ ", " @ arr[1] @ ", " @ arr[2]);
+print("Colors: " @ arr[0] @ ", " @ arr[1] @ ", " @ arr[2]);

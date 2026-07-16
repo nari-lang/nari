@@ -1,27 +1,27 @@
 // Demonstrate that list_dir now returns proper arrays
-system.print("Testing list_dir Array Return\n");
+print("Testing list_dir Array Return\n");
 
 // Get files in tests directory
 let files = fs.list_dir("tests").await;
 
-system.print("Type check:");
-system.print("\ttypeof(files) = " @ typeof(files));
-system.print("\tIs array? " @ (typeof(files) == "array"));
-system.print("");
+print("Type check:");
+print("\ttypeof(files) = " @ typeof(files));
+print("\tIs array? " @ (typeof(files) == "array"));
+print("");
 
-system.print("Array operations now work directly:");
-system.print("\tFiles found: " @ files.length());
-system.print("");
+print("Array operations now work directly:");
+print("\tFiles found: " @ files.length());
+print("");
 
-system.print("Can iterate with for-each:");
+print("Can iterate with for-each:");
 for (file in files) {
-    system.print("\t- " @ file);
+    print("\t- " @ file);
 }
-system.print("");
+print("");
 
-system.print("Can use array methods:");
-system.print("\tFirst: " @ files[0]);
+print("Can use array methods:");
+print("\tFirst: " @ files[0]);
 if (files.length() > 1) {
-    system.print("\tLast:  " @ files[files.length() - 1]);
+    print("\tLast:  " @ files[files.length() - 1]);
 }
-system.print("");
+print("");

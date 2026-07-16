@@ -42,4 +42,4 @@ check("bin.b64.roundtrip", Hex.encode(Base64.decode(Base64.encode(bin))) == "fff
 // base64 decode ignores whitespace
 check("b64.ws", Base64.decode("TW Fu") == "Man");
 
-system.print("encoding stdlib: all checks passed");
+print("encoding stdlib: all checks passed");

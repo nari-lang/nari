@@ -2,22 +2,22 @@
 // Covers: threshold auto-trigger, closure cycles, reachability, cascading cleanup,
 //         linked list cycles, multi-root deduplication, and scope-based collection.
 
-system.print("=== GC Trigger Tests ===\n");
+print("=== GC Trigger Tests ===\n");
 
 // Helpers
 let assert = func(cond, msg) {
     if (!cond) {
-        system.print("[FAIL] " @ msg);
+        print("[FAIL] " @ msg);
         panic("assertion failed: " @ msg);
     }
-    system.print("[pass] " @ msg);
+    print("[pass] " @ msg);
 };
 let assertGe = func(a, b, msg) {
     if (a < b) {
-        system.print("[FAIL] " @ msg @ " (got " @ a @ ", expected >= " @ b @ ")");
+        print("[FAIL] " @ msg @ " (got " @ a @ ", expected >= " @ b @ ")");
         panic("assertion failed: " @ msg);
     }
-    system.print("[pass] " @ msg @ " (" @ a @ " >= " @ b @ ")");
+    print("[pass] " @ msg @ " (" @ a @ " >= " @ b @ ")");
 };
 
 // These tests use lower-bound collection assertions so they remain stable when
@@ -27,7 +27,7 @@ let assertGe = func(a, b, msg) {
 // Create hundreds of circular pairs; a single __gc_collect() call must find
 // and collect all of them.  This validates that the GC can handle bulk cycles
 // and that tracked-object count reflects reality.
-system.print("[Test 1] Large-volume cycle collection");
+print("[Test 1] Large-volume cycle collection");
 
 let before1 = __gc_stats();
 
@@ -46,12 +46,12 @@ assertGe(mid1.tracked, 300, "300 circular pairs must still be tracked before col
 let result1 = __gc_collect();
 assertGe(result1.collected, 300, "At least 300 cycle objects collected in bulk");
 
-system.print("");
+print("");
 
 // Test 2: Cycles created inside nested function calls
 // Objects allocated deep inside a call chain and that form cycles must still
 // be collectible once all local refs go out of scope.
-system.print("[Test 2] Cycles created inside nested function calls");
+print("[Test 2] Cycles created inside nested function calls");
 
 let makeCycle = func(depth) {
     let outer = { depth: depth, inner: null };
@@ -77,10 +77,10 @@ while (j < 50) {
 
 let result2 = __gc_collect();
 assertGe(result2.collected, 50, "Cycles from nested function calls collected after refs dropped");
-system.print("");
+print("");
 
 // Test 3: Reachability, live objects must NOT be collected
-system.print("[Test 3] Live objects survive GC collection");
+print("[Test 3] Live objects survive GC collection");
 
 let live = { x: 1, child: { x: 2, child: { x: 3, child: null } } };
 let trackedBefore3 = __gc_stats().tracked;
@@ -91,11 +91,11 @@ __gc_collect();
 assert(live.x == 1, "root node survives GC");
 assert(live.child.x == 2, "child node survives GC");
 assert(live.child.child.x == 3, "grandchild survives GC");
-system.print("");
+print("");
 
 // Test 4: Two-node cycle reachable through two external variables.
 // Dropping both variables leaves only the internal cycle, so GC is required.
-system.print("[Test 4] Two-node cycle collected after external refs drop");
+print("[Test 4] Two-node cycle collected after external refs drop");
 
 let head4 = { id: 0, sister: null };
 let tail4 = { id: 99, sister: null };
@@ -112,12 +112,12 @@ head4 = null;
 tail4 = null;
 let result4b = __gc_collect();
 assertGe(result4b.collected, 2, "Two-node cycle collected after both refs dropped");
-system.print("");
+print("");
 
 // Test 5: Multi-level cascading cycle cleanup.
 // Each iteration creates a pair that becomes unreachable except through its
 // internal cycle. After N iterations, N*2 objects need GC.
-system.print("[Test 5] Cascading cycle cleanup (many unreachable pairs)");
+print("[Test 5] Cascading cycle cleanup (many unreachable pairs)");
 
 let before5 = __gc_stats();
 let c5 = 0;
@@ -131,10 +131,10 @@ while (c5 < 50) {
 
 let result5 = __gc_collect();
 assertGe(result5.collected, 50, "Unreachable inner cycle pairs collected");
-system.print("");
+print("");
 
 // Test 6: Multi-root deduplication, same object reachable via two roots should be marked once and NOT collected.
-system.print("[Test 6] Multi-root deduplication (shared object stays alive)");
+print("[Test 6] Multi-root deduplication (shared object stays alive)");
 
 let shared = { value: 42 };
 let rootA = { ref: shared };
@@ -149,10 +149,10 @@ assert(rootA.ref == rootB.ref, "both roots point to same object");
 rootA = null;
 __gc_collect();
 assert(rootB.ref.value == 42, "shared object still alive via rootB after rootA dropped");
-system.print("");
+print("");
 
 // Test 7: Array self-reference and array-in-array cycle
-system.print("[Test 7] Array self-reference and array-in-array cycles");
+print("[Test 7] Array self-reference and array-in-array cycles");
 
 let before7 = __gc_stats();
 
@@ -173,10 +173,10 @@ while (m < 100) {
 
 let result7 = __gc_collect();
 assertGe(result7.collected, 100, "Self-referencing and cross-referencing arrays collected");
-system.print("");
+print("");
 
 // Test 8: Scope cleanup. Objects created inside a function should be collectable after the function returns and all refs are dropped.
-system.print("[Test 8] Function scope cleanup");
+print("[Test 8] Function scope cleanup");
 
 let makeCircularBag = func(n) {
     let bag = [];
@@ -197,12 +197,12 @@ assert(bag.length == 100, "bag has 100 items while held");
 bag = null;
 let result8 = __gc_collect();
 assertGe(result8.collected, 100, "Circular objects from function scope collected after bag dropped");
-system.print("");
+print("");
 
 // Test 9: __gc_enable(false) makes __gc_collect() a no-op
 // When GC is disabled, calling __gc_collect() must not free any objects and
 // must not increment totalCollections.  After re-enabling, cycles are collected.
-system.print("[Test 9] GC disabled -> collect is no-op; re-enable -> collects");
+print("[Test 9] GC disabled -> collect is no-op; re-enable -> collects");
 
 // Create cycles while GC is still enabled
 let n = 0;
@@ -226,7 +226,7 @@ __gc_enable(true);
 let result9 = __gc_collect();
 assertGe(result9.collected, 1, "After re-enable, __gc_collect() clears accumulated cycles");
 
-system.print("");
+print("");
 
 
 // Test 10: Deep spine cycle built entirely inside a function.
@@ -234,7 +234,7 @@ system.print("");
 
 // When the function returns without returning any node, the entire
 // ring (first->...->last->first back-edge) is unreachable and GC collects it.
-system.print("[Test 10] Deep recursive chain with back-edge");
+print("[Test 10] Deep recursive chain with back-edge");
 
 let buildAndDropSpineCycle = func(len) {
     let first = { id: 0, nxt: null };
@@ -255,11 +255,11 @@ buildAndDropSpineCycle(50);
 
 let result10 = __gc_collect();
 assertGe(result10.collected, 1, "Deep recursive chain with back-edge collected after refs dropped");
-system.print("");
+print("");
 
 // Test 11: Mixed object/array cycle. Object contains an array that holds a ref back to the object. 
 // Tests that the mark phase handles mixed container chains.
-system.print("[Test 11] Mixed object/array cycle");
+print("[Test 11] Mixed object/array cycle");
 
 let mixedCycleFunc = func(n) {
     let k = 0;
@@ -272,11 +272,11 @@ let mixedCycleFunc = func(n) {
 mixedCycleFunc(80);
 let result11 = __gc_collect();
 assertGe(result11.collected, 80, "Object-in-array cycles collected");
-system.print("");
+print("");
 
 // Test 12: Deep property chain cycle: obj.a.b.c.d -> back to obj.
 // Ensures mark_object traverses nested fields correctly.
-system.print("[Test 12] Deep property chain cycle");
+print("[Test 12] Deep property chain cycle");
 
 let deepChainFunc = func(n) {
     let k = 0;
@@ -290,11 +290,11 @@ deepChainFunc(30);
 let result12 = __gc_collect();
 // Each iteration creates 4 objects in a cycle
 assertGe(result12.collected, 30, "Deep property chain cycles collected");
-system.print("");
+print("");
 
 // Test 13: Hub-and-spoke. One hub connected to N spokes, each pointing back.
 // Fan-out pattern stresses the mark phase with many back-edges.
-system.print("[Test 13] Hub-and-spoke cycle");
+print("[Test 13] Hub-and-spoke cycle");
 
 let hubSpokeFunc = func(spokeCount) {
     let hub = { spokes: [] };
@@ -310,11 +310,11 @@ hubSpokeFunc(40);
 let result13 = __gc_collect();
 // 1 hub + 40 spokes + 1 spokes-array = at least 42
 assertGe(result13.collected, 40, "Hub-and-spoke cycle cluster collected");
-system.print("");
+print("");
 
 // Test 14: Partial reachability: 3-node ring where one node is still held.
 // All ring nodes should remain reachable through the held node.
-system.print("[Test 14] Partial reachability in a ring");
+print("[Test 14] Partial reachability in a ring");
 
 let n14a = { id: 1, nxt: null };
 let n14b = { id: 2, nxt: null };
@@ -329,11 +329,11 @@ n14c = null;
 let result14 = __gc_collect();
 assert(n14a.nxt.id == 2, "n14b still accessible through n14a");
 assert(n14a.nxt.nxt.id == 3, "n14c still accessible through n14a.nxt");
-system.print("");
+print("");
 
 // Test 15: Cycle created inside a local function scope becomes unreachable
 // after the function returns: ensure GC collects it normally.
-system.print("[Test 15] GC after function scope exit with cycle in body");
+print("[Test 15] GC after function scope exit with cycle in body");
 
 let scopeCycleFunc = func() {
     let ta = { ref: null };
@@ -344,11 +344,11 @@ let scopeCycleFunc = func() {
 scopeCycleFunc();
 let result15 = __gc_collect();
 assertGe(result15.collected, 2, "Cycle from function scope collected after return");
-system.print("");
+print("");
 
 // Test 16: Re-entrant GC: calling __gc_collect() inside a function that also creates cycles.
 // The inner collect should not interfere with outer cycles.
-system.print("[Test 16] Re-entrant GC collect inside function");
+print("[Test 16] Re-entrant GC collect inside function");
 
 let reentrantFunc = func() {
     // Create a cycle
@@ -364,11 +364,11 @@ let reentrantFunc = func() {
 };
 let innerCollected = reentrantFunc();
 assertGe(innerCollected, 2, "Re-entrant __gc_collect() inside function collects inner cycle");
-system.print("");
+print("");
 
 // Test 17: Interleaved live and dead cycles: create alternating live/dead cycle pairs.
 // GC must only collect the dead ones and leave live ones intact.
-system.print("[Test 17] Interleaved live and dead cycles");
+print("[Test 17] Interleaved live and dead cycles");
 
 let liveRefs = [];
 let mkFunc17 = func() {
@@ -392,11 +392,11 @@ assertGe(result17.collected, 10, "Dead interleaved cycles collected");
 // Live ones still accessible
 assert(liveRefs.length == 10, "10 live pairs survived");
 assert(liveRefs[0].peer.id == 0, "live pair peer accessible (first is zero inverted)");
-system.print("");
+print("");
 
 // Test 18: Diamond cycle: A -> B, A -> C, B -> D, C -> D, D -> A.
 // All four objects form a single strongly connected component.
-system.print("[Test 18] Diamond cycle (4-node SCC)");
+print("[Test 18] Diamond cycle (4-node SCC)");
 
 let diamondFunc = func(n) {
     let k18 = 0;
@@ -416,10 +416,10 @@ diamondFunc(25);
 let result18 = __gc_collect();
 // 25 diamonds x 4 nodes each = 100 objects
 assertGe(result18.collected, 25, "Diamond cycle clusters collected");
-system.print("");
+print("");
 
 // Test 19: Class instance mutual cycle: two class instances reference each other - GC must collect both.
-system.print("[Test 19] Class instance mutual cycle");
+print("[Test 19] Class instance mutual cycle");
 
 class NodeA {
     public friend: object;
@@ -450,7 +450,7 @@ let classCycleFunc = func() {
     assertGe(result19.collected, 40, "Class instance mutual cycles collected");
 };
 classCycleFunc();
-system.print("");
+print("");
 
 // Test 20: Class instance <-> plain object cycle: A class instance points to a plain object, which points back.
 class Holder {
@@ -473,7 +473,7 @@ let mixedClassObjFunc = func() {
     assertGe(result20.collected, 30, "Class instance <-> plain object cycle collected");
 };
 mixedClassObjFunc();
-system.print("");
+print("");
 
 // Test 21: Class instance self-reference: instance stores itself in a field.
 class SelfRef {
@@ -494,7 +494,7 @@ let selfRefClassFunc = func() {
     assertGe(result21.collected, 25, "Class instance self-reference cycle collected");
 };
 selfRefClassFunc();
-system.print("");
+print("");
 
 // Test 22: Ring of class instances: Chain of 5 class instances forming a cycle.
 class RingNode {
@@ -526,7 +526,7 @@ let classRingFunc = func() {
     assertGe(result22.collected, 60, "Ring of class instances collected");
 };
 classRingFunc();
-system.print("");
+print("");
 
 // Test 23: Class instance with array field forming cycle: Class has an array field that contains a ref back to the instance.
 
@@ -549,7 +549,7 @@ let classArrayCycleFunc = func() {
     assertGe(result23.collected, 20, "Class instance with array field forming cycle collected");
 };
 classArrayCycleFunc();
-system.print("");
+print("");
 
 // Test 24: Reachable class instance keeps cycle alive: One node in a 2-instance cycle is still held -> GC must NOT collect.
 
@@ -574,11 +574,11 @@ let aliveClassFunc = func() {
 };
 let kept = aliveClassFunc();
 assert(kept.partner.partner == kept, "Returned class instance cycle stays reachable");
-system.print("");
+print("");
 
 // Summary
 let final = __gc_stats();
-system.print("=== All GC trigger tests passed! ===");
-system.print("Total GC collections this run: " @ final.totalCollections);
-system.print("Total objects ever collected by GC: " @ final.totalCollected);
-system.print("Peak tracked: " @ final.peakTracked);
+print("=== All GC trigger tests passed! ===");
+print("Total GC collections this run: " @ final.totalCollections);
+print("Total objects ever collected by GC: " @ final.totalCollected);
+print("Peak tracked: " @ final.peakTracked);

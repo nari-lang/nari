@@ -165,6 +165,10 @@ func __stdlib_init__() {
       };
   };
 
+  global yield = func() {
+      __yield();
+  };
+
   global String = {
       capitalize: func(str) {
           if (str.length() == 0) {
@@ -376,62 +380,99 @@ func __stdlib_init__() {
           return result;
       }
   }
+    global Spawn = {
+        // race: Returns the fastest completing handle
+        race: func(handles) {
+            let i = 0;
+            let len = handles.length();
+            while (i < len) {
+                let dummy = handles[i].await;
+                i = i + 1;
+            }
 
-  global fs = {
-    read_file: func(path) {
-        return __fs_readFile(path);
-    },
-    write_file: func(path, content) {
-        return __fs_writeFile(path, content);
-    },
-    append_file: func(path, content) {
-        return __fs_appendFile(path, content);
-    },
-    exists: func(path) {
-        return __fs_fileExists(path);
-    },
-    file_exists: func(path) {
-        return __fs_fileExists(path);
-    },
-    is_directory: func(path) {
-        return __fs_isDirectory(path);
-    },
-    mkdir_all: func(path) {
-        return __fs_mkdirAll(path);
-    },
-    delete_file: func(path) {
-        return __fs_deleteFile(path);
-    },
-    list_dir: func(path) {
-        return __fs_listDir(path);
-    }
-  };
+            let fastest_index = 0;
+            let fastest_duration = handles[0].duration;
 
-  global io = {
-    stdin: {
-        read: read_all,
-        read_line: read_line
-    }
-  };
+            i = 1;
+            while (i < len) {
+                let duration = handles[i].duration;
+                if (duration < fastest_duration) {
+                    fastest_index = i;
+                    fastest_duration = duration;
+                }
+                i = i + 1;
+            }
 
-  global platform = {
-    arch: __platform_arch(),
-    os: __platform_os(),
-    endianness: __platform_endianness(),
-    hostname: __platform_hostname(),
-    getenv: func(var) {
-        return __platform_getenv(var);
-    }
-  };
+            let result = {};
+            result.index = fastest_index;
+            result.handle = handles[fastest_index];
+            result.value = handles[fastest_index].await;
+            result.duration = handles[fastest_index].duration;
+            return result;
+        },
 
-  global process = {
-    exit: func(code) {
-        __process_exit(code);
-    },
-    argc: __process_argc(),
-    argv: __process_argv()
-  };
+        // all: Wait for all handles to complete, return array of results
+        all: func(handles) {
+            let results = [];
+            let i = 0;
+            let len = handles.length();
+            while (i < len) {
+                let val = handles[i].await;
+                results = results.concat([val]);
+                i = i + 1;
+            }
+            return results;
+        },
 
+        // any: Return first successful handle (by completion time)
+        // Note: Returns fastest successful, not necessarily first to succeed
+        any: func(handles) {
+            let i = 0;
+            let len = handles.length();
+
+            while (i < len) {
+                let dummy = handles[i].await;
+                i = i + 1;
+            }
+
+            let best_index = -1;
+            let best_duration = 999999;
+
+            i = 0;
+            while (i < len) {
+                if (!handles[i].failed) {
+                    if (best_index < 0 || handles[i].duration < best_duration) {
+                        best_index = i;
+                        best_duration = handles[i].duration;
+                    }
+                }
+                i = i + 1;
+            }
+
+            if (best_index < 0) {
+                panic("All handles failed");
+            }
+
+            let result = {};
+            result.index = best_index;
+            result.value = handles[best_index].await;
+            result.duration = handles[best_index].duration;
+            return result;
+        },
+
+        // apply async operation to array of items
+        map: func(items, fn) {
+            let results = [];
+            let i = 0;
+            let len = items.length();
+            while (i < len) {
+                let handle = fn(items[i]);
+                results = results.concat([handle]);
+                i = i + 1;
+            }
+            return results;
+        },
+    };
   global math = {
     PI: 3.141592653589793,
     E: 2.718281828459045,
@@ -475,6 +516,61 @@ func __stdlib_init__() {
     },
     floor: __math_floor,
     ceil: __math_ceil
+  };
+
+  global platform = {
+    arch: __platform_arch(),
+    os: __platform_os(),
+    endianness: __platform_endianness(),
+    hostname: __platform_hostname(),
+    getenv: func(var) {
+        return __platform_getenv(var);
+    }
+  };
+
+  global process = {
+    argc: __process_argc(),
+    argv: __process_argv(),
+    stdin: {
+        read: read_all,
+        read_line: read_line
+    },
+    exec: func(command) {
+        return __process_exec(command);
+    },
+    exit: func(code) {
+        __process_exit(code);
+    },
+  };
+
+  global fs = {
+    read_file: func(path) {
+        return __fs_readFile(path);
+    },
+    write_file: func(path, content) {
+        return __fs_writeFile(path, content);
+    },
+    append_file: func(path, content) {
+        return __fs_appendFile(path, content);
+    },
+    exists: func(path) {
+        return __fs_fileExists(path);
+    },
+    file_exists: func(path) {
+        return __fs_fileExists(path);
+    },
+    is_directory: func(path) {
+        return __fs_isDirectory(path);
+    },
+    mkdir_all: func(path) {
+        return __fs_mkdirAll(path);
+    },
+    delete_file: func(path) {
+        return __fs_deleteFile(path);
+    },
+    list_dir: func(path) {
+        return __fs_listDir(path);
+    }
   };
 
   global net = {
@@ -588,118 +684,5 @@ global JSON = {
     // Ok(json) on success; Err(message) on cyclic/too-deep structures.
     // optional second argument `indent` (integer) enables pretty-printing
     stringify: __json_stringify,
-};
-
-global system = {
-    version: stdlib_version,
-    print: print,
-    math: math,
-    fs: fs,
-    io: io,
-    net: net,
-    http: http,
-    platform: platform,
-    json: JSON,
-    exec: func(command) {
-        return __system_exec(command);
-    }
-};
-
-global yield = func() {
-    __yield();
-};
-
-global Spawn = {
-    // race: Returns the fastest completing handle
-    race: func(handles) {
-        let i = 0;
-        let len = handles.length();
-        while (i < len) {
-            let dummy = handles[i].await;
-            i = i + 1;
-        }
-
-        let fastest_index = 0;
-        let fastest_duration = handles[0].duration;
-
-        i = 1;
-        while (i < len) {
-            let duration = handles[i].duration;
-            if (duration < fastest_duration) {
-                fastest_index = i;
-                fastest_duration = duration;
-            }
-            i = i + 1;
-        }
-
-        let result = {};
-        result.index = fastest_index;
-        result.handle = handles[fastest_index];
-        result.value = handles[fastest_index].await;
-        result.duration = handles[fastest_index].duration;
-        return result;
-    },
-
-    // all: Wait for all handles to complete, return array of results
-    all: func(handles) {
-        let results = [];
-        let i = 0;
-        let len = handles.length();
-        while (i < len) {
-            let val = handles[i].await;
-            results = results.concat([val]);
-            i = i + 1;
-        }
-        return results;
-    },
-
-    // any: Return first successful handle (by completion time)
-    // Note: Returns fastest successful, not necessarily first to succeed
-    any: func(handles) {
-        let i = 0;
-        let len = handles.length();
-
-        while (i < len) {
-            let dummy = handles[i].await;
-            i = i + 1;
-        }
-
-        let best_index = -1;
-        let best_duration = 999999;
-
-        i = 0;
-        while (i < len) {
-            if (!handles[i].failed) {
-                if (best_index < 0 || handles[i].duration < best_duration) {
-                    best_index = i;
-                    best_duration = handles[i].duration;
-                }
-            }
-            i = i + 1;
-        }
-
-        if (best_index < 0) {
-            panic("All handles failed");
-        }
-
-        let result = {};
-        result.index = best_index;
-        result.value = handles[best_index].await;
-        result.duration = handles[best_index].duration;
-        return result;
-    },
-
-    // apply async operation to array of items
-    map: func(items, fn) {
-        let results = [];
-        let i = 0;
-        let len = items.length();
-        while (i < len) {
-            let handle = fn(items[i]);
-            results = results.concat([handle]);
-            i = i + 1;
-        }
-        return results;
-    },
 };
 }

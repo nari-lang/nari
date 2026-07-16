@@ -1,8 +1,8 @@
-system.print("Math Tests\n");
-system.print("math.pow(5, 3) = " @ math.pow(5, 3));
-system.print("math.square(7) = " @ math.square(7));
-system.print("math.sqrt(4) = " @ math.sqrt(4));
-system.print("math.abs(-5) = " @ math.abs(-5));
+print("Math Tests\n");
+print("math.pow(5, 3) = " @ math.pow(5, 3));
+print("math.square(7) = " @ math.square(7));
+print("math.sqrt(4) = " @ math.sqrt(4));
+print("math.abs(-5) = " @ math.abs(-5));
 
 // Function expressions in variable assignments
 let double = func(x) {
@@ -13,9 +13,9 @@ let greet = func(name) {
     return "Hello, " @ name @ "!";
 };
 
-system.print("Variable Assignment Tests\n");
-system.print("double(9) = " @ double(9));
-system.print(greet("World"));
+print("Variable Assignment Tests\n");
+print("double(9) = " @ double(9));
+print(greet("World"));
 
 // Higher-order functions - passing functions as parameters
 func apply_twice(fn, value) {
@@ -26,9 +26,9 @@ let increment = func(n) {
     return n + 1;
 };
 
-system.print("Higher-Order Function Tests\n");
-system.print("apply_twice(increment, 5) = " @ apply_twice(increment, 5));
-system.print("apply_twice(double, 3) = " @ apply_twice(double, 3));
+print("Higher-Order Function Tests\n");
+print("apply_twice(increment, 5) = " @ apply_twice(increment, 5));
+print("apply_twice(double, 3) = " @ apply_twice(double, 3));
 
 // Functions returning functions
 func make_adder(n) {
@@ -37,11 +37,11 @@ func make_adder(n) {
     };
 }
 
-system.print("Function Factory Tests\n");
+print("Function Factory Tests\n");
 let add_10 = make_adder(10);
 let add_5 = make_adder(5);
-system.print("add_10(7) = " @ add_10(7));
-system.print("add_5(3) = " @ add_5(3));
+print("add_10(7) = " @ add_10(7));
+print("add_5(3) = " @ add_5(3));
 
 // Complex nested object with function expressions
 let calculator = {
@@ -70,11 +70,11 @@ let calculator = {
     }
 };
 
-system.print("Nested Object Method Tests\n");
-system.print("calculator.operations.basic.add(8, 2) = " @ calculator.operations.basic.add(8, 2));
-system.print("calculator.operations.basic.subtract(8, 2) = " @ calculator.operations.basic.subtract(8, 2));
-system.print("calculator.operations.advanced.power(2, 3) = " @ calculator.operations.advanced.power(2, 3));
-system.print("calculator.apply_op(calculator.operations.basic.add, 15, 25) = " @ calculator.apply_op(calculator.operations.basic.add, 15, 25));
+print("Nested Object Method Tests\n");
+print("calculator.operations.basic.add(8, 2) = " @ calculator.operations.basic.add(8, 2));
+print("calculator.operations.basic.subtract(8, 2) = " @ calculator.operations.basic.subtract(8, 2));
+print("calculator.operations.advanced.power(2, 3) = " @ calculator.operations.advanced.power(2, 3));
+print("calculator.apply_op(calculator.operations.basic.add, 15, 25) = " @ calculator.apply_op(calculator.operations.basic.add, 15, 25));
 
 // Array of functions
 let operations = [
@@ -83,9 +83,9 @@ let operations = [
     func(x) { return x * x; }
 ];
 
-system.print("Array of Functions Tests\n");
-system.print("operations[0](5) = " @ operations[0](5)); // increment
-system.print("operations[1](5) = " @ operations[1](5)); // double
-system.print("operations[2](5) = " @ operations[2](5)); // square
+print("Array of Functions Tests\n");
+print("operations[0](5) = " @ operations[0](5)); // increment
+print("operations[1](5) = " @ operations[1](5)); // double
+print("operations[2](5) = " @ operations[2](5)); // square
 
-system.print("All pass!");
+print("All pass!");

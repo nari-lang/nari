@@ -8,42 +8,42 @@ let a = [1, 2, 3];
 let o = {name: "Alice"};
 let null_val;
 
-system.print("typeof(42): " @ typeof(n));
-system.print("typeof('hello'): " @ typeof(s));
-system.print("typeof(true): " @ typeof(b));
-system.print("typeof([1,2,3]): " @ typeof(a));
-system.print("typeof({name:'Alice'}): " @ typeof(o));
-system.print("typeof(uninitialized): " @ typeof(null_val));
+print("typeof(42): " @ typeof(n));
+print("typeof('hello'): " @ typeof(s));
+print("typeof(true): " @ typeof(b));
+print("typeof([1,2,3]): " @ typeof(a));
+print("typeof({name:'Alice'}): " @ typeof(o));
+print("typeof(uninitialized): " @ typeof(null_val));
 
 // Type predicates
-system.print("\nType predicates:");
-system.print("is_number(42): " @ is_number(n));
-system.print("is_number('42'): " @ is_number(s));
-system.print("is_string('hello'): " @ is_string(s));
-system.print("is_string(42): " @ is_string(n));
-system.print("is_bool(true): " @ is_bool(b));
-system.print("is_bool(1): " @ is_bool(n));
-system.print("is_array([1,2,3]): " @ is_array(a));
-system.print("is_array('array'): " @ is_array(s));
-system.print("is_object({name:'Alice'}): " @ is_object(o));
-system.print("is_object([1,2,3]): " @ is_object(a));
+print("\nType predicates:");
+print("is_number(42): " @ is_number(n));
+print("is_number('42'): " @ is_number(s));
+print("is_string('hello'): " @ is_string(s));
+print("is_string(42): " @ is_string(n));
+print("is_bool(true): " @ is_bool(b));
+print("is_bool(1): " @ is_bool(n));
+print("is_array([1,2,3]): " @ is_array(a));
+print("is_array('array'): " @ is_array(s));
+print("is_object({name:'Alice'}): " @ is_object(o));
+print("is_object([1,2,3]): " @ is_object(a));
 
 // Conversion functions
-system.print("\nConversions:");
-system.print("to_number('123'): " @ to_number("123"));
-system.print("to_number('45.67'): " @ to_number("45.67"));
-system.print("to_number(true): " @ to_number(true));
-system.print("to_string(42): " @ to_string(42));
-system.print("to_string(true): " @ to_string(true));
-system.print("to_bool(1): " @ to_bool(1));
-system.print("to_bool(0): " @ to_bool(0));
-system.print("to_bool(''): " @ to_bool(""));
-system.print("to_bool('text'): " @ to_bool("text"));
-system.print("to_bool([]): " @ to_bool([]));
-system.print("to_bool({}): " @ to_bool({}));
+print("\nConversions:");
+print("to_number('123'): " @ to_number("123"));
+print("to_number('45.67'): " @ to_number("45.67"));
+print("to_number(true): " @ to_number(true));
+print("to_string(42): " @ to_string(42));
+print("to_string(true): " @ to_string(true));
+print("to_bool(1): " @ to_bool(1));
+print("to_bool(0): " @ to_bool(0));
+print("to_bool(''): " @ to_bool(""));
+print("to_bool('text'): " @ to_bool("text"));
+print("to_bool([]): " @ to_bool([]));
+print("to_bool({}): " @ to_bool({}));
 
 // Practical usage: type-safe operations
-system.print("\nPractical usage:");
+print("\nPractical usage:");
 
 process_value(42);
 process_value("hello");
@@ -52,15 +52,15 @@ process_value({x: 10});
 
 func process_value(val) {
     if (is_number(val)) {
-        system.print("Processing number: " @ (val * 2));
+        print("Processing number: " @ (val * 2));
     } else if (is_string(val)) {
-        system.print("Processing string: " @ val.to_upper());
+        print("Processing string: " @ val.to_upper());
     } else if (is_array(val)) {
-        system.print("Processing array of length: " @ val.length());
+        print("Processing array of length: " @ val.length());
     } else if (is_object(val)) {
-        system.print("Processing object with keys: " @ val.keys().join(", "));
+        print("Processing object with keys: " @ val.keys().join(", "));
     } else {
-        system.print("Processing unknown type: " @ typeof(val));
+        print("Processing unknown type: " @ typeof(val));
     }
 }
 
@@ -68,10 +68,10 @@ func process_value(val) {
 let input = "100";
 if (is_string(input)) {
     let num = to_number(input);
-    system.print("\nConverted '" @ input @ "' to number (+50): " @ (num + 50));
+    print("\nConverted '" @ input @ "' to number (+50): " @ (num + 50));
 }
 
 // Type checking with ternary
 let value = 123;
 let description = is_number(value) ? "It's a number" : "It's not a number";
-system.print("\n" @ description);
+print("\n" @ description);

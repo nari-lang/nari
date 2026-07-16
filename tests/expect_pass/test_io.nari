@@ -4,9 +4,9 @@ let content = fs.read_file("__test_temp__.txt")
     .unwrap()
 
 if (content == "test content") {
-    system.print("Read/write successful")
+    print("Read/write successful")
 } else {
-    system.print("Read/write failed")
+    print("Read/write failed")
     panic(`Read/write failed: got {content}`);
 }
 
@@ -16,9 +16,9 @@ let appended = fs.read_file("__test_temp__.txt")
     .unwrap()
 
 if (appended == "test content appended") {
-    system.print("Append successful")
+    print("Append successful")
 } else {
-    system.print("Append failed: got " @ appended)
+    print("Append failed: got " @ appended)
     panic(`Append failed: got {appended}`);
 }
 
@@ -26,9 +26,9 @@ let exists = fs.file_exists("__test_temp__.txt")
     .await
 
 if (exists) {
-    system.print("File exists check successful")
+    print("File exists check successful")
 } else {
-    system.print("File exists check failed");
+    print("File exists check failed");
     panic("File should exist");
 }
 
@@ -37,9 +37,9 @@ let files = fs.list_dir(".")
     .unwrap()
 
 if (files.length() > 0) {
-    system.print("List directory successful")
+    print("List directory successful")
 } else {
-    system.print("List directory failed")
+    print("List directory failed")
 }
 
 fs.delete_file("__test_temp__.txt").await
@@ -47,9 +47,9 @@ let stillExists = fs.file_exists("__test_temp__.txt")
     .await
 
 if (!stillExists) {
-    system.print("Delete successful")
+    print("Delete successful")
 } else {
-    system.print("Delete failed")
+    print("Delete failed")
 }
 
-system.print("All I/O tests passed!")
+print("All I/O tests passed!")

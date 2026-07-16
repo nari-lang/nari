@@ -2106,7 +2106,7 @@ func preprocessHeader(inputPath, ppPath, cc, cppflags) {
             cmd = cmd @ " " @ cppflags
         }
         cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(ppPath)
-        return system.exec(cmd)
+        return process.exec(cmd)
     } else {
         let defs = [
             "-D__attribute__(x)=",
@@ -2134,7 +2134,7 @@ func preprocessHeader(inputPath, ppPath, cc, cppflags) {
         }
         cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(ppPath)
 
-        return system.exec(cmd)
+        return process.exec(cmd)
     }
 }
 
@@ -2155,7 +2155,7 @@ func preprocessDefines(inputPath, defsPath, cc, cppflags) {
             cmd = cmd @ " " @ cppflags
         }
         cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(defsPath)
-        return system.exec(cmd)
+        return process.exec(cmd)
     } else {
         let defs = [
             "-D__attribute__(x)=",
@@ -2185,7 +2185,7 @@ func preprocessDefines(inputPath, defsPath, cc, cppflags) {
         }
         cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(defsPath)
 
-        return system.exec(cmd)
+        return process.exec(cmd)
     }
 }
 
@@ -2206,7 +2206,7 @@ func dumpClangJsonAst(inputPath, astPath, cc, cppflags) {
             cmd = cmd @ " " @ cppflags
         }
         cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(astPath)
-        return system.exec(cmd)
+        return process.exec(cmd)
     } else {
         let defs = [
             "-D__attribute__(x)=",
@@ -2234,7 +2234,7 @@ func dumpClangJsonAst(inputPath, astPath, cc, cppflags) {
         }
         cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(astPath)
 
-        return system.exec(cmd)
+        return process.exec(cmd)
     }
 }
 

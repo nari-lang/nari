@@ -43,58 +43,58 @@ let allocationBomb = func(size) {
 
 
 func gc_stress() {
-    system.print("GC Stress Test");
+    print("GC Stress Test");
 
     // get initial stats
     let initialStats = __gc_stats();
-    system.print("Initial tracked objects: " @ initialStats.tracked);
-    system.print("Initial allocations: " @ initialStats.allocationCount);
+    print("Initial tracked objects: " @ initialStats.tracked);
+    print("Initial allocations: " @ initialStats.allocationCount);
 
     // Test 1: Rapid allocation/deallocation cycles
-    system.print("\n[Test 1] Rapid allocation cycles (10,000 objects)");
+    print("\n[Test 1] Rapid allocation cycles (10,000 objects)");
     for (let cycle = 0; cycle < 10; cycle = cycle + 1) {
         let temp = allocationBomb(1000);
         // temp goes out of scope, should be collectible
     }
     let stats1 = __gc_collect();
-    system.print("  Collections: " @ stats1.totalCollections);
-    system.print("  Collected: " @ stats1.totalCollected);
-    system.print("  Still tracked: " @ stats1.tracked);
+    print("  Collections: " @ stats1.totalCollections);
+    print("  Collected: " @ stats1.totalCollected);
+    print("  Still tracked: " @ stats1.tracked);
 
     // Test 2: Deep nesting attack
-    system.print("\n[Test 2] Deep nesting (depth=100, count=50)");
+    print("\n[Test 2] Deep nesting (depth=100, count=50)");
     let deepObjects = [];
     for (let i = 0; i < 50; i = i + 1) {
         deepObjects.push(createDeepNested(100));
     }
     let stats2 = __gc_collect();
-    system.print("  Collected: " @ stats2.collected);
-    system.print("  Still tracked: " @ stats2.tracked);
+    print("  Collected: " @ stats2.collected);
+    print("  Still tracked: " @ stats2.tracked);
 
     // Test 3: Circular reference chains
-    system.print("\n[Test 3] Circular chains (1000 chains x 50 nodes)");
+    print("\n[Test 3] Circular chains (1000 chains x 50 nodes)");
     for (let i = 0; i < 1000; i = i + 1) {
         let chain = createCircularChain(50);
         // Chain goes out of scope but has internal cycles
     }
     let stats3 = __gc_collect();
-    system.print("  Collected: " @ stats3.collected);
-    system.print("  Still tracked: " @ stats3.tracked);
+    print("  Collected: " @ stats3.collected);
+    print("  Still tracked: " @ stats3.tracked);
 
     // Test 4: Massive allocation burst
-    system.print("\n[Test 4] Allocation burst (50,000 objects)");
+    print("\n[Test 4] Allocation burst (50,000 objects)");
     let burst = allocationBomb(50000);
     let beforeBurst = __gc_stats();
-    system.print("  Tracked before clear: " @ beforeBurst.tracked);
+    print("  Tracked before clear: " @ beforeBurst.tracked);
 
     // Clear the burst
     burst = null;
     let stats4 = __gc_collect();
-    system.print("  Collected after clear: " @ stats4.collected);
-    system.print("  Still tracked: " @ stats4.tracked);
+    print("  Collected after clear: " @ stats4.collected);
+    print("  Still tracked: " @ stats4.tracked);
 
     // Test 5: Mixed allocation patterns
-    system.print("\n[Test 5] Mixed patterns (arrays, objects, nesting)");
+    print("\n[Test 5] Mixed patterns (arrays, objects, nesting)");
     for (let i = 0; i < 1000; i = i + 1) {
         let mixed = {
             arr: [1, 2, 3, { nested: [4, 5, 6] }],
@@ -104,44 +104,44 @@ func gc_stress() {
         mixed.circular = mixed;  // Self-reference
     }
     let stats5 = __gc_collect();
-    system.print("  Collected: " @ stats5.collected);
-    system.print("  Still tracked: " @ stats5.tracked);
+    print("  Collected: " @ stats5.collected);
+    print("  Still tracked: " @ stats5.tracked);
 
     // Test 6: Peak tracking test
-    system.print("\n[Test 6] Peak tracking");
+    print("\n[Test 6] Peak tracking");
     let stats6 = __gc_stats();
-    system.print("  Peak tracked ever: " @ stats6.peakTracked);
-    system.print("  Total allocated ever: " @ stats6.totalAllocated);
-    system.print("  Total collected ever: " @ stats6.totalCollected);
+    print("  Peak tracked ever: " @ stats6.peakTracked);
+    print("  Total allocated ever: " @ stats6.totalAllocated);
+    print("  Total collected ever: " @ stats6.totalCollected);
 
     // Test 7: GC threshold behavior under load
-    system.print("\n[Test 7] Threshold behavior");
+    print("\n[Test 7] Threshold behavior");
     __gc_set_threshold(100);  // Very low threshold
     let thresholdTest = [];
     for (let i = 0; i < 500; i = i + 1) {
         thresholdTest.push({ id: i });
     }
     let stats7 = __gc_stats();
-    system.print("  Collections with low threshold: " @ stats7.totalCollections);
+    print("  Collections with low threshold: " @ stats7.totalCollections);
     __gc_set_threshold(1000);  // Reset
 
     // Test 8: Disable GC during heavy allocation
-    system.print("\n[Test 8] GC disabled during allocation");
+    print("\n[Test 8] GC disabled during allocation");
 
     // Final stats
-    system.print("\nFinal Statistics");
+    print("\nFinal Statistics");
     let finalStats = __gc_stats();
     let totalFreed = finalStats.totalCollected;
-    system.print("Total allocations: " @ finalStats.totalAllocated);
-    system.print("Total collections: " @ finalStats.totalCollections);
-    system.print("Objects collected (GC): " @ finalStats.totalCollected);
-    system.print("Total freed: " @ totalFreed @ " / " @ finalStats.totalAllocated);
-    system.print("Peak tracked: " @ finalStats.peakTracked);
-    system.print("Currently tracked: " @ finalStats.tracked);
-    system.print("Overall freed: " @ (totalFreed * 100 / finalStats.totalAllocated) @ "%");
-    system.print("Collection rate: " @ (finalStats.totalCollected * 100 / finalStats.totalAllocated) @ "%");
+    print("Total allocations: " @ finalStats.totalAllocated);
+    print("Total collections: " @ finalStats.totalCollections);
+    print("Objects collected (GC): " @ finalStats.totalCollected);
+    print("Total freed: " @ totalFreed @ " / " @ finalStats.totalAllocated);
+    print("Peak tracked: " @ finalStats.peakTracked);
+    print("Currently tracked: " @ finalStats.tracked);
+    print("Overall freed: " @ (totalFreed * 100 / finalStats.totalAllocated) @ "%");
+    print("Collection rate: " @ (finalStats.totalCollected * 100 / finalStats.totalAllocated) @ "%");
 
-    system.print("\nStress test completed!");
+    print("\nStress test completed!");
 }
 
 gc_stress();

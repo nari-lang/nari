@@ -1,5 +1,5 @@
 // 1. Basic Function Expression Patterns
-system.print("Basic Function Expressions");
+print("Basic Function Expressions");
 
 let basic_funcs = {
     square: func(x) { return x * x; },
@@ -7,16 +7,16 @@ let basic_funcs = {
     greet: func(name) { return "Hello, " @ name @ "!"; }
 };
 
-system.print("square(5): " @ basic_funcs.square(5));
-system.print("cube(3): " @ basic_funcs.cube(3));
-system.print(basic_funcs.greet("Function"));
+print("square(5): " @ basic_funcs.square(5));
+print("cube(3): " @ basic_funcs.cube(3));
+print(basic_funcs.greet("Function"));
 
 // Function expression in variable assignment
 let multiply_by_3 = func(n) { return n * 3; };
-system.print("multiply_by_3(7): " @ multiply_by_3(7));
+print("multiply_by_3(7): " @ multiply_by_3(7));
 
 // 2. Higher-Order Functions
-system.print("Higher-Order Functions");
+print("Higher-Order Functions");
 
 func apply_operation(op, x, y) {
     return op(x, y);
@@ -28,8 +28,8 @@ let operations = {
     multiply: func(a, b) { return a * b; }
 };
 
-system.print("apply_operation(add, 8, 3): " @ apply_operation(operations.add, 8, 3));
-system.print("apply_operation(multiply, 4, 5): " @ apply_operation(operations.multiply, 4, 5));
+print("apply_operation(add, 8, 3): " @ apply_operation(operations.add, 8, 3));
+print("apply_operation(multiply, 4, 5): " @ apply_operation(operations.multiply, 4, 5));
 
 // Function that returns a function
 func make_operation(op_name) {
@@ -44,11 +44,11 @@ func make_operation(op_name) {
 
 let dynamic_add = make_operation("add");
 let dynamic_multiply = make_operation("multiply");
-system.print("dynamic_add(6, 4): " @ dynamic_add(6, 4));
-system.print("dynamic_multiply(3, 7): " @ dynamic_multiply(3, 7));
+print("dynamic_add(6, 4): " @ dynamic_add(6, 4));
+print("dynamic_multiply(3, 7): " @ dynamic_multiply(3, 7));
 
 // 3. Closure Patterns
-system.print("Closure Patterns");
+print("Closure Patterns");
 
 // Counter closure
 func create_counter(initial, step) {
@@ -73,14 +73,14 @@ func create_counter(initial, step) {
     };
 }
 
-system.print("Counter Test:");
+print("Counter Test:");
 let counter = create_counter(10, 5);
-system.print("Initial: " @ counter.current());
-system.print("Next: " @ counter.next());
-system.print("Next: " @ counter.next());
+print("Initial: " @ counter.current());
+print("Next: " @ counter.next());
+print("Next: " @ counter.next());
 counter.set_step(2);
-system.print("Next (step=2): " @ counter.next());
-system.print("Reset: " @ counter.reset());
+print("Next (step=2): " @ counter.next());
+print("Reset: " @ counter.reset());
 
 // Bank account closure
 func create_account(initial_balance) {
@@ -110,15 +110,15 @@ func create_account(initial_balance) {
     };
 }
 
-system.print("Bank Account Test:");
+print("Bank Account Test:");
 let account = create_account(100);
-system.print("Initial balance: " @ account.get_balance());
-system.print("After deposit(50): " @ account.deposit(50));
-system.print("After withdraw(25): " @ account.withdraw(25));
-system.print("Transaction count: " @ account.get_transaction_count());
+print("Initial balance: " @ account.get_balance());
+print("After deposit(50): " @ account.deposit(50));
+print("After withdraw(25): " @ account.withdraw(25));
+print("Transaction count: " @ account.get_transaction_count());
 
 // 4. Advanced Closure Patterns
-system.print("Advanced Patterns");
+print("Advanced Patterns");
 
 // Function factory with multiple closures
 func create_math_utilities(precision) {
@@ -164,18 +164,18 @@ let math_utils = create_math_utilities(2);
 let calc1 = math_utils.make_calculator();
 let calc2 = math_utils.make_calculator();
 
-system.print("Calculator 1 test:");
-system.print("calc1.add(10): " @ calc1.add(10));
-system.print("calc1.add(5): " @ calc1.add(5));
-system.print("calc1.subtract(3): " @ calc1.subtract(3));
+print("Calculator 1 test:");
+print("calc1.add(10): " @ calc1.add(10));
+print("calc1.add(5): " @ calc1.add(5));
+print("calc1.subtract(3): " @ calc1.subtract(3));
 
-system.print("Calculator 2 test (independent):");
-system.print("calc2.add(100): " @ calc2.add(100));
-system.print("calc1.recall(): " @ calc1.recall());  // Should be 12
-system.print("calc2.recall(): " @ calc2.recall());  // Should be 100
+print("Calculator 2 test (independent):");
+print("calc2.add(100): " @ calc2.add(100));
+print("calc1.recall(): " @ calc1.recall());  // Should be 12
+print("calc2.recall(): " @ calc2.recall());  // Should be 100
 
 // 5. Complex Nested Closures
-system.print("Complex Nested Closures");
+print("Complex Nested Closures");
 
 // Nested closure with multiple levels
 func create_nested_closure(outer_value) {
@@ -192,8 +192,8 @@ func create_nested_closure(outer_value) {
 
 let nested = create_nested_closure(100);
 let middle_func = nested(20);
-system.print("Nested closure test:");
-system.print("nested(100)(20)(3): " @ middle_func(3));  // Should be 123
+print("Nested closure test:");
+print("nested(100)(20)(3): " @ middle_func(3));  // Should be 123
 
 // Function composition with closures
 func compose_functions(f1, f2) {
@@ -207,12 +207,12 @@ let add_five = func(n) { return n + 5; };
 let double_then_add_five = compose_functions(add_five, double);
 let add_five_then_double = compose_functions(double, add_five);
 
-system.print("Function composition test:");
-system.print("double_then_add_five(10): " @ double_then_add_five(10));  // (10*2)+5 = 25
-system.print("add_five_then_double(10): " @ add_five_then_double(10));  // (10+5)*2 = 30
+print("Function composition test:");
+print("double_then_add_five(10): " @ double_then_add_five(10));  // (10*2)+5 = 25
+print("add_five_then_double(10): " @ add_five_then_double(10));  // (10+5)*2 = 30
 
 // 6. Array of Closures
-system.print("Array of Closures");
+print("Array of Closures");
 
 // Create array of functions that multiply by different factors
 let multiplier_funcs = [
@@ -223,10 +223,10 @@ let multiplier_funcs = [
     func(n) { return n * 5; }
 ];
 
-system.print("Multiplier functions test:");
-system.print("multiplier_funcs[0](10): " @ multiplier_funcs[0](10));  // 10 * 1 = 10
-system.print("multiplier_funcs[2](10): " @ multiplier_funcs[2](10));  // 10 * 3 = 30
-system.print("multiplier_funcs[4](10): " @ multiplier_funcs[4](10));  // 10 * 5 = 50
+print("Multiplier functions test:");
+print("multiplier_funcs[0](10): " @ multiplier_funcs[0](10));  // 10 * 1 = 10
+print("multiplier_funcs[2](10): " @ multiplier_funcs[2](10));  // 10 * 3 = 30
+print("multiplier_funcs[4](10): " @ multiplier_funcs[4](10));  // 10 * 5 = 50
 
 // Closure-based array generation
 func make_multiplier_for(factor) {
@@ -241,7 +241,7 @@ let generated_multipliers = [
     make_multiplier_for(4)
 ];
 
-system.print("Generated multipliers test:");
-system.print("2x multiplier(7): " @ generated_multipliers[0](7));  // 14
-system.print("3x multiplier(7): " @ generated_multipliers[1](7));  // 21
-system.print("4x multiplier(7): " @ generated_multipliers[2](7));  // 28
+print("Generated multipliers test:");
+print("2x multiplier(7): " @ generated_multipliers[0](7));  // 14
+print("3x multiplier(7): " @ generated_multipliers[1](7));  // 21
+print("4x multiplier(7): " @ generated_multipliers[2](7));  // 28

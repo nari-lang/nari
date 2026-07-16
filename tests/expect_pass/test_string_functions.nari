@@ -1,24 +1,24 @@
 // length() - already tested with arrays, but let's test with strings
 let text = "Hello World";
-system.print("Length of '" @ text @ "': " @ text.length());
+print("Length of '" @ text @ "': " @ text.length());
 
 // substr(str, start, length?)
 let message = "The quick brown fox";
-system.print(`substr('" @ message @ "', 4, 5)   -> {message.substr(4, 5)}`);
-system.print(`substr('" @ message @ "', 10)     -> {message.substr(10)}`);
+print(`substr('" @ message @ "', 4, 5)   -> {message.substr(4, 5)}`);
+print(`substr('" @ message @ "', 10)     -> {message.substr(10)}`);
 
 // index_of(str, search)
 let sentence = "Nari is fun!";
-system.print(`index_of("{sentence}", 'is')     ->  {sentence.index_of("is")}`);
-system.print(`index_of("{sentence}", 'fun')    ->  {sentence.index_of("fun")}`);
-system.print(`index_of("{sentence}", 'not')    -> {sentence.index_of("not")}`);
+print(`index_of("{sentence}", 'is')     ->  {sentence.index_of("is")}`);
+print(`index_of("{sentence}", 'fun')    ->  {sentence.index_of("fun")}`);
+print(`index_of("{sentence}", 'not')    -> {sentence.index_of("not")}`);
 
 // split(str, delimiter)
 let fruits = "apple,banana,cherry";
-system.print(`split("{fruits}", ',') -> {fruits.split(",")}`);
+print(`split("{fruits}", ',') -> {fruits.split(",")}`);
 
 let words = "Hello World".split(" ");
-system.print("split('Hello World', ' ')         -> " @ words);
+print("split('Hello World', ' ')         -> " @ words);
 if (words.length() != 2 || words[0] != "Hello" || words[1] != "World") {
     panic("Error in split function! Expected ['Hello', 'World'].");
 }
@@ -26,31 +26,31 @@ if (words.length() != 2 || words[0] != "Hello" || words[1] != "World") {
 // replace(str, find, replacement)
 let original = "I like dogs";
 let replaced = original.replace("dogs", "cats");
-system.print(`replace("{original}", "dogs", "cats")          -> {replaced}`);
+print(`replace("{original}", "dogs", "cats")          -> {replaced}`);
 
 // replace_all(str, find, replacement)
 let duplicates = "foo bar foo baz foo";
 let allReplaced = duplicates.replace_all("foo", "qux");
-system.print(`replace_all("{duplicates}", "foo", "qux") -> {allReplaced}`);
+print(`replace_all("{duplicates}", "foo", "qux") -> {allReplaced}`);
 
 // trim(str)
 let padded = "   spaces   ";
-system.print(`trim("{padded}")                            -> "{padded.trim()}"`);
+print(`trim("{padded}")                            -> "{padded.trim()}"`);
 
 // to_upper(str) and to_lower(str)
 let mixed = "Hello World";
-system.print(`to_upper("{mixed}") -> {mixed.to_upper()}`);
-system.print(`to_lower("{mixed}") -> {mixed.to_lower()}`);
+print(`to_upper("{mixed}") -> {mixed.to_upper()}`);
+print(`to_lower("{mixed}") -> {mixed.to_lower()}`);
 if (mixed.to_upper() != "HELLO WORLD" || mixed.to_lower() != "hello world") {
     panic("Error in to_upper or to_lower functions. Expected 'HELLO WORLD' and 'hello world'.");
 }
 
 // starts_with(str, prefix) and ends_with(str, suffix)
 let filename = "document.txt";
-system.print(`starts_with("{filename}", "doc")  -> {filename.starts_with("doc")}`);
-system.print(`starts_with("{filename}", "file") -> {filename.starts_with("file")}`);
-system.print(`ends_with("{filename}", ".txt")   -> {filename.ends_with(".txt")}`);
-system.print(`ends_with("{filename}", ".pdf")   -> {filename.ends_with(".pdf")}`);
+print(`starts_with("{filename}", "doc")  -> {filename.starts_with("doc")}`);
+print(`starts_with("{filename}", "file") -> {filename.starts_with("file")}`);
+print(`ends_with("{filename}", ".txt")   -> {filename.ends_with(".txt")}`);
+print(`ends_with("{filename}", ".pdf")   -> {filename.ends_with(".pdf")}`);
 
 if (!filename.starts_with("doc") || filename.ends_with(".pdf")) {
     panic("Error in starts_with or ends_with functions. Expected true, false, true, false.");
@@ -58,9 +58,9 @@ if (!filename.starts_with("doc") || filename.ends_with(".pdf")) {
 
 // char_at(str, index)
 let alphabet = "ABCDEFG";
-system.print(`char_at("{alphabet}", 0) -> {alphabet.char_at(0)}`);
-system.print(`char_at("{alphabet}", 3) -> {alphabet.char_at(3)}`);
-system.print(`char_at("{alphabet}", 6) -> {alphabet.char_at(6)}`);
+print(`char_at("{alphabet}", 0) -> {alphabet.char_at(0)}`);
+print(`char_at("{alphabet}", 3) -> {alphabet.char_at(3)}`);
+print(`char_at("{alphabet}", 6) -> {alphabet.char_at(6)}`);
 
 if (alphabet.char_at(0) != "A" || alphabet.char_at(3) != "D" || alphabet.char_at(6) != "G") {
     panic("Error in char_at function! Expected 'A, D, G'.");
@@ -68,13 +68,13 @@ if (alphabet.char_at(0) != "A" || alphabet.char_at(3) != "D" || alphabet.char_at
 
 // join(array, delimiter)
 let items = ["apple", "banana", "cherry"];
-system.print(`join(['apple', 'banana', 'cherry'], ', ')  -> {items.join(", ")}`);
+print(`join(['apple', 'banana', 'cherry'], ', ')  -> {items.join(", ")}`);
 if (items.join(", ") != "apple, banana, cherry") {
     panic("Error in join function. Expected 'apple, banana, cherry'.");
 }
 
 let numbers = [1, 2, 3, 4, 5];
-system.print(`join([1, 2, 3, 4, 5], '-')                 -> {numbers.join("-")}`);
+print(`join([1, 2, 3, 4, 5], '-')                 -> {numbers.join("-")}`);
 
 if (numbers.join("-") != "1-2-3-4-5") {
     panic("Error in join function. Expected '1-2-3-4-5'.");
@@ -82,14 +82,14 @@ if (numbers.join("-") != "1-2-3-4-5") {
 
 let messy = "  HELLO  ";
 let clean = messy.trim().to_lower();
-system.print(`to_lower(trim("  HELLO  "))                 -> "{clean}"`);
+print(`to_lower(trim("  HELLO  "))                 -> "{clean}"`);
 if (clean != "hello") {
     panic("Error in combined trim and to_lower functions. Expected 'hello'.");
 }
 
 let name = "Alice";
 let greeting = `Hello, {name.to_upper()}!`;
-system.print(`to_upper("Alice")                           -> "{greeting}"`);
+print(`to_upper("Alice")                           -> "{greeting}"`);
 if (greeting != "Hello, ALICE!") {
     panic("Error in string interpolation with to_upper. Expected 'Hello, ALICE!'.");
 }
