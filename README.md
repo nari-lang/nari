@@ -1,10 +1,7 @@
 
-# Nari 
-<!--- 
-TODO: replace the title when i get the assets for the logo
-![Nari logo](/assets/logo_dark.png#gh-light-mode-only)
-![Nari logo](/assets/logo_light.png#gh-dark-mode-only)
---->
+![Nari logo](/assets/wordmark-light.svg#gh-light-mode-only)
+![Nari logo](/assets/wordmark-dark.svg#gh-dark-mode-only)
+---
 
 Nari is a dynamically typed scripting language designed for rapid development with support for asynchronous programming, first-class functions, and seamless C interoperability through its foreign function interface. The language combines modern features with a straightforward syntax, making it suitable for both quick scripts and more complex applications.
 
