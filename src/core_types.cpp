@@ -1,4 +1,5 @@
 #include "core_types.h"
+#include "compiler_support.h"
 #include "gc.h"
 
 #include <new>
@@ -246,13 +247,25 @@ bool ObjectObj::invoke_lazy_field(uint32_t slot, const Value *args, size_t argc,
            lazy_field_invoker(lazy_field_context, this, slot, args, argc, result);
 }
 
+#if COMPILER_IS_REAL_MSVC
+inline int ctzll(uint64_t x) {
+    unsigned long index;
+    _BitScanForward64(&index, x);
+    return static_cast<int>(index);
+}
+#else
+inline int ctzll(uint64_t x) {
+    return __builtin_ctzll(x);
+}
+#endif
+
 void ObjectObj::promote_to_dict_mode() {
     if (dict_mode) {
         return;
     }
     // Dict storage has no slot-level lazy hook, so realize pending fields first.
     while (lazy_field_mask) {
-        const uint32_t slot = static_cast<uint32_t>(__builtin_ctzll(lazy_field_mask));
+        const uint32_t slot = static_cast<uint32_t>(ctzll(lazy_field_mask));
         materialize_lazy_field(slot);
     }
     // move existing shape-mode fields into the hash map, preserving values.

@@ -1,4 +1,10 @@
-let libc = __ffi_load_library("libc.so.6")
+let libc_name = "libc.so.6"
+if (platform.os == "macos") {
+    libc_name = "libSystem.B.dylib"
+} else if (platform.os == "windows") {
+    libc_name = "msvcrt.dll"
+}
+let libc = __ffi_load_library(libc_name)
 
 let parsed = __ffi_call(libc, "strtod", {
     returns: "double",

@@ -39,7 +39,13 @@ if (value.word == 0 || value.wide == 0 || value.bytes[0] != 1 || value.bytes[11]
 
 // libffi has no union type and a layout-equivalent carrier does not preserve
 // every platform's register classification, by value use should be rejected!
-let libc = __ffi_load_library("libc.so.6")
+let libc_name = "libc.so.6"
+if (platform.os == "macos") {
+    libc_name = "libSystem.B.dylib"
+} else if (platform.os == "windows") {
+    libc_name = "msvcrt.dll"
+}
+let libc = __ffi_load_library(libc_name)
 let rejected = __ffi_call(libc, "memset", {
     returns: "pointer",
     params: [members, "int", "ulong"]

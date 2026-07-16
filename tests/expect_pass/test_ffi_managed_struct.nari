@@ -22,7 +22,13 @@ if (value.first != 305419896 || value.second != 43981) {
 }
 
 // Pointer marshalling must expose the owned storage to native calls.
-let libc = __ffi_load_library("libc.so.6")
+let libc_name = "libc.so.6"
+if (platform.os == "macos") {
+    libc_name = "libSystem.B.dylib"
+} else if (platform.os == "windows") {
+    libc_name = "msvcrt.dll"
+}
+let libc = __ffi_load_library(libc_name)
 let memset_sig = { returns: "pointer", params: ["pointer", "int", "ulong"] }
 __ffi_call(libc, "memset", memset_sig, [owner, 0, __ffi_sizeof("ManagedFFILayout")])
 let cleared = __ffi_read_struct(owner)
