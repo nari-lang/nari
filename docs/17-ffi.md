@@ -11,11 +11,29 @@ import libc from "libc.so.6"
 import raylib from "libraylib.so.550"
 ```
 
-The FFI will search for libraries in:
-1. Current directory (`.`)
+The FFI will search for libraries in different directories depending on the platform, check the following for your platform:
+
+### Windows
+1. Current directory
+2. Directories in `PATH`
+3. `C:\\Windows`
+4. `C:\\Windows\\System32`
+5. `C:\\Windows\\SysWOW64`
+
+### Linux
+1. Current directory
+2. `/lib`
+3. `/usr/lib`
+4. `/usr/local/lib`
+5. `/lib64`
+6. `/usr/lib64`
+7. `/usr/local/lib64`
+
+### macOS
+1. Current directory
 2. `/usr/lib`
 3. `/usr/local/lib`
-4. Directories in `LD_LIBRARY_PATH`
+4. `/opt/homebrew/lib`
 
 ## Library Object
 

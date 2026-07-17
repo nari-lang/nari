@@ -1233,12 +1233,9 @@ std::shared_ptr<FFILibrary> FFIRegistry::load_library(const std::string &path) {
 void push_linux_search_paths(std::vector<std::string> &paths) {
     paths.push_back(".");
 
-    // standard lib dirs
     paths.push_back("/usr/lib");
     paths.push_back("/usr/local/lib");
     paths.push_back("/lib");
-
-    // lib64 variants
     paths.push_back("/usr/lib64");
     paths.push_back("/usr/local/lib64");
     paths.push_back("/lib64");
@@ -1264,7 +1261,6 @@ void push_linux_search_paths(std::vector<std::string> &paths) {
 void push_windows_search_paths(std::vector<std::string> &paths) {
     paths.push_back(".");
 
-    // standard lib dirs
     paths.push_back("C:\\Windows\\System32");
     paths.push_back("C:\\Windows");
     paths.push_back("C:\\Windows\\SysWOW64");
@@ -1289,8 +1285,7 @@ void push_windows_search_paths(std::vector<std::string> &paths) {
 
 void push_macos_search_paths(std::vector<std::string> &paths) {
     paths.push_back(".");
-
-    // standard lib dirs
+    
     paths.push_back("/usr/lib");
     paths.push_back("/usr/local/lib");
     paths.push_back("/opt/homebrew/lib");

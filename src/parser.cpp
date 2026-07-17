@@ -33,6 +33,10 @@
 #include "win_funcs.h"
 #endif
 
+#ifdef __linux__
+#include <elf.h>
+#endif
+
 using nari::BlockPtr;
 using nari::ExprPtr;
 using nari::FunctionPtr;
@@ -415,10 +419,56 @@ class Parser {
 
         auto is_probable_ffi_library_path = [](const std::string &path) {
             namespace fs = nari::fs;
-            std::string ext = fs::Path(path).extension().string();
-            return ext == ".so" || ext == ".dll" || ext == ".dylib";
-        };
 
+            const std::string ext = fs::Path(path).extension().string();
+            if (ext == ".so" || ext == ".dll" || ext == ".dylib")
+                return true;
+
+            // Versioned sonames ("libc.so.6", "libfoo.so.1.2.3") have a numeric
+            // extension, so match ".so." followed by digits/dots in the filename.
+            // These are resolved by the dynamic linker's search path, so the file
+            // need not exist relative to the CWD.
+            const std::string filename = fs::Path(path).filename().string();
+            const size_t so_pos = filename.find(".so.");
+            if (so_pos != std::string::npos && so_pos + 4 < filename.size()) {
+                bool version_suffix = true;
+                for (size_t i = so_pos + 4; i < filename.size(); ++i) {
+                    const char c = filename[i];
+                    if (!std::isdigit(static_cast<unsigned char>(c)) && c != '.') {
+                        version_suffix = false;
+                        break;
+                    }
+                }
+                if (version_suffix)
+                    return true;
+            }
+
+#if defined(__linux__)
+            // if it's an file with a weird ending, check if it's an ELF file
+            // only linux adds stuff to the end of library extensions i think, so this should be fine?
+            FILE *fp = fopen(path.c_str(), "rb");
+            if (!fp)
+                return false;
+
+            Elf64_Ehdr hdr{};
+            const size_t n = fread(&hdr, 1, sizeof(hdr), fp);
+            fclose(fp);
+
+            if (n < EI_NIDENT)
+                return false;
+
+            // ELF magic
+            if (hdr.e_ident[EI_MAG0] != ELFMAG0 ||
+                hdr.e_ident[EI_MAG1] != ELFMAG1 ||
+                hdr.e_ident[EI_MAG2] != ELFMAG2 ||
+                hdr.e_ident[EI_MAG3] != ELFMAG3)
+                return false;
+
+            return hdr.e_type == ET_DYN;
+#else
+            return false;
+#endif
+        };
         auto register_module_export = [&](const std::string &export_name, const std::string &local_name) {
             auto &bindings = module_export_registry[module_name];
             for (const auto &binding : bindings) {
