@@ -83,8 +83,8 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
     if (func_idx >= chunk.functions.size()) {
         return false;
     }
-    const FunctionMeta &fm = chunk.functions[func_idx];
-    const ByteArray &code = fm.code;
+    const FunctionMeta &func_meta = chunk.functions[func_idx];
+    const ByteArray &code = func_meta.code;
     if (code.empty()) {
         return false;
     }
@@ -107,18 +107,19 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         int w = p1_width(op);
         if (w == 0) {
             if (kBuildReport) {
-                fprintf(stderr, "[IR-BUILD] %s: non-P1 opcode %s at pc=%zu\n",
-                        fm.name.c_str(), nari::bytecode::opcode_name(op), pc);
+                fprintf(stderr,
+                        "[IR-BUILD] %s: non-P1 opcode %s at pc=%zu\n",
+                        func_meta.name.c_str(),
+                        nari::bytecode::opcode_name(op), pc);
             }
             return false; // non-P1 opcode
         }
-        if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE ||
-            op == OpCode::OP_JUMP_IF_TRUE) {
-            size_t tgt = jtarget(pc);
-            if (tgt > code.size()) {
+        if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE) {
+            size_t target = jtarget(pc);
+            if (target > code.size()) {
                 return false;
             }
-            leaders.insert(tgt);
+            leaders.insert(target);
             leaders.insert(pc + 3); // fall-through / post-jump
         } else if (op == OpCode::OP_RETURN) {
             leaders.insert(pc + 1); // unreachable-but-consistent boundary
@@ -127,14 +128,14 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
     }
 
     // create blocks (one per in-range leader)
-    out.meta = &fm;
-    out.num_slots = (uint32_t)fm.var_names.size();
-    out.num_params = fm.param_count;
+    out.meta = &func_meta;
+    out.num_slots = (uint32_t)func_meta.var_names.size();
+    out.num_params = func_meta.param_count;
     std::map<size_t, BlockId> at; // leader pc -> block id
     std::vector<size_t> leader_vec(leaders.begin(), leaders.end());
-    for (size_t L : leader_vec) {
-        if (L < code.size()) {
-            at[L] = out.add_block(L);
+    for (size_t leader : leader_vec) {
+        if (leader < code.size()) {
+            at[leader] = out.add_block(leader);
         }
     }
     if (!at.count(0)) {
@@ -167,18 +168,18 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 return false; // pass 1 already filtered, defensive
             }
             if (op == OpCode::OP_JUMP) {
-                size_t tgt = jtarget(pc);
-                BlockId tb = block_at(tgt);
-                if (tb == InvalidBlock) {
+                size_t target = jtarget(pc);
+                BlockId target_block = block_at(target);
+                if (target_block == InvalidBlock) {
                     return false;
                 }
-                cfg_succs[bid].push_back(tb);
+                cfg_succs[bid].push_back(target_block);
                 found_term = true;
                 break;
             }
             if (op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE) {
-                size_t tgt = jtarget(pc);
-                BlockId tb = block_at(tgt);
+                size_t target = jtarget(pc);
+                BlockId tb = block_at(target);
                 BlockId fall = block_at(pc + 3);
                 if (tb == InvalidBlock || fall == InvalidBlock) {
                     return false;
@@ -201,23 +202,23 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             }
         }
     }
-    for (size_t b = 0; b < cfg_succs.size(); b++) {
-        for (BlockId s : cfg_succs[b]) {
-            cfg_preds[s].push_back((BlockId)b);
+    for (size_t block = 0; block < cfg_succs.size(); block++) {
+        for (BlockId successor : cfg_succs[block]) {
+            cfg_preds[successor].push_back((BlockId)block);
         }
     }
 
-    // Per-block state for stack threading across edges.
+    // per-block state for stack threading across edges.
     std::vector<std::vector<ValueId>> exit_vstk(out.blocks.size());
     std::vector<int> exit_depth(out.blocks.size(), -1);
     std::vector<int> entry_depth(out.blocks.size(), -1);
     entry_depth[out.entry] = 0;
 
     // emit each block
-    auto emit_push = [&](Block &b, std::vector<ValueId> &vstk, Inst in) {
-        ValueId v = out.add_inst(std::move(in));
-        b.insts.push_back(v);
-        vstk.push_back(v);
+    auto emit_push = [&](Block &b, std::vector<ValueId> &vstk, Inst instruction) {
+        ValueId val_id = out.add_inst(std::move(instruction));
+        b.insts.push_back(val_id);
+        vstk.push_back(val_id);
     };
     for (size_t li = 0; li < leader_vec.size(); li++) {
         size_t start = leader_vec[li];
@@ -226,7 +227,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         }
         size_t end = (li + 1 < leader_vec.size()) ? leader_vec[li + 1] : code.size();
         BlockId bid = at[start];
-        Block &b = out.blocks[bid];
+        Block &block = out.blocks[bid];
         std::vector<ValueId> vstk;
 
         // Seed entry vstk from predecessors. 
@@ -241,18 +242,18 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     continue;
                 }
                 if (exit_depth[p] < 0) {
-                    // Unreachable predecessor (e.g. dead block) - skip.
+                    // unreachable predecessor (e.g. dead block), skip it.
                     continue;
                 }
                 if (depth < 0) {
                     depth = exit_depth[p];
                 } else if (depth != exit_depth[p]) {
-                    // Disagreement: predecessors leave different stack depths at
-                    // this block's entry - this is a malformed CFG or unsupported
-                    // shape (e.g. exception flow). Bail.
+                    // predecessors leave different stack depths at this block's entry,
+                    // this is a malformed CFG or unsupported shape, we should bail here.
                     if (kBuildReport) {
-                        fprintf(stderr, "[IR-BUILD] %s: pred depth mismatch at block start pc=%zu (%d vs %d)\n",
-                                fm.name.c_str(), start, depth, exit_depth[p]);
+                        fprintf(stderr, 
+                                "[IR-BUILD] %s: pred depth mismatch at block start pc=%zu (%d vs %d)\n",
+                                func_meta.name.c_str(), start, depth, exit_depth[p]);
                     }
                     return false;
                 }
@@ -267,8 +268,9 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             }
             if (has_back_edge && depth != 0) {
                 if (kBuildReport) {
-                    fprintf(stderr, "[IR-BUILD] %s: loop header has entry depth %d at pc=%zu (back-edge requires 0)\n",
-                            fm.name.c_str(), depth, start);
+                    fprintf(stderr, 
+                            "[IR-BUILD] %s: loop header has entry depth %d at pc=%zu (back-edge requires 0)\n",
+                            func_meta.name.c_str(), depth, start);
                 }
                 return false;
             }
@@ -292,9 +294,8 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     }
                     vstk.assign(pv.end() - depth, pv.end());
                 } else {
-                    // Multi-pred merge: emit a Phi for each stack slot.
-                    // Operand order matches preds (the order matters only for
-                    // the type-join in infer_types, not for codegen).
+                    // multi-pred merge: emit a Phi for each stack slot.
+                    // Operand order matches preds
                     for (int d = 0; d < depth; d++) {
                         Inst phi;
                         phi.op = Op::Phi;
@@ -310,7 +311,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                             }
                         }
                         ValueId pv_id = out.add_inst(std::move(phi));
-                        b.phis.push_back(pv_id);
+                        block.phis.push_back(pv_id);
                         vstk.push_back(pv_id);
                     }
                 }
@@ -328,11 +329,11 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             vstk.pop_back();
             ValueId lhs = vstk.back();
             vstk.pop_back();
-            Inst in;
-            in.op = op;
-            in.operands = { lhs, rhs };
-            in.bytecode_pc = op_pc;
-            emit_push(b, vstk, std::move(in));
+            Inst instruction;
+            instruction.op = op;
+            instruction.operands = { lhs, rhs };
+            instruction.bytecode_pc = op_pc;
+            emit_push(block, vstk, std::move(instruction));
             return true;
         };
 
@@ -340,13 +341,13 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             if (vstk.empty()) {
                 return false;
             }
-            Inst in;
-            in.op = op;
-            in.operands = { vstk.back() };
-            in.bytecode_pc = op_pc;
-            ValueId v = out.add_inst(std::move(in));
-            b.insts.push_back(v);
-            vstk.back() = v;
+            Inst instruction;
+            instruction.op = op;
+            instruction.operands = { vstk.back() };
+            instruction.bytecode_pc = op_pc;
+            ValueId val_id = out.add_inst(std::move(instruction));
+            block.insts.push_back(val_id);
+            vstk.back() = val_id;
             return true;
         };
 
@@ -357,73 +358,73 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 case OpCode::OP_LOAD_CONST: {
                     uint16_t ci = u16(pc);
                     pc += 2;
-                    if (ci >= fm.constants.size()) {
+                    if (ci >= func_meta.constants.size()) {
                         return false;
                     }
-                    const Constant &c = fm.constants[ci];
-                    Inst in;
-                    in.bytecode_pc = op_pc;
+                    const Constant &c = func_meta.constants[ci];
+                    Inst instruction;
+                    instruction.bytecode_pc = op_pc;
                     if (c.type == Constant::Type::INT) {
-                        in.op = Op::IConst;
-                        in.type = Ty::Int48;
-                        in.imm_int = c.as_int;
+                        instruction.op = Op::IConst;
+                        instruction.type = Ty::Int48;
+                        instruction.imm_int = c.as_int;
                     } else if (c.type == Constant::Type::FLOAT) {
-                        in.op = Op::FConst;
-                        in.type = Ty::Float;
-                        in.imm_float = c.as_float;
+                        instruction.op = Op::FConst;
+                        instruction.type = Ty::Float;
+                        instruction.imm_float = c.as_float;
                     } else {
-                        in.op = Op::LoadConst;
-                        in.imm_u32 = ci;
+                        instruction.op = Op::LoadConst;
+                        instruction.imm_u32 = ci;
                     }
-                    emit_push(b, vstk, std::move(in));
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_LOAD_ZERO:
                 case OpCode::OP_LOAD_ONE: {
-                    Inst in;
-                    in.op = Op::IConst;
-                    in.type = Ty::Int48;
-                    in.imm_int = (op == OpCode::OP_LOAD_ONE) ? 1 : 0;
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::IConst;
+                    instruction.type = Ty::Int48;
+                    instruction.imm_int = (op == OpCode::OP_LOAD_ONE) ? 1 : 0;
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_LOAD_TRUE:
                 case OpCode::OP_LOAD_FALSE: {
-                    Inst in;
-                    in.op = Op::BConst;
-                    in.type = Ty::Bool;
-                    in.imm_int = (op == OpCode::OP_LOAD_TRUE) ? 1 : 0;
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::BConst;
+                    instruction.type = Ty::Bool;
+                    instruction.imm_int = (op == OpCode::OP_LOAD_TRUE) ? 1 : 0;
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_LOAD_NONE: {
-                    Inst in;
-                    in.op = Op::NConst;
-                    in.type = Ty::None;
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::NConst;
+                    instruction.type = Ty::None;
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_LOAD_VAR: {
                     uint16_t slot = u16(pc);
                     pc += 2;
-                    Inst in;
-                    in.op = Op::LoadSlot;
-                    in.imm_u32 = slot;
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::LoadSlot;
+                    instruction.imm_u32 = slot;
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_LOAD_GLOBAL: {
                     uint16_t name = u16(pc);
                     pc += 2;
-                    Inst in;
-                    in.op = Op::LoadGlobal;
-                    in.imm_u32 = name;
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::LoadGlobal;
+                    instruction.imm_u32 = name;
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_STORE_VAR: {
@@ -432,13 +433,13 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     if (vstk.empty()) {
                         return false;
                     }
-                    Inst in;
-                    in.op = Op::StoreSlot;
-                    in.imm_u32 = slot;
-                    in.operands = { vstk.back() }; // peek, no pop
-                    in.bytecode_pc = op_pc;
-                    ValueId v = out.add_inst(std::move(in));
-                    b.insts.push_back(v);
+                    Inst instruction;
+                    instruction.op = Op::StoreSlot;
+                    instruction.imm_u32 = slot;
+                    instruction.operands = { vstk.back() }; // peek, no pop
+                    instruction.bytecode_pc = op_pc;
+                    ValueId val_id = out.add_inst(std::move(instruction));
+                    block.insts.push_back(val_id);
                     break;
                 }
                 case OpCode::OP_STORE_GLOBAL: {
@@ -447,23 +448,23 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     if (vstk.empty()) {
                         return false;
                     }
-                    Inst in;
-                    in.op = Op::StoreGlobal;
-                    in.imm_u32 = name;
-                    in.operands = { vstk.back() }; // peek, no pop
-                    in.bytecode_pc = op_pc;
-                    ValueId v = out.add_inst(std::move(in));
-                    b.insts.push_back(v);
+                    Inst instruction;
+                    instruction.op = Op::StoreGlobal;
+                    instruction.imm_u32 = name;
+                    instruction.operands = { vstk.back() }; // peek, no pop
+                    instruction.bytecode_pc = op_pc;
+                    ValueId val_id = out.add_inst(std::move(instruction));
+                    block.insts.push_back(val_id);
                     break;
                 }
                 case OpCode::OP_LOAD_CAPTURE: {
                     uint16_t idx = u16(pc);
                     pc += 2;
-                    Inst in;
-                    in.op = Op::LoadCapture;
-                    in.imm_u32 = idx;
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::LoadCapture;
+                    instruction.imm_u32 = idx;
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_STORE_CAPTURE: {
@@ -472,25 +473,25 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     if (vstk.empty()) {
                         return false;
                     }
-                    Inst in;
-                    in.op = Op::StoreCapture;
-                    in.imm_u32 = idx;
-                    in.operands = { vstk.back() }; // peek, no pop
-                    in.bytecode_pc = op_pc;
-                    ValueId v = out.add_inst(std::move(in));
-                    b.insts.push_back(v);
+                    Inst instruction;
+                    instruction.op = Op::StoreCapture;
+                    instruction.imm_u32 = idx;
+                    instruction.operands = { vstk.back() }; // peek, no pop
+                    instruction.bytecode_pc = op_pc;
+                    ValueId val_id = out.add_inst(std::move(instruction));
+                    block.insts.push_back(val_id);
                     break;
                 }
                 case OpCode::OP_POP: {
                     if (vstk.empty()) {
                         return false;
                     }
-                    Inst in;
-                    in.op = Op::Pop;
-                    in.operands = { vstk.back() };
-                    in.bytecode_pc = op_pc;
-                    ValueId v = out.add_inst(std::move(in));
-                    b.insts.push_back(v);
+                    Inst instruction;
+                    instruction.op = Op::Pop;
+                    instruction.operands = { vstk.back() };
+                    instruction.bytecode_pc = op_pc;
+                    ValueId val_id = out.add_inst(std::move(instruction));
+                    block.insts.push_back(val_id);
                     vstk.pop_back();
                     break;
                 }
@@ -498,11 +499,11 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     if (vstk.empty()) {
                         return false;
                     }
-                    Inst in;
-                    in.op = Op::Dup;
-                    in.operands = { vstk.back() };
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::Dup;
+                    instruction.operands = { vstk.back() };
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_ADD: {
@@ -633,11 +634,11 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     vstk.pop_back();
                     ValueId obj = vstk.back();
                     vstk.pop_back();
-                    Inst in;
-                    in.op = Op::LoadIndex;
-                    in.operands = { obj, idx };
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::LoadIndex;
+                    instruction.operands = { obj, idx };
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_SET_INDEX: {
@@ -650,11 +651,11 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     vstk.pop_back();
                     ValueId obj = vstk.back();
                     vstk.pop_back();
-                    Inst in;
-                    in.op = Op::StoreIndex;
-                    in.operands = { obj, idx, val };
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::StoreIndex;
+                    instruction.operands = { obj, idx, val };
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_GET_PROPERTY: {
@@ -665,12 +666,12 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     }
                     ValueId obj = vstk.back();
                     vstk.pop_back();
-                    Inst in;
-                    in.op = Op::LoadProperty;
-                    in.imm_u32 = name;
-                    in.operands = { obj };
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::LoadProperty;
+                    instruction.imm_u32 = name;
+                    instruction.operands = { obj };
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_SET_PROPERTY: {
@@ -683,12 +684,12 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     vstk.pop_back();
                     ValueId obj = vstk.back();
                     vstk.pop_back();
-                    Inst in;
-                    in.op = Op::StoreProperty;
-                    in.imm_u32 = name;
-                    in.operands = { obj, val };
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::StoreProperty;
+                    instruction.imm_u32 = name;
+                    instruction.operands = { obj, val };
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_MAKE_ARRAY: {
@@ -704,12 +705,12 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                         ops.push_back(vstk[i]);
                     }
                     vstk.resize(base);
-                    Inst in;
-                    in.op = Op::MakeArray;
-                    in.imm_u32 = n;
-                    in.operands = std::move(ops);
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::MakeArray;
+                    instruction.imm_u32 = n;
+                    instruction.operands = std::move(ops);
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_MAKE_OBJECT: {
@@ -726,12 +727,12 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                         ops.push_back(vstk[i]);
                     }
                     vstk.resize(base);
-                    Inst in;
-                    in.op = Op::MakeObject;
-                    in.imm_u32 = n;
-                    in.operands = std::move(ops);
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::MakeObject;
+                    instruction.imm_u32 = n;
+                    instruction.operands = std::move(ops);
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_FORMAT_VALUE: {
@@ -763,13 +764,13 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                         ops.push_back(vstk[i]);
                     }
                     vstk.resize(base);
-                    Inst in;
-                    in.op = Op::Call;
-                    in.imm_u32 = argc;
-                    in.imm_int = callee_label;
-                    in.operands = std::move(ops);
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::Call;
+                    instruction.imm_u32 = argc;
+                    instruction.imm_int = callee_label;
+                    instruction.operands = std::move(ops);
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_CALL_METHOD: {
@@ -786,33 +787,33 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                         ops.push_back(vstk[i]);
                     }
                     vstk.resize(base);
-                    Inst in;
-                    in.op = Op::CallMethod;
-                    in.imm_u32 = method;
-                    in.imm_int = argc;
-                    in.operands = std::move(ops);
-                    in.bytecode_pc = op_pc;
-                    emit_push(b, vstk, std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::CallMethod;
+                    instruction.imm_u32 = method;
+                    instruction.imm_int = argc;
+                    instruction.operands = std::move(ops);
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_JUMP: {
-                    size_t tgt = jtarget(op_pc);
+                    size_t target = jtarget(op_pc);
                     pc = op_pc + 3;
-                    BlockId tb = block_at(tgt);
+                    BlockId tb = block_at(target);
                     if (tb == InvalidBlock) {
                         return false;
                     }
-                    Inst in;
-                    in.op = Op::Jump;
-                    in.target0 = tb;
-                    in.bytecode_pc = op_pc;
-                    b.terminator = out.add_inst(std::move(in));
+                    Inst instruction;
+                    instruction.op = Op::Jump;
+                    instruction.target0 = tb;
+                    instruction.bytecode_pc = op_pc;
+                    block.terminator = out.add_inst(std::move(instruction));
                     terminated = true;
                     break;
                 }
                 case OpCode::OP_JUMP_IF_FALSE:
                 case OpCode::OP_JUMP_IF_TRUE: {
-                    size_t tgt = jtarget(op_pc);
+                    size_t target = jtarget(op_pc);
                     pc = op_pc + 3;
                     if (vstk.empty()) {
                         return false;
@@ -820,35 +821,35 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     ValueId cond = vstk.back();
                     vstk.pop_back();
                     BlockId fall = block_at(pc);
-                    BlockId jump = block_at(tgt);
+                    BlockId jump = block_at(target);
                     if (fall == InvalidBlock || jump == InvalidBlock) {
                         return false;
                     }
-                    Inst in;
-                    in.op = Op::Branch;
-                    in.operands = { cond };
-                    in.bytecode_pc = op_pc;
+                    Inst instruction;
+                    instruction.op = Op::Branch;
+                    instruction.operands = { cond };
+                    instruction.bytecode_pc = op_pc;
                     // target0 = taken when truthy, target1 = taken when falsy
                     if (op == OpCode::OP_JUMP_IF_FALSE) {
-                        in.target0 = fall; // truthy -> fall through
-                        in.target1 = jump; // falsy  -> jump target
+                        instruction.target0 = fall; // truthy -> fall through
+                        instruction.target1 = jump; // falsy  -> jump target
                     } else {
-                        in.target0 = jump; // truthy -> jump target
-                        in.target1 = fall; // falsy  -> fall through
+                        instruction.target0 = jump; // truthy -> jump target
+                        instruction.target1 = fall; // falsy  -> fall through
                     }
-                    b.terminator = out.add_inst(std::move(in));
+                    block.terminator = out.add_inst(std::move(instruction));
                     terminated = true;
                     break;
                 }
                 case OpCode::OP_RETURN: {
-                    Inst in;
-                    in.op = Op::Return;
-                    in.bytecode_pc = op_pc;
+                    Inst instruction;
+                    instruction.op = Op::Return;
+                    instruction.bytecode_pc = op_pc;
                     if (!vstk.empty()) {
-                        in.operands = { vstk.back() };
+                        instruction.operands = { vstk.back() };
                         vstk.pop_back();
                     }
-                    b.terminator = out.add_inst(std::move(in));
+                    block.terminator = out.add_inst(std::move(instruction));
                     terminated = true;
                     break;
                 }
@@ -862,14 +863,14 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             BlockId nb = block_at(end);
             if (nb == InvalidBlock) {
                 // no successor block: implicit `return none`
-                Inst in;
-                in.op = Op::Return;
-                b.terminator = out.add_inst(std::move(in));
+                Inst instruction;
+                instruction.op = Op::Return;
+                block.terminator = out.add_inst(std::move(instruction));
             } else {
-                Inst in;
-                in.op = Op::Jump;
-                in.target0 = nb;
-                b.terminator = out.add_inst(std::move(in));
+                Inst instruction;
+                instruction.op = Op::Jump;
+                instruction.target0 = nb;
+                block.terminator = out.add_inst(std::move(instruction));
             }
         }
 
@@ -881,21 +882,22 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
 
         // Validate back-edges: any already-processed successor (id <= bid)
         // must agree on the entry depth via this edge.
-        for (BlockId s : cfg_succs[bid]) {
-            if ((size_t)s <= (size_t)bid && entry_depth[s] >= 0) {
-                if (entry_depth[s] != (int)vstk.size()) {
+        for (BlockId successor : cfg_succs[bid]) {
+            if ((size_t)successor <= (size_t)bid && entry_depth[successor] >= 0) {
+                if (entry_depth[successor] != (int)vstk.size()) {
                     if (kBuildReport) {
-                        fprintf(stderr, "[IR-BUILD] %s: back-edge depth %zu -> %d mismatch (block %d -> %d)\n",
-                                fm.name.c_str(), vstk.size(), entry_depth[s], (int)bid, (int)s);
+                        fprintf(stderr,
+                                "[IR-BUILD] %s: back-edge depth %zu -> %d mismatch (block %d -> %d)\n",
+                                func_meta.name.c_str(),
+                                vstk.size(),
+                                entry_depth[successor],
+                                (int)bid,
+                                (int)successor);
                     }
                     return false;
                 }
-                // Back-edges to a non-zero entry depth would require phi
-                // operands from this block - but we've already emitted the
-                // header's phis. We require loop headers to have depth 0
-                // (enforced at header entry), so depth-0 match is the only
-                // legal case here.
-                if (entry_depth[s] != 0) {
+                // depth-0 match is the only legal case
+                if (entry_depth[successor] != 0) {
                     return false;
                 }
             }
@@ -903,21 +905,21 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
     }
 
     // CFG edges (succs/preds)
-    for (Block &b : out.blocks) {
-        if (b.terminator == InvalidValue) {
+    for (Block &block : out.blocks) {
+        if (block.terminator == InvalidValue) {
             continue;
         }
-        const Inst &t = out.inst(b.terminator);
-        if (t.op == Op::Jump) {
-            b.succs.push_back(t.target0);
-        } else if (t.op == Op::Branch) {
-            b.succs.push_back(t.target0);
-            b.succs.push_back(t.target1);
+        const Inst &term = out.inst(block.terminator);
+        if (term.op == Op::Jump) {
+            block.succs.push_back(term.target0);
+        } else if (term.op == Op::Branch) {
+            block.succs.push_back(term.target0);
+            block.succs.push_back(term.target1);
         }
     }
-    for (Block &b : out.blocks) {
-        for (BlockId s : b.succs) {
-            out.blocks[s].preds.push_back(b.id);
+    for (Block &block : out.blocks) {
+        for (BlockId successor : block.succs) {
+            out.blocks[successor].preds.push_back(block.id);
         }
     }
     return true;

@@ -1498,8 +1498,6 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             //     goto loop_start
             //   exit:
             //
-            // All loop state lives in hidden locals, so the loop header has an
-            // entry stack depth of 0 and every opcode is in the JIT's P1 subset.
             static uint32_t forin_seq = 0;
             uint32_t seq = forin_seq++;
             uint16_t arr_idx = ctx->declare_local("$forin_arr$" + std::to_string(seq));

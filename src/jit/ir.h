@@ -1,6 +1,6 @@
 #pragma once
 // Mid-level optimizing IR for the method-JIT pipeline:
-//  bytecode -> CFG -> SSA IR (this file) -> passes -> AsmJIT.
+//  bytecode -> CFG -> SSA IR -> opt passes -> AsmJIT.
 //
 // AsmJIT keeps doing register allocation, this IR is a higher level language that I can optimize easier.
 // Handles are integer ids (indices into the Func's vectors), not pointers.
@@ -25,8 +25,8 @@ using BlockId = int32_t;
 inline constexpr ValueId InvalidValue = -1;
 inline constexpr BlockId InvalidBlock = -1;
 
-// Type lattice for an SSA value. Int48 is a Nari integer guaranteed in the int48
-// range (raw int64 in a gp reg).
+// Type lattice for an SSA value.
+// Int48 is a Nari integer guaranteed in the int48 range (raw int64 in a gp reg).
 // Number is a value that may overflow to float.
 enum class Ty : uint8_t {
     Bottom = 0, // inference-internal: "no value computed yet"
@@ -131,13 +131,13 @@ enum class Op : uint16_t {
     FormatValue, // operand[0], imm_u32 format spec -> string Value
     IterArray,   // operand[0] iterable -> normalized array Value (for-in helper)
 
-    // memory (P4)
+    // memory
     LoadIndex,     // arr=operand[0], idx=operand[1] -> Value
     StoreIndex,    // arr=operand[0], idx=operand[1], val=operand[2]
     LoadProperty,  // obj=operand[0], imm_u32=name index -> Value
     StoreProperty, // obj=operand[0], val=operand[1], imm_u32=name index
 
-    // calls (P4)
+    // calls
     Call, // callee/args via operands + imm
     CallMethod,
 
