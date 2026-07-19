@@ -45,7 +45,6 @@ Execute a Nari script file:
 
 ```bash
 nari script.nari
-nari script.nari
 ```
 
 Compile a script to bytecode:
