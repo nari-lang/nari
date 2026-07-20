@@ -22,6 +22,8 @@
 #include <thread>
 #endif
 
+typedef std::map<std::string, std::string> StringMap;
+
 // Under NO_THREADS (Emscripten / NARI_MCU) there is no std::this_thread.
 // NARI_MCU bare-metal targets should override these with the SDK's own function for delaying.
 #ifdef NO_THREADS
@@ -90,7 +92,7 @@ typedef SSIZE_T ssize_t;
 #endif
 #define close _close
 #define poll WSAPoll
-#define NARI_CLOSE_SOCKET(fd) ::closesocket(static_cast<SOCKET>(fd))
+#define NARI_CLOSE_SOCKET(fd) ::closesocket((SOCKET)fd)
 using nari_socket_t = SOCKET;
 #define NARI_INVALID_SOCKET INVALID_SOCKET
 #elif defined(NARI_MCU)
@@ -258,25 +260,25 @@ struct NariFileOperation : IOOperation {
             }
         }
 
-        static Result from_string(const std::string &s) {
-            Result r;
-            r.type = Type::String;
-            new (&r.str_value) std::string(s);
-            return r;
+        static Result from_string(const std::string &str) {
+            Result result;
+            result.type = Type::String;
+            new (&result.str_value) std::string(str);
+            return result;
         }
 
         static Result from_array(const std::vector<std::string> &arr) {
-            Result r;
-            r.type = Type::Array;
-            new (&r.array_value) std::vector<std::string>(arr);
-            return r;
+            Result result;
+            result.type = Type::Array;
+            new (&result.array_value) std::vector<std::string>(arr);
+            return result;
         }
 
-        static Result from_bool(bool b) {
-            Result r;
-            r.type = Type::Bool;
-            r.bool_value = b;
-            return r;
+        static Result from_bool(bool _bool) {
+            Result result;
+            result.type = Type::Bool;
+            result.bool_value = _bool;
+            return result;
         }
     } result;
 
@@ -325,10 +327,10 @@ struct HttpOperation : IOOperation {
     std::string method;
     std::string url_path;
     std::string full_url; // complete URL including scheme, for libcurl
-    std::map<std::string, std::string> headers;
+    StringMap headers;
     std::string body;
     int status_code = 0;
-    std::map<std::string, std::string> response_headers;
+    StringMap response_headers;
     std::string result_string;
     std::string error_msg;
 
@@ -432,7 +434,7 @@ class IOThreadPool {
     std::mutex curl_share_lock_ssl;
 
     static void curl_share_lock(CURL *, curl_lock_data data, curl_lock_access, void *userp) {
-        auto *pool = static_cast<IOThreadPool *>(userp);
+        auto *pool = (IOThreadPool *)userp;
         if (data == CURL_LOCK_DATA_DNS) {
             pool->curl_share_lock_dns.lock();
         } else if (data == CURL_LOCK_DATA_SSL_SESSION) {
@@ -441,7 +443,7 @@ class IOThreadPool {
     }
 
     static void curl_share_unlock(CURL *, curl_lock_data data, void *userp) {
-        auto *pool = static_cast<IOThreadPool *>(userp);
+        auto *pool = (IOThreadPool *)userp;
         if (data == CURL_LOCK_DATA_DNS) {
             pool->curl_share_lock_dns.unlock();
         } else if (data == CURL_LOCK_DATA_SSL_SESSION) {
@@ -462,7 +464,7 @@ class IOThreadPool {
         // Share SSL sessions so subsequent requests to the same host get TLS
         // session resumption instead of a full (CA-bundle-loading) handshake.
         curl_share_setopt(curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
-        // Share DNS results to avoid repeated resolver round-trips.
+        // share DNS results to avoid repeated resolver round-trips.
         curl_share_setopt(curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
         curl_share_setopt(curl_share, CURLSHOPT_LOCKFUNC, &IOThreadPool::curl_share_lock);
         curl_share_setopt(curl_share, CURLSHOPT_UNLOCKFUNC, &IOThreadPool::curl_share_unlock);
@@ -484,10 +486,11 @@ class IOThreadPool {
 
                     if (op) {
                         switch (op->type) {
-                            case IOOperation::Type::Timer:
+                            case IOOperation::Type::Timer: {
                                 std::this_thread::sleep_for(chrono::milliseconds(op->timer_ms));
                                 op->success = true;
                                 break;
+                            }
 
                             case IOOperation::Type::FileRead: {
                                 auto file_op = std::static_pointer_cast<NariFileOperation>(op);
@@ -549,11 +552,11 @@ class IOThreadPool {
 
                             case IOOperation::Type::FileDelete: {
                                 auto file_op = std::static_pointer_cast<NariFileOperation>(op);
-                                std::error_code ec;
-                                file_op->result_bool = nari::fs::remove(nari::fs::Path(file_op->file_path), ec);
-                                if (ec) {
+                                std::error_code err;
+                                file_op->result_bool = nari::fs::remove(nari::fs::Path(file_op->file_path), err);
+                                if (err) {
                                     file_op->success = false;
-                                    file_op->error_msg = "Failed to delete file: " + ec.message();
+                                    file_op->error_msg = "Failed to delete file: " + err.message();
                                 } else {
                                     file_op->success = true;
                                 }
@@ -562,17 +565,17 @@ class IOThreadPool {
 
                             case IOOperation::Type::ListDir: {
                                 auto file_op = std::static_pointer_cast<NariFileOperation>(op);
-                                std::error_code ec;
+                                std::error_code err;
 
                                 // Collect all filenames first
                                 std::vector<std::string> filenames;
-                                for (const auto &entry : nari::fs::list_directory(nari::fs::Path(file_op->file_path), ec)) {
+                                for (const auto &entry : nari::fs::list_directory(nari::fs::Path(file_op->file_path), err)) {
                                     filenames.push_back(entry.filename().string());
                                 }
 
-                                if (ec) {
+                                if (err) {
                                     file_op->success = false;
-                                    file_op->error_msg = "Failed to list directory: " + ec.message();
+                                    file_op->error_msg = "Failed to list directory: " + err.message();
                                 } else {
                                     // sort files, prioritize dot files/folders, and then case-insensitive alphabetical
                                     std::sort(
@@ -607,7 +610,7 @@ class IOThreadPool {
                                     tcp_op->error_msg = "Failed to create socket: " + std::string(strerror(errno));
                                     break;
                                 }
-                                int sock_fd = static_cast<int>(raw_fd);
+                                int sock_fd = raw_fd;
 
                                 int opt = 1;
                                 setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
@@ -683,7 +686,7 @@ class IOThreadPool {
                                     tcp_op->error_msg = "Failed to accept connection: " + std::string(strerror(errno));
                                     break;
                                 }
-                                int client_fd = static_cast<int>(raw_client_fd);
+                                int client_fd = raw_client_fd;
 
                                 tcp_op->client_fd = client_fd;
                                 tcp_op->client_ip = inet_ntoa(client_addr.sin_addr);
@@ -753,7 +756,7 @@ class IOThreadPool {
                                     tcp_op->error_msg = "Failed to create socket: " + std::string(strerror(errno));
                                     break;
                                 }
-                                int sock_fd = static_cast<int>(raw_fd);
+                                int sock_fd = raw_fd;
 
                                 struct hostent *server = gethostbyname(tcp_op->host.c_str());
                                 if (server == nullptr) {
@@ -793,7 +796,7 @@ class IOThreadPool {
                                     udp_op->error_msg = "Failed to create UDP socket: " + std::string(strerror(errno));
                                     break;
                                 }
-                                int sock_fd = static_cast<int>(raw_fd);
+                                int sock_fd = raw_fd;
 
                                 struct sockaddr_in addr;
                                 memset(&addr, 0, sizeof(addr));
@@ -977,18 +980,17 @@ class IOThreadPool {
                                         CURLOPT_HEADERFUNCTION,
                                         +[](char *ptr, size_t size, size_t nmemb, void *ud) {
                                             std::string hdr(ptr, size * nmemb);
-                                            while (!hdr.empty() &&
-                                                   (hdr.back() == '\r' || hdr.back() == '\n')) {
+                                            while (!hdr.empty() && (hdr.back() == '\r' || hdr.back() == '\n')) {
                                                 hdr.pop_back();
                                             }
                                             size_t colon = hdr.find(':');
                                             if (colon != std::string::npos) {
                                                 std::string key = hdr.substr(0, colon);
                                                 std::string val = hdr.substr(colon + 1);
-                                                while (!val.empty() && val.front() == ' ')
+                                                while (!val.empty() && val.front() == ' ') {
                                                     val.erase(0, 1);
-                                                (*static_cast<std::map<std::string, std::string> *>(
-                                                    ud))[key] = val;
+                                                }
+                                                (*(StringMap *)(ud))[key] = val;
                                             }
                                             return size * nmemb;
                                         });
@@ -1009,12 +1011,12 @@ class IOThreadPool {
                                     if (http_op->method == "POST") {
                                         curl_easy_setopt(curl, CURLOPT_POST, 1L);
                                         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, http_op->body.c_str());
-                                        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(http_op->body.size()));
+                                        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)http_op->body.size());
                                     } else if (http_op->method != "GET") {
                                         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, http_op->method.c_str());
                                         if (!http_op->body.empty()) {
                                             curl_easy_setopt(curl, CURLOPT_POSTFIELDS, http_op->body.c_str());
-                                            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(http_op->body.size()));
+                                            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)http_op->body.size());
                                         }
                                     }
 
@@ -1022,7 +1024,7 @@ class IOThreadPool {
                                     if (result == CURLE_OK) {
                                         long status = 0;
                                         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
-                                        http_op->status_code = static_cast<int>(status);
+                                        http_op->status_code = status;
                                         http_op->success = true;
                                     } else {
                                         http_op->success = false;

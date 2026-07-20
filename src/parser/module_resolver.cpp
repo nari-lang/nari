@@ -182,8 +182,10 @@ static nari::fs::Path find_nearest_project_root(const nari::fs::Path &basefile) 
     return {};
 }
 
-static std::map<std::string, std::string> parse_manifest_dependency_paths(const nari::fs::Path &manifest_path) {
-    std::map<std::string, std::string> result;
+typedef std::map<std::string, std::string> StringMap;
+
+static StringMap parse_manifest_dependency_paths(const nari::fs::Path &manifest_path) {
+    StringMap result;
     std::string content = read_text_file(manifest_path);
     std::stringstream ss(content);
     std::string line;
@@ -227,8 +229,8 @@ static std::map<std::string, std::string> parse_manifest_dependency_paths(const 
     return result;
 }
 
-static std::map<std::string, std::string> parse_package_exports(const nari::fs::Path &manifest_path) {
-    std::map<std::string, std::string> result;
+static StringMap parse_package_exports(const nari::fs::Path &manifest_path) {
+    StringMap result;
     std::string content = read_text_file(manifest_path);
     std::stringstream ss(content);
     std::string line;
@@ -411,14 +413,14 @@ std::string resolve_package_import_path(const std::string &inc,
         return "";
     }
 
-    std::map<std::string, std::string> dependency_paths = parse_manifest_dependency_paths(project_root / "nari.toml");
+    StringMap dependency_paths = parse_manifest_dependency_paths(project_root / "nari.toml");
     std::map<std::string, LockfilePackage> lockfile_packages;
     fs::Path lockfile_path = find_nearest_lockfile(project_root);
     if (!lockfile_path.empty()) {
         lockfile_packages = parse_lockfile_packages(lockfile_path);
     }
 
-    std::map<std::string, std::string> alias_map;
+    StringMap alias_map;
     std::map<std::string, bool> alias_ambiguous;
     auto register_alias = [&](const std::string &canonical_name) {
         std::string alias = package_short_name(canonical_name);
@@ -521,7 +523,7 @@ std::string resolve_package_import_path(const std::string &inc,
         return "";
     }
 
-    std::map<std::string, std::string> exports = parse_package_exports(package_manifest);
+    StringMap exports = parse_package_exports(package_manifest);
     auto export_it = exports.find(export_key);
     if (export_it == exports.end()) {
         error_out =

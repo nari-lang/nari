@@ -474,8 +474,7 @@ int main(int argc, char **argv) {
         } else if (trace_level_str == "debug") {
             Runtime::set_runtime_trace_level(Runtime::TraceLevel::Debug);
         } else {
-            fprintf(stderr, "Unknown trace level: %s\n%s", trace_level_str.c_str(),
-                    usage);
+            fprintf(stderr, "Unknown trace level: %s\n%s", trace_level_str.c_str(), usage);
             return ERROR_GENERIC;
         }
     }
@@ -499,7 +498,7 @@ int main(int argc, char **argv) {
         return ERROR_READING_FILE;
     }
 
-    // Check if input is a pre-compiled .naric file
+    // check if input is a pre-compiled .naric file
     bool is_naric = (path.size() >= 6 && path.substr(path.size() - 6) == ".naric");
 
     std::vector<std::string> runtime_argv_storage;

@@ -25,6 +25,8 @@
 namespace chrono = std::chrono;
 using namespace nari;
 
+typedef std::map<std::string, std::string> StringMap;
+
 struct Value;
 template <class T>
 class OwnedArray;
@@ -101,18 +103,6 @@ struct HeapHeader {
     HeapHeader *gc_prev = nullptr;
 };
 
-// CRTP mixin that routes a heap type's allocations through a bounded header
-// free-list pool (see core_types.cpp), replacing the malloc/free round-trip on
-// the hot path. A derived type opts in with:
-//
-//     struct Foo : HeapHeader, PooledHeapObject<Foo> {
-//         ...
-//     };
-//
-// This is an empty base, so with HeapHeader listed first the layout is
-// unchanged and HeapHeader stays at offset 0 (Value::heap_ptr relies on that).
-// The sized operators are defined out-of-line and explicitly instantiated in
-// core_types.cpp, which keeps the pool implementation private to that file.
 template <class Derived>
 struct PooledHeapObject {
     static void *operator new(std::size_t sz);

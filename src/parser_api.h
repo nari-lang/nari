@@ -72,7 +72,7 @@ std::string get_module_function_internal_name(const std::string &module_filename
 std::string get_exported_function_local_name(const std::string &internal_name);
 std::string get_module_namespace_global_name(const std::string &module_filename);
 // Returns a map of { module_file_path -> namespace_global_name } populated after the most recent parse
-const std::map<std::string, std::string> &get_module_namespace_registry();
+const StringMap &get_module_namespace_registry();
 // clears module export registry, self explanatory, automatically called by reset_parse_session()
 void clear_module_export_registry();
 

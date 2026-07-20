@@ -1039,7 +1039,7 @@ static const ObjectLiteralInfo *find_object_literal_info(const std::vector<Objec
 // scope_fn_line: 1-based start line of the enclosing function (0 = top-level).
 static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                        std::vector<SymInfo> &out,
-                       const std::map<std::string, std::string> &ns_to_path,
+                       const StringMap &ns_to_path,
                        const std::vector<std::string> &source_lines,
                        int scope_fn_line = 0,
                        std::vector<ObjectLiteralInfo> *object_literals = nullptr) {
@@ -1180,7 +1180,7 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
 
     // Build reverse map: namespace global name -> source file path
     // so walk_stmts can detect import bindings.
-    std::map<std::string, std::string> ns_to_path;
+    StringMap ns_to_path;
     for (const auto &[path, ns_name] : Parser::get_module_namespace_registry()) {
         ns_to_path[ns_name] = path;
     }

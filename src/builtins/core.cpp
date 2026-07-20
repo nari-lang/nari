@@ -934,7 +934,7 @@ Value ScriptRuntime::builtin_http_fetch(const Value *argvals, size_t argc, const
 
     std::string url = argvals[0].to_string();
     std::string method = "GET";
-    std::map<std::string, std::string> headers;
+    StringMap headers;
     std::string body;
 
     if (argvals[1].is_object()) {

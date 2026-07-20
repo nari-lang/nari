@@ -67,8 +67,8 @@ static thread_local std::map<std::string, const nari::ClassDecl *> class_registr
 static thread_local ValuesList static_class_fields;
 static thread_local std::unordered_set<std::string> static_inited_classes;
 static thread_local std::map<std::string, std::vector<ModuleExportBinding>> module_export_registry;
-static thread_local std::map<std::string, std::map<std::string, std::string>> module_function_alias_registry;
-static thread_local std::map<std::string, std::string> module_namespace_registry;
+static thread_local std::map<std::string, StringMap> module_function_alias_registry;
+static thread_local StringMap module_namespace_registry;
 static thread_local int g_module_export_counter = 0;
 static thread_local int g_module_namespace_counter = 0;
 
@@ -4808,7 +4808,7 @@ std::string get_module_namespace_global_name(const std::string &module_filename)
     return it_ns->second;
 }
 
-const std::map<std::string, std::string> &get_module_namespace_registry() {
+const StringMap &get_module_namespace_registry() {
     return module_namespace_registry;
 }
 
