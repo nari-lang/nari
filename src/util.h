@@ -23,7 +23,7 @@ inline std::string demangle(const char *name) {
 template <class T, class... Args>
 typename std::enable_if<!std::is_array<T>::value, T *>::type
 construct_at(T *p, Args &&...args) {
-    return ::new (static_cast<void *>(p)) T(std::forward<Args>(args)...);
+    return ::new ((void *)p) T(std::forward<Args>(args)...);
 }
 
 template <class T>

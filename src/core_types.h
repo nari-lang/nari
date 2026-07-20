@@ -89,8 +89,8 @@ enum class JitInlineKind : int32_t {
     NE = 16,
 };
 
-inline int32_t to_int(JitInlineKind k) {
-    return static_cast<int32_t>(k);
+inline int32_t to_int(JitInlineKind kind) {
+    return (int32_t)kind;
 }
 
 struct HeapHeader {
@@ -284,8 +284,8 @@ class OwnedArray {
     ~OwnedArray() noexcept { release(); }
 
     bool empty() const noexcept { return storage_end == storage_begin; }
-    size_type size() const noexcept { return static_cast<size_type>(storage_end - storage_begin); }
-    size_type capacity() const noexcept { return static_cast<size_type>(storage_capacity - storage_begin); }
+    size_type size() const noexcept { return (size_type)(storage_end - storage_begin); }
+    size_type capacity() const noexcept { return (size_type)(storage_capacity - storage_begin); }
     T *data() noexcept { return storage_begin; }
     const T *data() const noexcept { return storage_begin; }
     iterator begin() noexcept { return storage_begin; }
@@ -370,7 +370,7 @@ class OwnedArray {
         }
     }
     iterator insert(const_iterator pos, const T &value) {
-        const size_type index = static_cast<size_type>(pos - storage_begin);
+        const size_type index = pos - storage_begin;
         T copy = value;
         ensure_one_more();
         std::move_backward(storage_begin + index, storage_end, storage_end + 1);
@@ -379,7 +379,7 @@ class OwnedArray {
         return storage_begin + index;
     }
     iterator insert(const_iterator pos, const_iterator first, const_iterator last) {
-        const size_type index = static_cast<size_type>(pos - storage_begin);
+        const size_type index = pos - storage_begin;
         std::vector<T> copy(first, last);
         const size_type requested = checked_size(copy.size());
         if (requested > capacity()) reserve(growth_capacity(requested));
@@ -389,8 +389,8 @@ class OwnedArray {
         return storage_begin + index;
     }
     iterator erase(const_iterator first, const_iterator last) noexcept {
-        const size_type first_index = static_cast<size_type>(first - storage_begin);
-        const size_type removed = static_cast<size_type>(last - first);
+        const size_type first_index = first - storage_begin;
+        const size_type removed = last - first;
         std::move(storage_begin + first_index + removed, storage_end, storage_begin + first_index);
         for (size_type i = 0; i < removed; ++i) pop_back();
         return storage_begin + first_index;
@@ -691,7 +691,7 @@ inline const ObjectShape *ObjectShapeRegistry::extend(const ObjectShape *base, u
     auto next = std::make_unique<ObjectShape>();
     next->names = base->names;
     next->index = base->index;
-    next->index[fid] = static_cast<uint32_t>(next->names.size());
+    next->index[fid] = next->names.size();
     next->names.push_back(field_name(fid));
     const ObjectShape *ptr = next.get();
     this->shapes.push_back(std::move(next));
@@ -716,7 +716,7 @@ inline uint32_t intern_field_slow(const std::string &name) {
         return it->second;
     }
     auto &names = field_intern_names();
-    uint32_t id = static_cast<uint32_t>(names.size());
+    uint32_t id = names.size();
     names.push_back(name);
     map.emplace(names.back(), id);
     return id;
@@ -736,12 +736,12 @@ inline uint32_t intern_field(const std::string &name) {
         uint64_t key = 0;
         std::memcpy(&key, name.data(), len);
         ShortNameEntry &e = short_cache[(key * 0x9E3779B97F4A7C15ull >> 55) & 511];
-        if (e.key == key && e.len == static_cast<uint32_t>(len)) {
+        if (e.key == key && e.len == len) {
             return e.fid;
         }
         uint32_t id = intern_field_slow(name);
         e.key = key;
-        e.len = static_cast<uint32_t>(len);
+        e.len = len;
         e.fid = id;
         return id;
     }
@@ -784,11 +784,11 @@ inline bool Value::fits_int48(int64_t val) {
 }
 inline Value Value::make_int(int64_t val) {
     Value new_val;
-    new_val._raw = NB_INT_TAG | (static_cast<uint64_t>(val) & PTR_MASK);
+    new_val._raw = NB_INT_TAG | ((uint64_t)val & PTR_MASK);
     return new_val;
 }
 inline Value Value::make_int_checked(int64_t val) {
-    return fits_int48(val) ? make_int(val) : make_float(static_cast<double>(val));
+    return fits_int48(val) ? make_int(val) : make_float((double)val);
 }
 inline Value Value::make_float(double val) {
     Value new_val;
@@ -809,7 +809,7 @@ inline Value Value::make_string(std::string val) {
 }
 inline Value Value::make_const_string(const std::string &val) {
     Value new_val = make_string(val);
-    if (auto *str = static_cast<StringObj *>(new_val.heap_ptr())) {
+    if (auto *str = (StringObj *)new_val.heap_ptr()) {
         str->immutable = true;
     }
     return new_val;
@@ -848,7 +848,7 @@ inline Value Value::make_delegate(Value target, Value handler) {
     return val;
 }
 inline uint16_t Value::tag_word() const {
-    return static_cast<uint16_t>(_raw >> 48);
+    return (uint16_t)(_raw >> 48);
 }
 inline bool Value::is_none() const {
     return _raw == NB_NONE;
@@ -910,18 +910,18 @@ inline char Value::sso_char(uint8_t) const {
     return '\0';
 }
 inline bool Value::is_mutable_heap_string() const {
-    auto *p = heap_ptr();
-    return p && p->type_tag == ValueTag::String && !static_cast<StringObj *>(p)->immutable;
+    auto *ptr = heap_ptr();
+    return ptr && ptr->type_tag == ValueTag::String && !((StringObj *)ptr)->immutable;
 }
 inline int64_t Value::get_int() const {
-    int64_t v = static_cast<int64_t>(_raw & PTR_MASK);
-    return (v << 16) >> 16;
+    int64_t val = (int64_t)(_raw & PTR_MASK);
+    return (val << 16) >> 16;
 }
 inline uintptr_t Value::get_ptr_bits() const {
-    return static_cast<uintptr_t>(_raw & PTR_MASK);
+    return (uintptr_t)(_raw & PTR_MASK);
 }
 inline void *Value::get_ptr() const {
-    return reinterpret_cast<void *>(static_cast<uintptr_t>(_raw & PTR_MASK));
+    return reinterpret_cast<void *>((uintptr_t)(_raw & PTR_MASK));
 }
 inline double Value::get_float() const {
     double d;
@@ -935,30 +935,30 @@ inline bool Value::get_bool() const {
 inline const std::string &Value::get_string() const {
     static const std::string empty;
     auto *p = heap_ptr();
-    return p && p->type_tag == ValueTag::String ? static_cast<StringObj *>(p)->s : empty;
+    return p && p->type_tag == ValueTag::String ? ((StringObj *)p)->s : empty;
 }
 inline std::string &Value::get_string() {
     static std::string empty;
     auto *p = heap_ptr();
-    return p && p->type_tag == ValueTag::String ? static_cast<StringObj *>(p)->s : empty;
+    return p && p->type_tag == ValueTag::String ? ((StringObj *)p)->s : empty;
 }
 inline const Array &Value::get_array() const {
     static const Array empty;
     auto *p = heap_ptr();
-    return p && p->type_tag == ValueTag::Array ? static_cast<ArrayObj *>(p)->v : empty;
+    return p && p->type_tag == ValueTag::Array ? ((ArrayObj *)p)->v : empty;
 }
 inline Array &Value::get_array() {
     static Array empty;
     auto *p = heap_ptr();
-    return p && p->type_tag == ValueTag::Array ? static_cast<ArrayObj *>(p)->v : empty;
+    return p && p->type_tag == ValueTag::Array ? ((ArrayObj *)p)->v : empty;
 }
 inline ObjectObj *Value::get_obj_ptr() {
     auto *p = heap_ptr();
-    return p && p->type_tag == ValueTag::Object ? static_cast<ObjectObj *>(p) : nullptr;
+    return p && p->type_tag == ValueTag::Object ? ((ObjectObj *)p) : nullptr;
 }
 inline const ObjectObj *Value::get_obj_ptr() const {
     auto *p = heap_ptr();
-    return p && p->type_tag == ValueTag::Object ? static_cast<const ObjectObj *>(p) : nullptr;
+    return p && p->type_tag == ValueTag::Object ? ((const ObjectObj *)p) : nullptr;
 }
 inline ObjectObj *Value::get_object() {
     return get_obj_ptr();
@@ -967,25 +967,25 @@ inline const ObjectObj *Value::get_object() const {
     return get_obj_ptr();
 }
 inline FunctionData &Value::get_function() {
-    return *static_cast<FunctionData *>(heap_ptr());
+    return *(FunctionData *)heap_ptr();
 }
 inline const FunctionData &Value::get_function() const {
-    return *static_cast<const FunctionData *>(heap_ptr());
+    return *(const FunctionData *)heap_ptr();
 }
 inline HandlePtr Value::get_handle() const {
-    return is_handle() ? static_cast<HandleData *>(heap_ptr()) : nullptr;
+    return is_handle() ? (HandleData *)heap_ptr() : nullptr;
 }
 inline ClassInstancePtr Value::get_class_instance() const {
-    return is_class_instance() ? static_cast<ClassInstance *>(heap_ptr()) : nullptr;
+    return is_class_instance() ? (ClassInstance *)heap_ptr() : nullptr;
 }
 inline RegexObj *Value::get_regex() {
-    return is_regex() ? static_cast<RegexObj *>(heap_ptr()) : nullptr;
+    return is_regex() ? (RegexObj *)heap_ptr() : nullptr;
 }
 inline const RegexObj *Value::get_regex() const {
-    return is_regex() ? static_cast<const RegexObj *>(heap_ptr()) : nullptr;
+    return is_regex() ? (const RegexObj *)heap_ptr() : nullptr;
 }
 inline DelegateData *Value::get_delegate() const {
-    return is_delegate() ? static_cast<DelegateData *>(heap_ptr()) : nullptr;
+    return is_delegate() ? (DelegateData *)heap_ptr() : nullptr;
 }
 inline void Value::inplace_int(int64_t v) {
     *this = make_int(v);
@@ -1018,11 +1018,11 @@ inline size_t Value::tag() const {
     if (is_bool()) {
         return 3;
     }
-    return static_cast<size_t>(heap_tag());
+    return (size_t)heap_tag();
 }
 inline double Value::as_number() const {
     if (is_int()) {
-        return static_cast<double>(get_int());
+        return (double)get_int();
     }
     if (is_float()) {
         return get_float();
@@ -1040,11 +1040,11 @@ inline double Value::as_number() const {
         return end && *end == '\0' ? d : 0.0;
     }
     if (is_array()) {
-        return static_cast<double>(get_array().size());
+        return (double)get_array().size();
     }
     if (is_object()) {
         const auto *o = get_obj_ptr();
-        return o ? static_cast<double>(o->field_count()) : 0.0;
+        return o ? (double)o->field_count() : 0.0;
     }
     return 0.0;
 }

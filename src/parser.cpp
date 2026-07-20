@@ -373,7 +373,7 @@ void fatal_error(const std::string &msg, const Token *tok) {
 
     // prints out a trace of included files up to this point
     if (!error_contexts.empty()) {
-        for (int i = static_cast<int>(error_contexts.size()) - 1; i >= 0; --i) {
+        for (int i = (int)error_contexts.size() - 1; i >= 0; --i) {
             fprintf(stderr, "  included from %s\n", error_contexts[i].c_str());
         }
     }
@@ -435,7 +435,7 @@ class Parser {
                 bool version_suffix = true;
                 for (size_t i = so_pos + 4; i < filename.size(); ++i) {
                     const char c = filename[i];
-                    if (!std::isdigit(static_cast<unsigned char>(c)) && c != '.') {
+                    if (!std::isdigit((unsigned char)c) && c != '.') {
                         version_suffix = false;
                         break;
                     }
@@ -1406,7 +1406,7 @@ class Parser {
                     error_and_exit("Fixed array size is out of range");
                 }
                 expect(TokenKind::TK_RBRACKET, "']' after fixed array size");
-                type_ann->fixed_array_count = static_cast<size_t>(count);
+                type_ann->fixed_array_count = (size_t)count;
             }
         }
 
@@ -2459,7 +2459,7 @@ class Parser {
         if (ne->is_float) {
             return ne->f;
         }
-        return static_cast<double>(ne->i);
+        return (double)ne->i;
     }
 
     static bool literal_bool(const nari::Expr *e, bool &out) {
@@ -2595,8 +2595,7 @@ class Parser {
                     return ne;
                 }
                 if (op == "/") {
-                    double val =
-                        (ri == 0) ? std::numeric_limits<double>::quiet_NaN() : (static_cast<double>(li) / static_cast<double>(ri));
+                    double val = (ri == 0) ? std::numeric_limits<double>::quiet_NaN() : ((double)li / (double)ri);
                     auto numExpr = std::make_unique<nari::NumberExpr>(val);
                     copy_loc(numExpr.get(), binaryExpr);
                     return numExpr;
@@ -2609,7 +2608,7 @@ class Parser {
                     }
                     // INT_MIN % -1 is UB and SIGFPEs on x86 idiv. Match runtime semantics.
                     if (li == std::numeric_limits<int64_t>::min() && ri == -1) {
-                        auto result = std::make_unique<nari::NumberExpr>(static_cast<int64_t>(0));
+                        auto result = std::make_unique<nari::NumberExpr>((int64_t)0);
                         copy_loc(result.get(), binaryExpr);
                         return result;
                     }
@@ -2619,7 +2618,7 @@ class Parser {
                 }
                 if (op == "**") {
                     if (ri < 0) {
-                        auto result = std::make_unique<nari::NumberExpr>(std::pow(static_cast<double>(li), static_cast<double>(ri)));
+                        auto result = std::make_unique<nari::NumberExpr>(std::pow((double)li, (double)ri));
                         copy_loc(result.get(), binaryExpr);
                         return result;
                     }
@@ -2642,7 +2641,7 @@ class Parser {
                         }
                         exp >>= 1ULL;
                     }
-                    auto result = std::make_unique<nari::NumberExpr>(static_cast<int64_t>(total));
+                    auto result = std::make_unique<nari::NumberExpr>((int64_t)total);
                     copy_loc(result.get(), binaryExpr);
                     return result;
                 }
@@ -2697,14 +2696,8 @@ class Parser {
                 if (lint && rint) {
                     eq = (li == ri);
                 } else if ((lfloat || rfloat) && (lint || lfloat) && (rint || rfloat)) {
-                    double l = lfloat
-                                   ? lf
-                                   : (lint ? static_cast<double>(li)
-                                           : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
-                    double r = rfloat
-                                   ? rf
-                                   : (rint ? static_cast<double>(ri)
-                                           : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
+                    double l = lfloat ? lf : (lint ? (double)li : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
+                    double r = rfloat ? rf : (rint ? (double)ri : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
                     eq = std::fabs(l - r) < 1e-12;
                 } else if (lbool && rbool) {
                     eq = (lb == rb);
@@ -2742,12 +2735,8 @@ class Parser {
             }
 
             if ((lfloat || rfloat) && (lint || lfloat) && (rint || rfloat)) {
-                double l = lfloat ? lf
-                                  : (lint ? static_cast<double>(li)
-                                          : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
-                double r = rfloat ? rf
-                                  : (rint ? static_cast<double>(ri)
-                                          : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
+                double l = lfloat ? lf : (lint ? (double)li : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
+                double r = rfloat ? rf : (rint ? (double)ri : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
                 if (op == "<") {
                     auto result = std::make_unique<nari::BoolExpr>(l < r);
                     copy_loc(result.get(), binaryExpr);
@@ -3826,7 +3815,7 @@ class Parser {
                     error_and_exit("Expected expression after '?'");
                 }
                 expect(TokenKind::TK_COLON, "':' in ternary operator");
-                ExprPtr false_expr = parse_precedence(static_cast<Precedence>(prec + 1));
+                ExprPtr false_expr = parse_precedence((Precedence)(prec + 1));
                 if (!false_expr) {
                     error_and_exit("Expected expression after ':'");
                 }
@@ -3843,7 +3832,7 @@ class Parser {
             next(); // consume operator
 
             // For left-assoc operators, the next minimum precedence is prec + 1
-            Precedence next_min = static_cast<Precedence>(prec + 1);
+            Precedence next_min = (Precedence)(prec + 1);
             ExprPtr rhs = parse_precedence(next_min);
             if (!rhs) {
                 error_and_exit("Expected RHS expression for binary operator");
@@ -4395,13 +4384,10 @@ class Parser {
                         unsigned long long uv = std::strtoull(s.c_str(), &endptr, 16);
                         if (endptr == s.c_str() || errno == ERANGE) {
                             num_expr = std::make_unique<nari::NumberExpr>(0.0);
-                        } else if (uv <= static_cast<unsigned long long>(
-                                             std::numeric_limits<int64_t>::max())) {
-                            num_expr =
-                                std::make_unique<nari::NumberExpr>(static_cast<int64_t>(uv));
+                        } else if (uv <= (unsigned long long)std::numeric_limits<int64_t>::max()) {
+                            num_expr = std::make_unique<nari::NumberExpr>((int64_t)uv);
                         } else {
-                            num_expr =
-                                std::make_unique<nari::NumberExpr>(static_cast<double>(uv));
+                            num_expr = std::make_unique<nari::NumberExpr>((double)uv);
                         }
                     } else {
                         double dv = std::strtod(s.c_str(), &endptr);

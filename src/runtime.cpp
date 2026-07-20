@@ -20,11 +20,11 @@ static std::string format_interpolated_value(ScriptRuntime *, const Value &value
     int precision = -1;
     if (pos < spec.size() && spec[pos] == '.') {
         ++pos;
-        if (pos >= spec.size() || !std::isdigit(static_cast<unsigned char>(spec[pos]))) {
+        if (pos >= spec.size() || !std::isdigit((unsigned char)spec[pos])) {
             return value.to_string();
         }
         precision = 0;
-        while (pos < spec.size() && std::isdigit(static_cast<unsigned char>(spec[pos]))) {
+        while (pos < spec.size() && std::isdigit((unsigned char)spec[pos])) {
             precision = precision * 10 + (spec[pos] - '0');
             ++pos;
         }
@@ -51,11 +51,11 @@ static std::string format_interpolated_value(ScriptRuntime *, const Value &value
     if (needed < 0) {
         return value.to_string();
     }
-    if (static_cast<size_t>(needed) < sizeof(stack_buf)) {
-        return std::string(stack_buf, static_cast<size_t>(needed));
+    if ((size_t)needed < sizeof(stack_buf)) {
+        return std::string(stack_buf, (size_t)needed);
     }
 
-    std::string out(static_cast<size_t>(needed), '\0');
+    std::string out((size_t)needed, '\0');
     std::snprintf(out.data(), out.size() + 1, fmt, value.as_number());
     return out;
 }
@@ -122,7 +122,7 @@ TraceLevel get_runtime_trace_level() {
     return (TraceLevel)g_trace_level;
 }
 void runtime_log(TraceLevel level, const std::string &msg) {
-    if (g_trace_enabled && static_cast<int>(level) <= g_trace_level) {
+    if (g_trace_enabled && (int)level <= g_trace_level) {
         fprintf(stderr, "%s\n", msg.c_str());
     }
 }
@@ -415,7 +415,7 @@ Value ScriptRuntime::delegate_default_get(const Value &target, const Value &key)
         const auto &arr = target.get_array();
         if (key.is_int()) {
             int64_t idx = key.get_int();
-            if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
+            if (idx >= 0 && idx < (int64_t)arr.size()) {
                 return arr[idx];
             }
         }
@@ -437,7 +437,7 @@ void ScriptRuntime::delegate_default_set(const Value &target, const Value &key, 
         if (key.is_int()) {
             auto &arr = const_cast<Value &>(target).get_array();
             int64_t idx = key.get_int();
-            if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
+            if (idx >= 0 && idx < (int64_t)arr.size()) {
                 arr[idx] = val;
             }
         }
@@ -455,7 +455,7 @@ bool ScriptRuntime::delegate_default_has(const Value &target, const Value &key) 
     if (target.is_array()) {
         if (key.is_int()) {
             int64_t idx = key.get_int();
-            return idx >= 0 && idx < static_cast<int64_t>(target.get_array().size());
+            return idx >= 0 && idx < (int64_t)target.get_array().size();
         }
         return false;
     }
@@ -481,7 +481,7 @@ static uint32_t trap_field_id(TrapId which) {
         intern_field("has"),
         intern_field("call"),
     };
-    return ids[static_cast<int>(which)];
+    return ids[(int)which];
 }
 
 // Look up a trap on the handler object, returns a function Value or none.
@@ -497,16 +497,16 @@ static Value delegate_trap(const Value &del, TrapId which) {
             // (re)resolve all four trap slots against this shape
             const auto &index = h->shape->index;
             for (int i = 0; i < 4; i++) {
-                auto it = index.find(trap_field_id(static_cast<TrapId>(i)));
-                d->trap_slots[i] = it != index.end() ? static_cast<int32_t>(it->second) : -1;
+                auto it = index.find(trap_field_id((TrapId)i));
+                d->trap_slots[i] = it != index.end() ? (int32_t)it->second : -1;
             }
             d->trap_shape = h->shape;
         }
-        int32_t slot = d->trap_slots[static_cast<int>(which)];
-        if (slot < 0 || static_cast<size_t>(slot) >= h->fields.size()) {
+        int32_t slot = d->trap_slots[(int)which];
+        if (slot < 0 || (size_t)slot >= h->fields.size()) {
             return Value::none();
         }
-        const Value &t = h->fields[static_cast<size_t>(slot)];
+        const Value &t = h->fields[(size_t)slot];
         return t.is_function() ? t : Value::none();
     }
     // dict-mode or pending-lazy handler: full id lookup
@@ -817,7 +817,7 @@ Value ScriptRuntime::instantiate_result_template(const ResultConstructorTmpl &ca
 }
 
 Value ScriptRuntime::make_result_method(void *context, ObjectObj *obj, uint32_t slot) {
-    const auto *cache = static_cast<const ResultConstructorTmpl *>(context);
+    const auto *cache = (const ResultConstructorTmpl *)context;
     const ResultMethodTmpl *method = nullptr;
     for (const ResultMethodTmpl &candidate : cache->methods) {
         if (candidate.slot == slot) {
@@ -1072,7 +1072,7 @@ void ScriptRuntime::store_variable(const std::string &name, const std::string &f
 }
 
 bool ScriptRuntime::is_const_binding(const std::string &name, const std::string &filename) const {
-    for (int i = static_cast<int>(block_scope_stack.size()) - 1; i >= 0; --i) {
+    for (int i = (int)block_scope_stack.size() - 1; i >= 0; --i) {
         if (block_scope_stack[i].count(name)) {
             return block_const_scope_stack[i].count(name) != 0;
         }
@@ -1195,7 +1195,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
     // dispatch via type tag instead of dynamic_cast
     switch (e->kind) {
         case ExprKind::Ident: {
-            const auto *identExpr = static_cast<const IdentExpr *>(e);
+            const auto *identExpr = (const IdentExpr *)e;
             if (identExpr->name == "true") {
                 return Value::make_bool(true);
             }
@@ -1288,12 +1288,12 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::String: {
-            const auto *stringExpr = static_cast<const StringExpr *>(e);
+            const auto *stringExpr = (const StringExpr *)e;
             return Value::make_string(stringExpr->value);
         }
 
         case ExprKind::Number: {
-            const auto *numberExpr = static_cast<const NumberExpr *>(e);
+            const auto *numberExpr = (const NumberExpr *)e;
             if (numberExpr->is_float) {
                 return Value::make_float(numberExpr->f);
             }
@@ -1301,7 +1301,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::Bool: {
-            const auto *boolExpr = static_cast<const BoolExpr *>(e);
+            const auto *boolExpr = (const BoolExpr *)e;
             return Value::make_bool(boolExpr->value);
         }
 
@@ -1309,12 +1309,12 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
             return Value::none();
 
         case ExprKind::Regex: {
-            const auto *regexExpr = static_cast<const RegexLiteralExpr *>(e);
+            const auto *regexExpr = (const RegexLiteralExpr *)e;
             return Value::make_regex(regexExpr->pattern, regexExpr->flags);
         }
 
         case ExprKind::Unary: {
-            const auto *unaryExpr = static_cast<const UnaryExpr *>(e);
+            const auto *unaryExpr = (const UnaryExpr *)e;
             if (!unaryExpr->operand) {
                 return Value::none();
             }
@@ -1326,11 +1326,11 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 }
                 const IdentExpr *ie =
                     unaryExpr->operand->kind == ExprKind::Ident
-                        ? static_cast<const IdentExpr *>(unaryExpr->operand.get())
+                        ? (const IdentExpr *)unaryExpr->operand.get()
                         : nullptr;
                 if (!ie) {
                     if (unaryExpr->operand->kind == ExprKind::Unary) {
-                        const auto *nested = static_cast<const UnaryExpr *>(unaryExpr->operand.get());
+                        const auto *nested = (const UnaryExpr *)unaryExpr->operand.get();
                         std::string msg = "Prefix ++ has nested UnaryExpr (op=" + nested->op + ")";
                         runtime_fatal(msg, unaryExpr);
                     }
@@ -1360,7 +1360,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
             if (op == "post++" || op == "post--") {
                 const IdentExpr *ie =
                     unaryExpr->operand->kind == ExprKind::Ident
-                        ? static_cast<const IdentExpr *>(unaryExpr->operand.get())
+                        ? (const IdentExpr *)unaryExpr->operand.get()
                         : nullptr;
                 if (!ie) {
                     runtime_fatal("Increment/decrement requires a variable", unaryExpr);
@@ -1411,7 +1411,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::Binary: {
-            const auto *binaryExpr = static_cast<const BinaryExpr *>(e);
+            const auto *binaryExpr = (const BinaryExpr *)e;
             const std::string &op = binaryExpr->op;
             if (op == "&&") {
                 if (!binaryExpr->left || !binaryExpr->right) {
@@ -1507,7 +1507,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     if (right.get_int() > std::numeric_limits<uint64_t>::max()) {
                         return Value::make_float(std::pow(left.as_number(), right.as_number()));
                     }
-                    uint64_t exp = static_cast<uint64_t>(right.get_int());
+                    uint64_t exp = (uint64_t)right.get_int();
                     int64_t base = left.get_int();
                     int64_t result = 1;
                     while (exp > 0) {
@@ -1601,18 +1601,17 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::Call: {
-            const auto *callExpr = static_cast<const CallExpr *>(e);
+            const auto *callExpr = (const CallExpr *)e;
             // check if this is a method call (callee is MemberExpr like obj.method())
             if (callExpr->callee->kind == ExprKind::Member) {
-                const auto *memberExpr = static_cast<const MemberExpr *>(callExpr->callee.get());
+                const auto *memberExpr = (const MemberExpr *)callExpr->callee.get();
                 Value obj = eval_expr(memberExpr->object.get());
                 std::string method_name = memberExpr->member;
 
                 // handle class instance method calls
                 if (obj.is_class_instance()) {
                     const auto &instance = obj.get_class_instance();
-                    const nari::ClassDecl *class_decl =
-                        Parser::get_registered_class(instance->class_name);
+                    const nari::ClassDecl *class_decl = Parser::get_registered_class(instance->class_name);
 
                     if (!class_decl) {
                         runtime_fatal("Unknown class: " + instance->class_name, callExpr);
@@ -1824,7 +1823,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 
             std::string op;
             if (callExpr->callee->kind == ExprKind::Ident) {
-                op = static_cast<const IdentExpr *>(callExpr->callee.get())->name;
+                op = ((const IdentExpr *)callExpr->callee.get())->name;
             }
 
             Value calleeVal;
@@ -1892,7 +1891,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                         layout.index.reserve(all_fields.size());
                         for (size_t i = 0; i < all_fields.size(); i++) {
                             layout.names.push_back(all_fields[i]->name);
-                            layout.index[all_fields[i]->name] = static_cast<uint32_t>(i);
+                            layout.index[all_fields[i]->name] = (uint32_t)i;
                         }
                         layout_reg.emplace(class_name, std::move(layout));
                     }
@@ -1954,7 +1953,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::Ternary: {
-            const auto *ternary = static_cast<const TernaryExpr *>(e);
+            const auto *ternary = (const TernaryExpr *)e;
             Value cond = eval_expr(ternary->condition.get());
             if (cond.as_bool()) {
                 return eval_expr(ternary->true_expr.get());
@@ -1964,7 +1963,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::Match: {
-            const auto *match_expr = static_cast<const MatchExpr *>(e);
+            const auto *match_expr = (const MatchExpr *)e;
             Value scrutinee = eval_expr(match_expr->scrutinee.get());
 
             for (const auto &arm : match_expr->arms) {
@@ -1975,9 +1974,9 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     auto &scope = block_scope_stack.back();
 
                     if (bindings.is_object()) {
-                        const ObjectObj *boobj = bindings.get_obj_ptr();
-                        for (const auto &name : boobj->get_keys()) {
-                            if (const Value *val = boobj->get_field(name)) {
+                        const ObjectObj *binding_oobj = bindings.get_obj_ptr();
+                        for (const auto &name : binding_oobj->get_keys()) {
+                            if (const Value *val = binding_oobj->get_field(name)) {
                                 scope[name] = *val;
                             }
                         }
@@ -1997,7 +1996,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 
         // spawn expression - creates a handle for cooperative async execution
         case ExprKind::Spawn: {
-            const auto *spawnExpr = static_cast<const SpawnExpr *>(e);
+            const auto *spawnExpr = (const SpawnExpr *)e;
             if (!spawnExpr->body) {
                 return Value::make_handle(nullptr);
             }
@@ -2019,7 +2018,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::StringInterpolation: {
-            const auto *stringInterpExpr = static_cast<const StringInterpolationExpr *>(e);
+            const auto *stringInterpExpr = (const StringInterpolationExpr *)e;
             std::string result;
 
             for (size_t i = 0; i < stringInterpExpr->parts.size(); ++i) {
@@ -2064,7 +2063,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::ArrayLiteral: {
-            const auto *arrayLitExpr = static_cast<const ArrayLiteralExpr *>(e);
+            const auto *arrayLitExpr = (const ArrayLiteralExpr *)e;
             std::vector<Value> elements;
             for (const auto &elem : arrayLitExpr->elements) {
                 elements.push_back(eval_expr(elem.get()));
@@ -2073,7 +2072,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::ObjectLiteral: {
-            const auto *objectLitExpr = static_cast<const ObjectLiteralExpr *>(e);
+            const auto *objectLitExpr = (const ObjectLiteralExpr *)e;
             Value result = Value::make_object();
             ObjectObj *oobj = result.get_obj_ptr();
             // only pre-reserve the shape-mode vector when the literal is small enough to stay in shape mode
@@ -2088,7 +2087,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 
         // func(params) { ... }
         case ExprKind::Function: {
-            const auto *funcExpr = static_cast<const FunctionExpr *>(e);
+            const auto *funcExpr = (const FunctionExpr *)e;
             static size_t lambda_counter = 0;
             std::string func_name = "<lambda_" + std::to_string(lambda_counter++) + ">";
 
@@ -2109,11 +2108,11 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 }
                 func->closure_env_ptr = new std::shared_ptr<std::map<std::string, Value>>(current_scope_closure);
                 func->closure_deleter = [](void *ptr) {
-                    delete static_cast<std::shared_ptr<std::map<std::string, Value>> *>(ptr);
+                    delete (std::shared_ptr<std::map<std::string, Value>> *)ptr;
                 };
                 func->closure_const_env_ptr = new std::shared_ptr<std::unordered_set<std::string>>(current_scope_closure_consts);
                 func->closure_const_deleter = [](void *ptr) {
-                    delete static_cast<std::shared_ptr<std::unordered_set<std::string>> *>(ptr);
+                    delete (std::shared_ptr<std::unordered_set<std::string>> *)ptr;
                 };
             }
 
@@ -2131,7 +2130,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::Index: {
-            const auto *idxExpr = static_cast<const IndexExpr *>(e);
+            const auto *idxExpr = (const IndexExpr *)e;
             Value obj = eval_expr(idxExpr->object.get());
             Value index = eval_expr(idxExpr->index.get());
 
@@ -2141,14 +2140,14 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 if (index.is_float()) {
                     double f = index.get_float();
                     if (f == std::floor(f) && !std::isinf(f) && !std::isnan(f)) {
-                        index = Value::make_int(static_cast<int64_t>(f));
+                        index = Value::make_int((int64_t)f);
                     }
                 }
                 if (!index.is_int()) {
                     runtime_fatal("Array index must be int", idxExpr);
                 }
                 int64_t idx = index.get_int();
-                if (idx < 0 || idx >= static_cast<int64_t>(arr.size())) {
+                if (idx < 0 || idx >= (int64_t)arr.size()) {
                     std::string error_msg =
                         "Array index out of bounds: " + std::to_string(idx) +
                         " (size: " + std::to_string(arr.size()) + ")";
@@ -2167,7 +2166,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 if (index.is_float()) {
                     double f = index.get_float();
                     if (f == std::floor(f) && !std::isinf(f) && !std::isnan(f)) {
-                        index = Value::make_int(static_cast<int64_t>(f));
+                        index = Value::make_int((int64_t)f);
                     }
                 }
                 if (!index.is_int()) {
@@ -2175,7 +2174,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 }
                 int64_t idx = index.get_int();
                 const auto &str = obj.get_string();
-                if (idx < 0 || idx >= static_cast<int64_t>(str.size())) {
+                if (idx < 0 || idx >= (int64_t)str.size()) {
                     return Value::none();
                 }
                 return Value::make_string(std::string(1, str[idx]));
@@ -2185,7 +2184,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
         }
 
         case ExprKind::Member: {
-            const auto *memExpr = static_cast<const MemberExpr *>(e);
+            const auto *memExpr = (const MemberExpr *)e;
             Value obj = eval_expr(memExpr->object.get());
 
             if (obj.is_class_instance()) {
@@ -2329,7 +2328,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 
         case ExprKind::This: {
             if (!current_instance) {
-                const auto *thisExpr = static_cast<const ThisExpr *>(e);
+                const auto *thisExpr = (const ThisExpr *)e;
                 runtime_fatal("'this' can only be used inside class methods", thisExpr);
             }
             Value v;
@@ -2339,7 +2338,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 
         // new ClassName(args)
         case ExprKind::New: {
-            const auto *newExpr = static_cast<const NewExpr *>(e);
+            const auto *newExpr = (const NewExpr *)e;
             const nari::ClassDecl *class_decl = Parser::get_registered_class(newExpr->class_name);
 
             if (!class_decl) {
@@ -2361,7 +2360,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 layout.index.reserve(all_fields.size());
                 for (size_t i = 0; i < all_fields.size(); i++) {
                     layout.names.push_back(all_fields[i]->name);
-                    layout.index[all_fields[i]->name] = static_cast<uint32_t>(i);
+                    layout.index[all_fields[i]->name] = i;
                 }
                 layout_reg.emplace(newExpr->class_name, std::move(layout));
             }
@@ -2464,7 +2463,7 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
         // variable declaration: `let name = expr` or `global name = expr`
         // or destructuring: `let [a, b] = expr` or `let {x, y} = expr`
         case StmtKind::VarDecl: {
-            const auto *varDecl = static_cast<const VarDeclStmt *>(s);
+            const auto *varDecl = (const VarDeclStmt *)s;
 
             if (varDecl->destructure_kind == nari::DestructureKind::Array) {
                 // array destructuring: let [a, b, c] = value
@@ -2703,12 +2702,12 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
         }
 
         case StmtKind::Expr: {
-            const auto *exprStmt = static_cast<const ExprStmt *>(s);
+            const auto *exprStmt = (const ExprStmt *)s;
             eval_expr(exprStmt->expr.get());
             return;
         }
         case StmtKind::Assign: {
-            const auto *as = static_cast<const AssignStmt *>(s);
+            const auto *as = (const AssignStmt *)s;
             if (!as->value) {
                 std::string error_msg = "Attempt to assign from null expression for target '" + as->target + "'";
                 runtime_fatal(error_msg, as);
@@ -2758,7 +2757,7 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
             Value val = eval_expr(indexAssignStmt->value.get());
 
             if (indexAssignStmt->target->kind == ExprKind::Index) {
-                const auto *indexExpr = static_cast<const IndexExpr *>(indexAssignStmt->target.get());
+                const auto *indexExpr = (const IndexExpr *)indexAssignStmt->target.get();
                 Value obj = eval_expr(indexExpr->object.get());
                 Value index = eval_expr(indexExpr->index.get());
 
@@ -2768,7 +2767,7 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                         runtime_fatal("Array index must be int", indexAssignStmt);
                     }
                     int64_t idx = index.get_int();
-                    if (idx < 0 || idx >= static_cast<int64_t>(arr.size())) {
+                    if (idx < 0 || idx >= (int64_t)arr.size()) {
                         std::string error_msg =
                             "Array index out of bounds: " + std::to_string(idx) +
                             " (size: " + std::to_string(arr.size()) + ")";
@@ -2786,7 +2785,7 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
             }
             // handle MemberExpr target: obj.member = val
             else if (indexAssignStmt->target->kind == ExprKind::Member) {
-                const auto *memberExpr = static_cast<const MemberExpr *>(indexAssignStmt->target.get());
+                const auto *memberExpr = (const MemberExpr *)indexAssignStmt->target.get();
                 Value obj = eval_expr(memberExpr->object.get());
 
                 if (obj.is_class_instance()) {
@@ -2852,7 +2851,7 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
             return;
         }
         case StmtKind::If: {
-            const auto *ifStmt = static_cast<const IfStmt *>(s);
+            const auto *ifStmt = (const IfStmt *)s;
             bool take = false;
             if (ifStmt->cond) {
                 take = eval_expr(ifStmt->cond.get()).as_bool();
@@ -2869,7 +2868,7 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
             return;
         }
         case StmtKind::While: {
-            const auto *whileStmt = static_cast<const WhileStmt *>(s);
+            const auto *whileStmt = (const WhileStmt *)s;
 
             while (true) {
                 bool ok = true;
@@ -2908,7 +2907,7 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
             return;
         }
         case StmtKind::ForEach: {
-            const auto *forEachStmt = static_cast<const ForEachStmt *>(s);
+            const auto *forEachStmt = (const ForEachStmt *)s;
             Value iterable = eval_expr(forEachStmt->iterable.get());
             if (!iterable.is_array() && !iterable.is_object()) {
                 runtime_fatal("for-each requires an array or object", forEachStmt);
@@ -2942,7 +2941,7 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                 const Value &item = items[_fi];
                 if (is_kv && iterable.is_array()) {
                     // two-var array: var=index, val_var=element
-                    assign_var(forEachStmt->var, Value::make_int(static_cast<int64_t>(_fi)));
+                    assign_var(forEachStmt->var, Value::make_int(_fi));
                     assign_var(forEachStmt->val_var, item);
                 } else {
                     assign_var(forEachStmt->var, item);
@@ -3163,11 +3162,11 @@ Value ScriptRuntime::call_user_function(Function *func, const std::vector<Value>
     // closure env ref is stable across restarts (same func, same env ptr).
     std::shared_ptr<std::map<std::string, Value>> closure_env_ref;
     if (func->closure_env_ptr) {
-        closure_env_ref = *static_cast<std::shared_ptr<std::map<std::string, Value>> *>(func->closure_env_ptr);
+        closure_env_ref = *(std::shared_ptr<std::map<std::string, Value>> *)func->closure_env_ptr;
     }
     std::shared_ptr<std::unordered_set<std::string>> closure_const_env_ref;
     if (func->closure_const_env_ptr) {
-        closure_const_env_ref = *static_cast<std::shared_ptr<std::unordered_set<std::string>> *>(func->closure_const_env_ptr);
+        closure_const_env_ref = *(std::shared_ptr<std::unordered_set<std::string>> *)func->closure_const_env_ptr;
     }
 
     // restart loop for TCE

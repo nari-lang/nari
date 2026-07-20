@@ -13,12 +13,12 @@
 // portable overflow-checked 64-bit arithmetic
 // returns true if the operation overflowed; *out holds the result otherwise
 
-// since `static_cast<int64_t>(double)` is UB in C++ when NaN, (+-)Inf, or has magnitude >= 2^63, we map them to 0 to avoid UB.
-inline int64_t safe_double_to_i64(double d) noexcept {
+// since `(int64_t)double` is UB in C++ when NaN, (+-)Inf, or has magnitude >= 2^63, we map them to 0 to avoid UB.
+inline int64_t safe_double_to_i64(double dbl) noexcept {
     // 2^63 is exactly representable; any value
     // >= 2^63 or <= -2^63 - 1 would overflow on conversion.
-    if (NARI_LIKELY(std::isfinite(d) && d >= -9223372036854775808.0 && d < 9223372036854775808.0)) {
-        return static_cast<int64_t>(d);
+    if (NARI_LIKELY(std::isfinite(dbl) && dbl >= -9223372036854775808.0 && dbl < 9223372036854775808.0)) {
+        return (int64_t)dbl;
     }
     return 0;
 }

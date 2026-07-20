@@ -25,8 +25,8 @@ static std::string read_file_to_string(const std::string &path) {
         fclose(f);
         return {};
     }
-    std::string buf(static_cast<size_t>(sz), '\0');
-    size_t n = fread(&buf[0], 1, static_cast<size_t>(sz), f);
+    std::string buf((size_t)sz, '\0');
+    size_t n = fread(&buf[0], 1, (size_t)sz, f);
     fclose(f);
     buf.resize(n);
     return buf;
@@ -130,9 +130,7 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
                     printf(
                         "  capture[%u]: %s #%u\n",
                         ci,
-                        src == 0   ? "local"
-                        : src == 1 ? "upvalue"
-                                   : "global",
+                        src == 0   ? "local" : src == 1 ? "upvalue" : "global",
                         idx);
                 }
             } else if (operand_size == 0) {
@@ -145,7 +143,7 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
                 ip += 2;
                 // for jumps, show signed offset
                 if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE || op == OpCode::OP_JUMP_IF_NONE) {
-                    int16_t sval = static_cast<int16_t>(val);
+                    int16_t sval = (int16_t)val;
                     printf("%-16s %+d (-> %04zu)\n", opcode_name(op), sval, ip + sval);
                 } else if (op == OpCode::OP_LOAD_GLOBAL || op == OpCode::OP_STORE_GLOBAL) {
                     printf("%-16s #%u", opcode_name(op), val);
@@ -197,8 +195,8 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
                 ip += 2;
                 uint16_t b = (func.code[ip] << 8) | func.code[ip + 1];
                 ip += 2;
-                int16_t sa = static_cast<int16_t>(a);
-                int16_t sb = static_cast<int16_t>(b);
+                int16_t sa = (int16_t)a;
+                int16_t sb = (int16_t)b;
                 printf("%-16s catch=%+d (-> %04zu) finally=%+d (-> %04zu)\n", opcode_name(op), sa, ip + sa, sb, ip + sb);
             }
         }

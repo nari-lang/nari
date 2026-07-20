@@ -491,14 +491,10 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
         }
 
         // numeric literals (integer / float / hex)
-        if (std::isdigit(static_cast<unsigned char>(c)) ||
-            (c == '.' && i + 1 < ctx.size() &&
-             std::isdigit(static_cast<unsigned char>(ctx[i + 1])))) {
+        if (std::isdigit((unsigned char)c) || (c == '.' && i + 1 < ctx.size() && std::isdigit((unsigned char)ctx[i + 1]))) {
             while (i < ctx.size()) {
                 char d = ctx[i];
-                if (!std::isdigit(static_cast<unsigned char>(d)) && d != '.' &&
-                    d != 'x' && d != 'X' &&
-                    !((d >= 'a' && d <= 'f') || (d >= 'A' && d <= 'F'))) {
+                if (!std::isdigit((unsigned char)d) && d != '.' && d != 'x' && d != 'X' && !((d >= 'a' && d <= 'f') || (d >= 'A' && d <= 'F'))) {
                     break;
                 }
                 colors[i++] = Color::BRIGHTGREEN;

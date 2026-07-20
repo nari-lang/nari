@@ -51,7 +51,7 @@ bool is_sep(char ch) {
 
 bool has_drive_prefix(const std::string &path) {
     return path.size() >= 2 &&
-           std::isalpha(static_cast<unsigned char>(path[0])) &&
+           std::isalpha((unsigned char)path[0]) &&
            path[1] == ':';
 }
 
@@ -63,7 +63,7 @@ std::wstring utf8_to_wide(const std::string &value) {
     if (size <= 0) {
         return {};
     }
-    std::vector<wchar_t> wide(static_cast<size_t>(size), L'\0');
+    std::vector<wchar_t> wide((size_t)size, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, wide.data(), size);
     wide.pop_back();
     return std::wstring(wide.begin(), wide.end());
@@ -77,7 +77,7 @@ std::string wide_to_utf8(const std::wstring &value) {
     if (size <= 0) {
         return {};
     }
-    std::vector<char> utf8(static_cast<size_t>(size), '\0');
+    std::vector<char> utf8((size_t)size, '\0');
     WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, utf8.data(), size, nullptr, nullptr);
     utf8.pop_back();
     return std::string(utf8.begin(), utf8.end());
@@ -194,14 +194,14 @@ std::string normalize_path(const std::string &raw) {
 
 Path make_win32_path_result(DWORD(WINAPI *fn)(DWORD, LPWSTR), DWORD initial_size = MAX_PATH) {
     DWORD size = initial_size;
-    std::vector<wchar_t> buffer(static_cast<size_t>(size), L'\0');
+    std::vector<wchar_t> buffer((size_t)size, L'\0');
     DWORD written = fn(size, buffer.data());
     if (written == 0) {
         return {};
     }
     if (written >= size) {
         size = written + 1;
-        buffer.assign(static_cast<size_t>(size), L'\0');
+        buffer.assign((size_t)size, L'\0');
         written = fn(size, buffer.data());
         if (written == 0 || written >= size) {
             return {};
@@ -222,16 +222,16 @@ Path get_full_path(const Path &path, std::error_code *ec) {
     DWORD required = GetFullPathNameW(wide.c_str(), 0, nullptr, nullptr);
     if (required == 0) {
         if (ec) {
-            *ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+            *ec = std::error_code((int)GetLastError(), std::system_category());
         }
         return path.lexically_normal();
     }
 
-    std::vector<wchar_t> buffer(static_cast<size_t>(required), L'\0');
+    std::vector<wchar_t> buffer((size_t)required, L'\0');
     DWORD written = GetFullPathNameW(wide.c_str(), required, buffer.data(), nullptr);
     if (written == 0 || written >= required) {
         if (ec) {
-            *ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+            *ec = std::error_code((int)GetLastError(), std::system_category());
         }
         return path.lexically_normal();
     }
@@ -253,7 +253,7 @@ DWORD path_attributes(const Path &path, std::error_code *ec) {
 
     DWORD attrs = GetFileAttributesW(wide.c_str());
     if (attrs == INVALID_FILE_ATTRIBUTES && ec) {
-        *ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+        *ec = std::error_code((int)GetLastError(), std::system_category());
     } else if (ec) {
         ec->clear();
     }
@@ -416,7 +416,7 @@ bool remove(const Path &path, std::error_code &ec) {
     BOOL ok = (attrs & FILE_ATTRIBUTE_DIRECTORY) ? RemoveDirectoryW(wide.c_str())
                                                  : DeleteFileW(wide.c_str());
     if (!ok) {
-        ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+        ec = std::error_code((int)GetLastError(), std::system_category());
         return false;
     }
 
@@ -457,7 +457,7 @@ bool create_directories(const Path &path, std::error_code &ec) {
             if (err == ERROR_ALREADY_EXISTS) {
                 continue;
             }
-            ec = std::error_code(static_cast<int>(err), std::system_category());
+            ec = std::error_code((int)err, std::system_category());
             return false;
         }
         created_any = true;
@@ -480,7 +480,7 @@ std::vector<Path> list_directory(const Path &path, std::error_code &ec) {
     WIN32_FIND_DATAW data{};
     HANDLE handle = FindFirstFileW(wide_pattern.c_str(), &data);
     if (handle == INVALID_HANDLE_VALUE) {
-        ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+        ec = std::error_code((int)GetLastError(), std::system_category());
         return entries;
     }
 
@@ -495,7 +495,7 @@ std::vector<Path> list_directory(const Path &path, std::error_code &ec) {
     DWORD last_error = GetLastError();
     FindClose(handle);
     if (last_error != ERROR_NO_MORE_FILES) {
-        ec = std::error_code(static_cast<int>(last_error), std::system_category());
+        ec = std::error_code((int)last_error, std::system_category());
         entries.clear();
         return entries;
     }

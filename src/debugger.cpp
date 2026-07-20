@@ -75,7 +75,7 @@ StopSnapshot DebugController::snapshot_frames(const bytecode::VM &vm, StopReason
         fs.name = it->name;
         fs.source_file = it->source_file;
         fs.line = it->line;
-        if (it->runtime_call_stack_index != static_cast<size_t>(-1) && vm.runtime) {
+        if (it->runtime_call_stack_index != (size_t)-1 && vm.runtime) {
             const auto *locals = vm.runtime->debug_call_stack_frame(
                 it->runtime_call_stack_index);
             if (locals) {
@@ -103,8 +103,7 @@ StopSnapshot DebugController::snapshot_frames(const bytecode::VM &vm, StopReason
             fs.name = fr.function->name.empty() ? std::string("<script>") : fr.function->name;
             fs.source_file = canonicalise_path(fr.function->source_file);
             if (fr.ip) {
-                size_t pc_offset =
-                    static_cast<size_t>(fr.ip - fr.function->code.data());
+                size_t pc_offset = (size_t)(fr.ip - fr.function->code.data());
                 fs.line = fr.function->resolve_line(pc_offset);
             }
             fs.meta = fr.function;

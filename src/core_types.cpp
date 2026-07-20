@@ -251,7 +251,7 @@ bool ObjectObj::invoke_lazy_field(uint32_t slot, const Value *args, size_t argc,
 inline int ctzll(uint64_t x) {
     unsigned long index;
     _BitScanForward64(&index, x);
-    return static_cast<int>(index);
+    return (int)index;
 }
 #else
 inline int ctzll(uint64_t x) {
@@ -265,7 +265,7 @@ void ObjectObj::promote_to_dict_mode() {
     }
     // Dict storage has no slot-level lazy hook, so realize pending fields first.
     while (lazy_field_mask) {
-        const uint32_t slot = static_cast<uint32_t>(ctzll(lazy_field_mask));
+        const uint32_t slot = (uint32_t)ctzll(lazy_field_mask);
         materialize_lazy_field(slot);
     }
     // move existing shape-mode fields into the hash map, preserving values.
@@ -354,7 +354,7 @@ Value *ClassInstance::get_field(const std::string &name) noexcept {
         return nullptr;
     }
     uint32_t idx = fit->second;
-    if (idx >= static_cast<uint32_t>(field_values.size())) {
+    if (idx >= (uint32_t)field_values.size()) {
         return nullptr;
     }
     return &field_values[idx];
@@ -369,7 +369,7 @@ const Value *ClassInstance::get_field(const std::string &name) const noexcept {
         return nullptr;
     }
     uint32_t idx = fit->second;
-    if (idx >= static_cast<uint32_t>(field_values.size())) {
+    if (idx >= (uint32_t)field_values.size()) {
         return nullptr;
     }
     return &field_values[idx];

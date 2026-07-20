@@ -216,7 +216,7 @@ struct FFISignatureHash {
 
         // hash struct definitions
         if (sig.return_struct_def) {
-            h ^= static_cast<size_t>(sig.return_struct_def->is_union);
+            h ^= (size_t)sig.return_struct_def->is_union;
             h *= 0x100000001B3ULL;
             for (char c : sig.return_struct_def->name) {
                 h ^= c;
@@ -236,7 +236,7 @@ struct FFISignatureHash {
 
         for (const auto &sdef : sig.param_struct_defs) {
             if (sdef) {
-                h ^= static_cast<size_t>(sdef->is_union);
+                h ^= (size_t)sdef->is_union;
                 h *= 0x100000001B3ULL;
                 for (char c : sdef->name) {
                     h ^= c;
@@ -247,7 +247,7 @@ struct FFISignatureHash {
                         h ^= c;
                         h *= 0x100000001B3ULL;
                     }
-                    h ^= static_cast<size_t>(field.type);
+                    h ^= (size_t)field.type;
                     h *= 0x100000001B3ULL;
                     h ^= field.count;
                     h *= 0x100000001B3ULL;

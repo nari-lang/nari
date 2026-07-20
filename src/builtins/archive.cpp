@@ -40,7 +40,7 @@ int64_t opt_int(const ObjectObj *opts, const char *name, int64_t def) {
         return v->get_int();
     }
     if (v->is_float()) {
-        return static_cast<int64_t>(v->get_float());
+        return (int64_t)v->get_float();
     }
     return def;
 }
@@ -273,9 +273,9 @@ Value ScriptRuntime::builtin_archive_list(const Value *argvals, size_t argc, con
             ObjectObj *eo = e.get_obj_ptr();
             const char *name = archive_entry_pathname(entry);
             eo->set_field("name", Value::make_string(name ? name : ""));
-            eo->set_field("size", Value::make_int_checked(static_cast<int64_t>(archive_entry_size(entry))));
+            eo->set_field("size", Value::make_int_checked((int64_t)archive_entry_size(entry)));
             eo->set_field("type", Value::make_string(filetype_name(archive_entry_filetype(entry))));
-            eo->set_field("mtime", Value::make_int_checked(static_cast<int64_t>(archive_entry_mtime(entry))));
+            eo->set_field("mtime", Value::make_int_checked((int64_t)archive_entry_mtime(entry)));
             entries.push_back(e);
         }
 
@@ -426,14 +426,12 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
                 if (rr < ARCHIVE_WARN) {
                     archive_throw_libarchive(guard.a, "Archive.extract");
                 }
-                bytes += static_cast<int64_t>(buf_size);
+                bytes += (int64_t)buf_size;
                 if (bytes > max_bytes) {
                     archive_throw("Archive.extract: uncompressed size exceeds max_bytes=" + std::to_string(max_bytes));
                 }
-                // libarchive can emit sparse blocks at non-zero offsets. fseek
-                // to honour them; on most archives offset just monotonically
-                // tracks cumulative bytes written.
-                if (std::fseek(fg.fp, static_cast<long>(offset), SEEK_SET) != 0) {
+                // libarchive can emit sparse blocks at non-zero offsets
+                if (std::fseek(fg.fp, (long)offset, SEEK_SET) != 0) {
                     archive_throw(std::string("Archive.extract: fseek failed on '") + target.string() + "': " + std::strerror(errno));
                 }
                 if (std::fwrite(buf, 1, buf_size, fg.fp) != buf_size) {
@@ -449,7 +447,7 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
                 perm = 0644;
             }
             std::error_code pec;
-            stdfs::permissions(target, static_cast<stdfs::perms>(perm), stdfs::perm_options::replace, pec);
+            stdfs::permissions(target, (stdfs::perms)perm, stdfs::perm_options::replace, pec);
             // Permission setting is best-effort (e.g. on FAT); ignore failure.
         }
 
@@ -557,7 +555,7 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
             }
             archive_entry_set_filetype(eg.e, AE_IFREG);
             archive_entry_set_perm(eg.e, 0644);
-            archive_entry_set_size(eg.e, static_cast<la_int64_t>(sz));
+            archive_entry_set_size(eg.e, (la_int64_t)sz);
 
             int wr = archive_write_header(guard.a, eg.e);
             if (wr < ARCHIVE_OK) {
@@ -573,7 +571,7 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
                 size_t n = std::fread(buf, 1, sizeof(buf), fg.fp);
                 if (n > 0) {
                     la_ssize_t w = archive_write_data(guard.a, buf, n);
-                    if (w < 0 || static_cast<size_t>(w) != n) {
+                    if (w < 0 || (size_t)w != n) {
                         archive_throw_libarchive(guard.a, "Archive.create: write_data");
                     }
                 }
@@ -629,7 +627,7 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
         // Stat the output to report compressed size.
         std::error_code ec;
         auto sz = stdfs::file_size(archive_path, ec);
-        int64_t out_bytes = ec ? 0 : static_cast<int64_t>(sz);
+        int64_t out_bytes = ec ? 0 : (int64_t)sz;
 
         Value result = Value::make_object();
         ObjectObj *r = result.get_obj_ptr();
