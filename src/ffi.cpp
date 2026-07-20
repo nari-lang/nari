@@ -24,12 +24,14 @@
 #endif
 #include <cstring>
 
+typedef std::unordered_map<FFISignature, FFICaller::CIFCache, FFISignatureHash> FFISigMap;
+
 namespace nari {
 
 // static caches for prepared CIF structures
 
-std::unordered_map<FFISignature, FFICaller::CIFCache, FFISignatureHash> FFICaller::cif_cache;
-std::unordered_map<FFISignature, FFICaller::CIFCache, FFISignatureHash> FFICaller::cif_variadic_cache;
+FFISigMap FFICaller::cif_cache;
+FFISigMap FFICaller::cif_variadic_cache;
 
 void *managed_struct_pointer(const Value &value) {
     if (!value.is_object()) {
@@ -250,8 +252,7 @@ static ffi_type *get_ffi_struct_type(FFIStructDef *struct_def) {
         ffi_type *field_type = field.aggregate_def
                                    ? get_ffi_struct_type(field.aggregate_def.get())
                                    : get_ffi_type(field.type);
-        if (field.count == 0 || field.count > std::numeric_limits<size_t>::max() - element_count ||
-            !field_type) {
+        if (field.count == 0 || field.count > std::numeric_limits<size_t>::max() - element_count || !field_type) {
             delete ffi_struct;
             return nullptr;
         }
@@ -268,8 +269,7 @@ static ffi_type *get_ffi_struct_type(FFIStructDef *struct_def) {
             ffi_type *field_type = field.aggregate_def
                                        ? get_ffi_struct_type(field.aggregate_def.get())
                                        : get_ffi_type(field.type);
-            if (!field_type || field_type->size == 0 ||
-                field.count > std::numeric_limits<size_t>::max() / field_type->size) {
+            if (!field_type || field_type->size == 0 || field.count > std::numeric_limits<size_t>::max() / field_type->size) {
                 delete ffi_struct;
                 return nullptr;
             }
@@ -454,6 +454,10 @@ static const char *ffi_scalar_type_name(FFIType type) {
 }
 
 static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::deque<std::string> *strings = nullptr) {
+    const auto range_error = [&]() {
+        runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) + " cannot be represented as " + ffi_scalar_type_name(type));
+    };
+    
     switch (type) {
         case FFIType::Int8: {
             int8_t val = 0;
@@ -462,8 +466,7 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
                 val = (int8_t)value.get_int();
             } else if (value.is_float()) {
                 if (!try_float_to_int(value.get_float(), val)) {
-                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
-                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                    range_error();
                 }
             }
 
@@ -477,8 +480,7 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
                 val = value.get_int();
             } else if (value.is_float()) {
                 if (!try_float_to_int(value.get_float(), val)) {
-                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
-                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                    range_error();
                 }
             } else if (value.is_bool()) {
                 val = value.get_bool();
@@ -488,156 +490,150 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             break;
         }
         case FFIType::Int16: {
-            int16_t v = 0;
+            int16_t val = 0;
 
             if (value.is_int()) {
-                v = value.get_int();
+                val = value.get_int();
             } else if (value.is_float()) {
-                if (!try_float_to_int(value.get_float(), v)) {
-                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
-                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                if (!try_float_to_int(value.get_float(), val)) {
+                    range_error();
                 }
             }
 
-            memcpy(ptr, &v, sizeof(v));
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
 
         case FFIType::UInt16: {
-            uint16_t v = 0;
+            uint16_t val = 0;
 
             if (value.is_int()) {
-                v = value.get_int();
+                val = value.get_int();
             } else if (value.is_float()) {
-                if (!try_float_to_int(value.get_float(), v)) {
-                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
-                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                if (!try_float_to_int(value.get_float(), val)) {
+                    range_error();
                 }
             } else if (value.is_bool()) {
-                v = value.get_bool();
+                val = value.get_bool();
             }
 
-            memcpy(ptr, &v, sizeof(v));
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
 
         case FFIType::Int32: {
-            int32_t v = 0;
+            int32_t val = 0;
 
             if (value.is_int()) {
-                v = value.get_int();
+                val = value.get_int();
             } else if (value.is_float()) {
-                if (!try_float_to_int(value.get_float(), v)) {
-                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
-                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                if (!try_float_to_int(value.get_float(), val)) {
+                    range_error();
                 }
             }
 
-            memcpy(ptr, &v, sizeof(v));
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
 
         case FFIType::Int64: {
-            int64_t v = 0;
+            int64_t val = 0;
 
             if (value.is_int()) {
-                v = value.get_int();
+                val = value.get_int();
             } else if (value.is_float()) {
-                if (!try_float_to_int(value.get_float(), v)) {
-                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
-                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                if (!try_float_to_int(value.get_float(), val)) {
+                    range_error();
                 }
             }
 
-            memcpy(ptr, &v, sizeof(v));
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
 
         case FFIType::UInt32: {
-            uint32_t v = 0;
+            uint32_t val = 0;
 
             if (value.is_int()) {
-                v = value.get_int();
+                val = value.get_int();
             } else if (value.is_float()) {
-                if (!try_float_to_int(value.get_float(), v)) {
-                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
-                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                if (!try_float_to_int(value.get_float(), val)) {
+                    range_error();
                 }
             } else if (value.is_bool()) {
-                v = value.get_bool();
+                val = value.get_bool();
             }
 
-            memcpy(ptr, &v, sizeof(v));
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
 
         case FFIType::UInt64: {
-            uint64_t v = 0;
+            uint64_t val = 0;
 
             if (value.is_int()) {
-                v = value.get_int();
+                val = value.get_int();
             } else if (value.is_float()) {
-                if (!try_float_to_int(value.get_float(), v)) {
-                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
-                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                if (!try_float_to_int(value.get_float(), val)) {
+                    range_error();
                 }
             } else if (value.is_bool()) {
-                v = value.get_bool();
+                val = value.get_bool();
             }
 
-            memcpy(ptr, &v, sizeof(v));
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
 
         case FFIType::Float: {
-            float v = 0;
+            float val = 0;
 
             if (value.is_float()) {
-                v = value.get_float();
+                val = value.get_float();
             } else if (value.is_int()) {
-                v = value.get_int();
+                val = value.get_int();
             }
 
-            memcpy(ptr, &v, sizeof(v));
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
 
         case FFIType::Double: {
-            double v = 0;
+            double val = 0;
 
             if (value.is_float()) {
-                v = value.get_float();
+                val = value.get_float();
             } else if (value.is_int()) {
-                v = value.get_int();
+                val = value.get_int();
             }
 
-            memcpy(ptr, &v, sizeof(v));
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
 
         case FFIType::Bool: {
-            uint8_t v = 0;
+            uint8_t val = 0;
 
             if (value.is_bool()) {
-                v = value.get_bool();
+                val = value.get_bool();
             } else if (value.is_int()) {
-                v = value.get_int() != 0;
+                val = value.get_int() != 0;
             }
 
-            memcpy(ptr, &v, sizeof(v));
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
         case FFIType::Pointer: {
-            void *v = nullptr;
+            void *val = nullptr;
             if (value.is_string() && strings) {
                 strings->push_back(value.get_string());
-                v = const_cast<char *>(strings->back().c_str());
+                val = const_cast<char *>(strings->back().c_str());
             } else if (value.is_int()) {
-                v = value.get_ptr();
+                val = value.get_ptr();
             } else {
-                v = managed_struct_pointer(value);
+                val = managed_struct_pointer(value);
             }
-            memcpy(ptr, &v, sizeof(v));
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
         default:

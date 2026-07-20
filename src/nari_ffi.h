@@ -406,19 +406,24 @@ class FFICaller {
 
     static Value call_function_variadic(void *func_ptr, const FFISignature &sig, const std::vector<Value> &args);
 
-  private:
     struct CIFCache {
         ffi_cif cif;
         std::vector<ffi_type *> param_types;
         bool prepared = false;
     };
 
-    static std::unordered_map<FFISignature, CIFCache, FFISignatureHash> cif_cache;
-    static std::unordered_map<FFISignature, CIFCache, FFISignatureHash> cif_variadic_cache;
+    typedef std::unordered_map<FFISignature, FFICaller::CIFCache, FFISignatureHash> FFISigMap;
+
+  private:
+  
+    static FFISigMap cif_cache;
+    static FFISigMap cif_variadic_cache;
 
     static CIFCache &get_or_create_cif(const FFISignature &sig);
     static CIFCache &get_or_create_cif_variadic(const FFISignature &sig);
 };
+
+
 
 // struct marshalling helpers
 std::shared_ptr<FFIStructDef>
