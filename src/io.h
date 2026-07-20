@@ -69,8 +69,9 @@
 #endif
 #endif
 #else
-#define NARI_SLEEP_MILLIS(ms) std::this_thread::sleep_for(std::chrono::milliseconds(ms))
-#define NARI_SLEEP_MICROS(us) std::this_thread::sleep_for(std::chrono::microseconds(us))
+namespace chrono = std::chrono;
+#define NARI_SLEEP_MILLIS(ms) std::this_thread::sleep_for(chrono::milliseconds(ms))
+#define NARI_SLEEP_MICROS(us) std::this_thread::sleep_for(chrono::microseconds(us))
 #endif
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -484,7 +485,7 @@ class IOThreadPool {
                     if (op) {
                         switch (op->type) {
                             case IOOperation::Type::Timer:
-                                std::this_thread::sleep_for(std::chrono::milliseconds(op->timer_ms));
+                                std::this_thread::sleep_for(chrono::milliseconds(op->timer_ms));
                                 op->success = true;
                                 break;
 

@@ -774,7 +774,7 @@ inline LayoutRegistry &class_layout_registry() {
     return reg;
 }
 
-inline HandleData::HandleData() : start_time(std::chrono::steady_clock::now()) {
+inline HandleData::HandleData() : start_time(chrono::steady_clock::now()) {
     this->type_tag = ValueTag::Handle;
 }
 

@@ -35,14 +35,15 @@ struct ScopedSyntheticDebugFrame {
     dbg::DebugController *controller = nullptr;
 
     ScopedSyntheticDebugFrame(const std::string &name, const std::string &source_file, int line,
-                              size_t runtime_call_stack_index = static_cast<size_t>(-1),
+                              size_t runtime_call_stack_index = -1,
                               Value this_value = Value::none()) {
         auto &dc = dbg::DebugController::instance();
         if (dc.enabled()) {
             controller = &dc;
-            controller->push_synthetic_frame(name, source_file, line,
-                                             runtime_call_stack_index,
-                                             std::move(this_value));
+            controller->push_synthetic_frame(
+                name, source_file, line,
+                runtime_call_stack_index,
+                std::move(this_value));
         }
     }
 
@@ -248,7 +249,7 @@ void VM::gc_collect_roots() {
 }
 
 Value VM::make_object_cached(const uint8_t *site, uint32_t size) {
-    const size_t pairs_base = stack.size() - static_cast<size_t>(size) * 2;
+    const size_t pairs_base = stack.size() - size * 2;
 
     // Fast path: compare keys in place, then move values directly from the VM stack.
     auto cit = make_object_shape_cache.find(site);
@@ -257,7 +258,7 @@ Value VM::make_object_cached(const uint8_t *site, uint32_t size) {
         if (cached->names.size() == size) {
             bool match = true;
             for (uint32_t i = 0; i < size; i++) {
-                const Value &key = stack[pairs_base + static_cast<size_t>(i) * 2];
+                const Value &key = stack[pairs_base + i * 2];
                 if (!key.is_string() || key.get_string() != cached->names[i]) {
                     match = false;
                     break;
@@ -269,7 +270,7 @@ Value VM::make_object_cached(const uint8_t *site, uint32_t size) {
                 oobj->shape = cached;
                 oobj->fields.resize(size);
                 for (uint32_t i = 0; i < size; i++) {
-                    oobj->fields[i] = std::move(stack[pairs_base + static_cast<size_t>(i) * 2 + 1]);
+                    oobj->fields[i] = std::move(stack[pairs_base + i * 2 + 1]);
                 }
                 oobj->shape_version = size;
                 stack.resize(pairs_base);
@@ -280,7 +281,7 @@ Value VM::make_object_cached(const uint8_t *site, uint32_t size) {
 
     // Slow path: materialize dynamic keys and establish the site's shape.
     std::vector<std::pair<std::string, Value>> pairs(size);
-    for (int i = static_cast<int>(size) - 1; i >= 0; i--) {
+    for (int i = (int)size - 1; i >= 0; i--) {
         pairs[i].second = pop();
         pairs[i].first = pop().to_string();
     }
@@ -422,7 +423,7 @@ Value VM::instantiate_class(const std::string &class_name, std::vector<Value> ar
         layout.index.reserve(all_fields.size());
         for (size_t i = 0; i < all_fields.size(); i++) {
             layout.names.push_back(all_fields[i]->name);
-            layout.index[all_fields[i]->name] = static_cast<uint32_t>(i);
+            layout.index[all_fields[i]->name] = i;
             if (all_fields[i]->visibility == nari::Visibility::Private) {
                 layout.private_fields.insert(all_fields[i]->name);
             }
@@ -669,7 +670,7 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
 
     // common case is that there are no rest params
     if (NARI_UNLIKELY(func->rest_param_index >= 0)) {
-        size_t rest_idx = static_cast<size_t>(func->rest_param_index);
+        size_t rest_idx = func->rest_param_index;
         for (size_t i = 0; i < locals_needed; i++) {
             if (i < rest_idx) {
                 stack.push_back(i < args.size() ? args[i] : Value::none());
@@ -778,7 +779,7 @@ void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t ar
     stack.resize(slot_base);
 
     if (func->rest_param_index >= 0) {
-        size_t rest_idx = static_cast<size_t>(func->rest_param_index);
+        size_t rest_idx = func->rest_param_index;
         for (size_t i = 0; i < locals_needed; i++) {
             if (i < rest_idx) {
                 stack.push_back(i < argc ? args_ptr[i] : Value::none());
@@ -852,7 +853,7 @@ void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t ar
 
     if (NARI_UNLIKELY(func->rest_param_index >= 0)) {
         // pack extra args into the rest array (same as call_user_function)
-        size_t rest_idx = static_cast<size_t>(func->rest_param_index);
+        size_t rest_idx = func->rest_param_index;
         std::vector<Value> argv(args, args + argc);
         for (size_t i = 0; i < locals_needed; i++) {
             if (i < rest_idx) {
@@ -953,7 +954,7 @@ bool VM::execute_instruction() {
             if (dc.enabled()) {
                 uint8_t *const dbg_ip = ip();
                 FunctionMeta *const dbg_fn = current_function();
-                const size_t dbg_pc = static_cast<size_t>(dbg_ip - dbg_fn->code.data());
+                const size_t dbg_pc = dbg_ip - dbg_fn->code.data();
                 const int dbg_line = dbg_fn->resolve_line(dbg_pc);
                 const std::string dbg_file = dbg::canonicalise_path(dbg_fn->source_file);
                 const bool pending_entry_stop = dc.pending_entry_stop();
@@ -972,7 +973,7 @@ bool VM::execute_instruction() {
             }
         }
 
-        OpCode op = static_cast<OpCode>(read_byte());
+        OpCode op = (OpCode)read_byte();
 
         switch (op) {
             // stack operations
@@ -1151,7 +1152,7 @@ bool VM::execute_instruction() {
                 } else if (a.is_int() && b.is_int()) {
                     int64_t av = a.get_int(), bv = b.get_int();
                     if (av == INT64_MIN && bv == -1) {
-                        a.set_float(-static_cast<double>(INT64_MIN));
+                        a.set_float(-(double)INT64_MIN);
                     } else if (av % bv == 0) {
                         a.inplace_int(av / bv);
                     } else {
@@ -1276,7 +1277,7 @@ bool VM::execute_instruction() {
                             dst.append(buf, len);
                         }
                     } else if (rhs.is_string()) {
-                        dst += static_cast<const Value &>(rhs).get_string();
+                        dst += ((const Value &)rhs).get_string();
                     } else {
                         slot = Value::make_string(slot.to_string() + rhs.to_string());
                     }
@@ -1313,7 +1314,7 @@ bool VM::execute_instruction() {
                             dst.append(buf, len);
                         }
                     } else if (rhs.is_string()) {
-                        dst += static_cast<const Value &>(rhs).get_string();
+                        dst += ((const Value &)rhs).get_string();
                     } else {
                         slot = Value::make_string(slot.to_string() + rhs.to_string());
                     }
@@ -1597,7 +1598,7 @@ bool VM::execute_instruction() {
 
                 // fast path: cached function index avoids hash lookup on repeated calls.
                 if (fn.jit_func_idx >= 0) {
-                    call_user_function_stack(static_cast<uint32_t>(fn.jit_func_idx), args_base, argc, fn.captures);
+                    call_user_function_stack(fn.jit_func_idx, args_base, argc, fn.captures);
                     break;
                 }
 
@@ -1607,7 +1608,7 @@ bool VM::execute_instruction() {
                 auto fit = func_indices.find(fname);
                 if (fit != func_indices.end()) {
                     // cache the index for future fast-path hits.
-                    const_cast<FunctionData &>(fn).jit_func_idx = static_cast<int32_t>(fit->second);
+                    const_cast<FunctionData &>(fn).jit_func_idx = fit->second;
                     call_user_function_stack(fit->second, args_base, argc, fn.captures);
                     break;
                 }
@@ -1659,7 +1660,7 @@ bool VM::execute_instruction() {
                 FunctionMeta *func = frame.function;
                 size_t slot_base = frame.slot_base;
                 size_t locals_needed = func->var_names.size();
-                size_t param_count = static_cast<size_t>(func->param_count);
+                size_t param_count = func->param_count;
 
                 // The N new argument values are on the top of the stack.
                 // Read them into a local buffer before modifying any slot.
@@ -1681,7 +1682,7 @@ bool VM::execute_instruction() {
                 stack.resize(slot_base + locals_needed);
 
                 // overwrite parameter slots with the new values.
-                for (int i = 0; i < argc && static_cast<size_t>(i) < param_count; i++) {
+                for (int i = 0; i < argc && (size_t)i < param_count; i++) {
                     stack[slot_base + i] = std::move(new_args[i]);
                 }
                 // reset any params not passed to none
@@ -1792,21 +1793,23 @@ bool VM::execute_instruction() {
                 // Root them so a collection there can't sweep them. handle_val owns the handle for marking.
                 Value handle_val = Value::make_handle(handle);
                 {
+                    namespace chrono = std::chrono;
+                    
                     TempRootScope rs(*this);
                     rs.add(&func_val);
                     rs.add(&handle_val);
                     try {
                         Value result = call_function_value_sync(func_val, {});
                         handle->result = result;
-                        handle->end_time = std::chrono::steady_clock::now();
+                        handle->end_time = chrono::steady_clock::now();
                         handle->state = HandleData::Completed;
                     } catch (const std::exception &e) {
                         handle->error = Value::make_string(e.what());
-                        handle->end_time = std::chrono::steady_clock::now();
+                        handle->end_time = chrono::steady_clock::now();
                         handle->state = HandleData::Failed;
                     } catch (...) {
                         handle->error = Value::make_string("Unknown error in spawned task");
-                        handle->end_time = std::chrono::steady_clock::now();
+                        handle->end_time = chrono::steady_clock::now();
                         handle->state = HandleData::Failed;
                     }
                 }
@@ -1921,7 +1924,7 @@ bool VM::execute_instruction() {
                 for (auto &a : args) {
                     VM::push(a);
                 }
-                uint8_t argc = static_cast<uint8_t>(args.size());
+                uint8_t argc = (uint8_t)args.size();
                 // Now replicate OP_CALL logic
                 size_t args_base = stack.size() - argc;
                 const Value &func_ref = stack[args_base - 1];
@@ -1938,13 +1941,13 @@ bool VM::execute_instruction() {
                     break;
                 }
                 if (fn.jit_func_idx >= 0) {
-                    call_user_function_stack(static_cast<uint32_t>(fn.jit_func_idx), args_base, argc, fn.captures);
+                    call_user_function_stack((uint32_t)fn.jit_func_idx, args_base, argc, fn.captures);
                     break;
                 }
                 const std::string &fname = fn.name;
                 auto fit = func_indices.find(fname);
                 if (fit != func_indices.end()) {
-                    const_cast<FunctionData &>(fn).jit_func_idx = static_cast<int32_t>(fit->second);
+                    const_cast<FunctionData &>(fn).jit_func_idx = (int32_t)fit->second;
                     call_user_function_stack(fit->second, args_base, argc, fn.captures);
                     break;
                 }
@@ -2005,19 +2008,17 @@ bool VM::execute_instruction() {
                 if (index.is_float()) {
                     double f = index.get_float();
                     if (f == std::floor(f) && !std::isinf(f) && !std::isnan(f)) {
-                        index = Value::make_int(static_cast<int64_t>(f));
+                        index = Value::make_int((int64_t)f);
                     }
                 }
                 if (obj.is_array()) {
                     auto &arr = obj.get_array();
                     if (index.is_int()) {
                         int64_t idx = index.get_int();
-                        if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
+                        if (idx >= 0 && idx < (int64_t)arr.size()) {
                             VM::push(arr[idx]);
 #ifndef DISABLE_JIT
-                            // Trace-recordable if the loaded element is an int,
-                            // or an int48-overflow float, which the trace decodes with
-                            // the same dual-path as ObjGetProp
+                            // Trace-recordable if the loaded element is an int, or an int48-overflow float
                             if (trace_was_recording) {
                                 const Value &v = stack.back();
                                 trace_arr_recordable = v.is_int() || v.is_float();
@@ -2069,7 +2070,7 @@ bool VM::execute_instruction() {
                 if (index.is_float()) {
                     double f = index.get_float();
                     if (f == std::floor(f) && !std::isinf(f) && !std::isnan(f)) {
-                        index = Value::make_int(static_cast<int64_t>(f));
+                        index = Value::make_int((int64_t)f);
                     }
                 }
                 if (obj.is_array()) {
@@ -2078,9 +2079,9 @@ bool VM::execute_instruction() {
                         int64_t idx = index.get_int();
                         int64_t orig_idx = idx;
                         if (idx < 0) {
-                            idx += static_cast<int64_t>(arr.size());
+                            idx += (int64_t)arr.size();
                         }
-                        if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
+                        if (idx >= 0 && idx < (int64_t)arr.size()) {
                             arr[idx] = val;
 #ifndef DISABLE_JIT
                             // in-bounds int-array int-store: trace-recordable.
@@ -2091,8 +2092,8 @@ bool VM::execute_instruction() {
                                 trace_arr_size_bytes = arr.size() * sizeof(Value);
                             }
 #endif
-                        } else if (idx >= static_cast<int64_t>(arr.size()) && idx < 10000000) {
-                            arr.resize(static_cast<size_t>(idx) + 1, Value::none());
+                        } else if (idx >= (int64_t)arr.size() && idx < 10000000) {
+                            arr.resize((size_t)idx + 1, Value::none());
                             arr[idx] = val;
                         }
                     }
@@ -2112,7 +2113,7 @@ bool VM::execute_instruction() {
 
                 // inline cache fast path for plain objects (dict_mode objects always take the slow path)
                 if (obj.is_object()) {
-                    ObjectObj *oobj = static_cast<ObjectObj *>(obj.heap_ptr());
+                    ObjectObj *oobj = (ObjectObj *)obj.heap_ptr();
                     auto &ic = prop_ic[((unsigned)name_idx) & PROP_IC_MASK];
 #ifndef DISABLE_JIT
                     // resolve the field slot for the trace recorder while obj is live
@@ -2165,9 +2166,9 @@ bool VM::execute_instruction() {
                 } else {
                     const std::string &name = chunk->strings[name_idx];
                     if (obj.is_array() && name == "length") {
-                        VM::push(Value::make_int(static_cast<int64_t>(obj.get_array().size())));
+                        VM::push(Value::make_int((int64_t)obj.get_array().size()));
                     } else if (obj.is_string() && name == "length") {
-                        VM::push(Value::make_int(static_cast<int64_t>(obj.get_string().size())));
+                        VM::push(Value::make_int((int64_t)obj.get_string().size()));
                     } else if (obj.is_handle()) {
                         // handle special members on async handles
                         const auto &handle = obj.get_handle();
@@ -2278,7 +2279,7 @@ bool VM::execute_instruction() {
                 Value obj = pop();
 
                 if (obj.is_object()) {
-                    ObjectObj *oobj = static_cast<ObjectObj *>(obj.heap_ptr());
+                    ObjectObj *oobj = (ObjectObj *)obj.heap_ptr();
                     auto &ic = prop_ic[((unsigned)name_idx) & PROP_IC_MASK];
 #ifndef DISABLE_JIT
                     // resolve the field slot for the trace recorder while obj is live
@@ -2393,14 +2394,14 @@ bool VM::execute_instruction() {
                     pairs.reserve(arr.size());
                     for (size_t _ki = 0; _ki < arr.size(); _ki++) {
                         std::vector<Value> pair;
-                        pair.push_back(Value::make_int(static_cast<int64_t>(_ki)));
+                        pair.push_back(Value::make_int((int64_t)_ki));
                         pair.push_back(arr[_ki]);
                         pairs.push_back(Value::make_array(std::move(pair)));
                     }
                 } else if (iterable.is_object()) {
-                    const ObjectObj *oobj = iterable.get_obj_ptr();
-                    for (const auto &name : oobj->get_keys()) {
-                        const Value *val = oobj->get_field(name);
+                    const ObjectObj *obj = iterable.get_obj_ptr();
+                    for (const auto &name : obj->get_keys()) {
+                        const Value *val = obj->get_field(name);
                         if (!val) {
                             continue;
                         }
@@ -2424,18 +2425,18 @@ bool VM::execute_instruction() {
                 Value arr_val = pop(); // the array
                 int64_t idx = idx_val.get_int();
                 auto &arr = arr_val.get_array();
-                if (idx < static_cast<int64_t>(arr.size())) {
+                if (idx < (int64_t)arr.size()) {
                     // push iterator state back for next iteration
                     VM::push(arr_val);                  // array
                     VM::push(Value::make_int(idx + 1)); // next index
                     // push current element value and true
-                    VM::push(arr[idx]);               // value
-                    VM::push(Value::make_bool(true)); // still iterating
+                    VM::push(arr[idx]);                 // value
+                    VM::push(Value::make_bool(true));   // still iterating
                 } else {
-                    // done iterating, push iterator back (will be cleaned up by OP_POP)
-                    VM::push(arr_val);                 // array
-                    VM::push(Value::make_int(idx));    // index (unchanged)
-                    VM::push(Value::make_bool(false)); // done
+                    // done iterating, push iterator back (cleaned up by OP_POP)
+                    VM::push(arr_val);                  // array
+                    VM::push(Value::make_int(idx));     // index (unchanged)
+                    VM::push(Value::make_bool(false));  // done
                 }
                 break;
             }
@@ -2448,7 +2449,7 @@ bool VM::execute_instruction() {
                 Value arr_val = pop(); // the pairs array
                 int64_t idx = idx_val.get_int();
                 auto &pairs = arr_val.get_array();
-                if (idx < static_cast<int64_t>(pairs.size())) {
+                if (idx < (int64_t)pairs.size()) {
                     VM::push(arr_val);                  // pairs array
                     VM::push(Value::make_int(idx + 1)); // next index
                     // destructure pair [key, value]
@@ -2485,7 +2486,7 @@ bool VM::execute_instruction() {
 
             case OpCode::OP_CHECK_TYPE: {
                 // Capture instruction pc *before* reading operands (opcode already consumed).
-                size_t instr_pc = static_cast<size_t>(ip() - current_function()->code.data()) - 1;
+                size_t instr_pc = (size_t)(ip() - current_function()->code.data()) - 1;
                 uint16_t type_str_idx = read_short();
                 uint8_t ctx_byte = read_byte(); // 0=param, 1=return, 2=variable
                 // peek TOS without consuming it
@@ -2581,8 +2582,8 @@ bool VM::execute_instruction() {
                 uint16_t finally_offset = read_short();
                 TryHandler handler;
                 size_t current_pos = ip() - current_function()->code.data();
-                handler.catch_ip = current_pos - 2 + static_cast<int16_t>(catch_offset);
-                handler.finally_ip = current_pos + static_cast<int16_t>(finally_offset);
+                handler.catch_ip = current_pos - 2 + (int16_t)catch_offset;
+                handler.finally_ip = current_pos + (int16_t)finally_offset;
                 handler.stack_depth = stack.size();
                 handler.frame_depth = frames.size();
                 try_stack.push_back(handler);
@@ -2874,7 +2875,7 @@ bool VM::execute_instruction() {
             }
 
             default:
-                fprintf(stderr, "unknown opcode: %d\n", static_cast<int>(op));
+                fprintf(stderr, "unknown opcode: %d\n", (int)op);
                 has_error = true;
                 return false;
         }
@@ -2959,7 +2960,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
             } else if (peek().is_object()) {
                 jit::TraceStep s = { Kind::LoadObjVar };
                 s.slot = slot;
-                ObjectObj *oobj = static_cast<ObjectObj *>(peek().heap_ptr());
+                ObjectObj *oobj = (ObjectObj *)(peek().heap_ptr());
                 s.obj_ptr = oobj;
                 s.shape_ptr = const_cast<ObjectShape *>(oobj->shape);
                 s.shape_ver = oobj->shape_version;
@@ -2969,7 +2970,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
                 // Array trace: identity guard on ArrayObj* + size guard on (finish - start) at entry.
                 // Trace body can access elements via ArrayGetIdx / ArraySetIdx.
                 // Any op that could grow the array (push, spread, OOB store) aborts recording
-                ArrayObj *aobj = static_cast<ArrayObj *>(peek().heap_ptr());
+                ArrayObj *aobj = (ArrayObj *)peek().heap_ptr();
                 jit::TraceStep s = { Kind::LoadArrayVar };
                 s.slot = slot;
                 s.obj_ptr = aobj;
@@ -3626,18 +3627,17 @@ Value VM::call_function_value_span(const Value &func_val, const Value *args, siz
     }
     const auto &fn = func_val.get_function();
 
-    // Resolve the bytecode function index,
-    // this runs on every trap invocation for Delegate handlers
-    // cache the resolved index on the FunctionData to avoid re-hashing the function name on each call
+    // Resolve the bytecode function index
+    // this runs on every trap invocation so we cache the resolved index on the FunctionData to avoid re-hashing
     uint32_t func_idx;
     if (fn.jit_func_idx >= 0) {
-        func_idx = static_cast<uint32_t>(fn.jit_func_idx);
+        func_idx = (uint32_t)fn.jit_func_idx;
     } else {
         auto it = func_indices.find(fn.name);
         if (it == func_indices.end()) {
             return Value::none();
         }
-        const_cast<FunctionData &>(fn).jit_func_idx = static_cast<int32_t>(it->second);
+        const_cast<FunctionData &>(fn).jit_func_idx = (int32_t)it->second;
         func_idx = it->second;
     }
 
@@ -3878,7 +3878,7 @@ bool VM::run(Chunk *compiled_chunk) {
             };
             std::vector<BwJump> bw_jumps;
             while (pc < code.size()) {
-                OpCode op2 = static_cast<OpCode>(code[pc]);
+                OpCode op2 = (OpCode)code[pc];
                 if (op2 == OpCode::OP_CALL) {
                     uint8_t argc = (pc + 1 < code.size()) ? code[pc + 1] : 255;
                     bool inlineable = false;
@@ -3934,7 +3934,7 @@ bool VM::run(Chunk *compiled_chunk) {
                     string_op_pcs.push_back(pc);
                 }
                 if (op2 == OpCode::OP_JUMP && pc + 2 < code.size()) {
-                    int16_t off = static_cast<int16_t>((uint16_t(code[pc + 1]) << 8) | uint16_t(code[pc + 2]));
+                    int16_t off = (int16_t)(uint16_t(code[pc + 1]) << 8) | uint16_t(code[pc + 2]);
                     if (off < 0) {
                         backward_jump_count++;
                         size_t target_pc = pc + 3 + off; // target of backwards jump
@@ -4001,7 +4001,7 @@ bool VM::run(Chunk *compiled_chunk) {
                                         (has_non_inlineable_call_in_loop || has_string_op_in_loop ||
                                          (has_non_inlineable_call_outside_loop && has_call_method_in_loop))));
             if (needs_eager) {
-                jit::g_jit_compiler->compile_chunk(*chunk, static_cast<uint32_t>(i));
+                jit::g_jit_compiler->compile_chunk(*chunk, i);
             }
         }
 #ifdef NARI_ENABLE_GDB_JIT

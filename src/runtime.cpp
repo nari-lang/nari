@@ -8,6 +8,8 @@
 #include <cmath>
 #include <stdexcept>
 
+namespace chrono = std::chrono;
+
 static std::string format_interpolated_value(ScriptRuntime *, const Value &value, const nari::StringInterpolationExpr *expr, size_t index) {
     if (index >= expr->format_specs.size() || expr->format_specs[index].empty()) {
         return value.to_string();
@@ -341,7 +343,7 @@ void ScriptRuntime::step_task(HandlePtr handle) {
     }
 
     if (task->current_stmt >= task->body->stmts.size() || flags.return_flag) {
-        handle->end_time = std::chrono::steady_clock::now();
+        handle->end_time = chrono::steady_clock::now();
         if (flags.throw_flag) {
             handle->state = HandleData::Failed;
             handle->error = flags.throw_value;
@@ -377,13 +379,13 @@ void ScriptRuntime::run_event_loop() {
 
         collect_garbage();
 
-        auto now = std::chrono::steady_clock::now();
+        auto now = chrono::steady_clock::now();
         for (auto &[id, interval] : active_intervals) {
             if (now >= interval.next_fire) {
                 if (interval.callback.is_function()) {
                     call_function_value(interval.callback, {});
                 }
-                interval.next_fire = now + std::chrono::milliseconds(interval.interval_ms);
+                interval.next_fire = now + chrono::milliseconds(interval.interval_ms);
             }
         }
 
@@ -2280,12 +2282,12 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 } else if (memExpr->member == "duration") {
                     if (handle->state == HandleData::Running) {
                         // still running - return time elapsed so far
-                        auto now = std::chrono::steady_clock::now();
-                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - handle->start_time);
+                        auto now = chrono::steady_clock::now();
+                        auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - handle->start_time);
                         return Value::make_int(elapsed.count());
                     } else {
                         // completed or failed - return total time
-                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(handle->end_time - handle->start_time);
+                        auto elapsed = chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
                         return Value::make_int(elapsed.count());
                     }
                 }

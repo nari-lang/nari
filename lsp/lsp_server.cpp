@@ -61,8 +61,8 @@ static void lsp_log(const std::string &msg) {
     if (!g_log_file.is_open()) {
         return;
     }
-    auto now = std::chrono::system_clock::now();
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    auto now = chrono::system_clock::now();
+    auto ms = chrono::duration_cast<chrono::milliseconds>(now.time_since_epoch()).count();
     g_log_file << '[' << ms << "] " << msg << '\n';
     g_log_file.flush();
 }
