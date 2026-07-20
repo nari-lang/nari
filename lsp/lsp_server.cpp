@@ -52,7 +52,8 @@ using json = nlohmann::json;
 #if defined(_WIN32)
 #include <fcntl.h>
 #include <io.h>
-#include <shlobj.h> // SHGetFolderPathW
+#include <combaseapi.h>
+#include <shlobj.h> // SHGetKnownFolderPath
 #endif
 
 static std::ofstream g_log_file;
@@ -1690,10 +1691,13 @@ extern std::string nari_std_prelude_source();
 // Returns the directory used for Nari user data (~/.nari or %APPDATA%/nari).
 static std::filesystem::path nari_data_dir() {
 #if defined(_WIN32)
-    wchar_t buf[MAX_PATH];
-    if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, buf))) {
-        return std::filesystem::path(buf) / "nari";
+    PWSTR path = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &path))) {
+        std::filesystem::path result = std::filesystem::path(path) / "nari";
+        CoTaskMemFree(path);
+        return result;
     }
+
     return std::filesystem::temp_directory_path() / "nari";
 #else
     const char *home = std::getenv("HOME");

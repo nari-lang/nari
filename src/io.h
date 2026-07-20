@@ -160,7 +160,7 @@ struct IOOperation {
 };
 
 // file operation
-struct FileOperation : IOOperation {
+struct NariFileOperation : IOOperation {
     std::string file_path;
     std::string file_content;
 
@@ -283,7 +283,7 @@ struct FileOperation : IOOperation {
     std::string error_msg;
     bool result_bool = false;
 
-    FileOperation(Type t) : IOOperation(t) {
+    NariFileOperation(Type t) : IOOperation(t) {
     }
 };
 
@@ -490,7 +490,7 @@ class IOThreadPool {
                                 break;
 
                             case IOOperation::Type::FileRead: {
-                                auto file_op = std::static_pointer_cast<FileOperation>(op);
+                                auto file_op = std::static_pointer_cast<NariFileOperation>(op);
                                 FILE *fp = fopen(file_op->file_path.c_str(), "rb");
                                 if (fp) {
                                     fseek(fp, 0, SEEK_END);
@@ -503,7 +503,7 @@ class IOThreadPool {
                                         content.resize(bytes_read);
                                     }
                                     fclose(fp);
-                                    file_op->result = FileOperation::Result::from_string(content);
+                                    file_op->result = NariFileOperation::Result::from_string(content);
                                     file_op->success = true;
                                 } else {
                                     file_op->success = false;
@@ -513,7 +513,7 @@ class IOThreadPool {
                             }
 
                             case IOOperation::Type::FileWrite: {
-                                auto file_op = std::static_pointer_cast<FileOperation>(op);
+                                auto file_op = std::static_pointer_cast<NariFileOperation>(op);
                                 FILE *fp = fopen(file_op->file_path.c_str(), "wb");
                                 if (fp) {
                                     fwrite(file_op->file_content.data(), 1, file_op->file_content.size(), fp);
@@ -527,7 +527,7 @@ class IOThreadPool {
                             }
 
                             case IOOperation::Type::FileAppend: {
-                                auto file_op = std::static_pointer_cast<FileOperation>(op);
+                                auto file_op = std::static_pointer_cast<NariFileOperation>(op);
                                 FILE *fp = fopen(file_op->file_path.c_str(), "ab");
                                 if (fp) {
                                     fwrite(file_op->file_content.data(), 1, file_op->file_content.size(), fp);
@@ -541,14 +541,14 @@ class IOThreadPool {
                             }
 
                             case IOOperation::Type::FileExists: {
-                                auto file_op = std::static_pointer_cast<FileOperation>(op);
+                                auto file_op = std::static_pointer_cast<NariFileOperation>(op);
                                 file_op->result_bool = nari::fs::exists(nari::fs::Path(file_op->file_path));
                                 file_op->success = true;
                                 break;
                             }
 
                             case IOOperation::Type::FileDelete: {
-                                auto file_op = std::static_pointer_cast<FileOperation>(op);
+                                auto file_op = std::static_pointer_cast<NariFileOperation>(op);
                                 std::error_code ec;
                                 file_op->result_bool = nari::fs::remove(nari::fs::Path(file_op->file_path), ec);
                                 if (ec) {
@@ -561,7 +561,7 @@ class IOThreadPool {
                             }
 
                             case IOOperation::Type::ListDir: {
-                                auto file_op = std::static_pointer_cast<FileOperation>(op);
+                                auto file_op = std::static_pointer_cast<NariFileOperation>(op);
                                 std::error_code ec;
 
                                 // Collect all filenames first
@@ -592,7 +592,7 @@ class IOThreadPool {
                                             return a_lower < b_lower;
                                         });
 
-                                    file_op->result = FileOperation::Result::from_array(filenames);
+                                    file_op->result = NariFileOperation::Result::from_array(filenames);
                                     file_op->success = true;
                                 }
                                 break;

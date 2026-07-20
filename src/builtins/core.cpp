@@ -258,7 +258,7 @@ Value ScriptRuntime::builtin_fs_readFile(const Value *argvals, size_t argc, cons
     if (argc >= 1) {
         std::string path = argvals[0].to_string();
 
-        auto io_op = std::make_shared<FileOperation>(IOOperation::Type::FileRead);
+        auto io_op = std::make_shared<NariFileOperation>(IOOperation::Type::FileRead);
         io_op->file_path = path;
 
         auto handle = Value::make_handle_ptr();
@@ -269,9 +269,9 @@ Value ScriptRuntime::builtin_fs_readFile(const Value *argvals, size_t argc, cons
         io_op->callback = [this, handle, io_op]() {
             handle->end_time = chrono::steady_clock::now();
             if (io_op->success) {
-                if (io_op->result.type == FileOperation::Result::Type::String) {
+                if (io_op->result.type == NariFileOperation::Result::Type::String) {
                     handle->result = ScriptRuntime::make_ok(Value::make_string(io_op->result.str_value));
-                } else if (io_op->result.type == FileOperation::Result::Type::Bool) {
+                } else if (io_op->result.type == NariFileOperation::Result::Type::Bool) {
                     handle->result = ScriptRuntime::make_ok(Value::make_bool(io_op->result.bool_value));
                 }
                 handle->state = HandleData::Completed;
@@ -294,7 +294,7 @@ Value ScriptRuntime::builtin_fs_writeFile(const Value *argvals, size_t argc, con
         std::string path = argvals[0].to_string();
         std::string content = argvals[1].to_string();
 
-        auto io_op = std::make_shared<FileOperation>(IOOperation::Type::FileWrite);
+        auto io_op = std::make_shared<NariFileOperation>(IOOperation::Type::FileWrite);
         io_op->file_path = path;
         io_op->file_content = std::move(content);
 
@@ -325,10 +325,9 @@ Value ScriptRuntime::builtin_fs_appendFile(const Value *argvals, size_t argc, co
         std::string path = argvals[0].to_string();
         std::string content = argvals[1].to_string();
 
-        auto io_op = std::make_shared<FileOperation>(IOOperation::Type::FileAppend);
+        auto io_op = std::make_shared<NariFileOperation>(IOOperation::Type::FileAppend);
         io_op->file_path = path;
-        io_op->file_content = std::move(
-            content); // avoid an extra copy of potentially large file data
+        io_op->file_content = std::move(content); // avoid copying data unnecessarily
 
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
@@ -356,7 +355,7 @@ Value ScriptRuntime::builtin_fs_fileExists(const Value *argvals, size_t argc, co
     if (argc >= 1) {
         std::string path = argvals[0].to_string();
 
-        auto io_op = std::make_shared<FileOperation>(IOOperation::Type::FileExists);
+        auto io_op = std::make_shared<NariFileOperation>(IOOperation::Type::FileExists);
         io_op->file_path = path;
 
         auto handle = Value::make_handle_ptr();
@@ -407,7 +406,7 @@ Value ScriptRuntime::builtin_fs_deleteFile(const Value *argvals, size_t argc, co
     if (argc >= 1) {
         std::string path = argvals[0].to_string();
 
-        auto io_op = std::make_shared<FileOperation>(IOOperation::Type::FileDelete);
+        auto io_op = std::make_shared<NariFileOperation>(IOOperation::Type::FileDelete);
         io_op->file_path = path;
 
         auto handle = Value::make_handle_ptr();
@@ -436,7 +435,7 @@ Value ScriptRuntime::builtin_fs_listDir(const Value *argvals, size_t argc, const
     if (argc >= 1) {
         std::string path = argvals[0].to_string();
 
-        auto io_op = std::make_shared<FileOperation>(IOOperation::Type::ListDir);
+        auto io_op = std::make_shared<NariFileOperation>(IOOperation::Type::ListDir);
         io_op->file_path = path;
 
         auto handle = Value::make_handle_ptr();
@@ -445,15 +444,15 @@ Value ScriptRuntime::builtin_fs_listDir(const Value *argvals, size_t argc, const
         io_op->callback = [this, handle, io_op]() {
             handle->end_time = chrono::steady_clock::now();
             if (io_op->success) {
-                if (io_op->result.type == FileOperation::Result::Type::String) {
+                if (io_op->result.type == NariFileOperation::Result::Type::String) {
                     handle->result = ScriptRuntime::make_ok(Value::make_string(io_op->result.str_value));
-                } else if (io_op->result.type == FileOperation::Result::Type::Array) {
+                } else if (io_op->result.type == NariFileOperation::Result::Type::Array) {
                     std::vector<Value> arr;
                     for (const auto &item : io_op->result.array_value) {
                         arr.push_back(Value::make_string(item));
                     }
                     handle->result = ScriptRuntime::make_ok(Value::make_array(std::move(arr)));
-                } else if (io_op->result.type == FileOperation::Result::Type::Bool) {
+                } else if (io_op->result.type == NariFileOperation::Result::Type::Bool) {
                     handle->result = ScriptRuntime::make_ok(Value::make_bool(io_op->result.bool_value));
                 }
                 handle->state = HandleData::Completed;
