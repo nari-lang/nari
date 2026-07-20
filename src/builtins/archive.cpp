@@ -70,7 +70,7 @@ std::string opt_string(const ObjectObj *opts, const char *name) {
     return v->get_string();
 }
 
-// Map libarchive filetype to a small string for scripts.
+// map libarchive filetype to a small string for scripts.
 const char *filetype_name(mode_t ft) {
     switch (ft) {
         case AE_IFREG:
@@ -84,9 +84,7 @@ const char *filetype_name(mode_t ft) {
     }
 }
 
-// Reject anything resembling an absolute path or a parent-traversal that
-// would let an entry escape `dest_dir`. We refuse outright rather than try
-// to "sanitize" - any such entry in a package is suspicious.
+// reject anything resembling an absolute path or a parent-traversal that would let an entry escape `dest_dir`.
 bool path_is_safe(const std::string &p) {
     if (p.empty()) {
         return false;
@@ -103,7 +101,7 @@ bool path_is_safe(const std::string &p) {
         return false;
     }
 
-    // Walk components; reject any ".." that would escape the root.
+    // walk components; reject any ".." that would escape the root.
     int depth = 0;
     size_t i = 0;
     while (i < p.size()) {
@@ -154,9 +152,7 @@ bool pick_write_format(const std::string &path, std::string &format, std::string
     return false;
 }
 
-// File-local C++ exception used to unwind libarchive cleanup (handles, FILE*,
-// archive_entry*) cleanly. Caught at the builtin entry points and converted
-// into a script-catchable throw via runtime->flags.
+// file-local C++ exception used to unwind libarchive cleanup (handles, FILE*, archive_entry*) cleanly
 struct ArchiveError {
     std::string msg;
 };
@@ -225,16 +221,14 @@ struct FileGuard {
 
 } // namespace
 
-// Convert an ArchiveError (internal C++ cleanup-unwind exception) into an
-// Err(message) result value.
+// Convert an ArchiveError (internal C++ cleanup-unwind exception) into an Err(message) result value.
 static Value raise_archive_err(ScriptRuntime *rt, const ArchiveError &e) {
     return rt->make_err(Value::make_string(e.msg));
 }
 
 Value ScriptRuntime::builtin_archive_list(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     // location embedded in throw value would be nice but the
-    // runtime's throw handling carries only a Value, not a node;
-    // we rely on the error message being descriptive instead.
+    // runtime's throw handling carries only a Value, not a node.
     try {
         if (argc != 1 || !argvals[0].is_string()) {
             archive_throw("Archive.list expects a single path string argument");
@@ -302,16 +296,16 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
         int64_t max_bytes = opt_int(opts, "max_bytes", kDefaultMaxBytes);
         bool allow_links = opt_bool(opts, "allow_links", false);
 
-        // Resolve dest_dir to an absolute, canonical path so we can do
+        // resolve dest_dir to an absolute, canonical path so we can do
         // containment checks robustly even if the script passed a relative path.
-        std::error_code ec;
-        stdfs::create_directories(dest_dir, ec);
-        if (ec) {
-            archive_throw("Archive.extract: cannot create dest_dir '" + dest_dir + "': " + ec.message());
+        std::error_code err;
+        stdfs::create_directories(dest_dir, err);
+        if (err) {
+            archive_throw("Archive.extract: cannot create dest_dir '" + dest_dir + "': " + err.message());
         }
-        stdfs::path dest_root = stdfs::canonical(dest_dir, ec);
-        if (ec) {
-            archive_throw("Archive.extract: cannot canonicalize dest_dir '" + dest_dir + "': " + ec.message());
+        stdfs::path dest_root = stdfs::canonical(dest_dir, err);
+        if (err) {
+            archive_throw("Archive.extract: cannot canonicalize dest_dir '" + dest_dir + "': " + err.message());
         }
 
         ArchiveReadGuard guard(archive_read_new());
@@ -358,42 +352,37 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
                 archive_throw("Archive.extract: entry count exceeds max_files=" + std::to_string(max_files));
             }
 
-            // Resolve the on-disk target and verify it stays within dest_root
+            // resolve the on-disk target and verify it stays within dest_root
             // even after the OS resolves any symlinks in dest_root's parents.
             stdfs::path target = dest_root / name;
             stdfs::path target_parent = target.parent_path();
-            stdfs::create_directories(target_parent, ec);
-            if (ec) {
-                archive_throw("Archive.extract: cannot create dir '" + target_parent.string() + "': " + ec.message());
+            stdfs::create_directories(target_parent, err);
+            if (err) {
+                archive_throw("Archive.extract: cannot create dir '" + target_parent.string() + "': " + err.message());
             }
             // Check containment using weakly_canonical (target may not exist yet).
-            stdfs::path canon = stdfs::weakly_canonical(target, ec);
-            if (ec) {
-                archive_throw("Archive.extract: cannot canonicalize target '" + target.string() + "': " + ec.message());
+            stdfs::path canon = stdfs::weakly_canonical(target, err);
+            if (err) {
+                archive_throw("Archive.extract: cannot canonicalize target '" + target.string() + "': " + err.message());
             }
             // Mismatch on the prefix means the entry escaped dest_root.
-            // generic_string() normalizes separators on Windows so the rfind
-            // works the same on both platforms.
-            auto rel = stdfs::relative(canon, dest_root, ec);
+            auto rel = stdfs::relative(canon, dest_root, err);
             std::string rel_str = rel.generic_string();
-            if (ec || rel_str.empty() || rel_str.rfind("..", 0) == 0) {
+            if (err || rel_str.empty() || rel_str.rfind("..", 0) == 0) {
                 archive_throw("Archive.extract: entry '" + name + "' escapes dest_dir");
             }
 
             if (ft == AE_IFDIR) {
-                stdfs::create_directories(target, ec);
-                if (ec) {
-                    archive_throw("Archive.extract: cannot create dir '" + target.string() + "': " + ec.message());
+                stdfs::create_directories(target, err);
+                if (err) {
+                    archive_throw("Archive.extract: cannot create dir '" + target.string() + "': " + err.message());
                 }
                 continue;
             }
 
             if (ft == AE_IFLNK) {
-                // allow_links == true was checked above. We don't follow the link;
-                // we recreate it as-is. The link target itself is NOT validated
-                // here against dest_root because POSIX symlinks resolve at access
-                // time relative to the link's location. Callers who enable links
-                // are accepting that risk.
+                // allow_links == true was checked above.
+                // we don't follow the link, instead we recreate it as-is
                 const char *linkname = archive_entry_symlink(entry);
                 if (linkname == nullptr) {
                     archive_throw("Archive.extract: symlink entry '" + name + "' has no target");
@@ -407,9 +396,7 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
                 continue;
             }
 
-            // Regular file: stream entry data to disk in chunks; enforce
-            // max_bytes. FileGuard closes the fp even if archive_throw
-            // unwinds mid-loop.
+            // stream entry data to disk in chunks
             FileGuard fg(std::fopen(target.string().c_str(), "wb"));
             if (fg.fp == nullptr) {
                 archive_throw("Archive.extract: cannot open '" + target.string() + "' for write: " + std::strerror(errno));
@@ -438,17 +425,16 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
                     archive_throw(std::string("Archive.extract: write failed on '") + target.string() + "': " + std::strerror(errno));
                 }
             }
-            // fg destructor closes fp here.
+            // fg destructor closes fp here
 
-            // Apply the entry's permission bits, masked. We never honour setuid /
-            // setgid / sticky from an archive - too easy to abuse.
+            // apply the entry's permission bits, masked. we don't honour setuid / setgid / sticky from an archive
             mode_t perm = archive_entry_perm(entry) & 0777;
             if (perm == 0) {
                 perm = 0644;
             }
             std::error_code pec;
             stdfs::permissions(target, (stdfs::perms)perm, stdfs::perm_options::replace, pec);
-            // Permission setting is best-effort (e.g. on FAT); ignore failure.
+            // permission setting is best-effort, failure can be ignored
         }
 
         Value result = Value::make_object();
@@ -505,11 +491,11 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
         int64_t file_count = 0;
 
         auto add_one = [&](const std::string &src_path, const std::string &entry_name) {
-            std::error_code ec;
+            std::error_code err;
             stdfs::path src(src_path);
-            auto status = stdfs::symlink_status(src, ec);
-            if (ec) {
-                archive_throw("Archive.create: cannot stat '" + src_path + "': " + ec.message());
+            auto status = stdfs::symlink_status(src, err);
+            if (err) {
+                archive_throw("Archive.create: cannot stat '" + src_path + "': " + err.message());
             }
 
             ArchiveEntryGuard eg(archive_entry_new());
@@ -529,9 +515,9 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
 
             if (stdfs::is_symlink(status)) {
                 // Record the symlink as-is; we don't follow it.
-                stdfs::path target = stdfs::read_symlink(src, ec);
-                if (ec) {
-                    archive_throw("Archive.create: cannot read symlink '" + src_path + "': " + ec.message());
+                stdfs::path target = stdfs::read_symlink(src, err);
+                if (err) {
+                    archive_throw("Archive.create: cannot read symlink '" + src_path + "': " + err.message());
                 }
                 archive_entry_set_filetype(eg.e, AE_IFLNK);
                 archive_entry_set_symlink(eg.e, target.string().c_str());
@@ -549,9 +535,9 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
                 archive_throw("Archive.create: source '" + src_path + "' is not a regular file/dir/symlink");
             }
 
-            auto sz = stdfs::file_size(src, ec);
-            if (ec) {
-                archive_throw("Archive.create: cannot stat '" + src_path + "': " + ec.message());
+            auto sz = stdfs::file_size(src, err);
+            if (err) {
+                archive_throw("Archive.create: cannot stat '" + src_path + "': " + err.message());
             }
             archive_entry_set_filetype(eg.e, AE_IFREG);
             archive_entry_set_perm(eg.e, 0644);
@@ -591,10 +577,10 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
                 const std::string &src = item.get_string();
                 std::string entry_name;
                 if (!base_dir.empty()) {
-                    std::error_code ec;
-                    stdfs::path rel = stdfs::relative(stdfs::path(src), stdfs::path(base_dir), ec);
+                    std::error_code err;
+                    stdfs::path rel = stdfs::relative(stdfs::path(src), stdfs::path(base_dir), err);
                     std::string rel_str = rel.generic_string();
-                    if (ec || rel_str.empty() || rel_str.rfind("..", 0) == 0) {
+                    if (err || rel_str.empty() || rel_str.rfind("..", 0) == 0) {
                         archive_throw("Archive.create: source '" + src + "' is not inside base_dir '" + base_dir + "'");
                     }
                     entry_name = rel_str;
@@ -624,15 +610,15 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
             archive_throw_libarchive(guard.a, "Archive.create");
         }
 
-        // Stat the output to report compressed size.
-        std::error_code ec;
-        auto sz = stdfs::file_size(archive_path, ec);
-        int64_t out_bytes = ec ? 0 : (int64_t)sz;
+        // stat the output to report compressed size.
+        std::error_code err;
+        auto sz = stdfs::file_size(archive_path, err);
+        int64_t out_bytes = err ? 0 : (int64_t)sz;
 
         Value result = Value::make_object();
-        ObjectObj *r = result.get_obj_ptr();
-        r->set_field("files", Value::make_int_checked(file_count));
-        r->set_field("bytes", Value::make_int_checked(out_bytes));
+        ObjectObj *res = result.get_obj_ptr();
+        res->set_field("files", Value::make_int_checked(file_count));
+        res->set_field("bytes", Value::make_int_checked(out_bytes));
         return make_ok(result);
     } catch (const ArchiveError &e) {
         return raise_archive_err(this, e);

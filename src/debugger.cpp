@@ -14,9 +14,9 @@ std::string canonicalise_path(const std::string &in) {
     if (in.empty()) {
         return in;
     }
-    std::error_code ec;
-    auto p = nari::fs::weakly_canonical(nari::fs::Path(in), ec);
-    std::string s = ec ? in : p.generic_string();
+    std::error_code err;
+    auto p = nari::fs::weakly_canonical(nari::fs::Path(in), err);
+    std::string s = err ? in : p.generic_string();
     // on Windows weakly_canonical already uses forward slashes via generic_string.
     return s;
 }

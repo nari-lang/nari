@@ -376,8 +376,8 @@ Path weakly_canonical(const Path &path, std::error_code &ec) {
 }
 
 bool exists(const Path &path) {
-    std::error_code ec;
-    return exists(path, ec);
+    std::error_code err;
+    return exists(path, err);
 }
 
 bool exists(const Path &path, std::error_code &ec) {
@@ -393,8 +393,8 @@ bool exists(const Path &path, std::error_code &ec) {
 }
 
 bool is_directory(const Path &path) {
-    std::error_code ec;
-    return is_directory(path, ec);
+    std::error_code err;
+    return is_directory(path, err);
 }
 
 bool is_directory(const Path &path, std::error_code &ec) {
