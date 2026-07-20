@@ -25,10 +25,10 @@ Value ScriptRuntime::builtin_eval(const Value *argvals, size_t argc, const nari:
 
     auto parse_src = [&](bool wrap, std::vector<Parser::ParseError> &errors) -> FuncList {
         Parser::set_source_filename("<eval>");
-        
+
         Parser::ParseResult result = Parser::parse_program_recovering(
-                wrap ? "func " + wrapper_name + "() {\nreturn (" + src + ");\n}\n" : src,
-                false);
+            wrap ? "func " + wrapper_name + "() {\nreturn (" + src + ");\n}\n" : src,
+            false);
 
         Parser::set_source_filename(saved_filename);
         if (!result.ok()) {
@@ -76,7 +76,7 @@ Value ScriptRuntime::builtin_eval(const Value *argvals, size_t argc, const nari:
         }
         functions[f->name] = std::move(f);
     }
-    
+
     for (Function *toplevel : import_toplevels) {
         execute_toplevel_function(toplevel);
     }

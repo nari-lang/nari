@@ -466,7 +466,7 @@ bool ScriptRuntime::delegate_default_has(const Value &target, const Value &key) 
 }
 
 // The four handler trap names, interned to their stable field ids once. The
-// ids are process-global (field_intern_map never renumbers), 
+// ids are process-global (field_intern_map never renumbers),
 // so a Delegate handler's trap can be resolved via ObjectObj::get_field_by_id
 enum class TrapId {
     Get,
@@ -786,10 +786,9 @@ bool ScriptRuntime::initialize_result_template(ResultConstructorTmpl &cache, con
             cache.methods.clear();
             return false;
         }
-        cache.methods.push_back(ResultMethodTmpl {
+        cache.methods.push_back(ResultMethodTmpl{
             slot, fn.name, fn.jit_func_idx, fn.jit_locals_count, fn.jit_meta,
-            fn.jit_inline_kind, fn.jit_native_kind, fn.jit_inline_imm
-        });
+            fn.jit_inline_kind, fn.jit_native_kind, fn.jit_inline_imm });
         cache.fields[slot] = Value::none();
     }
     cache.usable = found_data && !cache.methods.empty();

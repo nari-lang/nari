@@ -3394,9 +3394,9 @@ bool fuse_tostring_concat(Func &f, uint32_t tostring_name_idx) {
                 ValueId rhs = in.operands[1];
                 auto pit = pend_arg.find(rhs);
                 if (pit != pend_arg.end()) {
-                    fuse_call.insert(rhs); // commit: drop the call
+                    fuse_call.insert(rhs);                       // commit: drop the call
                     drop_callee.insert(f.inst(rhs).operands[0]); // drop its callee
-                    retarget[v] = pit->second; // StrConcat RHS -> arg
+                    retarget[v] = pit->second;                   // StrConcat RHS -> arg
                     pend_arg.erase(pit);
                     continue;
                 }

@@ -2120,14 +2120,14 @@ struct JsonDirectParser {
         // Fast path: same keys (in order) as the previous object, we reuse its
         // shape, fill fields by slot, skips interning/transition hashing.
         if (shape_matches && count > 0 && expected_shape->names.size() == count) {
-                oobj->shape = expected_shape;
-                oobj->fields.resize(count);
-                for (size_t i = 0; i < count; i++) {
-                    oobj->fields[i] = std::move(val_at(i));
-                }
-                oobj->shape_version = (uint32_t)count;
-                spec_shape = expected_shape;
-                return obj;
+            oobj->shape = expected_shape;
+            oobj->fields.resize(count);
+            for (size_t i = 0; i < count; i++) {
+                oobj->fields[i] = std::move(val_at(i));
+            }
+            oobj->shape_version = (uint32_t)count;
+            spec_shape = expected_shape;
+            return obj;
         }
         // slow path: build via set_field, then remember the resulting shape.
         for (size_t i = 0; i < count; i++) {

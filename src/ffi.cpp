@@ -6,6 +6,7 @@
 #include "parser_api.h"
 #include "runtime.h"
 #include <algorithm>
+#include <cmath>
 #include <ffi.h>
 #include <functional>
 #include <limits>
@@ -327,139 +328,302 @@ static ffi_type *get_ffi_struct_type(FFIStructDef *struct_def) {
 static Value read_ffi_scalar(const char *ptr, FFIType type) {
     switch (type) {
         case FFIType::Int8: {
-            int8_t v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_int(v);
+            int8_t val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_int(val);
         }
         case FFIType::UInt8: {
-            uint8_t v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_int(v);
+            uint8_t val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_int(val);
         }
         case FFIType::Int16: {
-            int16_t v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_int(v);
+            int16_t val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_int(val);
         }
         case FFIType::UInt16: {
-            uint16_t v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_int(v);
+            uint16_t val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_int(val);
         }
         case FFIType::Int32: {
-            int32_t v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_int(v);
-        }
-        case FFIType::Int64: {
-            int64_t v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_int(v);
+            int32_t val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_int(val);
         }
         case FFIType::UInt32: {
             uint32_t v;
             memcpy(&v, ptr, sizeof(v));
             return Value::make_int(v);
         }
+        case FFIType::Int64: {
+            int64_t val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_int(val);
+        }
         case FFIType::UInt64: {
-            uint64_t v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_int(static_cast<int64_t>(v));
+            uint64_t val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_int(static_cast<int64_t>(val));
         }
         case FFIType::Float: {
-            float v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_float(v);
+            float val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_float(val);
         }
         case FFIType::Double: {
-            double v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_float(v);
+            double val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_float(val);
         }
         case FFIType::Bool: {
-            uint8_t v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_bool(v != 0);
+            uint8_t val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_bool(val != 0);
         }
         case FFIType::Pointer: {
-            void *v;
-            memcpy(&v, ptr, sizeof(v));
-            return Value::make_int(reinterpret_cast<int64_t>(v));
+            void *val;
+            memcpy(&val, ptr, sizeof(val));
+            return Value::make_int(reinterpret_cast<int64_t>(val));
         }
         default:
             return Value::none();
     }
 }
 
-static void write_ffi_scalar(char *ptr, FFIType type, const Value &value,
-                             std::deque<std::string> *strings = nullptr) {
+template <typename T>
+static bool try_float_to_int(double value, T &result) {
+    static_assert(std::is_integral_v<T>);
+
+    if (!std::isfinite(value)) {
+        return false;
+    }
+
+    value = std::trunc(value);
+
+    // [0, 2^digits) for unsigned T, [-2^digits, 2^digits) for signed T.
+    const double upper_exclusive = static_cast<double>(std::numeric_limits<T>::max()) + 1.0;
+
+    if constexpr (std::is_unsigned_v<T>) {
+        if (value < 0.0 || value >= upper_exclusive) {
+            return false;
+        }
+    } else {
+        // min() is always an exact power of two for signed T
+        const double lower = static_cast<double>(std::numeric_limits<T>::min());
+
+        if (value < lower || value >= upper_exclusive) {
+            return false;
+        }
+    }
+
+    result = static_cast<T>(value);
+    return true;
+}
+
+static const char *ffi_scalar_type_name(FFIType type) {
+    switch (type) {
+        case FFIType::Int8:
+            return "int8";
+        case FFIType::UInt8:
+            return "uint8";
+        case FFIType::Int16:
+            return "int16";
+        case FFIType::UInt16:
+            return "uint16";
+        case FFIType::Int32:
+            return "int32";
+        case FFIType::Int64:
+            return "int64";
+        case FFIType::UInt32:
+            return "uint32";
+        case FFIType::UInt64:
+            return "uint64";
+        case FFIType::Float:
+            return "float";
+        case FFIType::Double:
+            return "double";
+        case FFIType::Bool:
+            return "bool";
+        case FFIType::Pointer:
+            return "pointer";
+        default:
+            return "unknown";
+    }
+}
+
+static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::deque<std::string> *strings = nullptr) {
     switch (type) {
         case FFIType::Int8: {
-            int8_t v = value.is_int() ? value.get_int() : value.is_float() ? value.get_float()
-                                                                           : 0;
-            memcpy(ptr, &v, sizeof(v));
+            int8_t val = 0;
+
+            if (value.is_int()) {
+                val = (int8_t)value.get_int();
+            } else if (value.is_float()) {
+                if (!try_float_to_int(value.get_float(), val)) {
+                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
+                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                }
+            }
+
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
         case FFIType::UInt8: {
-            uint8_t v = value.is_int() ? value.get_int() : value.is_float()                  ? value.get_float()
-                                                       : value.is_bool() && value.get_bool() ? 1
-                                                                                             : 0;
-            memcpy(ptr, &v, sizeof(v));
+            uint8_t val = 0;
+
+            if (value.is_int()) {
+                val = value.get_int();
+            } else if (value.is_float()) {
+                if (!try_float_to_int(value.get_float(), val)) {
+                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
+                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                }
+            } else if (value.is_bool()) {
+                val = value.get_bool();
+            }
+
+            memcpy(ptr, &val, sizeof(val));
             break;
         }
         case FFIType::Int16: {
-            int16_t v = value.is_int() ? value.get_int() : value.is_float() ? value.get_float()
-                                                                            : 0;
+            int16_t v = 0;
+
+            if (value.is_int()) {
+                v = value.get_int();
+            } else if (value.is_float()) {
+                if (!try_float_to_int(value.get_float(), v)) {
+                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
+                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                }
+            }
+
             memcpy(ptr, &v, sizeof(v));
             break;
         }
+
         case FFIType::UInt16: {
-            uint16_t v = value.is_int() ? value.get_int() : value.is_float()                  ? value.get_float()
-                                                        : value.is_bool() && value.get_bool() ? 1
-                                                                                              : 0;
+            uint16_t v = 0;
+
+            if (value.is_int()) {
+                v = value.get_int();
+            } else if (value.is_float()) {
+                if (!try_float_to_int(value.get_float(), v)) {
+                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
+                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                }
+            } else if (value.is_bool()) {
+                v = value.get_bool();
+            }
+
             memcpy(ptr, &v, sizeof(v));
             break;
         }
+
         case FFIType::Int32: {
-            int32_t v = value.is_int() ? value.get_int() : value.is_float() ? value.get_float()
-                                                                            : 0;
+            int32_t v = 0;
+
+            if (value.is_int()) {
+                v = value.get_int();
+            } else if (value.is_float()) {
+                if (!try_float_to_int(value.get_float(), v)) {
+                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
+                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                }
+            }
+
             memcpy(ptr, &v, sizeof(v));
             break;
         }
+
         case FFIType::Int64: {
-            int64_t v = value.is_int() ? value.get_int() : value.is_float() ? value.get_float()
-                                                                            : 0;
+            int64_t v = 0;
+
+            if (value.is_int()) {
+                v = value.get_int();
+            } else if (value.is_float()) {
+                if (!try_float_to_int(value.get_float(), v)) {
+                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
+                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                }
+            }
+
             memcpy(ptr, &v, sizeof(v));
             break;
         }
+
         case FFIType::UInt32: {
-            uint32_t v = value.is_int() ? value.get_int() : value.is_float()                  ? value.get_float()
-                                                        : value.is_bool() && value.get_bool() ? 1
-                                                                                              : 0;
+            uint32_t v = 0;
+
+            if (value.is_int()) {
+                v = value.get_int();
+            } else if (value.is_float()) {
+                if (!try_float_to_int(value.get_float(), v)) {
+                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
+                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                }
+            } else if (value.is_bool()) {
+                v = value.get_bool();
+            }
+
             memcpy(ptr, &v, sizeof(v));
             break;
         }
+
         case FFIType::UInt64: {
-            uint64_t v = value.is_int() ? value.get_int() : value.is_float()                  ? value.get_float()
-                                                        : value.is_bool() && value.get_bool() ? 1
-                                                                                              : 0;
+            uint64_t v = 0;
+
+            if (value.is_int()) {
+                v = value.get_int();
+            } else if (value.is_float()) {
+                if (!try_float_to_int(value.get_float(), v)) {
+                    runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) +
+                                  " cannot be represented as " + ffi_scalar_type_name(type));
+                }
+            } else if (value.is_bool()) {
+                v = value.get_bool();
+            }
+
             memcpy(ptr, &v, sizeof(v));
             break;
         }
+
         case FFIType::Float: {
-            float v = value.is_float() ? value.get_float() : value.is_int() ? value.get_int()
-                                                                            : 0;
+            float v = 0;
+
+            if (value.is_float()) {
+                v = value.get_float();
+            } else if (value.is_int()) {
+                v = value.get_int();
+            }
+
             memcpy(ptr, &v, sizeof(v));
             break;
         }
+
         case FFIType::Double: {
-            double v = value.is_float() ? value.get_float() : value.is_int() ? value.get_int()
-                                                                             : 0;
+            double v = 0;
+
+            if (value.is_float()) {
+                v = value.get_float();
+            } else if (value.is_int()) {
+                v = value.get_int();
+            }
+
             memcpy(ptr, &v, sizeof(v));
             break;
         }
+
         case FFIType::Bool: {
-            uint8_t v = value.is_bool() ? value.get_bool() : value.is_int() && value.get_int() != 0;
+            uint8_t v = 0;
+
+            if (value.is_bool()) {
+                v = value.get_bool();
+            } else if (value.is_int()) {
+                v = value.get_int() != 0;
+            }
+
             memcpy(ptr, &v, sizeof(v));
             break;
         }
@@ -481,8 +645,7 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value,
     }
 }
 
-static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value &object,
-                             std::deque<std::string> *strings = nullptr) {
+static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value &object, std::deque<std::string> *strings = nullptr) {
     if (!object.is_object() || def.ffi_field_offsets.size() != def.fields.size()) {
         return false;
     }
@@ -509,8 +672,7 @@ static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value 
         const size_t stride = element_type ? element_type->size : 0;
         if (field.count == 1) {
             if (field.aggregate_def) {
-                if (!write_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def,
-                                      *field_value, strings)) {
+                if (!write_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def, *field_value, strings)) {
                     return false;
                 }
             } else {
@@ -774,9 +936,9 @@ static bool marshal_ffi_scalar_argument(FFIArgStorage &storage, FFIType type, co
             store_ffi_argument(
                 storage.int8_storage, storage.arg_pointers,
                 arg.is_int() ? (int8_t)arg.get_int()
-                             : arg.is_float() 
-                                ? (int8_t)arg.get_float()
-                                : (int8_t)0);
+                : arg.is_float()
+                    ? (int8_t)arg.get_float()
+                    : (int8_t)0);
             return true;
         case FFIType::UInt8:
             store_ffi_argument(storage.uint8_storage, storage.arg_pointers,
@@ -1285,7 +1447,7 @@ void push_windows_search_paths(std::vector<std::string> &paths) {
 
 void push_macos_search_paths(std::vector<std::string> &paths) {
     paths.push_back(".");
-    
+
     paths.push_back("/usr/lib");
     paths.push_back("/usr/local/lib");
     paths.push_back("/opt/homebrew/lib");

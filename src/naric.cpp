@@ -81,26 +81,31 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
 
         printf("  constants: %zu\n", func.constants.size());
         for (size_t i = 0; i < func.constants.size(); i++) {
-            const auto &c = func.constants[i];
+            const auto &constant = func.constants[i];
             printf("  [%zu] ", i);
-            switch (c.type) {
+            switch (constant.type) {
                 typedef nari::bytecode::Constant::Type CType;
                 case CType::NONE:
                     printf("none\n");
                     break;
                 case CType::INT:
-                    printf("int(%ld)\n", c.as_int);
+#ifdef _WIN32
+                    printf("int(%lld)\n", constant.as_int);
+#else
+                    printf("int(%ld)\n", constant.as_int);
+#endif
+
                     break;
                 case CType::FLOAT:
-                    printf("float(%g)\n", c.as_float);
+                    printf("float(%g)\n", constant.as_float);
                     break;
                 case CType::STRING:
                     printf(
                         "string(%u) \"%s\"\n",
-                        c.string_idx, c.string_idx < chunk.strings.size() ? chunk.strings[c.string_idx].c_str() : "???");
+                        constant.string_idx, constant.string_idx < chunk.strings.size() ? chunk.strings[constant.string_idx].c_str() : "???");
                     break;
                 case CType::FUNCTION:
-                    printf("func(%u)\n", c.func_idx);
+                    printf("func(%u)\n", constant.func_idx);
                     break;
             }
         }
@@ -109,7 +114,7 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
         size_t ip = 0;
         while (ip < func.code.size()) {
             printf("  %04zu  ", ip);
-            OpCode op = static_cast<OpCode>(func.code[ip++]);
+            OpCode op = (OpCode)func.code[ip++];
             int operand_size = opcode_operand_size(op);
 
             if (op == OpCode::OP_MAKE_CLOSURE) {
@@ -125,8 +130,9 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
                     printf(
                         "  capture[%u]: %s #%u\n",
                         ci,
-                        src == 0 ? "local" : src == 1 ? "upvalue"
-                                                      : "global",
+                        src == 0   ? "local"
+                        : src == 1 ? "upvalue"
+                                   : "global",
                         idx);
                 }
             } else if (operand_size == 0) {

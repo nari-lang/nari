@@ -139,9 +139,9 @@ class Compiler {
     };
     std::vector<LoopInfo> loop_stack;
 
-    bool is_main_scope; // true when compiling the <main> function body
-    int try_depth = 0; // nesting depth of try blocks (TCO forbidden when > 0)
-    bool strict_mode = false; // true when the current source file has "use strict" at the top level
+    bool is_main_scope;               // true when compiling the <main> function body
+    int try_depth = 0;                // nesting depth of try blocks (TCO forbidden when > 0)
+    bool strict_mode = false;         // true when the current source file has "use strict" at the top level
     std::string current_return_type_; // e.g. "int", "string", "bool"
     std::set<std::string> global_consts;
 

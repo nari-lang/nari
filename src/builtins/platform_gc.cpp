@@ -81,7 +81,6 @@ Value ScriptRuntime::builtin_platform_getenv(const Value *argvals, size_t argc, 
     return Value::make_string("");
 }
 
-
 Value ScriptRuntime::builtin_process_argc(const Value *, size_t, const nari::CallExpr *) {
     return Value::make_int(static_cast<int64_t>(this->process_argc));
 }

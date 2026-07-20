@@ -1794,7 +1794,7 @@ bool VM::execute_instruction() {
                 Value handle_val = Value::make_handle(handle);
                 {
                     namespace chrono = std::chrono;
-                    
+
                     TempRootScope rs(*this);
                     rs.add(&func_val);
                     rs.add(&handle_val);
@@ -2430,13 +2430,13 @@ bool VM::execute_instruction() {
                     VM::push(arr_val);                  // array
                     VM::push(Value::make_int(idx + 1)); // next index
                     // push current element value and true
-                    VM::push(arr[idx]);                 // value
-                    VM::push(Value::make_bool(true));   // still iterating
+                    VM::push(arr[idx]);               // value
+                    VM::push(Value::make_bool(true)); // still iterating
                 } else {
                     // done iterating, push iterator back (cleaned up by OP_POP)
-                    VM::push(arr_val);                  // array
-                    VM::push(Value::make_int(idx));     // index (unchanged)
-                    VM::push(Value::make_bool(false));  // done
+                    VM::push(arr_val);                 // array
+                    VM::push(Value::make_int(idx));    // index (unchanged)
+                    VM::push(Value::make_bool(false)); // done
                 }
                 break;
             }
@@ -2469,9 +2469,7 @@ bool VM::execute_instruction() {
                 Value error = pop();
                 bool caught = dispatch_throw(error);
                 // Inside a JIT-compiled function call, returning normally from execute_instruction()
-                // would resume the JIT caller's baked native code, which has no way to honor
-                // the rewound frame.ip (caught) or the unwound frames (uncaught).
-                // Longjmp out to VM::run's setjmp instead.
+                // would resume the JIT caller's baked native code
                 //
                 // longjmp skips dtors, explicitly cleanup
                 error = Value::none();

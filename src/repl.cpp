@@ -39,7 +39,7 @@ static int count_unmatched(const std::string &s) {
     int braces = 0, parens = 0;
     bool in_str = false;
     bool in_tmpl = false; // inside backtick template literal
-    int tmpl_depth = 0; // brace depth inside template {...}
+    int tmpl_depth = 0;   // brace depth inside template {...}
     char str_ch = 0;
 
     for (size_t i = 0; i < s.size(); ++i) {

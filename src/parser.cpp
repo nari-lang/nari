@@ -421,8 +421,9 @@ class Parser {
             namespace fs = nari::fs;
 
             const std::string ext = fs::Path(path).extension().string();
-            if (ext == ".so" || ext == ".dll" || ext == ".dylib")
+            if (ext == ".so" || ext == ".dll" || ext == ".dylib") {
                 return true;
+            }
 
             // Versioned sonames ("libc.so.6", "libfoo.so.1.2.3") have a numeric
             // extension, so match ".so." followed by digits/dots in the filename.
@@ -439,8 +440,9 @@ class Parser {
                         break;
                     }
                 }
-                if (version_suffix)
+                if (version_suffix) {
                     return true;
+                }
             }
 
 #if defined(__linux__)

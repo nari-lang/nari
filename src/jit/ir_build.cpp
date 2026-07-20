@@ -230,7 +230,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         Block &block = out.blocks[bid];
         std::vector<ValueId> vstk;
 
-        // Seed entry vstk from predecessors. 
+        // Seed entry vstk from predecessors.
         // forward preds (lower id) have already been processed, back-edge preds have not.
         {
             const auto &preds = cfg_preds[bid];
@@ -251,7 +251,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     // predecessors leave different stack depths at this block's entry,
                     // this is a malformed CFG or unsupported shape, we should bail here.
                     if (kBuildReport) {
-                        fprintf(stderr, 
+                        fprintf(stderr,
                                 "[IR-BUILD] %s: pred depth mismatch at block start pc=%zu (%d vs %d)\n",
                                 func_meta.name.c_str(), start, depth, exit_depth[p]);
                     }
@@ -268,7 +268,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             }
             if (has_back_edge && depth != 0) {
                 if (kBuildReport) {
-                    fprintf(stderr, 
+                    fprintf(stderr,
                             "[IR-BUILD] %s: loop header has entry depth %d at pc=%zu (back-edge requires 0)\n",
                             func_meta.name.c_str(), depth, start);
                 }
