@@ -827,9 +827,8 @@ Value ScriptRuntime::builtin_sort(const Value *argvals, size_t argc, const nari:
     auto &arr = const_cast<Value &>(argvals[0]).get_array();
     if (argc >= 2 && argvals[1].is_function()) {
         Value cmp = argvals[1];
-        // Root the comparator and the array under sort: the callback runs nested
-        // bytecode (safe-point); without rooting, a precise collection could sweep
-        // them and `arr` (a reference into the array) would dangle.
+        // root the comparator and the array under sort.
+        // the callback runs nested bytecode, and without rooting, a precise collection could cause a dangling ref
         Value arr_val = argvals[0];
         GcTempRoot _gr(*this);
         _gr.add(&cmp);
@@ -1226,11 +1225,11 @@ static srell::regex_constants::syntax_option_type srell_flags_from_string(const 
     return opts;
 }
 
-// __regex_new(pattern, flags?) -> Result<regex, string>. Validates pattern by
+// Regex.new(pattern, flags?) -> Result<regex, string>. Validates pattern by
 // attempting to compile it; returns Err(RegexError message) on malformed input.
 Value ScriptRuntime::builtin_regex_new(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 1 || !argvals[0].is_string()) {
-        runtime_fatal("TypeError: '__regex_new' expects a pattern string", call);
+        runtime_fatal("TypeError: 'Regex.new' expects a pattern string", call);
         return Value::none();
     }
     std::string pattern = argvals[0].get_string();
@@ -1238,20 +1237,15 @@ Value ScriptRuntime::builtin_regex_new(const Value *argvals, size_t argc, const 
     if (argc >= 2 && argvals[1].is_string()) {
         flags = argvals[1].get_string();
     }
-    // compile-check up front so errors surface at construction, not first use.
-    // The build defines SRELL_NO_THROW (see src/builtins/common.h), so srell
-    // does NOT throw on bad patterns -- it leaves a non-zero ecode() instead.
-    // We surface that as an Err result.
+    // check up front so that we can easily return a RegexError
     srell::u8cregex re(pattern, srell_flags_from_string(flags));
     if (re.ecode() != 0) {
-        return make_err(Value::make_string(
-            "RegexError: invalid pattern (srell error " +
-            std::to_string((int)re.ecode()) + ")"));
+        return make_err(Value::make_string("RegexError: invalid pattern (srell error " + std::to_string((int)re.ecode()) + ")"));
     }
     return make_ok(Value::make_regex(std::move(pattern), std::move(flags)));
 }
 
-// regex.test(string) -> bool
+// Regex.test(string) -> bool
 Value ScriptRuntime::builtin_regex_test(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 2) {
         runtime_fatal("TypeError: 'test' requires a string argument", call);
@@ -1276,7 +1270,7 @@ Value ScriptRuntime::builtin_regex_test(const Value *argvals, size_t argc, const
     }
 }
 
-// regex.exec(string) -> object {match, index, groups:[...]} or null
+// Regex.exec(string) -> object {match, index, groups:[...]} or null
 Value ScriptRuntime::builtin_regex_exec(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 2) {
         runtime_fatal("TypeError: 'exec' requires a string argument", call);
@@ -1333,13 +1327,7 @@ Value ScriptRuntime::builtin_toNumber(const Value *argvals, size_t argc, const n
         }
         if (v.is_string()) {
             const std::string &s = v.get_string();
-            // Fast path: a clean, fully-consumed base-10 integer. std::from_chars
-            // is locale-independent and ~2.6x faster than the 3x-find + strtoll
-            // path below. It is stricter than strtoll (no leading whitespace, no
-            // '+', no overflow), so it ONLY succeeds on inputs strtoll would parse
-            // to the identical int value with no trailing chars -- making the fast
-            // path bit-identical. Any rejection falls through to the exact original
-            // logic.
+            // in the case where it's a clean, fully-consumed base-10 integer, from_chars is faster than strtoll
             {
                 const char *b = s.data();
                 const char *e = b + s.size();
@@ -1434,11 +1422,11 @@ Value ScriptRuntime::builtin_formatValue(const Value *argvals, size_t argc, cons
     if (needed < 0) {
         return Value::make_string(argvals[0].to_string());
     }
-    if (static_cast<size_t>(needed) < sizeof(stack_buf)) {
+    if ((size_t)needed < sizeof(stack_buf)) {
         return Value::make_string(std::string(stack_buf, static_cast<size_t>(needed)));
     }
 
-    std::string out(static_cast<size_t>(needed), '\0');
+    std::string out((size_t)needed, '\0');
     std::snprintf(out.data(), out.size() + 1, fmt, value);
     return Value::make_string(out);
 }
@@ -1492,9 +1480,9 @@ Value ScriptRuntime::builtin_isFunction(const Value *argvals, size_t argc, const
     return Value::make_bool(false);
 }
 
-// Delegate(target, handler) -> a Proxy-like wrapper. `handler` is an object
-// whose optional "get"/"set"/"has"/"call" fields intercept the corresponding
-// operations on the delegate; any absent trap falls through to `target`.
+// Delegate(target, handler) -> a wrapper object to proxy object access.
+// `handler` is an object whose optional "get"/"set"/"has"/"call" fields 
+// intercept the corresponding operations on the delegate; any absent trap falls through to `target`.
 Value ScriptRuntime::builtin_delegate_new(const Value *argvals, size_t argc, const nari::CallExpr *) {
     Value target = argc > 0 ? argvals[0] : Value::none();
     Value handler = argc > 1 ? argvals[1] : Value::none();
@@ -1678,7 +1666,7 @@ static bool json_enter(std::vector<const void *> &seen, const void *p) {
     return true;
 }
 
-// On cyclic or too-deeply-nested input, sets ok=false and returns null.
+// on cyclic or too-deeply-nested input, sets ok=false and returns null.
 static nlohmann::json value_to_json(const Value &v, std::vector<const void *> &seen, bool &ok) {
     if (v.is_none()) {
         return nullptr;
@@ -2231,9 +2219,7 @@ Value ScriptRuntime::builtin_json_parse(const Value *argvals, size_t argc, const
     return make_ok(result);
 }
 
-// Append JSON-escaped string contents (no surrounding quotes) to `out`, matching
-// nlohmann's compact dump() (ensure_ascii=false): escape " \ and control chars,
-// pass everything else (incl. UTF-8, '/') through verbatim.
+// append JSON-escaped string contents (no surrounding quotes) to `out`, matching nlohmann's compact dump()
 static void json_escape_into(const std::string &s, std::string &out) {
     static const char *hex = "0123456789abcdef";
     // most strings (field names, "user-123", etc.) contain nothing that needs escaping.

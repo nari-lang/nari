@@ -3,7 +3,6 @@
 // immediately by GET_PROPERTY would, on the 2nd+ call where the allocator
 // reuses the freed ObjectObj's address with the same shape_version, hit a
 // stale IC entry whose val_ptr pointed into the freed std::vector buffer.
-// Symptom: garbage float values where strings/ints are expected.
 
 func test(label, expected, actual) {
     if (expected != actual) {
