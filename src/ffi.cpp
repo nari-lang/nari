@@ -365,7 +365,7 @@ static Value read_ffi_scalar(const char *ptr, FFIType type) {
         case FFIType::UInt64: {
             uint64_t val;
             memcpy(&val, ptr, sizeof(val));
-            return Value::make_int(static_cast<int64_t>(val));
+            return Value::make_int((int64_t)val);
         }
         case FFIType::Float: {
             float val;
@@ -403,7 +403,7 @@ static bool try_float_to_int(double value, T &result) {
     value = std::trunc(value);
 
     // [0, 2^digits) for unsigned T, [-2^digits, 2^digits) for signed T.
-    const double upper_exclusive = static_cast<double>(std::numeric_limits<T>::max()) + 1.0;
+    const double upper_exclusive = (double)std::numeric_limits<T>::max() + 1.0;
 
     if constexpr (std::is_unsigned_v<T>) {
         if (value < 0.0 || value >= upper_exclusive) {
@@ -411,14 +411,14 @@ static bool try_float_to_int(double value, T &result) {
         }
     } else {
         // min() is always an exact power of two for signed T
-        const double lower = static_cast<double>(std::numeric_limits<T>::min());
+        const double lower = (double)std::numeric_limits<T>::min();
 
         if (value < lower || value >= upper_exclusive) {
             return false;
         }
     }
 
-    result = static_cast<T>(value);
+    result = (T)value;
     return true;
 }
 
@@ -795,7 +795,7 @@ static intptr_t value_to_gp(const Value &v, FFIType t) {
             }
             return 0;
         case FFIType::Pointer:
-            return v.is_int() ? static_cast<intptr_t>(v.get_ptr_bits())
+            return v.is_int() ? (intptr_t)v.get_ptr_bits()
                               : reinterpret_cast<intptr_t>(managed_struct_pointer(v)); // strings handled by caller
         default:                                                                       // all integer types
             return v.is_int() ? v.get_int() : (intptr_t)v.get_float();
@@ -1131,19 +1131,19 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
         case FFIType::Int8:
             return Value::make_int(return_value.i8);
         case FFIType::UInt8:
-            return Value::make_int(static_cast<int64_t>(return_value.u8_int));
+            return Value::make_int((int64_t)return_value.u8_int);
         case FFIType::Int16:
             return Value::make_int(return_value.i16);
         case FFIType::UInt16:
-            return Value::make_int(static_cast<int64_t>(return_value.u16));
+            return Value::make_int((int64_t)return_value.u16);
         case FFIType::Int32:
             return Value::make_int(return_value.i32);
         case FFIType::Int64:
             return Value::make_int(return_value.i64);
         case FFIType::UInt32:
-            return Value::make_int(static_cast<int64_t>(return_value.u32));
+            return Value::make_int((int64_t)return_value.u32);
         case FFIType::UInt64:
-            return Value::make_int(static_cast<int64_t>(return_value.u64));
+            return Value::make_int((int64_t)return_value.u64);
         case FFIType::Float:
             return Value::make_float(return_value.f32);
         case FFIType::Double:
@@ -1224,19 +1224,19 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
         case FFIType::Int8:
             return Value::make_int(return_value.i8);
         case FFIType::UInt8:
-            return Value::make_int(static_cast<int64_t>(return_value.u8_int));
+            return Value::make_int((int64_t)return_value.u8_int);
         case FFIType::Int16:
             return Value::make_int(return_value.i16);
         case FFIType::UInt16:
-            return Value::make_int(static_cast<int64_t>(return_value.u16));
+            return Value::make_int((int64_t)return_value.u16);
         case FFIType::Int32:
             return Value::make_int(return_value.i32);
         case FFIType::Int64:
             return Value::make_int(return_value.i64);
         case FFIType::UInt32:
-            return Value::make_int(static_cast<int64_t>(return_value.u32));
+            return Value::make_int((int64_t)return_value.u32);
         case FFIType::UInt64:
-            return Value::make_int(static_cast<int64_t>(return_value.u64));
+            return Value::make_int((int64_t)return_value.u64);
         case FFIType::Float:
             return Value::make_float(return_value.f32);
         case FFIType::Double:
@@ -1245,7 +1245,7 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
             return Value::make_bool(return_value.u8 != 0);
         case FFIType::Pointer:
             if (return_value.ptr != nullptr) {
-                const char *str = static_cast<const char *>(return_value.ptr);
+                const char *str = (const char *)return_value.ptr;
                 return Value::make_string(std::string(str));
             }
             return Value::make_int(0);
@@ -1272,7 +1272,7 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
                         uint8_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(uint8_t));
                         result_oobj2->set_field(field.name,
-                                                Value::make_int(static_cast<int64_t>(val)));
+                                                Value::make_int((int64_t)val));
                         offset += sizeof(uint8_t);
                         break;
                     }
@@ -1286,8 +1286,7 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
                     case FFIType::UInt16: {
                         uint16_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(uint16_t));
-                        result_oobj2->set_field(field.name,
-                                                Value::make_int(static_cast<int64_t>(val)));
+                        result_oobj2->set_field(field.name, Value::make_int((int64_t)val));
                         offset += sizeof(uint16_t);
                         break;
                     }
@@ -1308,14 +1307,14 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
                     case FFIType::UInt32: {
                         uint32_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(uint32_t));
-                        result_oobj2->set_field(field.name, Value::make_int(static_cast<int64_t>(val)));
+                        result_oobj2->set_field(field.name, Value::make_int((int64_t)val));
                         offset += sizeof(uint32_t);
                         break;
                     }
                     case FFIType::UInt64: {
                         uint64_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(uint64_t));
-                        result_oobj2->set_field(field.name, Value::make_int(static_cast<int64_t>(val)));
+                        result_oobj2->set_field(field.name, Value::make_int((int64_t)val));
                         offset += sizeof(uint64_t);
                         break;
                     }
@@ -1677,7 +1676,7 @@ Value read_struct_from_memory(void *ptr, const std::string &type_name) {
         return Value::none();
     }
 
-    return read_ffi_struct(static_cast<const char *>(ptr), *struct_def);
+    return read_ffi_struct((const char *)ptr, *struct_def);
 }
 
 bool write_struct_to_memory(void *ptr, const std::string &type_name, const Value &obj) {
@@ -1703,7 +1702,7 @@ bool write_struct_to_memory(void *ptr, const std::string &type_name, const Value
         return false;
     }
 
-    return write_ffi_struct(static_cast<char *>(ptr), *struct_def, obj);
+    return write_ffi_struct((char *)ptr, *struct_def, obj);
 }
 
 FFICallback::~FFICallback() {
@@ -1723,7 +1722,7 @@ extern "C" int ffi_reentry_depth() {
 
 // trampoline function that gets called from C and dispatches to Nari
 void FFICallbackManager::callback_trampoline(ffi_cif *cif, void *ret, void **args, void *user_data) {
-    auto *callback = static_cast<FFICallback *>(user_data);
+    auto *callback = (FFICallback *)user_data;
     if (!callback || !callback->runtime) {
         fprintf(stderr, "ERROR: Invalid callback data in trampoline\n");
         return;
@@ -1741,40 +1740,40 @@ void FFICallbackManager::callback_trampoline(ffi_cif *cif, void *ret, void **arg
                 nari_args.push_back(Value::none());
                 break;
             case FFIType::Int8:
-                nari_args.push_back(Value::make_int(*static_cast<int8_t *>(arg_ptr)));
+                nari_args.push_back(Value::make_int(*(int8_t *)arg_ptr));
                 break;
             case FFIType::UInt8:
-                nari_args.push_back(Value::make_int(*static_cast<uint8_t *>(arg_ptr)));
+                nari_args.push_back(Value::make_int(*(uint8_t *)arg_ptr));
                 break;
             case FFIType::Int16:
-                nari_args.push_back(Value::make_int(*static_cast<int16_t *>(arg_ptr)));
+                nari_args.push_back(Value::make_int(*(int16_t *)arg_ptr));
                 break;
             case FFIType::UInt16:
-                nari_args.push_back(Value::make_int(*static_cast<uint16_t *>(arg_ptr)));
+                nari_args.push_back(Value::make_int(*(uint16_t *)arg_ptr));
                 break;
             case FFIType::Int32:
-                nari_args.push_back(Value::make_int(*static_cast<int32_t *>(arg_ptr)));
+                nari_args.push_back(Value::make_int(*(int32_t *)arg_ptr));
                 break;
             case FFIType::Int64:
-                nari_args.push_back(Value::make_int(*static_cast<int64_t *>(arg_ptr)));
+                nari_args.push_back(Value::make_int(*(int64_t *)arg_ptr));
                 break;
             case FFIType::UInt32:
-                nari_args.push_back(Value::make_int(*static_cast<uint32_t *>(arg_ptr)));
+                nari_args.push_back(Value::make_int(*(uint32_t *)arg_ptr));
                 break;
             case FFIType::UInt64:
-                nari_args.push_back(Value::make_int(static_cast<int64_t>(*static_cast<uint64_t *>(arg_ptr))));
+                nari_args.push_back(Value::make_int((int64_t)(*(uint64_t *)arg_ptr)));
                 break;
             case FFIType::Float:
-                nari_args.push_back(Value::make_float(*static_cast<float *>(arg_ptr)));
+                nari_args.push_back(Value::make_float(*(float *)arg_ptr));
                 break;
             case FFIType::Double:
-                nari_args.push_back(Value::make_float(*static_cast<double *>(arg_ptr)));
+                nari_args.push_back(Value::make_float(*(double *)arg_ptr));
                 break;
             case FFIType::Bool:
-                nari_args.push_back(Value::make_bool(*static_cast<uint8_t *>(arg_ptr) != 0));
+                nari_args.push_back(Value::make_bool(*(uint8_t *)arg_ptr != 0));
                 break;
             case FFIType::Pointer: {
-                void *ptr = *static_cast<void **>(arg_ptr);
+                void *ptr = *(void **)arg_ptr;
                 nari_args.push_back(Value::make_int(reinterpret_cast<int64_t>(ptr)));
                 break;
             }
@@ -1785,18 +1784,12 @@ void FFICallbackManager::callback_trampoline(ffi_cif *cif, void *ret, void **arg
     }
 
     // Bump the FFI-reentry depth so the bytecode VM and JIT entry paths can
-    // detect that we're being driven by a native callback. The JIT in
-    // particular has a leak when its compiled code is reentered while
-    // another JIT-compiled frame is on the stack (it allocates per-frame
-    // state on heap that's not freed on the reentrant return path), so
-    // call sites that observe nonzero ffi_reentry_depth() must take the
-    // bytecode interpreter path instead.
+    // detect that we're being driven by a native callback.
     extern thread_local int g_ffi_reentry_depth;
     g_ffi_reentry_depth++;
 
-    // call nari func. nari_args is a C++ local live across the nested call
-    // (safe-points); root it so a collection can't sweep its
-    // elements. (callback->nari_function is rooted globally via the manager.)
+    // call nari func. nari_args is a C++ local live across the nested call. 
+    // Root it so a collection can't sweep its elements.
     Value result;
     {
         ScriptRuntime::GcTempRoot _gr(*callback->runtime);
@@ -1810,61 +1803,61 @@ void FFICallbackManager::callback_trampoline(ffi_cif *cif, void *ret, void **arg
         case FFIType::Void:
             break;
         case FFIType::Int8:
-            *static_cast<int8_t *>(ret) = result.is_int() ? static_cast<int8_t>(result.get_int()) : 0;
+            *(int8_t *)ret = result.is_int() ? (int8_t)result.get_int() : 0;
             break;
         case FFIType::UInt8:
-            *static_cast<uint8_t *>(ret) = result.is_int() ? static_cast<uint8_t>(result.get_int()) : 0;
+            *(uint8_t *)ret = result.is_int() ? (uint8_t)result.get_int() : 0;
             break;
         case FFIType::Int16:
-            *static_cast<int16_t *>(ret) = result.is_int() ? static_cast<int16_t>(result.get_int()) : 0;
+            *(int16_t *)ret = result.is_int() ? (int16_t)result.get_int() : 0;
             break;
         case FFIType::UInt16:
-            *static_cast<uint16_t *>(ret) = result.is_int() ? static_cast<uint16_t>(result.get_int()) : 0;
+            *(uint16_t *)ret = result.is_int() ? (uint16_t)result.get_int() : 0;
             break;
         case FFIType::Int32:
-            *static_cast<int32_t *>(ret) = result.is_int() ? static_cast<int32_t>(result.get_int()) : 0;
+            *(int32_t *)ret = result.is_int() ? (int32_t)result.get_int() : 0;
             break;
         case FFIType::Int64:
-            *static_cast<int64_t *>(ret) = result.is_int() ? result.get_int() : 0;
+            *(int64_t *)ret = result.is_int() ? result.get_int() : 0;
             break;
         case FFIType::UInt32:
-            *static_cast<uint32_t *>(ret) = result.is_int() ? static_cast<uint32_t>(result.get_int()) : 0;
+            *(uint32_t *)ret = result.is_int() ? (uint32_t)result.get_int() : 0;
             break;
         case FFIType::UInt64:
-            *static_cast<uint64_t *>(ret) = result.is_int() ? static_cast<uint64_t>(result.get_int()) : 0;
+            *(uint64_t *)ret = result.is_int() ? (uint64_t)result.get_int() : 0;
             break;
         case FFIType::Float:
             if (result.is_float()) {
-                *static_cast<float *>(ret) = static_cast<float>(result.get_float());
+                *(float *)ret = (float)result.get_float();
             } else if (result.is_int()) {
-                *static_cast<float *>(ret) = static_cast<float>(result.get_int());
+                *(float *)ret = (float)result.get_int();
             } else {
-                *static_cast<float *>(ret) = 0.0f;
+                *(float *)ret = 0.0f;
             }
             break;
         case FFIType::Double:
             if (result.is_float()) {
-                *static_cast<double *>(ret) = result.get_float();
+                *(double *)ret = result.get_float();
             } else if (result.is_int()) {
-                *static_cast<double *>(ret) = static_cast<double>(result.get_int());
+                *(double *)ret = (double)result.get_int();
             } else {
-                *static_cast<double *>(ret) = 0.0;
+                *(double *)ret = 0.0;
             }
             break;
         case FFIType::Bool:
             if (result.is_bool()) {
-                *static_cast<uint8_t *>(ret) = result.get_bool() ? 1 : 0;
+                *(uint8_t *)ret = result.get_bool() ? 1 : 0;
             } else if (result.is_int()) {
-                *static_cast<uint8_t *>(ret) = result.get_int() != 0 ? 1 : 0;
+                *(uint8_t *)ret = result.get_int() != 0 ? 1 : 0;
             } else {
-                *static_cast<uint8_t *>(ret) = 0;
+                *(uint8_t *)ret = 0;
             }
             break;
         case FFIType::Pointer:
             if (result.is_int()) {
-                *static_cast<void **>(ret) = result.get_ptr();
+                *(void **)ret = result.get_ptr();
             } else {
-                *static_cast<void **>(ret) = managed_struct_pointer(result);
+                *(void **)ret = managed_struct_pointer(result);
             }
             break;
         default:
@@ -1924,7 +1917,7 @@ void *FFICallbackManager::create_callback(const FFISignature &sig, const Value &
     ffi_type *return_type = get_ffi_type_ptr(sig.return_type);
     ffi_status status = ffi_prep_cif(
         &callback->cif, FFI_DEFAULT_ABI,
-        static_cast<unsigned int>(sig.param_types.size()),
+        (unsigned int)sig.param_types.size(),
         return_type, callback->param_types.data());
 
     if (status != FFI_OK) {
@@ -1932,7 +1925,7 @@ void *FFICallbackManager::create_callback(const FFISignature &sig, const Value &
         return nullptr;
     }
 
-    callback->closure = static_cast<ffi_closure *>(ffi_closure_alloc(sizeof(ffi_closure), &callback->executable_code));
+    callback->closure = (ffi_closure *)ffi_closure_alloc(sizeof(ffi_closure), &callback->executable_code);
     if (!callback->closure) {
         fprintf(stderr, "ERROR: ffi_closure_alloc failed\n");
         return nullptr;
