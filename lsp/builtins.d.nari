@@ -35,6 +35,10 @@ func from_char_code(code: number) -> string {}
 // Prints values to stdout separated by spaces with no trailing newline.
 func print(...values) {}
 
+// Parses and executes Nari source at runtime.
+// Returns the value of the expression (or of an explicit return) in the source, else null.
+func eval(source: string) {}
+
 // Random / time
 
 // Returns a random float in [0, 1).

@@ -2,6 +2,91 @@
 
 #include <cmath>
 
+// eval(source): parse and execute Nari source at runtime, returning the value
+// of the expression (or of an explicit return) in the source.
+Value ScriptRuntime::builtin_eval(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+#ifdef DISABLE_PARSER
+    runtime_fatal("eval is unavailable in this build (parser disabled)", call);
+    return Value::none();
+#else
+    if (argc != 1 || !argvals[0].is_string()) {
+        runtime_fatal("eval expects a single string argument", call);
+        return Value::none();
+    }
+    const std::string src = argvals[0].get_string();
+
+    static size_t eval_counter = 0;
+    const std::string wrapper_name = "__eval_fn_" + std::to_string(eval_counter++);
+    const std::string eval_toplevel = "__top_level__@<eval>";
+    const std::string saved_filename =
+        (call && !call->filename.empty()) ? call->filename : "<eval>";
+
+    auto parse_src = [&](bool wrap, std::vector<Parser::ParseError> &errors) -> FuncList {
+        Parser::set_source_filename("<eval>");
+        
+        Parser::ParseResult result = Parser::parse_program_recovering(
+                wrap ? "func " + wrapper_name + "() {\nreturn (" + src + ");\n}\n" : src,
+                false);
+
+        Parser::set_source_filename(saved_filename);
+        if (!result.ok()) {
+            errors = std::move(result.errors);
+            return {};
+        }
+        return std::move(result.functions);
+    };
+
+    std::vector<Parser::ParseError> errors;
+    FuncList funcs = parse_src(/*wrap=*/true, errors);
+    if (funcs.empty()) {
+        errors.clear();
+        funcs = parse_src(/*wrap=*/false, errors);
+    }
+    if (funcs.empty()) {
+        std::string msg = "eval: failed to parse source";
+        if (!errors.empty()) {
+            msg += ": " + errors.front().message;
+            if (errors.front().line > 0) {
+                msg += " (line " + std::to_string(errors.front().line) + ")";
+            }
+        }
+        runtime_fatal(msg, call);
+        return Value::none();
+    }
+
+    // add parsed function to running program
+    std::vector<Function *> import_toplevels;
+    Function *wrapper_fn = nullptr;
+    for (auto &f : funcs) {
+        if (!f) {
+            continue;
+        }
+        if (f->name == wrapper_name) {
+            wrapper_fn = f.get();
+        } else if (f->name == eval_toplevel) {
+            // rename so that repeated evals of the same content don't collide
+            f->name = wrapper_name;
+            wrapper_fn = f.get();
+        } else if (f->name.find("__top_level__@") == 0) {
+            // imported modules carry their own top-level functions
+            import_toplevels.push_back(f.get());
+            toplevel_order.push_back(f->name);
+        }
+        functions[f->name] = std::move(f);
+    }
+    
+    for (Function *toplevel : import_toplevels) {
+        execute_toplevel_function(toplevel);
+    }
+
+    if (!wrapper_fn) {
+        // declarations only, nothing to run
+        return Value::none();
+    }
+    return call_user_function(wrapper_fn, {});
+#endif
+}
+
 Value ScriptRuntime::builtin_print(const Value *argvals, size_t argc, const nari::CallExpr *) {
     std::string line;
     for (size_t i = 0; i < argc; ++i) {

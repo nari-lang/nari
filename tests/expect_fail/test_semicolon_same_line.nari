@@ -1,0 +1,2 @@
+// two statements on the same line without a separating semicolon must be a parse error
+let x = 1 print(x)

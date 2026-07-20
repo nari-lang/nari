@@ -380,7 +380,8 @@ func __stdlib_init__() {
           return result;
       }
   }
-    global Spawn = {
+  
+  global Spawn = {
         // race: Returns the fastest completing handle
         race: func(handles) {
             let i = 0;

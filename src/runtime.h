@@ -109,10 +109,11 @@ void runtime_log(TraceLevel level, const std::string &msg);
 #endif
 
 #define BUILTIN_FUNCTIONS(X)                                        \
-    X("__process_exec", builtin_process_exec)                         \
+    X("__process_exec", builtin_process_exec)                       \
+    X("eval", builtin_eval)                                         \
     X("print", builtin_print)                                       \
     X("panic", builtin_panic)                                       \
-    X("set_timeout", builtin_setTimeout)                             \
+    X("set_timeout", builtin_setTimeout)                            \
     X("__math_floor", builtin_math_floor)                           \
     X("__math_ceil", builtin_math_ceil)                             \
     X("__math_sqrt", builtin_math_sqrt)                             \
@@ -796,6 +797,7 @@ class ScriptRuntime {
     void execute_toplevel_function(Function *f);
     void ensure_module_loaded(const std::string &module_name, const ASTNode *site = nullptr);
 
+    Value builtin_eval(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_print(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_panic(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_setTimeout(const Value *argvals, size_t argc, const CallExpr *);

@@ -1,0 +1,3 @@
+// eval of unparseable source must abort with a runtime error
+eval("1 +");
+panic("eval did not fail");

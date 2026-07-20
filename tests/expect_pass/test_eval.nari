@@ -1,0 +1,42 @@
+func assert(cond, msg) {
+    if (!cond) { panic(msg); }
+}
+
+// expression form returns the expression's value
+assert(eval("1 + 2") == 3, "arith expr, got " @ eval("1 + 2"));
+assert(eval("6 * 7") == 42, "int mul");
+assert(eval("(10 + 4) / 2") == 7, "precedence");
+assert(eval("\"foo\" @ \"bar\"") == "foobar", "string concat");
+
+// statement form: value comes from an explicit return
+assert(eval("let x = 40; return x + 2") == 42, "statement form");
+
+// statement form without a return yields null
+assert(eval("let x = 1") == null, "no return yields null");
+
+// eval'd code can call user-defined functions
+func add(a, b) { return a + b; }
+assert(eval("add(20, 22)") == 42, "call program function");
+
+// eval'd code can define and call its own functions
+assert(eval("func helper(x) { return x * 2; } return helper(21)") == 42, "define + call own function");
+
+// functions defined by one eval are visible to later evals
+// do note that this doesn't work the other way around (yet)
+eval("func eval_defined() { return 42; }");
+assert(eval("eval_defined()") == 42, "eval-defined function visible to later eval");
+
+// eval'd code can read globals
+global g = 42;
+assert(eval("g + 1") == 43, "read global");
+
+// builtins and stdlib are callable from eval'd code
+assert(eval("to_string(42)") == "42", "builtin call");
+
+// nested eval
+assert(eval("eval(\"3 * 14\")") == 42, "nested eval");
+
+// multi-line source
+assert(eval("let a = 20;\nlet b = 22;\nreturn a + b;") == 42, "multi-line source");
+
+print("test_eval: all passed");

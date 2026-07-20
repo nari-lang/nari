@@ -613,6 +613,11 @@ class Parser {
         auto parse_one = [&]() -> bool {
             const Token &tok = peek();
 
+            if (tok.kind == TokenKind::TK_SEMICOLON) {
+                next();
+                return true;
+            }
+
             // aggregate declaration: type Name<T> { ... } or union Name { ... }
             if (tok.kind == TokenKind::TK_IDENT &&
                 ((tok.text == "type" && looks_like_type_decl()) ||
@@ -1761,6 +1766,10 @@ class Parser {
         expect(TokenKind::TK_LBRACE, "block start '{'");
         auto blk = std::make_unique<nari::BlockStmt>();
         while (!is_eof() && peek().kind != TokenKind::TK_RBRACE) {
+            if (peek().kind == TokenKind::TK_SEMICOLON) {
+                next();
+                continue;
+            }
             auto stmt = parse_stmt();
             if (stmt) {
                 blk->stmts.push_back(std::move(stmt));
@@ -3060,7 +3069,38 @@ class Parser {
     }
 
     // parse assignment, expression-statement, and block statements.
+    // semicolons are optional, but two statements on the same line *must* be separated by one
+    void check_statement_boundary() {
+        if (idx == 0 || idx > toks.size()) {
+            return;
+        }
+        const Token &last = toks[idx - 1];
+        if (last.kind == TokenKind::TK_SEMICOLON || last.kind == TokenKind::TK_RBRACE) {
+            return;
+        }
+        const Token &nt = peek();
+        if (nt.kind == TokenKind::TK_EOF || nt.kind == TokenKind::TK_RBRACE ||
+            nt.kind == TokenKind::TK_SEMICOLON) {
+            return;
+        }
+        if (nt.kind == TokenKind::TK_IDENT &&
+            (nt.text == "else" || nt.text == "case" || nt.text == "default")) {
+            return;
+        }
+        if (nt.line == last.line) {
+            error_and_exit("Expected ';' or newline between statements, found '" + token_desc(nt) + "'");
+        }
+    }
+
     StmtPtr parse_stmt() {
+        StmtPtr stmt = parse_stmt_core();
+        if (stmt) {
+            check_statement_boundary();
+        }
+        return stmt;
+    }
+
+    StmtPtr parse_stmt_core() {
         const Token &tok = peek();
         if (tok.kind == TokenKind::TK_IDENT) {
             // control flow keywords
@@ -3628,6 +3668,10 @@ class Parser {
                     if (peek().kind == TokenKind::TK_IDENT && (peek().text == "case" || peek().text == "default")) {
                         break;
                     }
+                    if (peek().kind == TokenKind::TK_SEMICOLON) {
+                        next();
+                        continue;
+                    }
                     StmtPtr st = parse_stmt();
                     if (st) {
                         body->stmts.push_back(std::move(st));
@@ -3650,6 +3694,10 @@ class Parser {
                 while (!is_eof() && peek().kind != TokenKind::TK_RBRACE) {
                     if (peek().kind == TokenKind::TK_IDENT && (peek().text == "case" || peek().text == "default")) {
                         break;
+                    }
+                    if (peek().kind == TokenKind::TK_SEMICOLON) {
+                        next();
+                        continue;
                     }
                     StmtPtr st = parse_stmt();
                     if (st) {

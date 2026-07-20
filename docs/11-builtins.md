@@ -661,6 +661,28 @@ let h = delegate_handler(d);
 **Parameters:** `delegate`  
 **Returns:** The target object / handler
 
+## Dynamic Evaluation
+
+### eval
+
+Parse and execute Nari source code at runtime. A bare expression evaluates to its value,
+whereas statement sequences return the value of an explicit `return` (or `null` without one).
+
+```nari
+eval("1 + 2");                        // 3
+eval("let x = 40; return x + 2");     // 42
+eval("func helper() { return 7; }");  // defines helper for later evals
+```
+
+Evaluated code can call global functions and read globals, and functions it
+defines remain visible to later `eval` calls. It cannot see the caller's local
+variables (indirect-eval semantics). However functions defined by
+`eval` cannot be called in compiled programs directly.
+This will be supported later, it was just too difficult to implement for now.
+
+**Parameters:** `source` (string)  
+**Returns:** The value of the expression or `return`, else `null`
+
 ## Next Steps
 
 - [String Methods](13-string-methods.md) - Detailed string operations

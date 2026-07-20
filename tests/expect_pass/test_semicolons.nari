@@ -1,0 +1,44 @@
+func assert(cond, msg) {
+    if (!cond) { panic(msg); }
+}
+
+// semicolons are optional at line ends
+let a = 1
+let b = 2;
+assert(a + b == 3, "optional semicolons");
+
+// semicolons separate statements on the same line
+let c = 1; let d = 2;
+assert(c + d == 3, "same-line statements need semicolons");
+
+// stray semicolons (empty statements) are tolerated
+let e = 1;; assert(e == 1, "stray semicolons");;
+
+// a declaration's closing brace may be followed by an optional semicolon
+func greet() { return "hi"; }; assert(greet() == "hi", "semicolon after func decl");
+
+// statements may follow a closing brace on the same line (brace terminates)
+if (a == 1) { b = 10 } assert(b == 10, "statement after closing brace");
+
+// braceless if/else on one line
+if (a == 1) c = 5 else c = 6;
+assert(c == 5, "braceless if-else one-liner");
+if (a == 2) c = 7; else c = 8;
+assert(c == 8, "braceless if-else with semicolon");
+
+// expressions may continue on the next line
+let f = 1 +
+    2;
+assert(f == 3, "multi-line expression");
+
+// switch cases on one line
+func classify(n) {
+    switch (n) {
+        case 1: return "one";
+        case 2: return "two";
+        default: return "many";
+    }
+}
+assert(classify(2) == "two", "switch one-line case");
+
+print("test_semicolons: all passed");

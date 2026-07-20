@@ -1257,6 +1257,13 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
             if (global_it != globals.end()) {
                 return global_it->second;
             }
+            // when running under the bytecode VM, resolve through its globals table
+            if (external_global_lookup) {
+                Value ext_global = external_global_lookup(identExpr->name);
+                if (!ext_global.is_none()) {
+                    return ext_global;
+                }
+            }
             // check if it's a function name (for first-class function support)
             auto func_it = functions.find(identExpr->name);
             if (func_it != functions.end()) {
@@ -1750,23 +1757,23 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                             if (func_it != functions.end()) {
                                 return call_user_function(func_it->second.get(), argvals);
                             }
+
+                            // otherwise dispatch to the bytecode VM
+                            if (external_call_function_value) {
+                                return external_call_function_value(*it, argvals);
+                            }
                         }
                         // member exists but is not a function, fall through to error
                     }
                 }
 
-                // Delegate method call: obj.method(args) resolves `method` via the
-                // get trap, then invokes the result. After the object fast path so
-                // shape prop-IC is untouched. Matches Proxy get-then-call semantics.
+                // Delegate method call: obj.method(args) resolves `method` via the get trap, then invokes the result
                 if (obj.is_delegate()) {
                     std::vector<Value> argvals;
                     argvals.reserve(callExpr->args.size());
                     for (const auto &a : callExpr->args) {
                         argvals.push_back(eval_expr(a.get()));
                     }
-                    // has_key is Nari's containment check, so route it to the has
-                    // trap (Proxy semantics: `key in proxy` -> has). Every other
-                    // method resolves through the get trap then is invoked.
                     if (method_name == "has_key" && argvals.size() == 1) {
                         return Value::make_bool(delegate_has(obj, argvals[0]));
                     }
@@ -1851,6 +1858,11 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 auto it = functions.find(func_val.name);
                 if (it != functions.end()) {
                     return call_user_function(it->second.get(), argvals);
+                }
+
+                // otherwise dispatch to the bytecode VM
+                if (external_call_function_value) {
+                    return external_call_function_value(calleeVal, argvals);
                 }
             }
 
