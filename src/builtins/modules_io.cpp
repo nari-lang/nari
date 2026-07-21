@@ -484,8 +484,9 @@ Value ScriptRuntime::builtin_time_parse_iso(const Value *argvals, size_t argc, c
     }
     int64_t ms = static_cast<int64_t>(t) * 1000 + frac_ms;
     if (saw_tz && tz_sign != 0) {
-        int64_t off_sec = (tz_h * 3600 + tz_m * 60) * tz_sign;
-        ms -= off_sec * 1000;
+        int64_t off_sec = (tz_h * 3600LL + tz_m * 60LL) * tz_sign;
+
+        ms -= off_sec * 1000LL;
     }
     return make_ok(Value::make_int(ms));
 }
