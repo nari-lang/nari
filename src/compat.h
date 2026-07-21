@@ -20,13 +20,11 @@ namespace compat {
 using std::bit_cast;
 #else
 template <class To, class From>
-typename std::enable_if<
-    sizeof(To) == sizeof(From) &&
-        std::is_trivially_copyable<From>::value &&
-        std::is_trivially_copyable<To>::value,
-    To>::type
-bit_cast(const From &src) noexcept {
-    static_assert(std::is_trivially_constructible<To>::value, "compat::bit_cast<To> requires To to be trivially constructible");
+typename std::enable_if<sizeof(To) == sizeof(From) && std::is_trivially_copyable<From>::value &&
+                            std::is_trivially_copyable<To>::value,
+                        To>::type bit_cast(const From &src) noexcept {
+    static_assert(std::is_trivially_constructible<To>::value,
+                  "compat::bit_cast<To> requires To to be trivially constructible");
     To dst;
     std::memcpy(&dst, &src, sizeof(To));
     return dst;

@@ -1,0 +1,20 @@
+import { a, b as c } from "./mod.nari";
+export func run() { return a; }
+enum Option<T> {
+    Some(T),
+    None
+}
+class Point {
+    x: number;
+    constructor(x: number) { this.x = x; }
+}
+type User {
+    id: number;
+    name: string
+}
+let re = /a+b\/c/i;
+let msg = `hi \{notvar} {name:.3f}!`;
+let arr = [1, 2, ...rest];
+let m = { "key": 1, nested: { a: 2 } };
+let f = func(x) => x * 2;
+let g = Box<Pair<number>>.create();

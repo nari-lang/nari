@@ -24,79 +24,79 @@ class AsmJITMethodCompiler;
 namespace nari {
 namespace bytecode {
 
-#define OPCODE_LIST(X)              \
-    X(LOAD_CONST, 2, false)          \
-    X(LOAD_VAR, 2, false)            \
-    X(STORE_VAR, 2, false)           \
-    X(LOAD_GLOBAL, 2, false)         \
-    X(STORE_GLOBAL, 2, false)        \
-    X(POP, 0, false)                 \
-    X(DUP, 0, false)                 \
-    X(LOAD_NONE, 0, false)           \
-    X(LOAD_TRUE, 0, false)           \
-    X(LOAD_FALSE, 0, false)          \
-    X(LOAD_ZERO, 0, false)           \
-    X(LOAD_ONE, 0, false)            \
-    X(ADD, 0, false)                 \
-    X(SUB, 0, false)                 \
-    X(MUL, 0, false)                 \
-    X(DIV, 0, false)                 \
-    X(MOD, 0, false)                 \
-    X(POW, 0, false)                 \
-    X(NEG, 0, false)                 \
-    X(STR_CONCAT, 0, false)          \
-    X(STR_APPEND_VAR, 2, false)      \
-    X(STR_APPEND_GLOBAL, 2, false)   \
-    X(BIT_AND, 0, false)             \
-    X(BIT_OR, 0, false)              \
-    X(BIT_XOR, 0, false)             \
-    X(BIT_NOT, 0, false)             \
-    X(LSHIFT, 0, false)              \
-    X(RSHIFT, 0, false)              \
-    X(NOT, 0, false)                 \
-    X(EQ, 0, false)                  \
-    X(NE, 0, false)                  \
-    X(LT, 0, false)                  \
-    X(LE, 0, false)                  \
-    X(GT, 0, false)                  \
-    X(GE, 0, false)                  \
-    X(JUMP, 2, false)                \
-    X(JUMP_IF_FALSE, 2, false)       \
-    X(JUMP_IF_TRUE, 2, false)        \
-    X(JUMP_IF_NONE, 2, false)        \
-    X(CALL, 3, false)                \
-    X(SELF_TAIL_CALL, 1, false)      \
-    X(RETURN, 0, false)              \
-    X(MAKE_CLOSURE, 3, true)         \
-    X(SPAWN, 0, false)               \
-    X(MAKE_ARRAY, 2, false)          \
-    X(MAKE_OBJECT, 2, false)         \
-    X(ARRAY_PUSH, 0, false)          \
-    X(ARRAY_SPREAD, 0, false)        \
-    X(OBJECT_SPREAD, 0, false)       \
-    X(OBJECT_SET, 2, false)          \
-    X(CALL_SPREAD, 2, false)         \
-    X(MAKE_REGEX, 4, false)          \
-    X(GET_INDEX, 0, false)           \
-    X(SET_INDEX, 0, false)           \
-    X(GET_PROPERTY, 2, false)        \
-    X(SET_PROPERTY, 2, false)        \
-    X(MAKE_ITERATOR, 0, false)       \
-    X(ITER_NEXT, 0, false)           \
-    X(MAKE_ITERATOR_KV, 0, false)    \
-    X(ITER_NEXT_KV, 0, false)        \
-    X(LOAD_CAPTURE, 2, false)        \
-    X(STORE_CAPTURE, 2, false)       \
-    X(THROW, 0, false)               \
-    X(SETUP_TRY, 4, false)           \
-    X(POP_TRY, 0, false)             \
-    X(BEGIN_CATCH, 0, false)         \
-    X(BEGIN_FINALLY, 0, false)       \
-    X(NEW_INSTANCE, 3, false)        \
-    X(LOAD_THIS, 0, false)           \
-    X(CALL_METHOD, 3, false)         \
-    X(CHECK_TYPE, 3, false)          \
-    X(FORMAT_VALUE, 2, false)        \
+#define OPCODE_LIST(X)                                                                                                 \
+    X(LOAD_CONST, 2, false)                                                                                            \
+    X(LOAD_VAR, 2, false)                                                                                              \
+    X(STORE_VAR, 2, false)                                                                                             \
+    X(LOAD_GLOBAL, 2, false)                                                                                           \
+    X(STORE_GLOBAL, 2, false)                                                                                          \
+    X(POP, 0, false)                                                                                                   \
+    X(DUP, 0, false)                                                                                                   \
+    X(LOAD_NONE, 0, false)                                                                                             \
+    X(LOAD_TRUE, 0, false)                                                                                             \
+    X(LOAD_FALSE, 0, false)                                                                                            \
+    X(LOAD_ZERO, 0, false)                                                                                             \
+    X(LOAD_ONE, 0, false)                                                                                              \
+    X(ADD, 0, false)                                                                                                   \
+    X(SUB, 0, false)                                                                                                   \
+    X(MUL, 0, false)                                                                                                   \
+    X(DIV, 0, false)                                                                                                   \
+    X(MOD, 0, false)                                                                                                   \
+    X(POW, 0, false)                                                                                                   \
+    X(NEG, 0, false)                                                                                                   \
+    X(STR_CONCAT, 0, false)                                                                                            \
+    X(STR_APPEND_VAR, 2, false)                                                                                        \
+    X(STR_APPEND_GLOBAL, 2, false)                                                                                     \
+    X(BIT_AND, 0, false)                                                                                               \
+    X(BIT_OR, 0, false)                                                                                                \
+    X(BIT_XOR, 0, false)                                                                                               \
+    X(BIT_NOT, 0, false)                                                                                               \
+    X(LSHIFT, 0, false)                                                                                                \
+    X(RSHIFT, 0, false)                                                                                                \
+    X(NOT, 0, false)                                                                                                   \
+    X(EQ, 0, false)                                                                                                    \
+    X(NE, 0, false)                                                                                                    \
+    X(LT, 0, false)                                                                                                    \
+    X(LE, 0, false)                                                                                                    \
+    X(GT, 0, false)                                                                                                    \
+    X(GE, 0, false)                                                                                                    \
+    X(JUMP, 2, false)                                                                                                  \
+    X(JUMP_IF_FALSE, 2, false)                                                                                         \
+    X(JUMP_IF_TRUE, 2, false)                                                                                          \
+    X(JUMP_IF_NONE, 2, false)                                                                                          \
+    X(CALL, 3, false)                                                                                                  \
+    X(SELF_TAIL_CALL, 1, false)                                                                                        \
+    X(RETURN, 0, false)                                                                                                \
+    X(MAKE_CLOSURE, 3, true)                                                                                           \
+    X(SPAWN, 0, false)                                                                                                 \
+    X(MAKE_ARRAY, 2, false)                                                                                            \
+    X(MAKE_OBJECT, 2, false)                                                                                           \
+    X(ARRAY_PUSH, 0, false)                                                                                            \
+    X(ARRAY_SPREAD, 0, false)                                                                                          \
+    X(OBJECT_SPREAD, 0, false)                                                                                         \
+    X(OBJECT_SET, 2, false)                                                                                            \
+    X(CALL_SPREAD, 2, false)                                                                                           \
+    X(MAKE_REGEX, 4, false)                                                                                            \
+    X(GET_INDEX, 0, false)                                                                                             \
+    X(SET_INDEX, 0, false)                                                                                             \
+    X(GET_PROPERTY, 2, false)                                                                                          \
+    X(SET_PROPERTY, 2, false)                                                                                          \
+    X(MAKE_ITERATOR, 0, false)                                                                                         \
+    X(ITER_NEXT, 0, false)                                                                                             \
+    X(MAKE_ITERATOR_KV, 0, false)                                                                                      \
+    X(ITER_NEXT_KV, 0, false)                                                                                          \
+    X(LOAD_CAPTURE, 2, false)                                                                                          \
+    X(STORE_CAPTURE, 2, false)                                                                                         \
+    X(THROW, 0, false)                                                                                                 \
+    X(SETUP_TRY, 4, false)                                                                                             \
+    X(POP_TRY, 0, false)                                                                                               \
+    X(BEGIN_CATCH, 0, false)                                                                                           \
+    X(BEGIN_FINALLY, 0, false)                                                                                         \
+    X(NEW_INSTANCE, 3, false)                                                                                          \
+    X(LOAD_THIS, 0, false)                                                                                             \
+    X(CALL_METHOD, 3, false)                                                                                           \
+    X(CHECK_TYPE, 3, false)                                                                                            \
+    X(FORMAT_VALUE, 2, false)                                                                                          \
     X(ITER_ARRAY, 0, false)
 
 enum class OpCode : uint8_t {
@@ -144,8 +144,7 @@ inline size_t opcode_fixed_size(OpCode op) {
     return operands < 0 ? 0 : 1 + static_cast<size_t>(operands);
 }
 
-template <typename Bytecode>
-inline size_t decoded_instruction_size(const Bytecode &code, size_t pc) {
+template <typename Bytecode> inline size_t decoded_instruction_size(const Bytecode &code, size_t pc) {
     if (pc >= code.size()) {
         return 0;
     }
@@ -169,13 +168,7 @@ inline size_t decoded_instruction_size(const Bytecode &code, size_t pc) {
 }
 
 struct Constant {
-    enum class Type {
-        NONE,
-        INT,
-        FLOAT,
-        STRING,
-        FUNCTION
-    };
+    enum class Type { NONE, INT, FLOAT, STRING, FUNCTION };
 
     Type type;
     union {
@@ -247,7 +240,8 @@ struct FunctionMeta {
     JitInlineKind jit_inline_kind = JitInlineKind::None;
     int64_t jit_inline_imm = 0;
 
-    FunctionMeta() : param_count(0), capture_count(0), rest_param_index(-1), is_lambda(false), strict_mode(false), return_vt(0) {
+    FunctionMeta()
+        : param_count(0), capture_count(0), rest_param_index(-1), is_lambda(false), strict_mode(false), return_vt(0) {
     }
 
     // Return the source line number for a given bytecode offset.
@@ -314,8 +308,7 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
         if ((OpCode)func_code[end_off] == OpCode::OP_RETURN) {
             return true;
         }
-        if (end_off + 4 < func_code.size() &&
-            (OpCode)func_code[end_off] == OpCode::OP_CHECK_TYPE &&
+        if (end_off + 4 < func_code.size() && (OpCode)func_code[end_off] == OpCode::OP_CHECK_TYPE &&
             func_code[end_off + 3] == 1 && // ctx=1 = return check
             (OpCode)func_code[end_off + 4] == OpCode::OP_RETURN) {
             return true;
@@ -324,12 +317,9 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
     };
 
     // 2-arg body: LOAD_VAR(0) LOAD_VAR(1) op [CHECK_TYPE] RETURN
-    if (base + 7 <= func_code.size() &&
-        (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR &&
-        func_code[base + 1] == 0 && func_code[base + 2] == 0 &&
-        (OpCode)func_code[base + 3] == OpCode::OP_LOAD_VAR &&
-        func_code[base + 4] == 0 && func_code[base + 5] == 1 &&
-        is_return_end(base + 7)) {
+    if (base + 7 <= func_code.size() && (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR &&
+        func_code[base + 1] == 0 && func_code[base + 2] == 0 && (OpCode)func_code[base + 3] == OpCode::OP_LOAD_VAR &&
+        func_code[base + 4] == 0 && func_code[base + 5] == 1 && is_return_end(base + 7)) {
         switch ((OpCode)func_code[base + 6]) {
             case OpCode::OP_ADD:
                 return { JitInlineKind::IntAdd, 0 };
@@ -354,14 +344,11 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
         }
     }
     // 1-arg const: LOAD_VAR(0) LOAD_CONST(k) op [CHECK_TYPE] RETURN
-    if (base + 7 <= func_code.size() &&
-        (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR &&
-        func_code[base + 1] == 0 && func_code[base + 2] == 0 &&
-        (OpCode)func_code[base + 3] == OpCode::OP_LOAD_CONST &&
+    if (base + 7 <= func_code.size() && (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR &&
+        func_code[base + 1] == 0 && func_code[base + 2] == 0 && (OpCode)func_code[base + 3] == OpCode::OP_LOAD_CONST &&
         is_return_end(base + 7)) {
         uint16_t cidx = (uint16_t(func_code[base + 4]) << 8) | func_code[base + 5];
-        if (cidx < func_meta.constants.size() &&
-            func_meta.constants[cidx].type == Constant::Type::INT) {
+        if (cidx < func_meta.constants.size() && func_meta.constants[cidx].type == Constant::Type::INT) {
             int64_t imm = func_meta.constants[cidx].as_int;
             switch ((OpCode)func_code[base + 6]) {
                 case OpCode::OP_MUL:
@@ -376,14 +363,11 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
         }
     }
     // 1-arg const (commutative): LOAD_CONST(k) LOAD_VAR(0) op [CHECK_TYPE] RETURN
-    if (base + 7 <= func_code.size() &&
-        (OpCode)func_code[base + 0] == OpCode::OP_LOAD_CONST &&
-        (OpCode)func_code[base + 3] == OpCode::OP_LOAD_VAR &&
-        func_code[base + 4] == 0 && func_code[base + 5] == 0 &&
+    if (base + 7 <= func_code.size() && (OpCode)func_code[base + 0] == OpCode::OP_LOAD_CONST &&
+        (OpCode)func_code[base + 3] == OpCode::OP_LOAD_VAR && func_code[base + 4] == 0 && func_code[base + 5] == 0 &&
         is_return_end(base + 7)) {
         uint16_t cidx = (uint16_t(func_code[base + 1]) << 8) | func_code[base + 2];
-        if (cidx < func_meta.constants.size() &&
-            func_meta.constants[cidx].type == Constant::Type::INT) {
+        if (cidx < func_meta.constants.size() && func_meta.constants[cidx].type == Constant::Type::INT) {
             int64_t imm = func_meta.constants[cidx].as_int;
             switch ((OpCode)func_code[base + 6]) {
                 case OpCode::OP_MUL:
@@ -400,46 +384,34 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
     //  LOAD_CAPTURE(0) [CHECK_TYPE(ctx=1)] RETURN
     // (13 or 17 bytes; bytecode compiler may append LOAD_NONE+RETURN as
     // unreachable)
-    if (func_code.size() >= 13 &&
-        (OpCode)func_code[0] == OpCode::OP_LOAD_CAPTURE && func_code[1] == 0 &&
-        func_code[2] == 0 && (OpCode)func_code[3] == OpCode::OP_LOAD_ONE &&
-        (OpCode)func_code[4] == OpCode::OP_ADD &&
-        (OpCode)func_code[5] == OpCode::OP_STORE_CAPTURE && func_code[6] == 0 &&
-        func_code[7] == 0 && (OpCode)func_code[8] == OpCode::OP_POP &&
-        (OpCode)func_code[9] == OpCode::OP_LOAD_CAPTURE && func_code[10] == 0 &&
-        func_code[11] == 0 && is_return_end(12)) {
+    if (func_code.size() >= 13 && (OpCode)func_code[0] == OpCode::OP_LOAD_CAPTURE && func_code[1] == 0 &&
+        func_code[2] == 0 && (OpCode)func_code[3] == OpCode::OP_LOAD_ONE && (OpCode)func_code[4] == OpCode::OP_ADD &&
+        (OpCode)func_code[5] == OpCode::OP_STORE_CAPTURE && func_code[6] == 0 && func_code[7] == 0 &&
+        (OpCode)func_code[8] == OpCode::OP_POP && (OpCode)func_code[9] == OpCode::OP_LOAD_CAPTURE &&
+        func_code[10] == 0 && func_code[11] == 0 && is_return_end(12)) {
         return { JitInlineKind::ClosureInc, 1 };
     }
     // 0-arg closure that adds a constant to capture[0] and returns it.
     // Matches: LOAD_CAPTURE(0) LOAD_CONST(k) ADD STORE_CAPTURE(0) POP
     //  LOAD_CAPTURE(0) [CHECK_TYPE(ctx=1)] RETURN
-    if (func_code.size() >= 15 &&
-        (OpCode)func_code[0] == OpCode::OP_LOAD_CAPTURE && func_code[1] == 0 &&
-        func_code[2] == 0 && (OpCode)func_code[3] == OpCode::OP_LOAD_CONST &&
-        (OpCode)func_code[6] == OpCode::OP_ADD &&
-        (OpCode)func_code[7] == OpCode::OP_STORE_CAPTURE && func_code[8] == 0 &&
-        func_code[9] == 0 && (OpCode)func_code[10] == OpCode::OP_POP &&
-        (OpCode)func_code[11] == OpCode::OP_LOAD_CAPTURE && func_code[12] == 0 &&
-        func_code[13] == 0 && is_return_end(14)) {
+    if (func_code.size() >= 15 && (OpCode)func_code[0] == OpCode::OP_LOAD_CAPTURE && func_code[1] == 0 &&
+        func_code[2] == 0 && (OpCode)func_code[3] == OpCode::OP_LOAD_CONST && (OpCode)func_code[6] == OpCode::OP_ADD &&
+        (OpCode)func_code[7] == OpCode::OP_STORE_CAPTURE && func_code[8] == 0 && func_code[9] == 0 &&
+        (OpCode)func_code[10] == OpCode::OP_POP && (OpCode)func_code[11] == OpCode::OP_LOAD_CAPTURE &&
+        func_code[12] == 0 && func_code[13] == 0 && is_return_end(14)) {
         uint16_t cidx = (uint16_t(func_code[4]) << 8) | func_code[5];
-        if (cidx < func_meta.constants.size() &&
-            func_meta.constants[cidx].type == Constant::Type::INT) {
+        if (cidx < func_meta.constants.size() && func_meta.constants[cidx].type == Constant::Type::INT) {
             return { JitInlineKind::ClosureAddConst, func_meta.constants[cidx].as_int };
         }
     }
     // 1-arg identity: LOAD_VAR(0) [CHECK_TYPE] RETURN  (4+ bytes)
-    if (base + 3 < func_code.size() &&
-        (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR &&
-        func_code[base + 1] == 0 && func_code[base + 2] == 0 &&
-        is_return_end(base + 3)) {
+    if (base + 3 < func_code.size() && (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR && func_code[base + 1] == 0 &&
+        func_code[base + 2] == 0 && is_return_end(base + 3)) {
         return { JitInlineKind::Identity, 0 };
     }
     // 1-arg negate: LOAD_VAR(0) NEG [CHECK_TYPE] RETURN
-    if (base + 4 < func_code.size() &&
-        (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR &&
-        func_code[base + 1] == 0 && func_code[base + 2] == 0 &&
-        (OpCode)func_code[base + 3] == OpCode::OP_NEG &&
-        is_return_end(base + 4)) {
+    if (base + 4 < func_code.size() && (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR && func_code[base + 1] == 0 &&
+        func_code[base + 2] == 0 && (OpCode)func_code[base + 3] == OpCode::OP_NEG && is_return_end(base + 4)) {
         return { JitInlineKind::Negate, 0 };
     }
     return { JitInlineKind::None, 0 };
@@ -586,7 +558,8 @@ class VM {
         stack.pop_back();
         return val;
     }
-    // Safe-point usable from JIT helpers: JITted code never re-enters execute_instruction, so allocating helpers poll here.
+    // Safe-point usable from JIT helpers: JITted code never re-enters execute_instruction, so allocating helpers poll
+    // here.
     void jit_safepoint();
     // Cached object-property read for the method-JIT LoadProperty helper.
     Value jit_lookup_object_property(ObjectObj *oobj, uint16_t name_idx);
@@ -757,12 +730,15 @@ class VM {
     // pushes a builtin's return value, but first promotes any pending
     // ScriptRuntime throw_flag into a bytecode-VM throw via dispatch_throw, false when the throw is uncaught.
     bool push_builtin_result(Value result);
-    void call_user_function(uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures = nullptr, const CapturesList &cell_captures = {});
+    void call_user_function(uint32_t func_idx, const std::vector<Value> &args,
+                            const std::vector<Value> *captures = nullptr, const CapturesList &cell_captures = {});
     // allocation-free variant: reads argc args from the top of the VM stack WITHOUT popping them.
     // The caller is responsible for popping args + func after this returns!!
-    void call_user_function_stack(uint32_t func_idx, size_t args_base, size_t argc, const CapturesList &cell_captures = {});
+    void call_user_function_stack(uint32_t func_idx, size_t args_base, size_t argc,
+                                  const CapturesList &cell_captures = {});
     // span variant for runtime re-entry (delegate traps, FFI callbacks)
-    void call_user_function_span(uint32_t func_idx, const Value *args, size_t argc, const CapturesList &cell_captures = {});
+    void call_user_function_span(uint32_t func_idx, const Value *args, size_t argc,
+                                 const CapturesList &cell_captures = {});
 
   public:
     VM(int argc = 0, char **argv = nullptr);
@@ -795,7 +771,8 @@ class VM {
 Chunk *compile_bytecode(const FuncList &functions);
 
 // collect all fields in MRO order, parent fields, then child fields.
-inline void bc_collect_all_fields(const nari::ClassDecl *class_decl, std::vector<const nari::ClassField *> &all_fields) {
+inline void bc_collect_all_fields(const nari::ClassDecl *class_decl,
+                                  std::vector<const nari::ClassField *> &all_fields) {
     if (!class_decl) {
         return;
     }

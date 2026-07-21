@@ -27,6 +27,9 @@ Welcome to the Nari language documentation! Nari is a lightweight, dynamically-t
 - [**Standard Library**](12-stdlib.md) - system, math, io, http, and net modules
 - [**Stdlib API Reference**](stdlib-reference.md) - Auto-generated reference for every prelude global and `std/*` module (regenerate with `tools/gen_stdlib_reference.py docs/stdlib-reference.md src/stdlib/std`)
 
+### Tooling
+- [**Code Formatter**](20-formatter.md) - `nari fmt` usage, style rules, and limitations
+
 ### Reference
 - [**String Methods**](13-string-methods.md) - String manipulation functions
 - [**Array Methods**](14-array-methods.md) - Array operations and utilities

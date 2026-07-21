@@ -70,15 +70,12 @@ void write_message(const json &msg) {
     std::string body = msg.dump();
     log_line(">>", body);
     std::lock_guard<std::mutex> lock(g_out_mtx);
-    std::cout << "Content-Length: " << body.size() << "\r\n\r\n"
-              << body;
+    std::cout << "Content-Length: " << body.size() << "\r\n\r\n" << body;
     std::cout.flush();
 }
 
-void send_response(
-    int request_seq, const std::string &command,
-    bool success, json body = json::object(),
-    const std::string &msg = std::string()) {
+void send_response(int request_seq, const std::string &command, bool success, json body = json::object(),
+                   const std::string &msg = std::string()) {
 
     json resp;
     resp["seq"] = g_seq++;
@@ -232,10 +229,8 @@ static bytecode::Chunk *compile_source_for_debug(const std::string &path) {
         if (g_log && chunk) {
             log_line("--", "compiled " + std::to_string(chunk->functions.size()) + " functions:");
             for (const auto &fn : chunk->functions) {
-                log_line("  ",
-                         std::string("name='") + fn.name + "' source='" +
-                             fn.source_file + "' line_map_size=" +
-                             std::to_string(fn.line_map.size()));
+                log_line("  ", std::string("name='") + fn.name + "' source='" + fn.source_file +
+                                   "' line_map_size=" + std::to_string(fn.line_map.size()));
             }
         }
         return chunk;
@@ -257,8 +252,7 @@ static bytecode::Chunk *load_naric(const std::string &path) {
 }
 
 static bytecode::Chunk *load_program(const std::string &path) {
-    bool is_naric =
-        path.size() >= 6 && path.compare(path.size() - 6, 6, ".naric") == 0;
+    bool is_naric = path.size() >= 6 && path.compare(path.size() - 6, 6, ".naric") == 0;
     if (is_naric) {
         return load_naric(path);
     }
@@ -310,9 +304,7 @@ static int run_vm(bytecode::Chunk *chunk, const std::vector<std::string> &argv) 
     try {
         bytecode::VM vm(static_cast<int>(c_argv.size()), c_argv.empty() ? nullptr : c_argv.data());
         g_current_vm = &vm;
-        vm.runtime->stdout_writer = [](const std::string &text) {
-            send_output("stdout", text);
-        };
+        vm.runtime->stdout_writer = [](const std::string &text) { send_output("stdout", text); };
         if (!vm.run(chunk)) {
             rc = 1;
         }
@@ -517,8 +509,7 @@ static void handle_scopes(Server &server, int seq, const json &args) {
     int frame_id = args.value("frameId", 1);
     int frame_index = frame_id - 1;
     json scopes = json::array();
-    if (frame_index >= 0 &&
-        frame_index < static_cast<int>(server.current_frame_ids.size())) {
+    if (frame_index >= 0 && frame_index < static_cast<int>(server.current_frame_ids.size())) {
         // Allocate a fresh variablesReference for the "locals" scope of this frame.
         Server::ScopeRef ref_data;
         ref_data.kind = Server::ScopeRef::Kind::FrameLocals;
@@ -703,8 +694,7 @@ static bool parse_ident_token(const std::string &expr, size_t &i, std::string &o
         return false;
     }
     size_t start = i++;
-    while (i < expr.size() &&
-           (std::isalnum((unsigned char)expr[i]) || expr[i] == '_')) {
+    while (i < expr.size() && (std::isalnum((unsigned char)expr[i]) || expr[i] == '_')) {
         ++i;
     }
     out.assign(expr, start, i - start);
@@ -912,8 +902,7 @@ static bool evaluate_debug_expression(Server &server, const json &args, Value &o
                 index = Value::make_int(idx);
             } else {
                 std::string nested_ident;
-                if (!parse_ident_token(expr, i, nested_ident) ||
-                    !lookup_frame_value(frame, nested_ident, index)) {
+                if (!parse_ident_token(expr, i, nested_ident) || !lookup_frame_value(frame, nested_ident, index)) {
                     error = "unsupported index expression";
                     return false;
                 }
@@ -961,18 +950,15 @@ static void handle_evaluate(Server &server, int seq, const json &args) {
 static void handle_variables(Server &server, int seq, const json &args) {
     int ref = args.value("variablesReference", 0);
     int idx = ref - 1000;
-    if (idx < 0 || idx >= static_cast<int>(server.scope_refs.size()) ||
-        g_current_vm == nullptr) {
-        send_response(seq, "variables", true,
-                      json::object({ { "variables", json::array() } }));
+    if (idx < 0 || idx >= static_cast<int>(server.scope_refs.size()) || g_current_vm == nullptr) {
+        send_response(seq, "variables", true, json::object({ { "variables", json::array() } }));
         return;
     }
     const auto &scope = server.scope_refs[idx];
     json vars = json::array();
     if (scope.kind == Server::ScopeRef::Kind::FrameLocals) {
         auto snap = dbg::DebugController::instance().last_snapshot();
-        if (scope.frame_index < 0 ||
-            scope.frame_index >= static_cast<int>(snap.frames.size())) {
+        if (scope.frame_index < 0 || scope.frame_index >= static_cast<int>(snap.frames.size())) {
             send_response(seq, "variables", true, json::object({ { "variables", json::array() } }));
             return;
         }
@@ -1097,8 +1083,7 @@ int run_dap_server(std::string initial_script, std::vector<std::string> argv) {
         if (cmd == "disconnect" || cmd == "terminate") {
             break;
         }
-        if (dbg::DebugController::instance().has_exited() &&
-            !server.vm_thread.joinable()) {
+        if (dbg::DebugController::instance().has_exited() && !server.vm_thread.joinable()) {
             break;
         }
     }

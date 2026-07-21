@@ -64,8 +64,7 @@ void FFILibrary::enumerate_symbols() {
         return;
     }
 
-    const auto *nt_header = reinterpret_cast<const IMAGE_NT_HEADERS *>(
-        module_base + dos_header->e_lfanew);
+    const auto *nt_header = reinterpret_cast<const IMAGE_NT_HEADERS *>(module_base + dos_header->e_lfanew);
     if (nt_header->Signature != IMAGE_NT_SIGNATURE) {
         return;
     }
@@ -75,10 +74,8 @@ void FFILibrary::enumerate_symbols() {
         return;
     }
 
-    const auto *export_dir = reinterpret_cast<const IMAGE_EXPORT_DIRECTORY *>(
-        module_base + export_data.VirtualAddress);
-    if (!export_dir || export_dir->NumberOfNames == 0 ||
-        export_dir->AddressOfNames == 0) {
+    const auto *export_dir = reinterpret_cast<const IMAGE_EXPORT_DIRECTORY *>(module_base + export_data.VirtualAddress);
+    if (!export_dir || export_dir->NumberOfNames == 0 || export_dir->AddressOfNames == 0) {
         return;
     }
 
@@ -249,9 +246,8 @@ static ffi_type *get_ffi_struct_type(FFIStructDef *struct_def) {
 
     size_t element_count = 0;
     for (const auto &field : struct_def->fields) {
-        ffi_type *field_type = field.aggregate_def
-                                   ? get_ffi_struct_type(field.aggregate_def.get())
-                                   : get_ffi_type(field.type);
+        ffi_type *field_type =
+            field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
         if (field.count == 0 || field.count > std::numeric_limits<size_t>::max() - element_count || !field_type) {
             delete ffi_struct;
             return nullptr;
@@ -266,10 +262,10 @@ static ffi_type *get_ffi_struct_type(FFIStructDef *struct_def) {
         ffi_type *alignment_carrier = nullptr;
         size_t union_size = 0;
         for (const auto &field : struct_def->fields) {
-            ffi_type *field_type = field.aggregate_def
-                                       ? get_ffi_struct_type(field.aggregate_def.get())
-                                       : get_ffi_type(field.type);
-            if (!field_type || field_type->size == 0 || field.count > std::numeric_limits<size_t>::max() / field_type->size) {
+            ffi_type *field_type =
+                field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
+            if (!field_type || field_type->size == 0 ||
+                field.count > std::numeric_limits<size_t>::max() / field_type->size) {
                 delete ffi_struct;
                 return nullptr;
             }
@@ -290,9 +286,8 @@ static ffi_type *get_ffi_struct_type(FFIStructDef *struct_def) {
     } else {
         struct_def->ffi_field_types.reserve(element_count + 1);
         for (const auto &field : struct_def->fields) {
-            ffi_type *field_type = field.aggregate_def
-                                       ? get_ffi_struct_type(field.aggregate_def.get())
-                                       : get_ffi_type(field.type);
+            ffi_type *field_type =
+                field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
             for (size_t i = 0; field_type && i < field.count; i++) {
                 struct_def->ffi_field_types.push_back(field_type);
             }
@@ -392,8 +387,7 @@ static Value read_ffi_scalar(const char *ptr, FFIType type) {
     }
 }
 
-template <typename T>
-static bool try_float_to_int(double value, T &result) {
+template <typename T> static bool try_float_to_int(double value, T &result) {
     static_assert(std::is_integral_v<T>);
 
     if (!std::isfinite(value)) {
@@ -455,9 +449,10 @@ static const char *ffi_scalar_type_name(FFIType type) {
 
 static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::deque<std::string> *strings = nullptr) {
     const auto range_error = [&]() {
-        runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) + " cannot be represented as " + ffi_scalar_type_name(type));
+        runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) + " cannot be represented as " +
+                      ffi_scalar_type_name(type));
     };
-    
+
     switch (type) {
         case FFIType::Int8: {
             int8_t val = 0;
@@ -641,7 +636,8 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
     }
 }
 
-static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value &object, std::deque<std::string> *strings = nullptr) {
+static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value &object,
+                             std::deque<std::string> *strings = nullptr) {
     if (!object.is_object() || def.ffi_field_offsets.size() != def.fields.size()) {
         return false;
     }
@@ -652,7 +648,8 @@ static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value 
         }
         const Value *field_value = obj->get_field(field.name);
         if (field_value && (!field_value->is_array() || field_value->get_array().size() != field.count)) {
-            fprintf(stderr, "ERROR: FFI struct field '%s' requires exactly %zu array elements\n", field.name.c_str(), field.count);
+            fprintf(stderr, "ERROR: FFI struct field '%s' requires exactly %zu array elements\n", field.name.c_str(),
+                    field.count);
             return false;
         }
     }
@@ -662,13 +659,13 @@ static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value 
         if (!field_value) {
             continue;
         }
-        ffi_type *element_type = field.aggregate_def
-                                     ? get_ffi_struct_type(field.aggregate_def.get())
-                                     : get_ffi_type(field.type);
+        ffi_type *element_type =
+            field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
         const size_t stride = element_type ? element_type->size : 0;
         if (field.count == 1) {
             if (field.aggregate_def) {
-                if (!write_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def, *field_value, strings)) {
+                if (!write_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def, *field_value,
+                                      strings)) {
                     return false;
                 }
             } else {
@@ -696,14 +693,14 @@ static Value read_ffi_struct(const char *buffer, const FFIStructDef &def) {
     ObjectObj *obj = result.get_obj_ptr();
     for (size_t field_index = 0; field_index < def.fields.size(); field_index++) {
         const auto &field = def.fields[field_index];
-        ffi_type *element_type = field.aggregate_def
-                                     ? get_ffi_struct_type(field.aggregate_def.get())
-                                     : get_ffi_type(field.type);
+        ffi_type *element_type =
+            field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
         const size_t stride = element_type ? element_type->size : 0;
         if (field.count == 1) {
-            obj->set_field(field.name, field.aggregate_def
-                                           ? read_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def)
-                                           : read_ffi_scalar(buffer + def.ffi_field_offsets[field_index], field.type));
+            obj->set_field(field.name,
+                           field.aggregate_def
+                               ? read_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def)
+                               : read_ffi_scalar(buffer + def.ffi_field_offsets[field_index], field.type));
             continue;
         }
         std::vector<Value> values;
@@ -768,9 +765,8 @@ FFICaller::CIFCache &FFICaller::get_or_create_cif_variadic(const FFISignature &s
     }
 
     ffi_type *return_type = get_ffi_type(sig.return_type);
-    ffi_status status = ffi_prep_cif_var(
-        &cache.cif, FFI_DEFAULT_ABI, sig.fixed_param_count,
-        cache.param_types.size(), return_type, cache.param_types.data());
+    ffi_status status = ffi_prep_cif_var(&cache.cif, FFI_DEFAULT_ABI, sig.fixed_param_count, cache.param_types.size(),
+                                         return_type, cache.param_types.data());
 
     if (status != FFI_OK) {
         static CIFCache error_cache;
@@ -929,12 +925,10 @@ static void store_ffi_argument(std::vector<T> &values, std::vector<void *> &arg_
 static bool marshal_ffi_scalar_argument(FFIArgStorage &storage, FFIType type, const Value &arg) {
     switch (type) {
         case FFIType::Int8:
-            store_ffi_argument(
-                storage.int8_storage, storage.arg_pointers,
-                arg.is_int() ? (int8_t)arg.get_int()
-                : arg.is_float()
-                    ? (int8_t)arg.get_float()
-                    : (int8_t)0);
+            store_ffi_argument(storage.int8_storage, storage.arg_pointers,
+                               arg.is_int()     ? (int8_t)arg.get_int()
+                               : arg.is_float() ? (int8_t)arg.get_float()
+                                                : (int8_t)0);
             return true;
         case FFIType::UInt8:
             store_ffi_argument(storage.uint8_storage, storage.arg_pointers,
@@ -1024,10 +1018,10 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
     if (!func_ptr) {
         return Value::none();
     }
-    if (contains_union(sig.return_struct_def) ||
-        std::any_of(sig.param_struct_defs.begin(), sig.param_struct_defs.end(),
-                    [](const auto &def) { return contains_union(def); })) {
-        fprintf(stderr, "ERROR: Passing unions or aggregates containing unions by value is not supported portably; pass a pointer instead\n");
+    if (contains_union(sig.return_struct_def) || std::any_of(sig.param_struct_defs.begin(), sig.param_struct_defs.end(),
+                                                             [](const auto &def) { return contains_union(def); })) {
+        fprintf(stderr, "ERROR: Passing unions or aggregates containing unions by value is not supported portably; "
+                        "pass a pointer instead\n");
         return Value::none();
     }
 
@@ -1167,10 +1161,10 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
     if (!func_ptr) {
         return Value::none();
     }
-    if (contains_union(sig.return_struct_def) ||
-        std::any_of(sig.param_struct_defs.begin(), sig.param_struct_defs.end(),
-                    [](const auto &def) { return contains_union(def); })) {
-        fprintf(stderr, "ERROR: Passing unions or aggregates containing unions by value is not supported portably; pass a pointer instead\n");
+    if (contains_union(sig.return_struct_def) || std::any_of(sig.param_struct_defs.begin(), sig.param_struct_defs.end(),
+                                                             [](const auto &def) { return contains_union(def); })) {
+        fprintf(stderr, "ERROR: Passing unions or aggregates containing unions by value is not supported portably; "
+                        "pass a pointer instead\n");
         return Value::none();
     }
     if (sig.return_type == FFIType::Struct ||
@@ -1271,8 +1265,7 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
                     case FFIType::UInt8: {
                         uint8_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(uint8_t));
-                        result_oobj2->set_field(field.name,
-                                                Value::make_int((int64_t)val));
+                        result_oobj2->set_field(field.name, Value::make_int((int64_t)val));
                         offset += sizeof(uint8_t);
                         break;
                     }
@@ -1494,8 +1487,7 @@ std::string FFIRegistry::find_library(const std::string &name) {
 }
 
 // helper functions for struct marshalling
-std::shared_ptr<FFIStructDef>
-create_struct_def_from_type(const std::string &type_name) {
+std::shared_ptr<FFIStructDef> create_struct_def_from_type(const std::string &type_name) {
     std::vector<std::string> resolving;
     std::function<std::shared_ptr<FFIStructDef>(const std::string &)> create =
         [&](const std::string &requested_name) -> std::shared_ptr<FFIStructDef> {
@@ -1520,10 +1512,10 @@ create_struct_def_from_type(const std::string &type_name) {
                 return nullptr;
             }
 
-            const nari::TypeDecl *next_decl =
-                Parser::get_registered_type(resolved_decl->alias_target->name);
+            const nari::TypeDecl *next_decl = Parser::get_registered_type(resolved_decl->alias_target->name);
             if (!next_decl) {
-                fprintf(stderr, "ERROR: Cannot create struct from primitive type '%s'\n", resolved_decl->alias_target->name.c_str());
+                fprintf(stderr, "ERROR: Cannot create struct from primitive type '%s'\n",
+                        resolved_decl->alias_target->name.c_str());
                 return nullptr;
             }
 
@@ -1536,7 +1528,8 @@ create_struct_def_from_type(const std::string &type_name) {
         }
 
         if (std::find(resolving.begin(), resolving.end(), resolved_decl->name) != resolving.end()) {
-            fprintf(stderr, "ERROR: Recursive by-value FFI aggregate '%s' is not supported\n", resolved_decl->name.c_str());
+            fprintf(stderr, "ERROR: Recursive by-value FFI aggregate '%s' is not supported\n",
+                    resolved_decl->name.c_str());
             return nullptr;
         }
         resolving.push_back(resolved_decl->name);
@@ -1585,7 +1578,8 @@ create_struct_def_from_type(const std::string &type_name) {
         std::vector<FFIStructField> fields;
         for (const auto &field : resolved_decl->fields) {
             if (field.type->is_array) {
-                fprintf(stderr, "ERROR: Dynamic array field '%s' cannot be used in an FFI struct\n", field.name.c_str());
+                fprintf(stderr, "ERROR: Dynamic array field '%s' cannot be used in an FFI struct\n",
+                        field.name.c_str());
                 return nullptr;
             }
             const size_t count = field.type->fixed_array_count > 0 ? field.type->fixed_array_count : 1;
@@ -1594,7 +1588,8 @@ create_struct_def_from_type(const std::string &type_name) {
             std::vector<std::string> field_aliases;
             std::string resolved_field_name = field.type->name;
             while (resolved_field_decl && resolved_field_decl->is_alias()) {
-                if (std::find(field_aliases.begin(), field_aliases.end(), resolved_field_decl->name) != field_aliases.end()) {
+                if (std::find(field_aliases.begin(), field_aliases.end(), resolved_field_decl->name) !=
+                    field_aliases.end()) {
                     fprintf(stderr, "ERROR: Cyclic FFI type alias involving '%s'\n", resolved_field_decl->name.c_str());
                     resolving.pop_back();
                     return nullptr;
@@ -1622,8 +1617,7 @@ create_struct_def_from_type(const std::string &type_name) {
         }
 
         resolving.pop_back();
-        return std::make_shared<FFIStructDef>(
-            requested_name, fields, resolved_decl->kind == nari::TypeDeclKind::Union);
+        return std::make_shared<FFIStructDef>(requested_name, fields, resolved_decl->kind == nari::TypeDeclKind::Union);
     };
     return create(type_name);
 }
@@ -1714,7 +1708,8 @@ FFICallback::~FFICallback() {
 }
 
 // Nonzero inside an FFI callback.
-// The JIT entry path falls back to the interpreter when set, callback reentry has a bad memory leak I haven't fixed yet.
+// The JIT entry path falls back to the interpreter when set, callback reentry has a bad memory leak I haven't fixed
+// yet.
 thread_local int g_ffi_reentry_depth = 0;
 extern "C" int ffi_reentry_depth() {
     return g_ffi_reentry_depth;
@@ -1788,7 +1783,7 @@ void FFICallbackManager::callback_trampoline(ffi_cif *cif, void *ret, void **arg
     extern thread_local int g_ffi_reentry_depth;
     g_ffi_reentry_depth++;
 
-    // call nari func. nari_args is a C++ local live across the nested call. 
+    // call nari func. nari_args is a C++ local live across the nested call.
     // Root it so a collection can't sweep its elements.
     Value result;
     {
@@ -1915,10 +1910,8 @@ void *FFICallbackManager::create_callback(const FFISignature &sig, const Value &
     }
 
     ffi_type *return_type = get_ffi_type_ptr(sig.return_type);
-    ffi_status status = ffi_prep_cif(
-        &callback->cif, FFI_DEFAULT_ABI,
-        (unsigned int)sig.param_types.size(),
-        return_type, callback->param_types.data());
+    ffi_status status = ffi_prep_cif(&callback->cif, FFI_DEFAULT_ABI, (unsigned int)sig.param_types.size(), return_type,
+                                     callback->param_types.data());
 
     if (status != FFI_OK) {
         fprintf(stderr, "ERROR: ffi_prep_cif failed with status %d\n", status);
@@ -1931,10 +1924,9 @@ void *FFICallbackManager::create_callback(const FFISignature &sig, const Value &
         return nullptr;
     }
 
-    status = ffi_prep_closure_loc(
-        callback->closure, &callback->cif, &callback_trampoline,
-        callback.get(), // user_data passed to trampoline
-        callback->executable_code);
+    status = ffi_prep_closure_loc(callback->closure, &callback->cif, &callback_trampoline,
+                                  callback.get(), // user_data passed to trampoline
+                                  callback->executable_code);
 
     if (status != FFI_OK) {
         fprintf(stderr, "ERROR: ffi_prep_closure_loc failed with status %d\n", status);

@@ -252,8 +252,7 @@ class BytecodeSerializer {
                 // Use `code_len > length - pos` form to avoid potential
                 // size_t wrap on 32-bit hosts. The (1<<26) ceiling caps the
                 // allocation regardless.
-                if (code_len > (1u << 26) || pos > length ||
-                    code_len > length - pos) {
+                if (code_len > (1u << 26) || pos > length || code_len > length - pos) {
                     throw DeserializeError{};
                 }
                 func.code.resize(code_len);
@@ -397,10 +396,8 @@ class BytecodeSerializer {
         if (pos + 4 > length) {
             throw DeserializeError{};
         }
-        uint32_t v = data[pos] |
-                     (static_cast<uint32_t>(data[pos + 1]) << 8) |
-                     (static_cast<uint32_t>(data[pos + 2]) << 16) |
-                     (static_cast<uint32_t>(data[pos + 3]) << 24);
+        uint32_t v = data[pos] | (static_cast<uint32_t>(data[pos + 1]) << 8) |
+                     (static_cast<uint32_t>(data[pos + 2]) << 16) | (static_cast<uint32_t>(data[pos + 3]) << 24);
         pos += 4;
         return v;
     }

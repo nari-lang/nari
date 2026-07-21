@@ -35,15 +35,11 @@ struct ScopedSyntheticDebugFrame {
     dbg::DebugController *controller = nullptr;
 
     ScopedSyntheticDebugFrame(const std::string &name, const std::string &source_file, int line,
-                              size_t runtime_call_stack_index = -1,
-                              Value this_value = Value::none()) {
+                              size_t runtime_call_stack_index = -1, Value this_value = Value::none()) {
         auto &dc = dbg::DebugController::instance();
         if (dc.enabled()) {
             controller = &dc;
-            controller->push_synthetic_frame(
-                name, source_file, line,
-                runtime_call_stack_index,
-                std::move(this_value));
+            controller->push_synthetic_frame(name, source_file, line, runtime_call_stack_index, std::move(this_value));
         }
     }
 
@@ -98,8 +94,7 @@ static const nari::ClassField *bc_find_field(const nari::ClassDecl *class_decl, 
         }
     }
     if (!class_decl->parent_name.empty()) {
-        const nari::ClassDecl *parent =
-            Parser::get_registered_class(class_decl->parent_name);
+        const nari::ClassDecl *parent = Parser::get_registered_class(class_decl->parent_name);
         if (parent) {
             return bc_find_field(parent, field_name);
         }
@@ -119,9 +114,7 @@ VM::VM(int argc, char **argv) : chunk(nullptr) {
 
     FuncList empty_funcs;
     runtime = std::make_unique<ScriptRuntime>(empty_funcs, argc, argv);
-    runtime->debug_stmt_hook = [this](const Stmt *stmt) {
-        maybe_stop_in_ast_body(*this, stmt);
-    };
+    runtime->debug_stmt_hook = [this](const Stmt *stmt) { maybe_stop_in_ast_body(*this, stmt); };
 
     // register GC roots
     runtime->external_gc_roots_provider = [&](std::vector<const Value *> &roots) {
@@ -195,8 +188,7 @@ VM::VM(int argc, char **argv) : chunk(nullptr) {
 
 // force a full precise mark-sweep using the complete root set (bytecode-VM roots via external_gc_roots_provider)
 void VM::jit_safepoint() {
-    if (NARI_UNLIKELY(gc_safepoints) &&
-        GarbageCollector::instance().should_collect()) {
+    if (NARI_UNLIKELY(gc_safepoints) && GarbageCollector::instance().should_collect()) {
         gc_collect_roots();
     }
 }
@@ -205,8 +197,7 @@ void VM::jit_safepoint() {
 // Mirrors the OP_GET_PROPERTY inline cache
 Value VM::jit_lookup_object_property(ObjectObj *oobj, uint16_t name_idx) {
     auto &ic = prop_ic[((unsigned)name_idx) & PROP_IC_MASK];
-    if (!oobj->dict_mode && ic.shape == oobj->shape &&
-        ic.name_idx == name_idx && ic.slot < oobj->fields.size()) {
+    if (!oobj->dict_mode && ic.shape == oobj->shape && ic.name_idx == name_idx && ic.slot < oobj->fields.size()) {
         return *oobj->materialize_lazy_field(ic.slot); // IC hit means no name/fid hashing
     }
     const std::string &name = chunk->strings[name_idx];
@@ -239,7 +230,8 @@ void VM::gc_collect_roots() {
         return;
     }
     auto roots = runtime->collect_gc_roots();
-    // root the current 'this' receiver, which lives only as a raw ClassInstance* while a method body runs nested statements.
+    // root the current 'this' receiver, which lives only as a raw ClassInstance* while a method body runs nested
+    // statements.
     Value recv_root;
     if (current_instance) {
         recv_root = Value::from_class_instance(current_instance);
@@ -374,7 +366,8 @@ void VM::register_builtin(const std::string &name) {
             auto &data = builtins[name].get_function();
             // member-fn pointers are 16 bytes on Itanium ABI but 8 on MSVC x64.
             // reader (jit_call_value) memcpys the same sizeof back out.
-            static_assert(sizeof(func) <= sizeof(data.jit_builtin_fn), "pointer-to-member too large for jit_builtin_fn");
+            static_assert(sizeof(func) <= sizeof(data.jit_builtin_fn),
+                          "pointer-to-member too large for jit_builtin_fn");
             std::memcpy(data.jit_builtin_fn, &func, sizeof(func));
             data.jit_builtin_fn_valid = true;
         }
@@ -446,7 +439,8 @@ Value VM::instantiate_class(const std::string &class_name, std::vector<Value> ar
     const nari::ClassMethod *ctor = bc_find_method(class_decl, "init");
     if (ctor && ctor->is_constructor) {
         if (args.size() != ctor->params.size()) {
-            fprintf(stderr, "constructor '%s' expects %zu args but got %zu\n", class_name.c_str(), ctor->params.size(), args.size());
+            fprintf(stderr, "constructor '%s' expects %zu args but got %zu\n", class_name.c_str(), ctor->params.size(),
+                    args.size());
         }
 
         ClassInstancePtr saved_instance = current_instance;
@@ -464,11 +458,8 @@ Value VM::instantiate_class(const std::string &class_name, std::vector<Value> ar
             }
 
             ScopedSyntheticDebugFrame debug_frame(
-                class_name + ".init",
-                ctor->filename.empty() ? class_decl->filename : ctor->filename,
-                ctor->line,
-                runtime->call_stack.size() - 1,
-                Value::from_class_instance(instance));
+                class_name + ".init", ctor->filename.empty() ? class_decl->filename : ctor->filename, ctor->line,
+                runtime->call_stack.size() - 1, Value::from_class_instance(instance));
 
             for (const auto &stmt : ctor->body->stmts) {
                 runtime->exec_stmt(stmt.get());
@@ -505,7 +496,8 @@ Value VM::call_class_method(ClassInstance *instance, const std::string &method_n
 
     if (method->visibility == nari::Visibility::Private) {
         if (current_class_name != instance->class_name) {
-            bytecode_runtime_fatal("Cannot call private method '" + method_name + "' of " + "'" + instance->class_name + "'!", "");
+            bytecode_runtime_fatal(
+                "Cannot call private method '" + method_name + "' of " + "'" + instance->class_name + "'!", "");
         }
     }
 
@@ -524,12 +516,10 @@ Value VM::call_class_method(ClassInstance *instance, const std::string &method_n
 
     Value return_value = Value::none();
     if (method->body) {
-        ScopedSyntheticDebugFrame debug_frame(
-            instance->class_name + "." + method_name,
-            method->filename.empty() ? class_decl->filename : method->filename,
-            method->line,
-            runtime->call_stack.size() - 1,
-            Value::from_class_instance(instance));
+        ScopedSyntheticDebugFrame debug_frame(instance->class_name + "." + method_name,
+                                              method->filename.empty() ? class_decl->filename : method->filename,
+                                              method->line, runtime->call_stack.size() - 1,
+                                              Value::from_class_instance(instance));
         for (const auto &stmt : method->body->stmts) {
             runtime->exec_stmt(stmt.get());
             if (runtime->flags.return_flag) {
@@ -537,8 +527,7 @@ Value VM::call_class_method(ClassInstance *instance, const std::string &method_n
                 runtime->flags.return_flag = false;
                 break;
             }
-            if (runtime->flags.break_flag || runtime->flags.continue_flag ||
-                runtime->flags.throw_flag) {
+            if (runtime->flags.break_flag || runtime->flags.continue_flag || runtime->flags.throw_flag) {
                 break;
             }
         }
@@ -614,7 +603,8 @@ bool VM::push_builtin_result(Value result) {
 
 bool VM::has_profitable_trace(uint32_t func_idx) const {
 #ifndef DISABLE_JIT
-    // this is tunable if need be, but it should be about tuned to the point where a trace is likely to be profitable to compile.
+    // this is tunable if need be, but it should be about tuned to the point where a trace is likely to be profitable to
+    // compile.
     static const uint64_t kMinAvgIters = 1000;
     static const uint32_t kMinEntries = 4;
     for (const auto &kv : trace_iter_stats_) {
@@ -633,14 +623,14 @@ void VM::note_jit_callee(uint32_t func_idx) {
 #ifndef DISABLE_JIT
     // Once compiled, stop touching the call_counts hash map on every call, saves a map lookup
     if (jit::g_jit_compiler && !jit::g_jit_compiler->is_compiled(func_idx) &&
-        ++call_counts[func_idx] == JIT_THRESHOLD &&
-        !has_profitable_trace(func_idx)) {
+        ++call_counts[func_idx] == JIT_THRESHOLD && !has_profitable_trace(func_idx)) {
         jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
     }
 #endif
 }
 
-void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures, const CapturesList &cell_captures) {
+void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures,
+                            const CapturesList &cell_captures) {
     if (frames.size() >= MAX_CALL_DEPTH) {
         fprintf(stderr, "Stack Overflow: maximum call-depth exceeded!\n");
         has_error = true;
@@ -655,8 +645,7 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
 #ifndef DISABLE_JIT
     // track call count for JIT compilation
     if (jit::g_jit_compiler && !jit::g_jit_compiler->is_compiled(func_idx) &&
-        ++call_counts[func_idx] == JIT_THRESHOLD &&
-        !has_profitable_trace(func_idx)) {
+        ++call_counts[func_idx] == JIT_THRESHOLD && !has_profitable_trace(func_idx)) {
         jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
     }
 #endif
@@ -720,7 +709,8 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
     if (jit_safe && jit::g_jit_compiler && jit::g_jit_compiler->is_compiled(func_idx)) {
         auto compiled = jit::g_jit_compiler->get_compiled(func_idx);
         if (compiled) {
-            // generated returns only move frames.storage_end, so keep ownership outside the frame while compiled code runs.
+            // generated returns only move frames.storage_end, so keep ownership outside the frame while compiled code
+            // runs.
             CapturesList compiled_captures = std::move(frame.captures);
             auto *prev_captures = jit_captures_raw;
             jit_captures_raw = compiled_captures.get();
@@ -750,8 +740,7 @@ void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t ar
 
 #ifndef DISABLE_JIT
     if (jit::g_jit_compiler && !jit::g_jit_compiler->is_compiled(func_idx) &&
-        ++call_counts[func_idx] == JIT_THRESHOLD &&
-        !has_profitable_trace(func_idx)) {
+        ++call_counts[func_idx] == JIT_THRESHOLD && !has_profitable_trace(func_idx)) {
         jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
     }
 #endif
@@ -840,8 +829,7 @@ void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t ar
 #ifndef DISABLE_JIT
     // single virtual lookup instead of the is_compiled + get_compiled pair
     auto compiled = jit::g_jit_compiler ? jit::g_jit_compiler->get_compiled_fast(func_idx) : nullptr;
-    if (jit::g_jit_compiler && !compiled &&
-        ++call_counts[func_idx] == JIT_THRESHOLD &&
+    if (jit::g_jit_compiler && !compiled && ++call_counts[func_idx] == JIT_THRESHOLD &&
         !has_profitable_trace(func_idx)) {
         jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
         compiled = jit::g_jit_compiler->get_compiled_fast(func_idx);
@@ -1035,8 +1023,7 @@ bool VM::execute_instruction() {
 
             case OpCode::OP_LOAD_GLOBAL: {
                 uint16_t name_idx = read_short();
-                if (NARI_LIKELY(name_idx < global_cache_valid.size() &&
-                                global_cache_valid[name_idx])) {
+                if (NARI_LIKELY(name_idx < global_cache_valid.size() && global_cache_valid[name_idx])) {
                     VM::push(global_cache[name_idx]);
                 } else {
                     VM::push(get_global(chunk->strings[name_idx]));
@@ -1284,7 +1271,8 @@ bool VM::execute_instruction() {
                 } else {
                     slot = Value::make_string(slot.to_string() + rhs.to_string());
                 }
-                // keep slot value on top of stack, copy first since push_back may reallocate the stack vector and invalidate `slot`
+                // keep slot value on top of stack, copy first since push_back may reallocate the stack vector and
+                // invalidate `slot`
                 {
                     Value to_push = slot;
                     VM::push(std::move(to_push));
@@ -1410,8 +1398,7 @@ bool VM::execute_instruction() {
             case OpCode::OP_LT: {
                 Value &b = peek(0);
                 Value &a = peek(1);
-                bool r = (a.is_int() && b.is_int()) ? (a.get_int() < b.get_int())
-                                                    : (a.as_number() < b.as_number());
+                bool r = (a.is_int() && b.is_int()) ? (a.get_int() < b.get_int()) : (a.as_number() < b.as_number());
                 stack.pop_back();
                 a.set_bool(r);
                 break;
@@ -1420,8 +1407,7 @@ bool VM::execute_instruction() {
             case OpCode::OP_LE: {
                 Value &b = peek(0);
                 Value &a = peek(1);
-                bool r = (a.is_int() && b.is_int()) ? (a.get_int() <= b.get_int())
-                                                    : (a.as_number() <= b.as_number());
+                bool r = (a.is_int() && b.is_int()) ? (a.get_int() <= b.get_int()) : (a.as_number() <= b.as_number());
                 stack.pop_back();
                 a.set_bool(r);
                 break;
@@ -1430,8 +1416,7 @@ bool VM::execute_instruction() {
             case OpCode::OP_GT: {
                 Value &b = peek(0);
                 Value &a = peek(1);
-                bool r = (a.is_int() && b.is_int()) ? (a.get_int() > b.get_int())
-                                                    : (a.as_number() > b.as_number());
+                bool r = (a.is_int() && b.is_int()) ? (a.get_int() > b.get_int()) : (a.as_number() > b.as_number());
                 stack.pop_back();
                 a.set_bool(r);
                 break;
@@ -1440,8 +1425,7 @@ bool VM::execute_instruction() {
             case OpCode::OP_GE: {
                 Value &b = peek(0);
                 Value &a = peek(1);
-                bool r = (a.is_int() && b.is_int()) ? (a.get_int() >= b.get_int())
-                                                    : (a.as_number() >= b.as_number());
+                bool r = (a.is_int() && b.is_int()) ? (a.get_int() >= b.get_int()) : (a.as_number() >= b.as_number());
                 stack.pop_back();
                 a.set_bool(r);
                 break;
@@ -1469,8 +1453,7 @@ bool VM::execute_instruction() {
                             trace_recorder.aborted = true;
                             // Fallback: trace recording failed; compile with method JIT so the
                             // function doesn't stay in the interpreter forever.
-                            if (jit::g_jit_compiler &&
-                                !jit::g_jit_compiler->is_compiled(func_idx)) {
+                            if (jit::g_jit_compiler && !jit::g_jit_compiler->is_compiled(func_idx)) {
                                 jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
                             }
                         }
@@ -1498,8 +1481,7 @@ bool VM::execute_instruction() {
                                         fprintf(stderr,
                                                 "[trace-stats] func=%u anchor=%zu entries=%u "
                                                 "total_iters=%llu avg=%llu\n",
-                                                func_idx, anchor_pc, st.second,
-                                                (unsigned long long)st.first,
+                                                func_idx, anchor_pc, st.second, (unsigned long long)st.first,
                                                 (unsigned long long)(st.first / st.second));
                                     }
                                 }
@@ -1564,8 +1546,7 @@ bool VM::execute_instruction() {
                 if (!func_ref.is_function()) {
                     // check if callee is a class name string -> instantiate
                     if (func_ref.is_string()) {
-                        std::string class_name =
-                            func_ref.get_string(); // copy, SSO buffer is shared
+                        std::string class_name = func_ref.get_string(); // copy, SSO buffer is shared
                         if (Parser::get_registered_class(class_name)) {
                             std::vector<Value> args(stack.begin() + args_base, stack.begin() + args_base + argc);
                             stack.resize(args_base - 1);
@@ -1582,7 +1563,8 @@ bool VM::execute_instruction() {
                         VM::push(std::move(result));
                         break;
                     }
-                    runtime_panic(Value::make_string("called a non-function value: '" + chunk->strings[callee_label_idx] + "'"));
+                    runtime_panic(
+                        Value::make_string("called a non-function value: '" + chunk->strings[callee_label_idx] + "'"));
                     return false;
                 }
 
@@ -1674,7 +1656,8 @@ bool VM::execute_instruction() {
                     }
                     new_args = arg_buf;
                 } else {
-                    vec_buf.assign(std::make_move_iterator(stack.begin() + args_start), std::make_move_iterator(stack.end()));
+                    vec_buf.assign(std::make_move_iterator(stack.begin() + args_start),
+                                   std::make_move_iterator(stack.end()));
                     new_args = vec_buf.data();
                 }
 
@@ -1929,7 +1912,8 @@ bool VM::execute_instruction() {
                 size_t args_base = stack.size() - argc;
                 const Value &func_ref = stack[args_base - 1];
                 if (!func_ref.is_function()) {
-                    runtime_panic(Value::make_string("called a non-function value with spread arguments: '" + chunk->strings[callee_label_idx] + "'"));
+                    runtime_panic(Value::make_string("called a non-function value with spread arguments: '" +
+                                                     chunk->strings[callee_label_idx] + "'"));
                     return false;
                 }
                 const auto &fn = func_ref.get_function();
@@ -2085,8 +2069,7 @@ bool VM::execute_instruction() {
                             arr[idx] = val;
 #ifndef DISABLE_JIT
                             // in-bounds int-array int-store: trace-recordable.
-                            if (trace_was_recording && orig_idx >= 0 &&
-                                (val.is_int() || val.is_float())) {
+                            if (trace_was_recording && orig_idx >= 0 && (val.is_int() || val.is_float())) {
                                 trace_arr_recordable = true;
                                 trace_arr_ptr = obj.heap_ptr();
                                 trace_arr_size_bytes = arr.size() * sizeof(Value);
@@ -2128,8 +2111,7 @@ bool VM::execute_instruction() {
                         }
                     }
 #endif
-                    if (!oobj->dict_mode && ic.shape == oobj->shape &&
-                        ic.name_idx == name_idx &&
+                    if (!oobj->dict_mode && ic.shape == oobj->shape && ic.name_idx == name_idx &&
                         ic.slot < oobj->fields.size()) {
                         VM::push(*oobj->materialize_lazy_field(ic.slot)); // IC hit
                     } else {
@@ -2153,8 +2135,10 @@ bool VM::execute_instruction() {
                     const std::string &name = chunk->strings[name_idx];
                     const auto &instance = obj.get_class_instance();
                     // check private field access
-                    if (instance->layout && instance->layout->private_fields.count(name) && current_class_name != instance->class_name) {
-                        bytecode_runtime_fatal("Cannot access private field '" + name + "' of class '" + instance->class_name + "'!", "");
+                    if (instance->layout && instance->layout->private_fields.count(name) &&
+                        current_class_name != instance->class_name) {
+                        bytecode_runtime_fatal(
+                            "Cannot access private field '" + name + "' of class '" + instance->class_name + "'!", "");
                         has_error = true;
                         return false;
                     }
@@ -2215,10 +2199,9 @@ bool VM::execute_instruction() {
                             VM::push(handle->error);
                         } else if (name == "status_code") {
                             // For HTTP response handles
-                            const Value *sc =
-                                handle->result.is_object()
-                                    ? handle->result.get_obj_ptr()->get_field("status_code")
-                                    : nullptr;
+                            const Value *sc = handle->result.is_object()
+                                                  ? handle->result.get_obj_ptr()->get_field("status_code")
+                                                  : nullptr;
                             VM::push(sc ? *sc : Value::none());
                         } else if (name == "duration") {
                             if (handle->state == HandleData::Running) {
@@ -2226,7 +2209,8 @@ bool VM::execute_instruction() {
                                 auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - handle->start_time);
                                 VM::push(Value::make_int(elapsed.count()));
                             } else {
-                                auto elapsed = chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
+                                auto elapsed =
+                                    chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
                                 VM::push(Value::make_int(elapsed.count()));
                             }
                         } else {
@@ -2261,11 +2245,9 @@ bool VM::execute_instruction() {
                         if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
                             VM::push(Value::none());
                         } else {
-                            bytecode_runtime_fatal(
-                                "Cannot access property '" + name + "' on " +
-                                    (obj.is_none() ? "null" : "non-object") +
-                                    " value",
-                                name);
+                            bytecode_runtime_fatal("Cannot access property '" + name + "' on " +
+                                                       (obj.is_none() ? "null" : "non-object") + " value",
+                                                   name);
                             VM::push(Value::none());
                         }
                     }
@@ -2294,8 +2276,7 @@ bool VM::execute_instruction() {
                         }
                     }
 #endif
-                    if (!oobj->dict_mode && !oobj->frozen &&
-                        ic.shape == oobj->shape && ic.name_idx == name_idx &&
+                    if (!oobj->dict_mode && !oobj->frozen && ic.shape == oobj->shape && ic.name_idx == name_idx &&
                         ic.slot < oobj->fields.size()) {
                         oobj->clear_lazy_field(ic.slot);
                         oobj->fields[ic.slot] = val; // IC hit, direct write
@@ -2515,12 +2496,9 @@ bool VM::execute_instruction() {
                     ok = (val.get_class_instance()->class_name == expected);
                 }
                 // unknown annotation name, skip check (forward-compat)
-                if (!ok &&
-                    (expected == "int" || expected == "float" || expected == "number" ||
-                     expected == "string" || expected == "bool" || expected == "null" ||
-                     expected == "array" || expected == "object" ||
-                     expected == "function" || expected == "regex" ||
-                     val.is_class_instance())) {
+                if (!ok && (expected == "int" || expected == "float" || expected == "number" || expected == "string" ||
+                            expected == "bool" || expected == "null" || expected == "array" || expected == "object" ||
+                            expected == "function" || expected == "regex" || val.is_class_instance())) {
                     std::string actual;
                     if (val.is_none()) {
                         actual = "null";
@@ -2545,9 +2523,7 @@ bool VM::execute_instruction() {
                     } else {
                         actual = "unknown";
                     }
-                    const char *ctx_str = ctx_byte == 0   ? "parameter"
-                                          : ctx_byte == 1 ? "return value"
-                                                          : "variable";
+                    const char *ctx_str = ctx_byte == 0 ? "parameter" : ctx_byte == 1 ? "return value" : "variable";
                     // Resolve source location from the line map.
                     const FunctionMeta *fn = current_function();
                     int src_line = fn ? fn->resolve_line(instr_pc) : 0;
@@ -2563,10 +2539,8 @@ bool VM::execute_instruction() {
                     } else if (!fn_name.empty()) {
                         loc = " at '" + fn_name + "'";
                     }
-                    std::string msg =
-                        std::string("TypeError: expected ") + ctx_str +
-                        " of type '" + expected + "', got '" + actual + "'" +
-                        loc;
+                    std::string msg = std::string("TypeError: expected ") + ctx_str + " of type '" + expected +
+                                      "', got '" + actual + "'" + loc;
                     Value err = Value::make_string(msg);
                     if (!dispatch_throw(err)) {
                         return false;
@@ -2687,11 +2661,10 @@ bool VM::execute_instruction() {
                             }
 
                             Value return_value = Value::none();
-                            ScopedSyntheticDebugFrame debug_frame(
-                                class_name + "." + method_name,
-                                found->filename.empty() ? class_decl->filename : found->filename,
-                                found->line,
-                                runtime->call_stack.size() - 1);
+                            ScopedSyntheticDebugFrame debug_frame(class_name + "." + method_name,
+                                                                  found->filename.empty() ? class_decl->filename
+                                                                                          : found->filename,
+                                                                  found->line, runtime->call_stack.size() - 1);
                             for (const auto &stmt : found->body->stmts) {
                                 runtime->exec_stmt(stmt.get());
                                 if (runtime->flags.return_flag) {
@@ -2794,7 +2767,8 @@ bool VM::execute_instruction() {
                                 if (rit != runtime->functions.end()) {
                                     VM::push(runtime->call_user_function(rit->second.get(), args));
                                 } else {
-                                    bytecode_runtime_fatal("Method '" + method_name + "' is not callable or is otherwise unknown!", "");
+                                    bytecode_runtime_fatal(
+                                        "Method '" + method_name + "' is not callable or is otherwise unknown!", "");
                                     VM::push(Value::none());
                                 }
                             }
@@ -2851,18 +2825,18 @@ bool VM::execute_instruction() {
                     } else {
                         // Uncommon / error path: give a typed diagnostic.
                         const Value &ov = argv[0];
-                        std::string type_str =
-                            ov.is_string()   ? "string"
-                            : ov.is_array()  ? "array"
-                            : ov.is_object() ? "object"
-                            : ov.is_int()    ? "number"
-                            : ov.is_float()  ? "number"
-                            : ov.is_bool()   ? "boolean"
-                            : ov.is_none()   ? "null"
-                            : ov.is_regex()  ? "regex"
-                                             : "value";
+                        std::string type_str = ov.is_string()   ? "string"
+                                               : ov.is_array()  ? "array"
+                                               : ov.is_object() ? "object"
+                                               : ov.is_int()    ? "number"
+                                               : ov.is_float()  ? "number"
+                                               : ov.is_bool()   ? "boolean"
+                                               : ov.is_none()   ? "null"
+                                               : ov.is_regex()  ? "regex"
+                                                                : "value";
                         if (runtime->is_builtin_name(method_name)) {
-                            bytecode_runtime_fatal("Method '" + method_name + "' does not exist on type '" + type_str + "'!", "");
+                            bytecode_runtime_fatal(
+                                "Method '" + method_name + "' does not exist on type '" + type_str + "'!", "");
                         } else {
                             bytecode_runtime_fatal("'" + method_name + "' is not a method!", "");
                         }
@@ -2906,7 +2880,8 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
 
     // skip instructions from inlined function bodies.
     // When OP_CALL is successfully inlined (e.g. IntAdd), the interpreter still enters the called function,
-    // so we track call depth and ignore all instructions until the matching RETURN pops us back to the recording function.
+    // so we track call depth and ignore all instructions until the matching RETURN pops us back to the recording
+    // function.
     if (rec.inline_depth > 0) {
         if (op == OpCode::OP_CALL || op == OpCode::OP_CALL_METHOD || op == OpCode::OP_NEW_INSTANCE) {
             ++rec.inline_depth;
@@ -2917,9 +2892,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
     }
 
     // re-read uint16 operand from instruction bytes
-    auto op16 = [&]() -> uint16_t {
-        return (uint16_t(insn_base[1]) << 8) | uint16_t(insn_base[2]);
-    };
+    auto op16 = [&]() -> uint16_t { return (uint16_t(insn_base[1]) << 8) | uint16_t(insn_base[2]); };
 
     // determine TraceType from a live Value tag
     auto vtype = [](const Value &v) -> TraceType {
@@ -3002,8 +2975,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
                 abort_recording();
                 break;
             }
-            TraceType t =
-                rec.type_vstack.back(); // type of stored value (remains on stack)
+            TraceType t = rec.type_vstack.back(); // type of stored value (remains on stack)
             if (t == TraceType::Int) {
                 jit::TraceStep s = { Kind::StoreIntVar };
                 s.slot = slot;
@@ -3101,9 +3073,8 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
                 uint8_t argc = insn_base[1];
                 if (argc == 0 && !rec.type_vstack.empty()) {
                     rec.type_vstack.pop_back(); // pop the function placeholder
-                    Kind kind = (rec.pending_closure_kind == JitInlineKind::ClosureAddConst)
-                                    ? Kind::ClosureAddConst
-                                    : Kind::ClosureInc;
+                    Kind kind = (rec.pending_closure_kind == JitInlineKind::ClosureAddConst) ? Kind::ClosureAddConst
+                                                                                             : Kind::ClosureInc;
                     jit::TraceStep s{ kind };
                     s.capture_ptr = rec.pending_closure_capture0;
                     s.closure_slot = rec.pending_closure_slot;
@@ -3130,8 +3101,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
                 uint8_t argc = insn_base[1];
                 if (argc == 2 && rec.type_vstack.size() >= 2) {
                     TraceType ta = rec.type_vstack[rec.type_vstack.size() - 2]; // first arg
-                    TraceType tb =
-                        rec.type_vstack[rec.type_vstack.size() - 1]; // second arg
+                    TraceType tb = rec.type_vstack[rec.type_vstack.size() - 1]; // second arg
                     const auto &fc = f->code;
                     // Compute the starting offset of the function body, skipping any
                     // strict-mode CHECK_TYPE parameter preamble.
@@ -3166,17 +3136,16 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
                         if ((OpCode)fc[pos] == OpCode::OP_RETURN) {
                             return true;
                         }
-                        if (pos + 4 < fc.size() && (OpCode)fc[pos] == OpCode::OP_CHECK_TYPE &&
-                            fc[pos + 3] == 1 && (OpCode)fc[pos + 4] == OpCode::OP_RETURN) {
+                        if (pos + 4 < fc.size() && (OpCode)fc[pos] == OpCode::OP_CHECK_TYPE && fc[pos + 3] == 1 &&
+                            (OpCode)fc[pos + 4] == OpCode::OP_RETURN) {
                             return true;
                         }
                         return false;
                     };
                     // Match: LOAD_VAR(0), LOAD_VAR(1), <op>, [CHECK_TYPE] RETURN  (7+ bytes
                     // from body offset)
-                    if (bo + 7 <= fc.size() && (OpCode)fc[bo + 0] == OpCode::OP_LOAD_VAR &&
-                        fc[bo + 1] == 0 && fc[bo + 2] == 0 &&
-                        (OpCode)fc[bo + 3] == OpCode::OP_LOAD_VAR && fc[bo + 4] == 0 &&
+                    if (bo + 7 <= fc.size() && (OpCode)fc[bo + 0] == OpCode::OP_LOAD_VAR && fc[bo + 1] == 0 &&
+                        fc[bo + 2] == 0 && (OpCode)fc[bo + 3] == OpCode::OP_LOAD_VAR && fc[bo + 4] == 0 &&
                         fc[bo + 5] == 1 && is_rt_end(bo + 7)) {
                         auto op2 = (OpCode)fc[bo + 6];
                         Kind kind;
@@ -3291,8 +3260,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
                 } else {
                     kind = Kind::IntMod;
                 }
-            } else if (ta == TraceType::Float && tb == TraceType::Float &&
-                       tr == TraceType::Float) {
+            } else if (ta == TraceType::Float && tb == TraceType::Float && tr == TraceType::Float) {
                 if (op == OpCode::OP_ADD) {
                     kind = Kind::FloatAdd;
                 } else if (op == OpCode::OP_SUB) {
@@ -3401,8 +3369,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
         case OpCode::OP_JUMP_IF_FALSE: {
             // Condition was already popped by the instruction.
             // Compute exit_pc = where we'd jump when condition is false.
-            int16_t offset =
-                (int16_t)((uint16_t(insn_base[1]) << 8) | uint16_t(insn_base[2]));
+            int16_t offset = (int16_t)((uint16_t(insn_base[1]) << 8) | uint16_t(insn_base[2]));
             uint8_t *code_base = current_function()->code.data();
             size_t this_exit = (size_t)((insn_base + 3 + offset) - code_base);
             if (rec.type_vstack.empty()) {
@@ -3443,8 +3410,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
         // The forward jump just advances the IP past instructions that were never recorded.
         // Backward OP_JUMP is handled separately in execute_instruction() as LoopBack.
         case OpCode::OP_JUMP: {
-            int16_t offset =
-                (int16_t)((uint16_t(insn_base[1]) << 8) | uint16_t(insn_base[2]));
+            int16_t offset = (int16_t)((uint16_t(insn_base[1]) << 8) | uint16_t(insn_base[2]));
             if (offset >= 0) {
                 // forward jump: silently skip (no step emitted)
                 break;
@@ -3537,8 +3503,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
             TraceType t_val = rec.type_vstack.back();
             TraceType t_idx = rec.type_vstack[rec.type_vstack.size() - 2];
             TraceType t_arr = rec.type_vstack[rec.type_vstack.size() - 3];
-            if (t_arr != TraceType::Array || t_idx != TraceType::Int ||
-                t_val != TraceType::Int) {
+            if (t_arr != TraceType::Array || t_idx != TraceType::Int || t_val != TraceType::Int) {
                 abort_recording();
                 break;
             }
@@ -3563,9 +3528,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
 
         case OpCode::OP_GET_PROPERTY: {
             // stack: [..., Obj] -> [..., value]
-            if (rec.type_vstack.empty() ||
-                rec.type_vstack.back() != TraceType::Obj ||
-                !trace_prop_recordable) {
+            if (rec.type_vstack.empty() || rec.type_vstack.back() != TraceType::Obj || !trace_prop_recordable) {
                 abort_recording();
                 break;
             }
@@ -3591,8 +3554,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
             }
             TraceType vt = rec.type_vstack.back();                      // value being stored
             TraceType ot = rec.type_vstack[rec.type_vstack.size() - 2]; // object
-            if (ot != TraceType::Obj ||
-                (vt != TraceType::Int && vt != TraceType::Float)) {
+            if (ot != TraceType::Obj || (vt != TraceType::Int && vt != TraceType::Float)) {
                 abort_recording();
                 break;
             }
@@ -3661,7 +3623,8 @@ Value VM::call_function_value_span(const Value &func_val, const Value *args, siz
 }
 
 bool VM::dispatch_throw(Value error) {
-    // capture the call stack now, before any frame unwinding, so it can be printed if the exception turns out to be uncaught.
+    // capture the call stack now, before any frame unwinding, so it can be printed if the exception turns out to be
+    // uncaught.
     std::vector<std::string> trace;
     trace.reserve(frames.size());
     for (int fi = (int)frames.size() - 1; fi >= 0; fi--) {
@@ -3669,7 +3632,8 @@ bool VM::dispatch_throw(Value error) {
         if (!frame.function) {
             continue;
         }
-        const std::string &fn_name = (frame.function->name.empty() || frame.function->name == "<main>") ? "<top level>" : frame.function->name;
+        const std::string &fn_name =
+            (frame.function->name.empty() || frame.function->name == "<main>") ? "<top level>" : frame.function->name;
         size_t pc_offset = (size_t)(frame.ip - frame.function->code.data());
         // if ip points one byte past the last consumed byte, back off by 1.
         if (pc_offset > 0) {
@@ -3692,7 +3656,8 @@ bool VM::dispatch_throw(Value error) {
 
         // basic check for a stale handler, we obviously can't target a frame that no longer exists
         if (handler.frame_depth > frames.size()) {
-            fprintf(stderr, "warning: discarding stale try handler (frame_depth=%zu, size=%zu)\n", handler.frame_depth, frames.size());
+            fprintf(stderr, "warning: discarding stale try handler (frame_depth=%zu, size=%zu)\n", handler.frame_depth,
+                    frames.size());
             continue;
         }
 
@@ -3713,7 +3678,8 @@ bool VM::dispatch_throw(Value error) {
 
         // stack_depth must not exceed the current unwound stack size, and we can't grow it here
         if (handler.stack_depth > stack.size()) {
-            fprintf(stderr, "warning: try handler stack_depth=%zu > stack.size()=%zu; clamping\n", handler.stack_depth, stack.size());
+            fprintf(stderr, "warning: try handler stack_depth=%zu > stack.size()=%zu; clamping\n", handler.stack_depth,
+                    stack.size());
             handler.stack_depth = stack.size();
         }
         stack.resize(handler.stack_depth);
@@ -3721,7 +3687,8 @@ bool VM::dispatch_throw(Value error) {
         // catch_ip must be a valid offset inside the current function
         FunctionMeta *fn = current_function();
         if (!fn || handler.catch_ip >= fn->code.size()) {
-            fprintf(stderr, "warning: try handler catch_ip=%zu out of range (code.size()=%zu)\n", handler.catch_ip, fn ? fn->code.size() : 0);
+            fprintf(stderr, "warning: try handler catch_ip=%zu out of range (code.size()=%zu)\n", handler.catch_ip,
+                    fn ? fn->code.size() : 0);
             break;
         }
 
@@ -3804,9 +3771,7 @@ bool VM::run(Chunk *compiled_chunk) {
         return call_function_value_span(func_val, args, argc);
     };
 
-    runtime->external_global_lookup = [&](const std::string &name) -> Value {
-        return get_global(name);
-    };
+    runtime->external_global_lookup = [&](const std::string &name) -> Value { return get_global(name); };
 
     // call __stdlib_init__() if it exists to populate the system object
     auto stdlib_init_it = func_indices.find("__stdlib_init__");
@@ -3849,7 +3814,8 @@ bool VM::run(Chunk *compiled_chunk) {
     }
 
 #ifndef DISABLE_JIT
-    // attempt to eagerly compile user functions that contain backward jumps (loops) but no method calls AND at least one OP_CALL
+    // attempt to eagerly compile user functions that contain backward jumps (loops) but no method calls AND at least
+    // one OP_CALL
     if (jit::g_jit_compiler) {
         for (size_t i = 0; i < chunk->functions.size(); i++) {
             const FunctionMeta &fm = chunk->functions[i];
@@ -3866,7 +3832,8 @@ bool VM::run(Chunk *compiled_chunk) {
             bool pending_global = false;
             uint16_t pending_global_name_idx = 0;
             bool pending_load_var = false; // tracks LOAD_VAR preceding a CALL (potential closure)
-            // collect positions of non-inlineable calls, method calls, and backward jumps to determine which are inside loop bodies.
+            // collect positions of non-inlineable calls, method calls, and backward jumps to determine which are inside
+            // loop bodies.
             std::vector<size_t> non_inlineable_call_pcs;
             std::vector<size_t> call_method_pcs;
             std::vector<size_t> string_op_pcs; // string ops the trace JIT can't handle
@@ -3885,8 +3852,7 @@ bool VM::run(Chunk *compiled_chunk) {
                         auto it = globals.find(gname);
                         if (it != globals.end() && it->second.is_function()) {
                             FunctionData &fd = it->second.get_function();
-                            if (fd.jit_meta != nullptr &&
-                                fd.jit_inline_kind != JitInlineKind::None) {
+                            if (fd.jit_meta != nullptr && fd.jit_inline_kind != JitInlineKind::None) {
                                 inlineable = true;
                             }
                         }
@@ -3910,15 +3876,11 @@ bool VM::run(Chunk *compiled_chunk) {
                         non_inlineable_call_pcs.push_back(pc); // double LOAD_GLOBAL
                     } else {
                         pending_global = true;
-                        pending_global_name_idx =
-                            (uint16_t(code[pc + 1]) << 8) | uint16_t(code[pc + 2]);
+                        pending_global_name_idx = (uint16_t(code[pc + 1]) << 8) | uint16_t(code[pc + 2]);
                     }
-                } else if (
-                    op2 != OpCode::OP_LOAD_VAR && op2 != OpCode::OP_LOAD_CONST &&
-                    op2 != OpCode::OP_LOAD_ONE && op2 != OpCode::OP_LOAD_ZERO &&
-                    op2 != OpCode::OP_LOAD_NONE && op2 != OpCode::OP_LOAD_TRUE &&
-                    op2 != OpCode::OP_LOAD_FALSE &&
-                    op2 != OpCode::OP_LOAD_CAPTURE) {
+                } else if (op2 != OpCode::OP_LOAD_VAR && op2 != OpCode::OP_LOAD_CONST && op2 != OpCode::OP_LOAD_ONE &&
+                           op2 != OpCode::OP_LOAD_ZERO && op2 != OpCode::OP_LOAD_NONE && op2 != OpCode::OP_LOAD_TRUE &&
+                           op2 != OpCode::OP_LOAD_FALSE && op2 != OpCode::OP_LOAD_CAPTURE) {
                     pending_global = false;
                     pending_load_var = false;
                 }
@@ -3928,7 +3890,8 @@ bool VM::run(Chunk *compiled_chunk) {
                 if (op2 == OpCode::OP_MAKE_ITERATOR || op2 == OpCode::OP_MAKE_ITERATOR_KV) {
                     has_make_iterator = true;
                 }
-                if (op2 == OpCode::OP_STR_APPEND_VAR || op2 == OpCode::OP_STR_APPEND_GLOBAL || op2 == OpCode::OP_STR_CONCAT) {
+                if (op2 == OpCode::OP_STR_APPEND_VAR || op2 == OpCode::OP_STR_APPEND_GLOBAL ||
+                    op2 == OpCode::OP_STR_CONCAT) {
                     string_op_pcs.push_back(pc);
                 }
                 if (op2 == OpCode::OP_JUMP && pc + 2 < code.size()) {
@@ -3994,10 +3957,10 @@ bool VM::run(Chunk *compiled_chunk) {
             */
 
             const bool needs_eager =
-                !has_make_iterator && (backward_jump_count >= 2 ||
-                                       (backward_jump_count >= 1 &&
-                                        (has_non_inlineable_call_in_loop || has_string_op_in_loop ||
-                                         (has_non_inlineable_call_outside_loop && has_call_method_in_loop))));
+                !has_make_iterator &&
+                (backward_jump_count >= 2 ||
+                 (backward_jump_count >= 1 && (has_non_inlineable_call_in_loop || has_string_op_in_loop ||
+                                               (has_non_inlineable_call_outside_loop && has_call_method_in_loop))));
             if (needs_eager) {
                 jit::g_jit_compiler->compile_chunk(*chunk, i);
             }

@@ -322,14 +322,6 @@ size_t GarbageCollector::force_collect(const std::vector<const Value *> &roots) 
 
 // TODO?: consolidate these variables into the Stats struct so that we can just directly return that instead of copying
 GarbageCollector::Stats GarbageCollector::get_stats() const {
-    return Stats{
-        tracked_count,
-        allocation_count,
-        total_collections,
-        total_collected,
-        total_allocated,
-        peak_tracked,
-        collection_threshold,
-        enabled
-    };
+    return Stats{ tracked_count,   allocation_count, total_collections,    total_collected,
+                  total_allocated, peak_tracked,     collection_threshold, enabled };
 }

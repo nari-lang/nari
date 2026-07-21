@@ -18,15 +18,7 @@ class GarbageCollector {
         return gc;
     }
 
-    enum class TrackedType {
-        Array,
-        Object,
-        Handle,
-        ClassInstance,
-        Function,
-        String,
-        Unknown
-    };
+    enum class TrackedType { Array, Object, Handle, ClassInstance, Function, String, Unknown };
 
     // Track a heap object so the mark-sweep collector can reclaim it.
     // noexcept since on OOM the entry is silently dropped

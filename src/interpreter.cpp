@@ -17,6 +17,8 @@
 #include "dap/dap_server.h"
 #ifndef DISABLE_PARSER
 #include "parser_api.h"
+
+#include "fmt/fmt_cli.h"
 #endif
 #include "repl.h"
 #include "runtime.h"
@@ -78,7 +80,8 @@ static std::string read_file_to_string(const std::string &path) {
 
 // merge a pre-compiled naric module chunk into the destination chunk, requires the parser for obvious reasons :)
 #ifndef DISABLE_PARSER
-static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::Chunk *src, const std::string &module_main_name) {
+static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::Chunk *src,
+                                   const std::string &module_main_name) {
     using namespace nari::bytecode;
 
     std::vector<uint32_t> str_remap(src->strings.size());
@@ -112,12 +115,8 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
     };
 
     auto remap_bytecode = [&](ByteArray &code) -> bool {
-        auto need = [&](size_t p, size_t n) -> bool {
-            return p <= code.size() && n <= code.size() - p;
-        };
-        auto rd16 = [&](size_t p) -> uint16_t {
-            return ((uint16_t)code[p] << 8) | code[p + 1];
-        };
+        auto need = [&](size_t p, size_t n) -> bool { return p <= code.size() && n <= code.size() - p; };
+        auto rd16 = [&](size_t p) -> uint16_t { return ((uint16_t)code[p] << 8) | code[p + 1]; };
         auto wr16 = [&](size_t p, uint16_t v) {
             code[p] = (v >> 8) & 0xFF;
             code[p + 1] = v & 0xFF;
@@ -346,11 +345,16 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
 #endif // DISABLE_PARSER
 
 int main(int argc, char **argv) {
-    const char *usage = {
-        "Usage: nari [--repl] [--dap] [--dump-ast=<file>] "
-        "[--trace-level=<none|error|info|debug>] [--tree-walk] "
-        "<script.nari | compiled.naric> [script args...]\n"
-    };
+    // `nari fmt ...`: code formatter subcommand. Handled before everything else
+    // so no runtime/JIT initialization happens for a formatting run.
+    if (argc > 1 && std::string(argv[1]) == "fmt") {
+        return nari::fmt::run_fmt(argc - 1, argv + 1);
+    }
+
+    const char *usage = { "Usage: nari [--repl] [--dap] [--dump-ast=<file>] "
+                          "[--trace-level=<none|error|info|debug>] [--tree-walk] "
+                          "<script.nari | compiled.naric> [script args...]\n"
+                          "       nari fmt [options] <files...>  (format source code; see 'nari fmt --help')\n" };
 
     // --dap: start as a Debug Adapter Protocol server on stdin/stdout.
     {
@@ -514,8 +518,7 @@ int main(int argc, char **argv) {
     }
 
     int runtime_argc = (int)runtime_argv.size();
-    char **runtime_argv_ptr =
-        runtime_argv.empty() ? nullptr : runtime_argv.data();
+    char **runtime_argv_ptr = runtime_argv.empty() ? nullptr : runtime_argv.data();
 
 #ifdef DISABLE_PARSER
     // bytecode-only build: source files cannot be parsed at runtime.
@@ -538,7 +541,8 @@ int main(int argc, char **argv) {
         Parser::ParseResult parse_result = Parser::parse_program_recovering(src);
         if (!parse_result.ok()) {
             for (const auto &err : parse_result.errors) {
-                fprintf(stderr, "Parse error at %s:%d:%d: %s\n", err.filename.c_str(), err.line, err.col, err.message.c_str());
+                fprintf(stderr, "Parse error at %s:%d:%d: %s\n", err.filename.c_str(), err.line, err.col,
+                        err.message.c_str());
             }
             return ERROR_PARSING;
         }
@@ -646,7 +650,8 @@ int main(int argc, char **argv) {
             }
 
             // merge any pre-compiled .naric modules that were imported from source.
-            // each module's top-level function is renamed to the unique init-function name the parser emitted a CallExpr for
+            // each module's top-level function is renamed to the unique init-function name the parser emitted a
+            // CallExpr for
             if (!is_naric) {
                 const auto &naric_imports = Parser::get_pending_naric_imports();
                 for (const auto &[init_name, module_path] : naric_imports) {

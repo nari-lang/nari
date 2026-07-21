@@ -28,7 +28,7 @@ inline void print_indent(int indent) {
 struct TypeAnnotation {
     std::string name; // "number", "string", "bool", etc.
     std::vector<std::string> generic_params;
-    bool is_array = false; // type[]
+    bool is_array = false;        // type[]
     size_t fixed_array_count = 0; // type[N], used for inline FFI fields
 
     TypeAnnotation() = default;
@@ -377,8 +377,7 @@ struct IndexExpr : Expr {
     ExprPtr index;
     bool optional = false; // true for ?.[]
 
-    IndexExpr(ExprPtr obj, ExprPtr idx)
-        : object(std::move(obj)), index(std::move(idx)) {
+    IndexExpr(ExprPtr obj, ExprPtr idx) : object(std::move(obj)), index(std::move(idx)) {
         kind = ExprKind::Index;
     }
 
@@ -546,10 +545,7 @@ struct ExprStmt : Stmt {
     }
 };
 
-enum VarDeclCtrl : bool {
-    GLOBAL = true,
-    LOCAL = false
-};
+enum VarDeclCtrl : bool { GLOBAL = true, LOCAL = false };
 
 enum class DestructureKind {
     None,  // simple variable: let x = value
@@ -658,7 +654,8 @@ struct IfStmt : Stmt {
     StmtPtr then_branch; // should be BlockStmt
     StmtPtr else_branch; // optional
 
-    IfStmt(ExprPtr c, StmtPtr t, StmtPtr e = nullptr) : cond(std::move(c)), then_branch(std::move(t)), else_branch(std::move(e)) {
+    IfStmt(ExprPtr c, StmtPtr t, StmtPtr e = nullptr)
+        : cond(std::move(c)), then_branch(std::move(t)), else_branch(std::move(e)) {
         stmt_kind = StmtKind::If;
     }
 
@@ -713,7 +710,8 @@ struct ForStmt : Stmt {
     StmtPtr post; // optional
     StmtPtr body;
 
-    ForStmt(StmtPtr i, ExprPtr c, StmtPtr p, StmtPtr b) : init(std::move(i)), cond(std::move(c)), post(std::move(p)), body(std::move(b)) {
+    ForStmt(StmtPtr i, ExprPtr c, StmtPtr p, StmtPtr b)
+        : init(std::move(i)), cond(std::move(c)), post(std::move(p)), body(std::move(b)) {
         stmt_kind = StmtKind::For;
     }
 
@@ -922,8 +920,7 @@ struct TypeDecl : ASTNode {
     std::vector<TypeField> fields;
     TypeAnnotationPtr alias_target; // if non-null, this is a type alias
 
-    explicit TypeDecl(std::string n, TypeDeclKind k = TypeDeclKind::Struct)
-        : name(std::move(n)), kind(k) {
+    explicit TypeDecl(std::string n, TypeDeclKind k = TypeDeclKind::Struct) : name(std::move(n)), kind(k) {
     }
 
     bool is_alias() const {
@@ -1028,10 +1025,7 @@ struct EnumDecl : ASTNode {
 using TypeDeclPtr = std::unique_ptr<TypeDecl>;
 using EnumDeclPtr = std::unique_ptr<EnumDecl>;
 
-enum class Visibility {
-    Public,
-    Private
-};
+enum class Visibility { Public, Private };
 
 // class field with visibility and optional default value
 struct ClassField {
@@ -1106,10 +1100,8 @@ struct ClassDecl : ASTNode {
             printf("Fields:\n");
             for (const auto &field : fields) {
                 print_indent(indent + 4);
-                printf(
-                    "%s %s: %s\n",
-                    field.visibility == Visibility::Public ? "public" : "private",
-                    field.name.c_str(), field.type->to_string().c_str());
+                printf("%s %s: %s\n", field.visibility == Visibility::Public ? "public" : "private", field.name.c_str(),
+                       field.type->to_string().c_str());
             }
         }
 
@@ -1118,11 +1110,8 @@ struct ClassDecl : ASTNode {
             printf("Methods:\n");
             for (const auto &method : methods) {
                 print_indent(indent + 4);
-                printf(
-                    "%s %s%s(",
-                    method.visibility == Visibility::Public ? "public" : "private",
-                    method.is_constructor ? "constructor " : "",
-                    method.name.c_str());
+                printf("%s %s%s(", method.visibility == Visibility::Public ? "public" : "private",
+                       method.is_constructor ? "constructor " : "", method.name.c_str());
                 for (size_t i = 0; i < method.params.size(); i++) {
                     if (i > 0) {
                         printf(", ");
@@ -1142,13 +1131,7 @@ struct ClassDecl : ASTNode {
 using ClassDeclPtr = std::unique_ptr<ClassDecl>;
 
 // type tags for fast pattern dispatch
-enum class PatternKind {
-    Wildcard,
-    Binding,
-    Literal,
-    Variant,
-    Other
-};
+enum class PatternKind { Wildcard, Binding, Literal, Variant, Other };
 
 struct Pattern : ASTNode {
     PatternKind pattern_kind = PatternKind::Other;
@@ -1286,9 +1269,9 @@ struct Function : ASTNode {
     TypeAnnotationPtr return_type;               // optional return type annotation
     void *closure_env_ptr = nullptr;             // pointer to captured environment
     void (*closure_deleter)(void *) = nullptr;   // custom deleter for closure
-    void *closure_const_env_ptr = nullptr;             // pointer to captured const names
+    void *closure_const_env_ptr = nullptr;       // pointer to captured const names
     void (*closure_const_deleter)(void *) = nullptr;
-    bool strict_mode = false;                    // "use strict"
+    bool strict_mode = false; // "use strict"
 
     Function() = default;
 

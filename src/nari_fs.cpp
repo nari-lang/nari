@@ -50,9 +50,7 @@ bool is_sep(char ch) {
 }
 
 bool has_drive_prefix(const std::string &path) {
-    return path.size() >= 2 &&
-           std::isalpha((unsigned char)path[0]) &&
-           path[1] == ':';
+    return path.size() >= 2 && std::isalpha((unsigned char)path[0]) && path[1] == ':';
 }
 
 std::wstring utf8_to_wide(const std::string &value) {
@@ -268,8 +266,7 @@ bool Path::is_absolute() const {
     }
     std::string path = normalize_component_separators(value_);
     bool has_absolute_drive = has_drive_prefix(path) && path.size() >= 3 && path[2] == '/';
-    return has_absolute_drive || (path.size() >= 2 && path[0] == '/' && path[1] == '/') ||
-           path[0] == '/';
+    return has_absolute_drive || (path.size() >= 2 && path[0] == '/' && path[1] == '/') || path[0] == '/';
 }
 
 bool Path::has_parent_path() const {
@@ -413,8 +410,7 @@ bool remove(const Path &path, std::error_code &ec) {
     }
 
     std::wstring wide = utf8_to_wide(path.string());
-    BOOL ok = (attrs & FILE_ATTRIBUTE_DIRECTORY) ? RemoveDirectoryW(wide.c_str())
-                                                 : DeleteFileW(wide.c_str());
+    BOOL ok = (attrs & FILE_ATTRIBUTE_DIRECTORY) ? RemoveDirectoryW(wide.c_str()) : DeleteFileW(wide.c_str());
     if (!ok) {
         ec = std::error_code((int)GetLastError(), std::system_category());
         return false;

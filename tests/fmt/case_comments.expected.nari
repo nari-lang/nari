@@ -1,0 +1,8 @@
+#!/usr/bin/env nari
+// leading comment
+let x = 1; // trailing comment
+/* block
+   multi line */
+let y = 2;
+
+let z = 3; # hash comment

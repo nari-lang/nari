@@ -101,8 +101,7 @@ struct FFIStructDef {
 
     FFIStructDef(FFIStructDef &&other) noexcept
         : name(std::move(other.name)), is_union(other.is_union), fields(std::move(other.fields)),
-          ffi_struct_type(other.ffi_struct_type),
-          ffi_field_types(std::move(other.ffi_field_types)),
+          ffi_struct_type(other.ffi_struct_type), ffi_field_types(std::move(other.ffi_field_types)),
           ffi_field_offsets(std::move(other.ffi_field_offsets)) {
         other.ffi_struct_type = nullptr;
     }
@@ -166,19 +165,16 @@ struct FFISignature {
     }
 
     bool operator==(const FFISignature &other) const {
-        if (return_type != other.return_type || param_types != other.param_types ||
-            is_variadic != other.is_variadic ||
+        if (return_type != other.return_type || param_types != other.param_types || is_variadic != other.is_variadic ||
             fixed_param_count != other.fixed_param_count) {
             return false;
         }
 
         // Compare struct definitions
-        if ((return_struct_def == nullptr) !=
-            (other.return_struct_def == nullptr)) {
+        if ((return_struct_def == nullptr) != (other.return_struct_def == nullptr)) {
             return false;
         }
-        if (return_struct_def && other.return_struct_def &&
-            !(*return_struct_def == *other.return_struct_def)) {
+        if (return_struct_def && other.return_struct_def && !(*return_struct_def == *other.return_struct_def)) {
             return false;
         }
 
@@ -415,7 +411,6 @@ class FFICaller {
     typedef std::unordered_map<FFISignature, FFICaller::CIFCache, FFISignatureHash> FFISigMap;
 
   private:
-  
     static FFISigMap cif_cache;
     static FFISigMap cif_variadic_cache;
 
@@ -423,11 +418,8 @@ class FFICaller {
     static CIFCache &get_or_create_cif_variadic(const FFISignature &sig);
 };
 
-
-
 // struct marshalling helpers
-std::shared_ptr<FFIStructDef>
-create_struct_def_from_type(const std::string &type_name);
+std::shared_ptr<FFIStructDef> create_struct_def_from_type(const std::string &type_name);
 size_t get_struct_size(const std::string &type_name);
 Value read_struct_from_memory(void *ptr, const std::string &type_name);
 bool write_struct_to_memory(void *ptr, const std::string &type_name, const Value &obj);

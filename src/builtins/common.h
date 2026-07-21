@@ -92,12 +92,8 @@ bool utf8_to_utf16(const std::string &input, std::u16string &output) {
 
     output.resize(static_cast<size_t>(required));
 
-    int converted = MultiByteToWideChar(
-        CP_UTF8,
-        MB_ERR_INVALID_CHARS,
-        input.c_str(),
-        static_cast<int>(input.size()),
-        reinterpret_cast<wchar_t *>(output.data()), required);
+    int converted = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input.c_str(), static_cast<int>(input.size()),
+                                        reinterpret_cast<wchar_t *>(output.data()), required);
 
     return converted == required;
 #else
@@ -148,8 +144,7 @@ bool utf8_to_utf16(const std::string &input, std::u16string &output) {
             unsigned char c1 = static_cast<unsigned char>(input[i + 1]);
             unsigned char c2 = static_cast<unsigned char>(input[i + 2]);
             unsigned char c3 = static_cast<unsigned char>(input[i + 3]);
-            if ((c1 & 0xC0u) != 0x80u || (c2 & 0xC0u) != 0x80u ||
-                (c3 & 0xC0u) != 0x80u) {
+            if ((c1 & 0xC0u) != 0x80u || (c2 & 0xC0u) != 0x80u || (c3 & 0xC0u) != 0x80u) {
                 return false;
             }
             codepoint = ((c & 0x07u) << 18) | ((c1 & 0x3Fu) << 12) | ((c2 & 0x3Fu) << 6) | (c3 & 0x3Fu);
@@ -184,11 +179,8 @@ bool utf16_to_utf8(const std::u16string &input, std::string &output) {
         return true;
     }
 
-    int required = WideCharToMultiByte(
-        CP_UTF8,
-        WC_ERR_INVALID_CHARS,
-        reinterpret_cast<const wchar_t *>(input.data()),
-        static_cast<int>(input.size()), nullptr, 0, nullptr, nullptr);
+    int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, reinterpret_cast<const wchar_t *>(input.data()),
+                                       static_cast<int>(input.size()), nullptr, 0, nullptr, nullptr);
 
     if (required <= 0) {
         return false;
@@ -196,12 +188,8 @@ bool utf16_to_utf8(const std::u16string &input, std::string &output) {
 
     output.resize(static_cast<size_t>(required));
 
-    int converted = WideCharToMultiByte(
-        CP_UTF8,
-        WC_ERR_INVALID_CHARS,
-        reinterpret_cast<const wchar_t *>(input.data()),
-        static_cast<int>(input.size()), output.data(),
-        required, nullptr, nullptr);
+    int converted = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, reinterpret_cast<const wchar_t *>(input.data()),
+                                        static_cast<int>(input.size()), output.data(), required, nullptr, nullptr);
 
     return converted == required;
 #else

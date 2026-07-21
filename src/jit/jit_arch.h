@@ -782,8 +782,7 @@ inline void shl(Compiler &cc, const Gp &dst, const Gp &src, int shift) {
 }
 
 // shift left by register: dst = src << shift_reg
-inline void shl_reg(Compiler &cc, const Gp &dst, const Gp &src,
-                    const Gp &shift_reg) {
+inline void shl_reg(Compiler &cc, const Gp &dst, const Gp &src, const Gp &shift_reg) {
 #if NARI_JIT_ARM64
     cc.lsl(dst, src, shift_reg);
 #else

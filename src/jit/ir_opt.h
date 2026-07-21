@@ -24,15 +24,14 @@ using GlobalTypeMap = std::unordered_map<uint32_t, Ty>;
 GlobalTypeMap analyze_const_globals(const nari::bytecode::Chunk &chunk);
 
 // Set of local slot indices whose runtime value is always an array of Int48
-// (within this function's visible scope). 
+// (within this function's visible scope).
 // Computed by analyze_int_array_slots() and consulted by infer_types() so `LoadIndex(LoadSlot @s, _)` types as Int48.
 using IntArraySlots = std::unordered_set<uint32_t>;
 
 // Analyze a built IR function and return the set of its slots that are
 // statically proven to hold int-only arrays. Must be called AFTER infer_types() has run at least once
-IntArraySlots analyze_int_array_slots(
-    const Func &f, uint32_t push_method_name_idx,
-    uint32_t length_method_name_idx = UINT32_MAX);
+IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_idx,
+                                      uint32_t length_method_name_idx = UINT32_MAX);
 
 // Optimistic "top" of the int-array lattice: every slot that COULD be an
 // int-array based on its definitions alone, this determines which slots to
@@ -42,11 +41,8 @@ IntArraySlots int_array_candidates(const Func &f);
 // Forward type inference: assigns a Ty to every SSA value (and a derived type to
 // each local slot) by iterating to a CFG fixpoint. Leaves a value
 // Unknown when a type can't be proven
-void infer_types(
-    Func &f, std::vector<Ty> &out_slot_types,
-    const GlobalTypeMap *global_types = nullptr,
-    const IntArraySlots *int_array_slots = nullptr,
-    bool int48_params = false);
+void infer_types(Func &f, std::vector<Ty> &out_slot_types, const GlobalTypeMap *global_types = nullptr,
+                 const IntArraySlots *int_array_slots = nullptr, bool int48_params = false);
 
 // Rewrite dynamic numeric ops to typed ops when the lattice proves both operands.
 // This makes specialization explicit in the IR instead of leaving it as an ad-hoc

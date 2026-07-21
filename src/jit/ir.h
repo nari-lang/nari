@@ -185,14 +185,12 @@ struct Func {
 
     ValueId add_inst(Inst in) {
         ValueId id = (ValueId)insts.size();
-        in.result = (in.op == Op::StoreSlot || in.op == Op::Jump ||
-                     in.op == Op::Branch || in.op == Op::Return ||
-                     in.op == Op::StoreGlobal || in.op == Op::StoreCapture || in.op == Op::Pop ||
-                     in.op == Op::StoreImmSlot || in.op == Op::StoreBImmSlot ||
-                     in.op == Op::StoreNSlot || in.op == Op::StoreCSlot ||
-                     in.op == Op::CopySlot)
-                        ? InvalidValue
-                        : id;
+        in.result =
+            (in.op == Op::StoreSlot || in.op == Op::Jump || in.op == Op::Branch || in.op == Op::Return ||
+             in.op == Op::StoreGlobal || in.op == Op::StoreCapture || in.op == Op::Pop || in.op == Op::StoreImmSlot ||
+             in.op == Op::StoreBImmSlot || in.op == Op::StoreNSlot || in.op == Op::StoreCSlot || in.op == Op::CopySlot)
+                ? InvalidValue
+                : id;
         insts.push_back(std::move(in));
         return id;
     }

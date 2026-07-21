@@ -189,8 +189,7 @@ static Inst number_result_checked(bool overflowed, int64_t v, double fallback, s
     return make_float_const(fallback, pc);
 }
 
-static bool fold_binary_const(Op op, const Inst &lhs, const Inst &rhs,
-                              size_t pc, Inst &out) {
+static bool fold_binary_const(Op op, const Inst &lhs, const Inst &rhs, size_t pc, Inst &out) {
     switch (op) {
         case Op::DynAdd:
             if (lhs.op == Op::IConst && rhs.op == Op::IConst) {
@@ -250,8 +249,7 @@ static bool fold_binary_const(Op op, const Inst &lhs, const Inst &rhs,
                 double rn = const_number(rhs);
                 if (rn == 0.0) {
                     out = make_float_const(std::nan(""), pc);
-                } else if (lhs.op == Op::IConst && rhs.op == Op::IConst &&
-                           lhs.imm_int % rhs.imm_int == 0) {
+                } else if (lhs.op == Op::IConst && rhs.op == Op::IConst && lhs.imm_int % rhs.imm_int == 0) {
                     out = make_int_const(lhs.imm_int / rhs.imm_int, pc);
                 } else {
                     out = make_float_const(const_number(lhs) / rn, pc);
@@ -459,12 +457,10 @@ static bool simplify_block(Func &f, Block &b) {
                     StackEntry rhs = stack.back();
                     StackEntry lhs = stack[stack.size() - 2];
                     Inst folded;
-                    bool operands_are_trailing = body.size() >= 2 &&
-                                                 body[body.size() - 2] == lhs.value &&
-                                                 body[body.size() - 1] == rhs.value;
+                    bool operands_are_trailing =
+                        body.size() >= 2 && body[body.size() - 2] == lhs.value && body[body.size() - 1] == rhs.value;
                     if (is_foldable_binary(in.op) && lhs.removable && rhs.removable && operands_are_trailing &&
-                        fold_binary_const(in.op, f.inst(lhs.value), f.inst(rhs.value),
-                                          in.bytecode_pc, folded)) {
+                        fold_binary_const(in.op, f.inst(lhs.value), f.inst(rhs.value), in.bytecode_pc, folded)) {
                         body.pop_back();
                         body.pop_back();
                         stack.pop_back();
@@ -505,8 +501,7 @@ static bool eliminate_slot_round_trips(Func &f, Block &b) {
             // StoreSlot leaves the stored value on the VM stack. A following
             // Pop + LoadSlot of the same slot can be dropped and the original
             // stored value remains on top of the stack for the consumer.
-            if (a.op == Op::StoreSlot && mid.op == Op::Pop && c.op == Op::LoadSlot &&
-                a.imm_u32 == c.imm_u32) {
+            if (a.op == Op::StoreSlot && mid.op == Op::Pop && c.op == Op::LoadSlot && a.imm_u32 == c.imm_u32) {
                 body.push_back(b.insts[i]);
                 i += 3;
                 changed = true;
@@ -516,8 +511,7 @@ static bool eliminate_slot_round_trips(Func &f, Block &b) {
             // `x = x` used as a statement lowers to LoadSlot, StoreSlot, Pop.
             // The slot and final stack are unchanged, so all three helpers are
             // dead. Keep this exact and local to avoid crossing side effects.
-            if (a.op == Op::LoadSlot && mid.op == Op::StoreSlot && c.op == Op::Pop &&
-                a.imm_u32 == mid.imm_u32) {
+            if (a.op == Op::LoadSlot && mid.op == Op::StoreSlot && c.op == Op::Pop && a.imm_u32 == mid.imm_u32) {
                 i += 3;
                 changed = true;
                 continue;
@@ -593,13 +587,11 @@ static bool fuse_slot_stores(Func &f, Block &b) {
             const Inst &c = f.inst(b.insts[i + 2]);
             ValueId prod_id = b.insts[i];
 
-            bool prod_is_const = (a.op == Op::IConst || a.op == Op::BConst ||
-                                  a.op == Op::NConst || a.op == Op::LoadConst ||
-                                  a.op == Op::LoadSlot);
+            bool prod_is_const = (a.op == Op::IConst || a.op == Op::BConst || a.op == Op::NConst ||
+                                  a.op == Op::LoadConst || a.op == Op::LoadSlot);
 
-            if (prod_is_const && mid.op == Op::StoreSlot && c.op == Op::Pop &&
-                !mid.operands.empty() && mid.operands[0] == prod_id &&
-                !c.operands.empty() && c.operands[0] == prod_id &&
+            if (prod_is_const && mid.op == Op::StoreSlot && c.op == Op::Pop && !mid.operands.empty() &&
+                mid.operands[0] == prod_id && !c.operands.empty() && c.operands[0] == prod_id &&
                 no_other_users(prod_id, i + 3)) {
                 // Snapshot immediates BEFORE add_inst() may reallocate f.insts.
                 Op prod_op = a.op;
@@ -867,8 +859,7 @@ static bool local_value_numbering(Func &f, Block &b) {
                 push_leaf(v, getvn("const:" + std::to_string(in.imm_u32)));
                 break;
             case Op::LoadSlot:
-                push_leaf(v, getvn("ld:" + std::to_string(in.imm_u32) + ":" +
-                                   std::to_string(slot_ver(in.imm_u32))));
+                push_leaf(v, getvn("ld:" + std::to_string(in.imm_u32) + ":" + std::to_string(slot_ver(in.imm_u32))));
                 break;
             case Op::LoadGlobal:
                 push_leaf(v, getvn("global:" + std::to_string(in.imm_u32)));
@@ -952,8 +943,7 @@ static bool local_value_numbering(Func &f, Block &b) {
                 if ((in.op == Op::DynAdd || in.op == Op::DynMul) && o1 > o2) {
                     std::swap(o1, o2); // commutative: normalize operand order
                 }
-                int vn = getvn(std::to_string((int)in.op) + ":" + std::to_string(o1) +
-                               ":" + std::to_string(o2));
+                int vn = getvn(std::to_string((int)in.op) + ":" + std::to_string(o1) + ":" + std::to_string(o2));
                 size_t span_start = lhs.body_pos; // expression begins at the left operand
                 body.push_back(v);
                 // CSE: identical to the value directly below? -> replace span with Dup.
@@ -993,8 +983,7 @@ static bool local_value_numbering(Func &f, Block &b) {
                 if ((in.op == Op::IAnd || in.op == Op::IOr || in.op == Op::IXor) && o1 > o2) {
                     std::swap(o1, o2);
                 }
-                int vn = getvn(std::to_string((int)in.op) + ":" + std::to_string(o1) +
-                               ":" + std::to_string(o2));
+                int vn = getvn(std::to_string((int)in.op) + ":" + std::to_string(o1) + ":" + std::to_string(o2));
                 body.push_back(v);
                 st.push_back({ vn, v, lhs.body_pos });
                 break;
@@ -1105,8 +1094,7 @@ static bool thread_phi_branches(Func &f) {
                 continue;
             }
             Block &B = f.blocks[bi];
-            if (B.preds.empty() || !B.insts.empty() || B.phis.size() != 1 ||
-                B.terminator == InvalidValue) {
+            if (B.preds.empty() || !B.insts.empty() || B.phis.size() != 1 || B.terminator == InvalidValue) {
                 continue;
             }
             Inst &term = f.inst(B.terminator);
@@ -1122,8 +1110,7 @@ static bool thread_phi_branches(Func &f) {
                 continue; // desynced operands<->preds: skip (never true pre-fixpoint)
             }
             BlockId T = term.target0, F = term.target1;
-            if (T < 0 || F < 0 || (size_t)T >= f.blocks.size() ||
-                (size_t)F >= f.blocks.size() || T == (BlockId)bi ||
+            if (T < 0 || F < 0 || (size_t)T >= f.blocks.size() || (size_t)F >= f.blocks.size() || T == (BlockId)bi ||
                 F == (BlockId)bi) {
                 continue;
             }
@@ -1228,8 +1215,7 @@ static bool merge_blocks(Func &f) {
             continue;
         }
         BlockId bid = f.inst(A.terminator).target0;
-        if (bid < 0 || (size_t)bid >= f.blocks.size() || bid == (BlockId)ai ||
-            bid == f.entry || removed[bid]) {
+        if (bid < 0 || (size_t)bid >= f.blocks.size() || bid == (BlockId)ai || bid == f.entry || removed[bid]) {
             continue;
         }
         Block &B = f.blocks[bid];
@@ -1253,7 +1239,8 @@ static bool merge_blocks(Func &f) {
 }
 
 // Remove blocks unreachable from the entry (left behind by branch-folding and jump-threading) from the IR proper.
-// Compacts f.blocks and remaps every BlockId reference: Func::entry, each Block::id/succs/preds, and Jump/Branch terminator targets.
+// Compacts f.blocks and remaps every BlockId reference: Func::entry, each Block::id/succs/preds, and Jump/Branch
+// terminator targets.
 static bool remove_unreachable_blocks(Func &f) {
     if (f.blocks.empty() || f.entry < 0 || (size_t)f.entry >= f.blocks.size()) {
         return false;
@@ -1368,15 +1355,12 @@ enum GvnClass {
     GC_N
 };
 static const char *gc_name(int c) {
-    static const char *n[GC_N] = {
-        "divmod", "fdiv", "lglobal", "lprop", "lindex", "lslot", "lcap",
-        "strcat", "farith", "iarith", "cmp", "dyn", "box", "other"
-    };
+    static const char *n[GC_N] = { "divmod", "fdiv",   "lglobal", "lprop", "lindex", "lslot", "lcap",
+                                   "strcat", "farith", "iarith",  "cmp",   "dyn",    "box",   "other" };
     return (c >= 0 && c < GC_N) ? n[c] : "?";
 }
 static bool gc_expensive(int c) {
-    return c == GC_DIVMOD_INT || c == GC_LGLOBAL || c == GC_LPROP ||
-           c == GC_LINDEX || c == GC_STRCAT || c == GC_DYN;
+    return c == GC_DIVMOD_INT || c == GC_LGLOBAL || c == GC_LPROP || c == GC_LINDEX || c == GC_STRCAT || c == GC_DYN;
 }
 static int classify(Op op) {
     switch (op) {
@@ -1504,10 +1488,7 @@ struct GvnTotals {
         if (funcs == 0) {
             return;
         }
-        fprintf(stderr,
-                "[GVN] ===== TOTAL over %d funcs (%d with cross-block redundancy) =====\n",
-                funcs,
-                funcs_hit);
+        fprintf(stderr, "[GVN] ===== TOTAL over %d funcs (%d with cross-block redundancy) =====\n", funcs, funcs_hit);
         fprintf(stderr, "[GVN] xred=%ld (in-loop=%ld)  partial=%ld\n", xred, xred_loop, part);
         long exp = 0, exp_loop = 0;
         for (int c = 0; c < GC_N; c++) {
@@ -1515,11 +1496,7 @@ struct GvnTotals {
                 continue;
             }
 
-            fprintf(stderr,
-                    "[GVN]   %-8s %5ld (loop %ld)%s\n",
-                    gc_name(c),
-                    cls[c],
-                    cls_loop[c],
+            fprintf(stderr, "[GVN]   %-8s %5ld (loop %ld)%s\n", gc_name(c), cls[c], cls_loop[c],
                     gc_expensive(c) ? "  <== EXPENSIVE" : "");
 
             if (gc_expensive(c)) {
@@ -1527,9 +1504,7 @@ struct GvnTotals {
                 exp_loop += cls_loop[c];
             }
         }
-        fprintf(stderr,
-                "[GVN]   EXPENSIVE eliminable = %ld (in-loop = %ld)\n",
-                exp, exp_loop);
+        fprintf(stderr, "[GVN]   EXPENSIVE eliminable = %ld (in-loop = %ld)\n", exp, exp_loop);
     }
 };
 
@@ -2001,14 +1976,8 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
         totals.cls[c] += lc[c];
         totals.cls_loop[c] += lc_loop[c];
     }
-    fprintf(stderr,
-            "[GVN] %-24s#%-3u B=%zu | xred=%ld(loop=%ld) part=%ld |",
-            (fn_name && *fn_name) ? fn_name : "<anon>",
-            fn_idx,
-            rpo.size(),
-            fx,
-            fx_loop,
-            part);
+    fprintf(stderr, "[GVN] %-24s#%-3u B=%zu | xred=%ld(loop=%ld) part=%ld |",
+            (fn_name && *fn_name) ? fn_name : "<anon>", fn_idx, rpo.size(), fx, fx_loop, part);
     for (int c = 0; c < GC_N; c++) {
         if (lc[c]) {
             fprintf(stderr, " %s=%ld(l%ld)", gc_name(c), lc[c], lc_loop[c]);
@@ -2196,8 +2165,8 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
                 return true;
             };
 
-            if ((in.op == Op::StoreImmSlot || in.op == Op::StoreBImmSlot ||
-                 in.op == Op::StoreNSlot || in.op == Op::StoreCSlot) &&
+            if ((in.op == Op::StoreImmSlot || in.op == Op::StoreBImmSlot || in.op == Op::StoreNSlot ||
+                 in.op == Op::StoreCSlot) &&
                 in.imm_u32 == s) {
                 return true;
             }
@@ -2507,8 +2476,7 @@ GlobalTypeMap analyze_const_globals(const nari::bytecode::Chunk &chunk) {
 
     for (const auto &kv : infos) {
         const GlobalStoreInfo &gi = kv.second;
-        if (!gi.poisoned && gi.count == 1 && gi.value_ty != Ty::Bottom &&
-            gi.value_ty != Ty::Unknown) {
+        if (!gi.poisoned && gi.count == 1 && gi.value_ty != Ty::Bottom && gi.value_ty != Ty::Unknown) {
             out[kv.first] = gi.value_ty;
         }
     }
@@ -2567,9 +2535,7 @@ IntArraySlots int_array_candidates(const Func &f) {
         disqualified[s] = true;
     }
 
-    auto is_int_ty = [](Ty t) {
-        return t == Ty::Int48;
-    };
+    auto is_int_ty = [](Ty t) { return t == Ty::Int48; };
 
     // Collect StoreSlot definitions for each slot
     for (const Block &b : f.blocks) {
@@ -2643,9 +2609,7 @@ IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_i
         }
     }
 
-    auto is_int_ty = [](Ty t) {
-        return t == Ty::Int48;
-    };
+    auto is_int_ty = [](Ty t) { return t == Ty::Int48; };
 
     // walk every Inst's operands.
     // For each operand that is a LoadSlot of a candidate slot, decide whether the parent instruction is allowed.
@@ -2714,16 +2678,11 @@ IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_i
                         break;
                     }
                     uint32_t s = 0;
-                    bool recv_is_cand =
-                        is_loadslot_of_candidate(in.operands[0], &s);
+                    bool recv_is_cand = is_loadslot_of_candidate(in.operands[0], &s);
                     if (recv_is_cand) {
-                        bool is_push = in.imm_u32 == push_method_name_idx &&
-                                       in.imm_int == 1 &&
-                                       in.operands.size() == 2;
-                        bool is_length =
-                            length_ok &&
-                            in.imm_u32 == length_method_name_idx &&
-                            in.imm_int == 0 && in.operands.size() == 1;
+                        bool is_push = in.imm_u32 == push_method_name_idx && in.imm_int == 1 && in.operands.size() == 2;
+                        bool is_length = length_ok && in.imm_u32 == length_method_name_idx && in.imm_int == 0 &&
+                                         in.operands.size() == 1;
                         if (is_push) {
                             const Inst &arg = f.inst(in.operands[1]);
                             if (!is_int_ty(arg.type)) {
@@ -2798,11 +2757,8 @@ IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_i
     return out;
 }
 
-void infer_types(
-    Func &f, std::vector<Ty> &slot_ty,
-    const GlobalTypeMap *global_types,
-    const IntArraySlots *int_array_slots,
-    bool int48_params) {
+void infer_types(Func &f, std::vector<Ty> &slot_ty, const GlobalTypeMap *global_types,
+                 const IntArraySlots *int_array_slots, bool int48_params) {
     // Optimistic init: non-param slots start Bottom (refined upward by their
     // stores); params are dynamically typed at entry, so Unknown. Non-const value
     // types start Bottom; constants are fixed.
@@ -2873,8 +2829,7 @@ void infer_types(
                     nt = Ty::Unknown;
                     if (int_array_slots && !in.operands.empty()) {
                         const Inst &obj = f.inst(in.operands[0]);
-                        if (obj.op == Op::LoadSlot &&
-                            int_array_slots->count(obj.imm_u32)) {
+                        if (obj.op == Op::LoadSlot && int_array_slots->count(obj.imm_u32)) {
                             nt = Ty::Int48;
                         }
                     }
@@ -2908,8 +2863,7 @@ void infer_types(
                 case Op::DynMul:
                 case Op::DynMod:
                 case Op::DynDiv:
-                    nt = arith_type(in.op, f.inst(in.operands[0]).type,
-                                    f.inst(in.operands[1]).type);
+                    nt = arith_type(in.op, f.inst(in.operands[0]).type, f.inst(in.operands[1]).type);
                     break;
                 case Op::DynCmpLt:
                 case Op::DynCmpLe:
@@ -3002,7 +2956,8 @@ void infer_types(
         }
     }
 
-    // Any value/slot still Bottom is unreachable/uncomputed -> treat as Unknown so the lowering uses the safe dynamic path.
+    // Any value/slot still Bottom is unreachable/uncomputed -> treat as Unknown so the lowering uses the safe dynamic
+    // path.
     for (Inst &in : f.insts) {
         if (in.type == Ty::Bottom) {
             in.type = Ty::Unknown;
@@ -3017,9 +2972,7 @@ void infer_types(
 
 bool specialize_types(Func &f) {
     bool changed = false;
-    auto ty = [&](ValueId v) -> Ty {
-        return v == InvalidValue ? Ty::Unknown : f.inst(v).type;
-    };
+    auto ty = [&](ValueId v) -> Ty { return v == InvalidValue ? Ty::Unknown : f.inst(v).type; };
     for (Inst &in : f.insts) {
         if (in.operands.size() < 2) {
             continue;
@@ -3187,10 +3140,8 @@ bool fold_redundant_not(Func &f) {
                 const Inst &a = f.inst(v);
                 const Inst &c = f.inst(b.insts[i + 1]);
                 ValueId x = out_body.back();
-                if (a.op == Op::Not && c.op == Op::Not &&
-                    !a.operands.empty() && a.operands[0] == x &&
-                    !c.operands.empty() && c.operands[0] == v &&
-                    f.inst(x).type == Ty::Bool) {
+                if (a.op == Op::Not && c.op == Op::Not && !a.operands.empty() && a.operands[0] == x &&
+                    !c.operands.empty() && c.operands[0] == v && f.inst(x).type == Ty::Bool) {
                     // drop nots, redirect any user of either to X.
                     remap[v] = x;
                     remap[b.insts[i + 1]] = x;

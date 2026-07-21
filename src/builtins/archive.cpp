@@ -341,7 +341,8 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
 
             mode_t ft = archive_entry_filetype(entry);
             if ((ft == AE_IFLNK || archive_entry_hardlink(entry) != nullptr) && !allow_links) {
-                archive_throw("Archive.extract: entry '" + name + "' is a link; refused (set opts.allow_links=true to permit)");
+                archive_throw("Archive.extract: entry '" + name +
+                              "' is a link; refused (set opts.allow_links=true to permit)");
             }
             if (ft != AE_IFREG && ft != AE_IFDIR && ft != AE_IFLNK) {
                 archive_throw("Archive.extract: entry '" + name + "' has unsupported file type");
@@ -363,7 +364,8 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
             // Check containment using weakly_canonical (target may not exist yet).
             stdfs::path canon = stdfs::weakly_canonical(target, err);
             if (err) {
-                archive_throw("Archive.extract: cannot canonicalize target '" + target.string() + "': " + err.message());
+                archive_throw("Archive.extract: cannot canonicalize target '" + target.string() +
+                              "': " + err.message());
             }
             // Mismatch on the prefix means the entry escaped dest_root.
             auto rel = stdfs::relative(canon, dest_root, err);
@@ -399,7 +401,8 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
             // stream entry data to disk in chunks
             FileGuard fg(std::fopen(target.string().c_str(), "wb"));
             if (fg.fp == nullptr) {
-                archive_throw("Archive.extract: cannot open '" + target.string() + "' for write: " + std::strerror(errno));
+                archive_throw("Archive.extract: cannot open '" + target.string() +
+                              "' for write: " + std::strerror(errno));
             }
 
             const void *buf = nullptr;
@@ -419,10 +422,12 @@ Value ScriptRuntime::builtin_archive_extract(const Value *argvals, size_t argc, 
                 }
                 // libarchive can emit sparse blocks at non-zero offsets
                 if (std::fseek(fg.fp, (long)offset, SEEK_SET) != 0) {
-                    archive_throw(std::string("Archive.extract: fseek failed on '") + target.string() + "': " + std::strerror(errno));
+                    archive_throw(std::string("Archive.extract: fseek failed on '") + target.string() +
+                                  "': " + std::strerror(errno));
                 }
                 if (std::fwrite(buf, 1, buf_size, fg.fp) != buf_size) {
-                    archive_throw(std::string("Archive.extract: write failed on '") + target.string() + "': " + std::strerror(errno));
+                    archive_throw(std::string("Archive.extract: write failed on '") + target.string() +
+                                  "': " + std::strerror(errno));
                 }
             }
             // fg destructor closes fp here
@@ -465,9 +470,8 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
         std::string format;
         std::string filter;
         if (!pick_write_format(archive_path, format, filter)) {
-            archive_throw(
-                "Archive.create: cannot infer format from '" + archive_path +
-                "' (supported: .tar, .tar.gz, .tgz, .zip)");
+            archive_throw("Archive.create: cannot infer format from '" + archive_path +
+                          "' (supported: .tar, .tar.gz, .tgz, .zip)");
         }
 
         ArchiveWriteGuard guard(archive_write_new());
@@ -563,7 +567,8 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
                 }
                 if (n < sizeof(buf)) {
                     if (std::ferror(fg.fp)) {
-                        archive_throw(std::string("Archive.create: read error on '") + src_path + "': " + std::strerror(errno));
+                        archive_throw(std::string("Archive.create: read error on '") + src_path +
+                                      "': " + std::strerror(errno));
                     }
                     break;
                 }
@@ -592,13 +597,14 @@ Value ScriptRuntime::builtin_archive_create(const Value *argvals, size_t argc, c
                 const ObjectObj *o = item.get_obj_ptr();
                 const Value *src_v = o->get_field("src");
                 const Value *dest_v = o->get_field("dest");
-                if (src_v == nullptr || !src_v->is_string() ||
-                    dest_v == nullptr || !dest_v->is_string()) {
-                    archive_throw("Archive.create: file entries must be either a string or { src, dest } with both as strings");
+                if (src_v == nullptr || !src_v->is_string() || dest_v == nullptr || !dest_v->is_string()) {
+                    archive_throw(
+                        "Archive.create: file entries must be either a string or { src, dest } with both as strings");
                 }
                 std::string dest = dest_v->get_string();
                 if (!path_is_safe(dest)) {
-                    archive_throw("Archive.create: unsafe entry name '" + dest + "' (absolute or escapes archive root)");
+                    archive_throw("Archive.create: unsafe entry name '" + dest +
+                                  "' (absolute or escapes archive root)");
                 }
                 add_one(src_v->get_string(), dest);
             } else {

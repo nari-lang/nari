@@ -28,8 +28,7 @@ using namespace nari;
 typedef std::map<std::string, std::string> StringMap;
 
 struct Value;
-template <class T>
-class OwnedArray;
+template <class T> class OwnedArray;
 using Array = OwnedArray<Value>;
 struct Task;
 struct HeapHeader;
@@ -103,15 +102,14 @@ struct HeapHeader {
     HeapHeader *gc_prev = nullptr;
 };
 
-template <class Derived>
-struct PooledHeapObject {
+template <class Derived> struct PooledHeapObject {
     static void *operator new(std::size_t sz);
     static void operator delete(void *ptr) noexcept;
     // Keep placement-new usable (jit_layout.h probes layout with `new (buf) T{}`);
     // declaring the sized operators above would otherwise hide it.
     static void *operator new(std::size_t, void *p) noexcept {
         return p;
-    }
+    };
     static void operator delete(void *, void *) noexcept {
     }
 };
@@ -229,8 +227,7 @@ static_assert(sizeof(Value) == sizeof(uint64_t), "Value must stay NaN-boxed to 8
 static_assert(std::is_trivially_copyable<Value>::value, "Value must stay trivially copyable for memcpy relocation");
 
 // owned contiguous storage with an explicit layout shared with generated code.
-template <class T>
-class OwnedArray {
+template <class T> class OwnedArray {
   public:
     using value_type = T;
     using size_type = std::size_t;
@@ -244,7 +241,8 @@ class OwnedArray {
     T *storage_capacity;
 
     OwnedArray() noexcept
-        : storage_begin(empty_storage()), storage_end(storage_begin), storage_capacity(storage_begin) {}
+        : storage_begin(empty_storage()), storage_end(storage_begin), storage_capacity(storage_begin) {
+    }
     OwnedArray(const OwnedArray &other) : OwnedArray() {
         reserve(other.size());
         std::copy(other.begin(), other.end(), storage_begin);
@@ -281,66 +279,130 @@ class OwnedArray {
         swap(replacement);
         return *this;
     }
-    ~OwnedArray() noexcept { release(); }
+    ~OwnedArray() noexcept {
+        release();
+    }
 
-    bool empty() const noexcept { return storage_end == storage_begin; }
-    size_type size() const noexcept { return (size_type)(storage_end - storage_begin); }
-    size_type capacity() const noexcept { return (size_type)(storage_capacity - storage_begin); }
-    T *data() noexcept { return storage_begin; }
-    const T *data() const noexcept { return storage_begin; }
-    iterator begin() noexcept { return storage_begin; }
-    const_iterator begin() const noexcept { return storage_begin; }
-    const_iterator cbegin() const noexcept { return storage_begin; }
-    iterator end() noexcept { return storage_end; }
-    const_iterator end() const noexcept { return storage_end; }
-    const_iterator cend() const noexcept { return storage_end; }
-    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
-    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
-    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
-    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
-    T &operator[](size_type index) noexcept { return storage_begin[index]; }
-    const T &operator[](size_type index) const noexcept { return storage_begin[index]; }
-    T &back() noexcept { return storage_end[-1]; }
-    const T &back() const noexcept { return storage_end[-1]; }
+    bool empty() const noexcept {
+        return storage_end == storage_begin;
+    }
+    size_type size() const noexcept {
+        return (size_type)(storage_end - storage_begin);
+    }
+    size_type capacity() const noexcept {
+        return (size_type)(storage_capacity - storage_begin);
+    }
+    T *data() noexcept {
+        return storage_begin;
+    }
+    const T *data() const noexcept {
+        return storage_begin;
+    }
+    iterator begin() noexcept {
+        return storage_begin;
+    }
+    const_iterator begin() const noexcept {
+        return storage_begin;
+    }
+    const_iterator cbegin() const noexcept {
+        return storage_begin;
+    }
+    iterator end() noexcept {
+        return storage_end;
+    }
+    const_iterator end() const noexcept {
+        return storage_end;
+    }
+    const_iterator cend() const noexcept {
+        return storage_end;
+    }
+    reverse_iterator rbegin() noexcept {
+        return reverse_iterator(end());
+    }
+    const_reverse_iterator rbegin() const noexcept {
+        return const_reverse_iterator(end());
+    }
+    reverse_iterator rend() noexcept {
+        return reverse_iterator(begin());
+    }
+    const_reverse_iterator rend() const noexcept {
+        return const_reverse_iterator(begin());
+    }
+    T &operator[](size_type index) noexcept {
+        return storage_begin[index];
+    }
+    const T &operator[](size_type index) const noexcept {
+        return storage_begin[index];
+    }
+    T &back() noexcept {
+        return storage_end[-1];
+    }
+    const T &back() const noexcept {
+        return storage_end[-1];
+    }
 
     void clear() noexcept {
-        while (!empty()) pop_back();
+        while (!empty()) {
+            pop_back();
+        }
     }
     void reserve(size_type requested) {
-        if (requested <= capacity()) return;
-        if (requested > max_size()) throw std::length_error("owned array capacity exceeds maximum size");
+        if (requested <= capacity()) {
+            return;
+        }
+        if (requested > max_size()) {
+            throw std::length_error("owned array capacity exceeds maximum size");
+        }
         const size_type old_size = size();
         T *replacement = new T[requested];
         if constexpr (std::is_trivially_copyable<T>::value) {
             std::memcpy(replacement, storage_begin, old_size * sizeof(T));
         } else {
-            for (size_type i = 0; i < old_size; ++i) replacement[i] = std::move(storage_begin[i]);
+            for (size_type i = 0; i < old_size; ++i) {
+                replacement[i] = std::move(storage_begin[i]);
+            }
         }
-        if (storage_begin != empty_storage()) delete[] storage_begin;
+        if (storage_begin != empty_storage()) {
+            delete[] storage_begin;
+        }
         storage_begin = replacement;
         storage_end = replacement + old_size;
         storage_capacity = replacement + requested;
     }
     void shrink_to_fit() {
-        if (size() == capacity()) return;
+        if (size() == capacity()) {
+            return;
+        }
         OwnedArray replacement;
         replacement.reserve(size());
-        for (T &value : *this) replacement.push_back(std::move(value));
+        for (T &value : *this) {
+            replacement.push_back(std::move(value));
+        }
         swap(replacement);
     }
     void resize(size_type requested) {
-        if (requested > capacity()) reserve(growth_capacity(requested));
-        while (size() > requested) pop_back();
-        while (size() < requested) *storage_end++ = T{};
+        if (requested > capacity()) {
+            reserve(growth_capacity(requested));
+        }
+        while (size() > requested) {
+            pop_back();
+        }
+        while (size() < requested) {
+            *storage_end++ = T{};
+        }
     }
     void resize(size_type requested, const T &value) {
         T copy = value;
         const size_type old_size = size();
         if (requested <= old_size) {
-            while (size() > requested) pop_back();
+            while (size() > requested) {
+                pop_back();
+            }
             return;
         }
-        if (requested > capacity()) reserve(growth_capacity(requested));
+        if (requested > capacity()) {
+            reserve(growth_capacity(requested));
+        }
         std::fill(storage_end, storage_begin + requested, copy);
         storage_end = storage_begin + requested;
     }
@@ -357,8 +419,7 @@ class OwnedArray {
         ensure_one_more();
         *storage_end++ = std::move(value);
     }
-    template <class... Args>
-    T &emplace_back(Args &&...args) {
+    template <class... Args> T &emplace_back(Args &&...args) {
         ensure_one_more();
         *storage_end = T(std::forward<Args>(args)...);
         return *storage_end++;
@@ -382,7 +443,9 @@ class OwnedArray {
         const size_type index = pos - storage_begin;
         std::vector<T> copy(first, last);
         const size_type requested = checked_size(copy.size());
-        if (requested > capacity()) reserve(growth_capacity(requested));
+        if (requested > capacity()) {
+            reserve(growth_capacity(requested));
+        }
         std::move_backward(storage_begin + index, storage_end, storage_end + copy.size());
         std::move(copy.begin(), copy.end(), storage_begin + index);
         storage_end += copy.size();
@@ -392,7 +455,9 @@ class OwnedArray {
         const size_type first_index = first - storage_begin;
         const size_type removed = last - first;
         std::move(storage_begin + first_index + removed, storage_end, storage_begin + first_index);
-        for (size_type i = 0; i < removed; ++i) pop_back();
+        for (size_type i = 0; i < removed; ++i) {
+            pop_back();
+        }
         return storage_begin + first_index;
     }
     void swap(OwnedArray &other) noexcept {
@@ -415,20 +480,30 @@ class OwnedArray {
         storage_capacity = storage_begin;
     }
     void release() noexcept {
-        if (storage_begin != empty_storage()) delete[] storage_begin;
+        if (storage_begin != empty_storage()) {
+            delete[] storage_begin;
+        }
     }
     size_type checked_size(size_type added) const {
-        if (added > max_size() - size()) throw std::length_error("owned array size exceeds maximum size");
+        if (added > max_size() - size()) {
+            throw std::length_error("owned array size exceeds maximum size");
+        }
         return size() + added;
     }
     size_type growth_capacity(size_type requested) const {
-        if (requested > max_size()) throw std::length_error("owned array capacity exceeds maximum size");
+        if (requested > max_size()) {
+            throw std::length_error("owned array capacity exceeds maximum size");
+        }
         size_type grown = capacity() ? capacity() + capacity() / 2 : 4;
-        if (grown < capacity() || grown > max_size()) grown = max_size();
+        if (grown < capacity() || grown > max_size()) {
+            grown = max_size();
+        }
         return std::max(requested, grown);
     }
     void ensure_one_more() {
-        if (storage_end == storage_capacity) reserve(growth_capacity(checked_size(1)));
+        if (storage_end == storage_capacity) {
+            reserve(growth_capacity(checked_size(1)));
+        }
     }
 };
 
@@ -447,7 +522,7 @@ struct StringObj : HeapHeader, PooledHeapObject<StringObj> {
         type_tag = ValueTag::String;
     }
     // StringObj is by far the most churned heap object (toString / split tokens / concat temps).
-    // Every make_string() does one new StringObj and the GC sweep one delete. 
+    // Every make_string() does one new StringObj and the GC sweep one delete.
     // The PooledHeapObject free-list recycles just the fixed-size header block
 };
 
@@ -456,8 +531,8 @@ struct ArrayObj : HeapHeader, PooledHeapObject<ArrayObj> {
     ArrayObj() {
         type_tag = ValueTag::Array;
     }
-    // Header free-list pool (see PooledHeapObject in core_types.cpp). 
-    // Only the fixed-size header block is recycled. 
+    // Header free-list pool (see PooledHeapObject in core_types.cpp).
+    // Only the fixed-size header block is recycled.
     // The owned array storage is constructed/destructed normally.
 };
 
@@ -539,7 +614,7 @@ struct FunctionData : HeapHeader, PooledHeapObject<FunctionData> {
     int32_t jit_native_kind = 0;
     int64_t jit_inline_imm = 0;
     Value *jit_capture0_raw = nullptr;
-    // Pre-resolved runtime builtin member-function pointer for global builtins (toString, toNumber, etc.). 
+    // Pre-resolved runtime builtin member-function pointer for global builtins (toString, toNumber, etc.).
     // Filled at registration time by VM::register_builtin so that the JIT call helper can dispatch in one indirect call
     void *jit_builtin_fn[2] = { nullptr, nullptr };
     bool jit_builtin_fn_valid = false;
@@ -599,11 +674,7 @@ struct DelegateData : HeapHeader {
 };
 
 struct HandleData : HeapHeader {
-    enum State {
-        Running,
-        Completed,
-        Failed
-    };
+    enum State { Running, Completed, Failed };
     State state = Running;
     Value result;
     Value error;
@@ -638,12 +709,7 @@ struct IntervalData {
 };
 
 struct Task {
-    enum State {
-        Running,
-        Yielded,
-        Completed,
-        Failed
-    };
+    enum State { Running, Yielded, Completed, Failed };
     State state = Running;
     const nari::BlockStmt *body = nullptr;
     size_t current_stmt = 0;

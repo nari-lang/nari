@@ -81,6 +81,7 @@ Comprehensive documentation is available in the [docs/](docs/) directory:
 * [C FFI](docs/17-ffi.md): Foreign function interface for calling C libraries
 * [Classes](docs/18-classes.md): Object-oriented programming with classes
 * [Bytecode](docs/19-bytecode.md): `.naric` files, verifier guarantees, and compiled module imports
+* [Code Formatter](docs/20-formatter.md): `nari fmt` usage, style rules, and limitations
 
 ## Examples
 

@@ -10,7 +10,8 @@
 
 namespace chrono = std::chrono;
 
-static std::string format_interpolated_value(ScriptRuntime *, const Value &value, const nari::StringInterpolationExpr *expr, size_t index) {
+static std::string format_interpolated_value(ScriptRuntime *, const Value &value,
+                                             const nari::StringInterpolationExpr *expr, size_t index) {
     if (index >= expr->format_specs.size() || expr->format_specs[index].empty()) {
         return value.to_string();
     }
@@ -325,16 +326,14 @@ void ScriptRuntime::step_task(HandlePtr handle) {
     flags = task->flags;
 
     if (task->body && task->current_stmt < task->body->stmts.size()) {
-        for (; task->current_stmt < task->body->stmts.size();
-             ++task->current_stmt) {
+        for (; task->current_stmt < task->body->stmts.size(); ++task->current_stmt) {
             const auto &stmt = task->body->stmts[task->current_stmt];
             if (stmt) {
                 exec_stmt(stmt.get());
             }
             // continue/break inside a spawn body have no outer loop to act on,
             // treat them as an implicit return (stop this task's execution).
-            if (flags.return_flag || flags.throw_flag || flags.continue_flag ||
-                flags.break_flag) {
+            if (flags.return_flag || flags.throw_flag || flags.continue_flag || flags.break_flag) {
                 flags.continue_flag = false;
                 flags.break_flag = false;
                 break;
@@ -371,10 +370,8 @@ void ScriptRuntime::step_task(HandlePtr handle) {
 }
 
 void ScriptRuntime::run_event_loop() {
-    while (
-        (!task_queue.empty() || has_pending_io()) &&
-        !Runtime::g_shutdown_requested.load() &&
-        !Runtime::g_runtime_error_occurred.load()) {
+    while ((!task_queue.empty() || has_pending_io()) && !Runtime::g_shutdown_requested.load() &&
+           !Runtime::g_runtime_error_occurred.load()) {
         process_completed_io();
 
         collect_garbage();
@@ -468,12 +465,7 @@ bool ScriptRuntime::delegate_default_has(const Value &target, const Value &key) 
 // The four handler trap names, interned to their stable field ids once. The
 // ids are process-global (field_intern_map never renumbers),
 // so a Delegate handler's trap can be resolved via ObjectObj::get_field_by_id
-enum class TrapId {
-    Get,
-    Set,
-    Has,
-    Call
-};
+enum class TrapId { Get, Set, Has, Call };
 static uint32_t trap_field_id(TrapId which) {
     static const uint32_t ids[4] = {
         intern_field("get"),
@@ -612,7 +604,8 @@ Value ScriptRuntime::delegate_call(const Value &del, const Value *args, size_t a
     return Value::none();
 }
 
-// Method call on a delegate: resolve the member via the get trap, then invoke the resulting callable with the given args.
+// Method call on a delegate: resolve the member via the get trap, then invoke the resulting callable with the given
+// args.
 Value ScriptRuntime::delegate_call_method(const Value &del, const std::string &method, std::vector<Value> args) {
     Value callee = delegate_get(del, Value::make_string(method));
     GcTempRoot gcRoot(*this);
@@ -654,8 +647,7 @@ bool ScriptRuntime::match_pattern(const Pattern *pattern, const Value &value, Va
             if (value.is_int() && pattern_value.is_int()) {
                 return value.get_int() == pattern_value.get_int();
             }
-            if ((value.is_int() || value.is_float()) &&
-                (pattern_value.is_int() || pattern_value.is_float())) {
+            if ((value.is_int() || value.is_float()) && (pattern_value.is_int() || pattern_value.is_float())) {
                 return std::fabs(value.as_number() - pattern_value.as_number()) < 1e-12;
             }
             return value.to_string() == pattern_value.to_string();
@@ -742,7 +734,8 @@ Value ScriptRuntime::construct_result_variant(const char *variant, const Value &
     return result;
 }
 
-bool ScriptRuntime::initialize_result_template(ResultConstructorTmpl &cache, const Value &constructor, const Value &result, const Value &payload) {
+bool ScriptRuntime::initialize_result_template(ResultConstructorTmpl &cache, const Value &constructor,
+                                               const Value &result, const Value &payload) {
     cache.initialized = true;
     cache.constructor = constructor;
     if (!result.is_object()) {
@@ -773,8 +766,7 @@ bool ScriptRuntime::initialize_result_template(ResultConstructorTmpl &cache, con
             continue;
         }
         const FunctionData &fn = field.get_function();
-        if (fn.captures->size() != 1 || !(*fn.captures)[0] ||
-            !Value::values_equal(*(*fn.captures)[0], payload)) {
+        if (fn.captures->size() != 1 || !(*fn.captures)[0] || !Value::values_equal(*(*fn.captures)[0], payload)) {
             cache.fields.clear();
             cache.methods.clear();
             return false;
@@ -786,9 +778,8 @@ bool ScriptRuntime::initialize_result_template(ResultConstructorTmpl &cache, con
             cache.methods.clear();
             return false;
         }
-        cache.methods.push_back(ResultMethodTmpl{
-            slot, fn.name, fn.jit_func_idx, fn.jit_locals_count, fn.jit_meta,
-            fn.jit_inline_kind, fn.jit_native_kind, fn.jit_inline_imm });
+        cache.methods.push_back(ResultMethodTmpl{ slot, fn.name, fn.jit_func_idx, fn.jit_locals_count, fn.jit_meta,
+                                                  fn.jit_inline_kind, fn.jit_native_kind, fn.jit_inline_imm });
         cache.fields[slot] = Value::none();
     }
     cache.usable = found_data && !cache.methods.empty();
@@ -846,13 +837,13 @@ Value ScriptRuntime::make_result_method(void *context, ObjectObj *obj, uint32_t 
     return closure;
 }
 
-bool ScriptRuntime::invoke_result_method(void *context, ObjectObj *obj, uint32_t slot, const Value *, size_t argc, Value &result) {
+bool ScriptRuntime::invoke_result_method(void *context, ObjectObj *obj, uint32_t slot, const Value *, size_t argc,
+                                         Value &result) {
     if (argc != 0) {
         return false;
     }
     const auto *cache = (const ResultConstructorTmpl *)context;
-    if (cache->unwrap_returns_payload && slot < cache->shape->names.size() &&
-        cache->shape->names[slot] == "unwrap") {
+    if (cache->unwrap_returns_payload && slot < cache->shape->names.size() && cache->shape->names[slot] == "unwrap") {
         result = obj->lazy_payload;
         return true;
     }
@@ -983,7 +974,8 @@ Value ScriptRuntime::lookup_variable(const std::string &name, const std::string 
         auto it = locals.find(name);
         if (it != locals.end()) {
             found = true;
-            // prefer current_scope_closure when it holds this var, it tracks mutations made by inner closures after the local frame was set up.
+            // prefer current_scope_closure when it holds this var, it tracks mutations made by inner closures after the
+            // local frame was set up.
             if (current_scope_closure) {
                 auto cit = current_scope_closure->find(name);
                 if (cit != current_scope_closure->end()) {
@@ -1050,8 +1042,7 @@ void ScriptRuntime::store_variable(const std::string &name, const std::string &f
     // try module-local vars (current module)
     if (!module_stack.empty()) {
         auto it = module_local_vars.find(module_stack.back());
-        if (it != module_local_vars.end() &&
-            it->second.find(name) != it->second.end()) {
+        if (it != module_local_vars.end() && it->second.find(name) != it->second.end()) {
             it->second[name] = value;
             return;
         }
@@ -1060,8 +1051,7 @@ void ScriptRuntime::store_variable(const std::string &name, const std::string &f
     // try module-local vars by filename
     if (!filename.empty()) {
         auto it = module_local_vars.find(filename);
-        if (it != module_local_vars.end() &&
-            it->second.find(name) != it->second.end()) {
+        if (it != module_local_vars.end() && it->second.find(name) != it->second.end()) {
             it->second[name] = value;
             return;
         }
@@ -1113,11 +1103,9 @@ void ScriptRuntime::collect_garbage() {
     size_t collected = gc.collect(roots);
 
     if (Runtime::runtime_trace_enabled()) {
-        Runtime::runtime_log(
-            Runtime::TraceLevel::Debug,
-            "GC: Collected " + std::to_string(collected) +
-                " unreachable objects. " + "Tracked objects: " +
-                std::to_string(gc.get_tracked_count()));
+        Runtime::runtime_log(Runtime::TraceLevel::Debug,
+                             "GC: Collected " + std::to_string(collected) + " unreachable objects. " +
+                                 "Tracked objects: " + std::to_string(gc.get_tracked_count()));
     }
 }
 
@@ -1144,7 +1132,8 @@ static void collect_all_fields(const nari::ClassDecl *class_decl, std::vector<co
 }
 
 // find method in class hierarchy, nullptr if not found.
-static const nari::ClassMethod *find_method_in_hierarchy(const nari::ClassDecl *class_decl, const std::string &method_name) {
+static const nari::ClassMethod *find_method_in_hierarchy(const nari::ClassDecl *class_decl,
+                                                         const std::string &method_name) {
     if (!class_decl) {
         return nullptr;
     }
@@ -1166,7 +1155,8 @@ static const nari::ClassMethod *find_method_in_hierarchy(const nari::ClassDecl *
 }
 
 // find field declarations in class hierarchy, again, nullptr if not found.
-static const nari::ClassField *find_field_in_hierarchy(const nari::ClassDecl *class_decl, const std::string &field_name) {
+static const nari::ClassField *find_field_in_hierarchy(const nari::ClassDecl *class_decl,
+                                                       const std::string &field_name) {
     if (!class_decl) {
         return nullptr;
     }
@@ -1249,7 +1239,8 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     }
                 }
 
-                std::string internal_name = Parser::get_module_function_internal_name(identExpr->filename, identExpr->name);
+                std::string internal_name =
+                    Parser::get_module_function_internal_name(identExpr->filename, identExpr->name);
                 if (!internal_name.empty()) {
                     return Value::make_function(internal_name);
                 }
@@ -1276,8 +1267,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
             }
 
             // check if it's a registered type name
-            if (Parser::get_registered_type(identExpr->name) ||
-                Parser::is_registered_class(identExpr->name)) {
+            if (Parser::get_registered_type(identExpr->name) || Parser::is_registered_class(identExpr->name)) {
                 return Value::make_string(identExpr->name);
             }
 
@@ -1325,9 +1315,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     runtime_fatal("Increment/decrement operand is null", unaryExpr);
                 }
                 const IdentExpr *ie =
-                    unaryExpr->operand->kind == ExprKind::Ident
-                        ? (const IdentExpr *)unaryExpr->operand.get()
-                        : nullptr;
+                    unaryExpr->operand->kind == ExprKind::Ident ? (const IdentExpr *)unaryExpr->operand.get() : nullptr;
                 if (!ie) {
                     if (unaryExpr->operand->kind == ExprKind::Unary) {
                         const auto *nested = (const UnaryExpr *)unaryExpr->operand.get();
@@ -1359,9 +1347,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 
             if (op == "post++" || op == "post--") {
                 const IdentExpr *ie =
-                    unaryExpr->operand->kind == ExprKind::Ident
-                        ? (const IdentExpr *)unaryExpr->operand.get()
-                        : nullptr;
+                    unaryExpr->operand->kind == ExprKind::Ident ? (const IdentExpr *)unaryExpr->operand.get() : nullptr;
                 if (!ie) {
                     runtime_fatal("Increment/decrement requires a variable", unaryExpr);
                 }
@@ -1617,16 +1603,18 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                         runtime_fatal("Unknown class: " + instance->class_name, callExpr);
                     }
 
-                    const nari::ClassMethod *method =
-                        find_method_in_hierarchy(class_decl, method_name);
+                    const nari::ClassMethod *method = find_method_in_hierarchy(class_decl, method_name);
 
                     if (!method) {
-                        runtime_fatal("Class " + instance->class_name + " has no method '" + method_name + "'", callExpr);
+                        runtime_fatal("Class " + instance->class_name + " has no method '" + method_name + "'",
+                                      callExpr);
                     }
 
                     if (method->visibility == nari::Visibility::Private) {
                         if (current_class_name != instance->class_name) {
-                            runtime_fatal("Cannot call private method '" + method_name + "' of class " + instance->class_name, callExpr);
+                            runtime_fatal("Cannot call private method '" + method_name + "' of class " +
+                                              instance->class_name,
+                                          callExpr);
                         }
                     }
 
@@ -1636,12 +1624,9 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     }
 
                     if (arg_values.size() != method->params.size()) {
-                        runtime_fatal(
-                            "Method '" + method_name + "' expects " +
-                                std::to_string(method->params.size()) +
-                                " arguments but got " +
-                                std::to_string(arg_values.size()),
-                            callExpr);
+                        runtime_fatal("Method '" + method_name + "' expects " + std::to_string(method->params.size()) +
+                                          " arguments but got " + std::to_string(arg_values.size()),
+                                      callExpr);
                     }
 
                     ClassInstancePtr saved_instance = current_instance;
@@ -1704,8 +1689,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 
                             call_stack.emplace_back();
                             call_const_stack.emplace_back();
-                            for (size_t i = 0;
-                                 i < method->params.size() && i < arg_values.size(); ++i) {
+                            for (size_t i = 0; i < method->params.size() && i < arg_values.size(); ++i) {
                                 call_stack.back()[method->params[i].name] = arg_values[i];
                             }
 
@@ -1782,16 +1766,16 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 
                 if (is_builtin_name(method_name)) {
                     if (!is_method_valid_for_type(method_name, obj)) {
-                        std::string type_str =
-                            obj.is_string()   ? "string"
-                            : obj.is_array()  ? "array"
-                            : obj.is_object() ? "object"
-                            : obj.is_int()    ? "number"
-                            : obj.is_float()  ? "number"
-                            : obj.is_bool()   ? "boolean"
-                            : obj.is_none()   ? "null"
-                                              : "value";
-                        runtime_fatal("Method '" + method_name + "' is not available on type '" + type_str + "'", callExpr);
+                        std::string type_str = obj.is_string()   ? "string"
+                                               : obj.is_array()  ? "array"
+                                               : obj.is_object() ? "object"
+                                               : obj.is_int()    ? "number"
+                                               : obj.is_float()  ? "number"
+                                               : obj.is_bool()   ? "boolean"
+                                               : obj.is_none()   ? "null"
+                                                                 : "value";
+                        runtime_fatal("Method '" + method_name + "' is not available on type '" + type_str + "'",
+                                      callExpr);
                     }
 
                     std::vector<Value> method_args;
@@ -2031,7 +2015,8 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                         result += format_interpolated_value(this, expr_val, stringInterpExpr, i);
                     } else {
                         // slow path (fallback): re-parse the expression source.
-                        std::string saved_filename = !stringInterpExpr->filename.empty() ? stringInterpExpr->filename : "<interpolation>";
+                        std::string saved_filename =
+                            !stringInterpExpr->filename.empty() ? stringInterpExpr->filename : "<interpolation>";
                         Parser::set_source_filename(saved_filename);
 
                         auto expr_funcs = Parser::parse_program_from_source(stringInterpExpr->expr_sources[i]);
@@ -2039,15 +2024,18 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
 
                         if (expr_funcs.size() < 2 || !expr_funcs[1] || !expr_funcs[1]->body ||
                             expr_funcs[1]->body->stmts.empty()) {
-                            runtime_fatal("Failed to parse interpolated expression: " + stringInterpExpr->expr_sources[i], stringInterpExpr);
+                            runtime_fatal("Failed to parse interpolated expression: " +
+                                              stringInterpExpr->expr_sources[i],
+                                          stringInterpExpr);
                         }
 
                         auto *first_stmt = expr_funcs[1]->body->stmts[0].get();
-                        auto *expr_stmt = first_stmt->stmt_kind == StmtKind::Expr
-                                              ? (nari::ExprStmt *)first_stmt
-                                              : nullptr;
+                        auto *expr_stmt =
+                            first_stmt->stmt_kind == StmtKind::Expr ? (nari::ExprStmt *)first_stmt : nullptr;
                         if (!expr_stmt || !expr_stmt->expr) {
-                            runtime_fatal("String interpolation must contain expressions: " + stringInterpExpr->expr_sources[i], stringInterpExpr);
+                            runtime_fatal("String interpolation must contain expressions: " +
+                                              stringInterpExpr->expr_sources[i],
+                                          stringInterpExpr);
                         }
 
                         Value expr_val = eval_expr(expr_stmt->expr.get());
@@ -2104,23 +2092,22 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     current_scope_closure = std::make_shared<std::map<std::string, Value>>(call_stack.back());
                 }
                 if (!current_scope_closure_consts) {
-                    current_scope_closure_consts = std::make_shared<std::unordered_set<std::string>>(call_const_stack.back());
+                    current_scope_closure_consts =
+                        std::make_shared<std::unordered_set<std::string>>(call_const_stack.back());
                 }
                 func->closure_env_ptr = new std::shared_ptr<std::map<std::string, Value>>(current_scope_closure);
-                func->closure_deleter = [](void *ptr) {
-                    delete (std::shared_ptr<std::map<std::string, Value>> *)ptr;
-                };
-                func->closure_const_env_ptr = new std::shared_ptr<std::unordered_set<std::string>>(current_scope_closure_consts);
+                func->closure_deleter = [](void *ptr) { delete (std::shared_ptr<std::map<std::string, Value>> *)ptr; };
+                func->closure_const_env_ptr =
+                    new std::shared_ptr<std::unordered_set<std::string>>(current_scope_closure_consts);
                 func->closure_const_deleter = [](void *ptr) {
                     delete (std::shared_ptr<std::unordered_set<std::string>> *)ptr;
                 };
             }
 
             for (const auto &param : funcExpr->params) {
-                func->params.emplace_back(
-                    param.name,
-                    nullptr, // we'll handle defaults during function calls
-                    param.is_rest);
+                func->params.emplace_back(param.name,
+                                          nullptr, // we'll handle defaults during function calls
+                                          param.is_rest);
             }
             func->body = std::make_unique<BlockStmt>();
 
@@ -2148,9 +2135,8 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 }
                 int64_t idx = index.get_int();
                 if (idx < 0 || idx >= (int64_t)arr.size()) {
-                    std::string error_msg =
-                        "Array index out of bounds: " + std::to_string(idx) +
-                        " (size: " + std::to_string(arr.size()) + ")";
+                    std::string error_msg = "Array index out of bounds: " + std::to_string(idx) +
+                                            " (size: " + std::to_string(arr.size()) + ")";
                     runtime_fatal(error_msg, idxExpr);
                 }
                 return arr[idx];
@@ -2199,12 +2185,9 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 if (field) {
                     if (field->visibility == nari::Visibility::Private) {
                         if (current_class_name != instance->class_name) {
-                            runtime_fatal(
-                                "Cannot access private field '" +
-                                    memExpr->member +
-                                    "' of class " +
-                                    instance->class_name,
-                                memExpr);
+                            runtime_fatal("Cannot access private field '" + memExpr->member + "' of class " +
+                                              instance->class_name,
+                                          memExpr);
                         }
                     }
 
@@ -2285,7 +2268,8 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                         return Value::make_int(elapsed.count());
                     } else {
                         // completed or failed - return total time
-                        auto elapsed = chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
+                        auto elapsed =
+                            chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
                         return Value::make_int(elapsed.count());
                     }
                 }
@@ -2370,8 +2354,7 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
             instance->field_values.resize(all_fields.size());
             for (size_t i = 0; i < all_fields.size(); i++) {
                 if (all_fields[i]->default_value) {
-                    instance->field_values[i] =
-                        eval_expr(all_fields[i]->default_value.get());
+                    instance->field_values[i] = eval_expr(all_fields[i]->default_value.get());
                 } else {
                     instance->field_values[i] = Value::none();
                 }
@@ -2385,12 +2368,9 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                 }
 
                 if (arg_values.size() != constructor->params.size()) {
-                    runtime_fatal(
-                        "Constructor expects " +
-                            std::to_string(constructor->params.size()) +
-                            " arguments but got " +
-                            std::to_string(arg_values.size()),
-                        newExpr);
+                    runtime_fatal("Constructor expects " + std::to_string(constructor->params.size()) +
+                                      " arguments but got " + std::to_string(arg_values.size()),
+                                  newExpr);
                 }
 
                 ClassInstancePtr saved_instance = current_instance;
@@ -2424,7 +2404,8 @@ Value ScriptRuntime::eval_expr(const Expr *e) {
                     flags.return_flag = false;
                 }
             } else if (!newExpr->args.empty()) {
-                runtime_fatal("Class " + newExpr->class_name + " has no constructor but arguments were provided", newExpr);
+                runtime_fatal("Class " + newExpr->class_name + " has no constructor but arguments were provided",
+                              newExpr);
             }
 
             return Value::from_class_instance(instance);
@@ -2768,9 +2749,8 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                     }
                     int64_t idx = index.get_int();
                     if (idx < 0 || idx >= (int64_t)arr.size()) {
-                        std::string error_msg =
-                            "Array index out of bounds: " + std::to_string(idx) +
-                            " (size: " + std::to_string(arr.size()) + ")";
+                        std::string error_msg = "Array index out of bounds: " + std::to_string(idx) +
+                                                " (size: " + std::to_string(arr.size()) + ")";
                         runtime_fatal(error_msg, indexAssignStmt);
                     }
                     arr[idx] = val;
@@ -2799,15 +2779,15 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                     const nari::ClassField *field = find_field_in_hierarchy(class_decl, memberExpr->member);
 
                     if (!field) {
-                        runtime_fatal("Class " + instance->class_name + " has no field '" + memberExpr->member + "'", indexAssignStmt);
+                        runtime_fatal("Class " + instance->class_name + " has no field '" + memberExpr->member + "'",
+                                      indexAssignStmt);
                     }
 
                     if (field->visibility == nari::Visibility::Private) {
                         if (current_class_name != instance->class_name) {
-                            runtime_fatal(
-                                "Cannot assign to private field '" + memberExpr->member +
-                                    "' of class " + instance->class_name,
-                                indexAssignStmt);
+                            runtime_fatal("Cannot assign to private field '" + memberExpr->member + "' of class " +
+                                              instance->class_name,
+                                          indexAssignStmt);
                         }
                     }
 
@@ -2815,7 +2795,8 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
                     if (field_val) {
                         *field_val = std::move(val);
                     } else {
-                        runtime_fatal("Class " + instance->class_name + " has no field '" + memberExpr->member + "'", indexAssignStmt);
+                        runtime_fatal("Class " + instance->class_name + " has no field '" + memberExpr->member + "'",
+                                      indexAssignStmt);
                     }
                 } else if (obj.is_object()) {
                     obj.get_obj_ptr()->set_field(memberExpr->member, std::move(val));
@@ -2985,9 +2966,8 @@ void ScriptRuntime::exec_stmt(const Stmt *s) {
             Value target = eval_expr(switchStmt->value.get());
 
             auto is_empty_body = [](const BlockPtr &body) -> bool {
-                return !body ||
-                       (dynamic_cast<const BlockStmt *>(body.get()) &&
-                        dynamic_cast<const BlockStmt *>(body.get())->stmts.empty());
+                return !body || (dynamic_cast<const BlockStmt *>(body.get()) &&
+                                 dynamic_cast<const BlockStmt *>(body.get())->stmts.empty());
             };
 
             for (size_t i = 0; i < switchStmt->cases.size(); i++) {
@@ -3130,11 +3110,9 @@ Value ScriptRuntime::call_user_function(Function *func, const std::vector<Value>
     }
 
     if (Runtime::runtime_trace_enabled()) {
-        Runtime::runtime_log(
-            Runtime::TraceLevel::Debug,
-            "enter function: " + func->name + " @ " +
-                func->filename + ":" + std::to_string(func->line) +
-                ":" + std::to_string(func->col));
+        Runtime::runtime_log(Runtime::TraceLevel::Debug, "enter function: " + func->name + " @ " + func->filename +
+                                                             ":" + std::to_string(func->line) + ":" +
+                                                             std::to_string(func->col));
     }
 
     auto saved_scope_closure = current_scope_closure;
@@ -3213,10 +3191,7 @@ Value ScriptRuntime::call_user_function(Function *func, const std::vector<Value>
             // lambda function created from FunctionExpr
             for (const auto &st : func->function_expr->body->stmts) {
                 if (!st) {
-                    fprintf(
-                        stderr,
-                        "Runtime trace: skipping null statement in lambda %s\n",
-                        func->name.c_str());
+                    fprintf(stderr, "Runtime trace: skipping null statement in lambda %s\n", func->name.c_str());
                     continue;
                 }
                 exec_stmt(st.get());
@@ -3237,10 +3212,7 @@ Value ScriptRuntime::call_user_function(Function *func, const std::vector<Value>
             // regular function with copied/cloned body
             for (const auto &st : func->body->stmts) {
                 if (!st) {
-                    fprintf(
-                        stderr,
-                        "Runtime trace: skipping null statement in function %s\n",
-                        func->name.c_str());
+                    fprintf(stderr, "Runtime trace: skipping null statement in function %s\n", func->name.c_str());
                     continue;
                 }
                 exec_stmt(st.get());
@@ -3258,10 +3230,7 @@ Value ScriptRuntime::call_user_function(Function *func, const std::vector<Value>
                 }
             }
         } else {
-            fprintf(
-                stderr,
-                "Runtime trace: function %s has no body\n",
-                func->name.c_str());
+            fprintf(stderr, "Runtime trace: function %s has no body\n", func->name.c_str());
         }
 
         // Tail-call restart: write closure vars back, update args, loop.

@@ -103,7 +103,8 @@ static size_t find_top_level_format_colon(const std::string &expr) {
     return std::string::npos;
 }
 
-std::vector<Token> tokenize(const std::string &src, const std::string &filename, std::vector<LexError> *errors) {
+std::vector<Token> tokenize(const std::string &src, const std::string &filename, std::vector<LexError> *errors,
+                            std::vector<Token> *comments) {
     std::vector<Token> tokens_out;
     auto push_tok = [&](TokenKind k, std::string txt, int line, int col) {
         Token tk;
@@ -113,6 +114,19 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
         tk.col = col;
         tk.filename = filename;
         tokens_out.push_back(std::move(tk));
+    };
+    // record a comment's raw source text into the optional comments sink (`nari fmt`)
+    auto push_comment = [&](int start_line, int start_col, size_t start_pos, size_t end_pos) {
+        if (!comments) {
+            return;
+        }
+        Token tk;
+        tk.kind = TokenKind::TK_COMMENT;
+        tk.text = src.substr(start_pos, end_pos - start_pos);
+        tk.line = start_line;
+        tk.col = start_col;
+        tk.filename = filename;
+        comments->push_back(std::move(tk));
     };
 
     size_t pos = 0;
@@ -147,19 +161,27 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
         }
         // # starts a line comment (covers shebangs #! at the start of a file too)
         if (c == '#') {
+            int start_line = line, start_col = col;
+            size_t start_pos = pos;
             while (cur() && cur() != '\n') {
                 advance();
             }
+            push_comment(start_line, start_col, start_pos, pos);
             continue;
         }
         if (c == '/' && peek() == '/') {
+            int start_line = line, start_col = col;
+            size_t start_pos = pos;
             advance(2);
             while (cur() && cur() != '\n') {
                 advance();
             }
+            push_comment(start_line, start_col, start_pos, pos);
             continue;
         }
         if (c == '/' && peek() == '*') {
+            int start_line = line, start_col = col;
+            size_t start_pos = pos;
             advance(2);
             while (cur()) {
                 if (cur() == '*' && peek() == '/') {
@@ -168,6 +190,7 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
                 }
                 advance();
             }
+            push_comment(start_line, start_col, start_pos, pos);
             continue;
         }
 
@@ -393,25 +416,13 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
         if (c == '/') {
             // determine if this / starts a regex literal or is a division operator
             static const std::unordered_set<std::string> kPrefixKeywords = {
-                "return",
-                "typeof",
-                "new",
-                "delete",
-                "await",
-                "yield",
-                "void",
-                "not",
-                "case",
-                "in",
+                "return", "typeof", "new", "delete", "await", "yield", "void", "not", "case", "in",
             };
             bool prev_can_end_expr =
                 !tokens_out.empty() &&
-                (tokens_out.back().kind == TokenKind::TK_NUMBER ||
-                 tokens_out.back().kind == TokenKind::TK_STRING ||
-                 tokens_out.back().kind == TokenKind::TK_RPAREN ||
-                 tokens_out.back().kind == TokenKind::TK_RBRACKET ||
-                 tokens_out.back().kind == TokenKind::TK_RBRACE ||
-                 tokens_out.back().kind == TokenKind::TK_PLUSPLUS ||
+                (tokens_out.back().kind == TokenKind::TK_NUMBER || tokens_out.back().kind == TokenKind::TK_STRING ||
+                 tokens_out.back().kind == TokenKind::TK_RPAREN || tokens_out.back().kind == TokenKind::TK_RBRACKET ||
+                 tokens_out.back().kind == TokenKind::TK_RBRACE || tokens_out.back().kind == TokenKind::TK_PLUSPLUS ||
                  tokens_out.back().kind == TokenKind::TK_MINUSMINUS ||
                  // TK_REGEX itself can end an expression (/pattern/.test(x) / 2)
                  tokens_out.back().kind == TokenKind::TK_REGEX ||
@@ -467,7 +478,8 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
             }
             // Read optional flags (g i m s u v y)
             std::string regex_flags;
-            while (cur() == 'g' || cur() == 'i' || cur() == 'm' || cur() == 's' || cur() == 'u' || cur() == 'v' || cur() == 'y') {
+            while (cur() == 'g' || cur() == 'i' || cur() == 'm' || cur() == 's' || cur() == 'u' || cur() == 'v' ||
+                   cur() == 'y') {
                 regex_flags += cur();
                 advance();
             }
@@ -654,8 +666,7 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
                 advance();
             } else {
                 if (errors) {
-                    errors->push_back({ filename, start_line, start_col,
-                                        "Unterminated interpolated string literal" });
+                    errors->push_back({ filename, start_line, start_col, "Unterminated interpolated string literal" });
                     push_tok(TokenKind::TK_EOF, "", line, col);
                     return tokens_out;
                 }
@@ -687,9 +698,7 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
                     tok.line = start_line;
                     tok.col = start_col;
                     if (errors) {
-                        errors->push_back({ filename,
-                                            start_line,
-                                            start_col,
+                        errors->push_back({ filename, start_line, start_col,
                                             "Invalid hex literal: expected at least one hex digit after 0x" });
                         push_tok(TokenKind::TK_EOF, "", line, col);
                         return tokens_out;

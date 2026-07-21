@@ -156,9 +156,8 @@ static bool looks_like_assignment(const std::string &src) {
             continue;
         }
         // Compound assignment: +=  -=  *=  /=  %=  @=
-        if ((c == '+' || c == '-' || c == '*' || c == '/' || c == '%' ||
-             c == '@') &&
-            i + 1 < src.size() && src[i + 1] == '=') {
+        if ((c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '@') && i + 1 < src.size() &&
+            src[i + 1] == '=') {
             return true;
         }
         // Plain assignment '=' but NOT ==, !=, <=, >=
@@ -179,8 +178,7 @@ static bool looks_like_assignment(const std::string &src) {
 
 static bool should_accumulate(const std::string &src) {
     size_t i = 0;
-    while (i < src.size() &&
-           (src[i] == ' ' || src[i] == '\t' || src[i] == '\r' || src[i] == '\n')) {
+    while (i < src.size() && (src[i] == ' ' || src[i] == '\t' || src[i] == '\r' || src[i] == '\n')) {
         ++i;
     }
     if (i >= src.size()) {
@@ -206,15 +204,13 @@ static bool should_accumulate(const std::string &src) {
         return true;
     };
 
-    return sw("func ") || sw("func(") || sw("async func ") || sw("class ") ||
-           sw("type ") || sw("enum ") || sw("let ") || sw("global ") ||
-           sw("import ") || looks_like_assignment(src);
+    return sw("func ") || sw("func(") || sw("async func ") || sw("class ") || sw("type ") || sw("enum ") ||
+           sw("let ") || sw("global ") || sw("import ") || looks_like_assignment(src);
 }
 
 // trim trailing whitespace (without touching \n in the middle of the string).
 static void rtrim(std::string &s) {
-    while (!s.empty() &&
-           (s.back() == ' ' || s.back() == '\t' || s.back() == '\r')) {
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r')) {
         s.pop_back();
     }
 }
@@ -307,11 +303,8 @@ static bool supports_ansi_output() {
   returns true on clean execution, false on parse / compile / runtime error.
 */
 #ifndef DISABLE_PARSER
-static bool compile_and_run(
-    const std::string &stdlib_src,
-    const std::string &accumulated,
-    const std::string &new_code, bool auto_print,
-    bool use_color, int argc, char **argv) {
+static bool compile_and_run(const std::string &stdlib_src, const std::string &accumulated, const std::string &new_code,
+                            bool auto_print, bool use_color, int argc, char **argv) {
     // build source that will be compiled in
     std::string full;
     if (!accumulated.empty()) {
@@ -412,13 +405,10 @@ static bool compile_and_run(
 static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &colors) {
     using Color = replxx::Replxx::Color;
 
-    static constexpr const char *KEYWORDS[] = {
-        "func", "async", "await", "let", "global", "return",
-        "if", "else", "for", "while", "in", "break",
-        "continue", "class", "type", "enum", "new", "import",
-        "export", "true", "false",
-        "not"
-    };
+    static constexpr const char *KEYWORDS[] = { "func",     "async", "await", "let",   "global", "return",
+                                                "if",       "else",  "for",   "while", "in",     "break",
+                                                "continue", "class", "type",  "enum",  "new",    "import",
+                                                "export",   "true",  "false", "not" };
 
     size_t i = 0;
     while (i < ctx.size()) {
@@ -491,10 +481,12 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
         }
 
         // numeric literals (integer / float / hex)
-        if (std::isdigit((unsigned char)c) || (c == '.' && i + 1 < ctx.size() && std::isdigit((unsigned char)ctx[i + 1]))) {
+        if (std::isdigit((unsigned char)c) ||
+            (c == '.' && i + 1 < ctx.size() && std::isdigit((unsigned char)ctx[i + 1]))) {
             while (i < ctx.size()) {
                 char d = ctx[i];
-                if (!std::isdigit((unsigned char)d) && d != '.' && d != 'x' && d != 'X' && !((d >= 'a' && d <= 'f') || (d >= 'A' && d <= 'F'))) {
+                if (!std::isdigit((unsigned char)d) && d != '.' && d != 'x' && d != 'X' &&
+                    !((d >= 'a' && d <= 'f') || (d >= 'A' && d <= 'F'))) {
                     break;
                 }
                 colors[i++] = Color::BRIGHTGREEN;
@@ -638,12 +630,10 @@ void run_repl(int argc, char **argv) {
     }
 
     bool ctrl_c_pressed = false;
-    replxx.bind_key(
-        replxx::Replxx::KEY::control('C'),
-        [&ctrl_c_pressed](char32_t) -> replxx::Replxx::ACTION_RESULT {
-            ctrl_c_pressed = true;
-            return replxx::Replxx::ACTION_RESULT::BAIL;
-        });
+    replxx.bind_key(replxx::Replxx::KEY::control('C'), [&ctrl_c_pressed](char32_t) -> replxx::Replxx::ACTION_RESULT {
+        ctrl_c_pressed = true;
+        return replxx::Replxx::ACTION_RESULT::BAIL;
+    });
 
     int ctrl_c_count = 0;
 

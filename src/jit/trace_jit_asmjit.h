@@ -13,8 +13,8 @@ struct Chunk;
 #include <unordered_map>
 #include <vector>
 
-#include "trace_jit.h"
 #include "jit_arch.h"
+#include "trace_jit.h"
 
 namespace nari {
 namespace jit {

@@ -143,8 +143,7 @@ bool is_package_import_spec(const std::string &inc) {
     if (inc.empty()) {
         return false;
     }
-    if (starts_with(inc, "./") || starts_with(inc, "../") || inc[0] == '/' ||
-        inc[0] == '\\') {
+    if (starts_with(inc, "./") || starts_with(inc, "../") || inc[0] == '/' || inc[0] == '\\') {
         return false;
     }
     static const char *exts[] = { ".nari", ".naric", ".so", ".dll", ".dylib" };
@@ -208,8 +207,7 @@ static StringMap parse_manifest_dependency_paths(const nari::fs::Path &manifest_
         }
         std::string dep_name = unquote_toml(cleaned.substr(0, eq));
         std::string raw_spec = trim_copy(cleaned.substr(eq + 1));
-        if (raw_spec.size() < 2 || raw_spec.front() != '{' ||
-            raw_spec.back() != '}') {
+        if (raw_spec.size() < 2 || raw_spec.front() != '{' || raw_spec.back() != '}') {
             continue;
         }
         std::string inner = trim_copy(raw_spec.substr(1, raw_spec.size() - 2));
@@ -401,12 +399,9 @@ static nari::fs::Path find_nearest_lockfile(const nari::fs::Path &start_dir) {
     return {};
 }
 
-std::string resolve_package_import_path(const std::string &inc,
-                                        const std::string &basefile,
-                                        std::string &error_out) {
+std::string resolve_package_import_path(const std::string &inc, const std::string &basefile, std::string &error_out) {
     namespace fs = nari::fs;
-    fs::Path base_path =
-        basefile.empty() ? fs::current_path() : fs::Path(basefile);
+    fs::Path base_path = basefile.empty() ? fs::current_path() : fs::Path(basefile);
     fs::Path project_root = find_nearest_project_root(base_path);
     if (project_root.empty()) {
         error_out = "Package import '" + inc + "' could not be resolved because no enclosing nari.toml was found";
@@ -469,7 +464,8 @@ std::string resolve_package_import_path(const std::string &inc,
     }
 
     if (matched_package.empty()) {
-        error_out = "Package import '" + inc + "' is not listed in " + (project_root / "nari.toml").lexically_normal().string();
+        error_out =
+            "Package import '" + inc + "' is not listed in " + (project_root / "nari.toml").lexically_normal().string();
         return "";
     }
 
@@ -497,14 +493,13 @@ std::string resolve_package_import_path(const std::string &inc,
     if (package_root.empty()) {
         auto dep_it = dependency_paths.find(matched_package);
         if (dep_it != dependency_paths.end()) {
-            package_root =
-                (project_root / fs::Path(dep_it->second)).lexically_normal();
+            package_root = (project_root / fs::Path(dep_it->second)).lexically_normal();
         }
     }
 
     if (package_root.empty()) {
-        error_out =
-            "Package import '" + inc + "' matched dependency '" + matched_package + "' but no installed package or local path could be resolved";
+        error_out = "Package import '" + inc + "' matched dependency '" + matched_package +
+                    "' but no installed package or local path could be resolved";
         if (!derived_dir.empty()) {
             error_out += " (looked for " + derived_dir.string() + ")";
         }
@@ -513,10 +508,8 @@ std::string resolve_package_import_path(const std::string &inc,
 
     fs::Path package_manifest = package_root / "nari.toml";
     if (!fs::exists(package_manifest)) {
-        error_out =
-            "Package import '" + inc + "' resolved to '" +
-            package_root.lexically_normal().string() +
-            "' but no nari.toml was found there";
+        error_out = "Package import '" + inc + "' resolved to '" + package_root.lexically_normal().string() +
+                    "' but no nari.toml was found there";
         if (!derived_dir.empty() && derived_dir != package_root) {
             error_out += " (also looked for " + derived_dir.string() + ")";
         }
@@ -526,10 +519,8 @@ std::string resolve_package_import_path(const std::string &inc,
     StringMap exports = parse_package_exports(package_manifest);
     auto export_it = exports.find(export_key);
     if (export_it == exports.end()) {
-        error_out =
-            "Package import '" + inc +
-            "' could not be resolved because dependency '" + matched_package +
-            "' does not export subpath '" + export_key + "'";
+        error_out = "Package import '" + inc + "' could not be resolved because dependency '" + matched_package +
+                    "' does not export subpath '" + export_key + "'";
         return "";
     }
 

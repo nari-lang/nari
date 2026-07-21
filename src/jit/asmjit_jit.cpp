@@ -114,7 +114,8 @@ static const std::unordered_map<uint64_t, const char *> &jit_helper_symbols() {
 }
 
 // Rewrite `call <decimal-address>` lines to `call <helper-name>` when the address matches a known helper
-static std::string jit_symbolize_calls(const char *asm_text, uint64_t extra_addr = 0, const char *extra_name = nullptr) {
+static std::string jit_symbolize_calls(const char *asm_text, uint64_t extra_addr = 0,
+                                       const char *extra_name = nullptr) {
     const auto &syms = jit_helper_symbols();
     std::string out;
     out.reserve(std::strlen(asm_text) + 128);
@@ -133,14 +134,12 @@ static std::string jit_symbolize_calls(const char *asm_text, uint64_t extra_addr
             if (j > num) {
                 uint64_t addr = strtoull(line.c_str() + num, nullptr, 10);
                 auto it = syms.find(addr);
-                const char *name = (it != syms.end()) ? it->second
-                                   : (extra_name && addr == extra_addr)
-                                       ? extra_name
-                                       : nullptr;
+                const char *name = (it != syms.end())                   ? it->second
+                                   : (extra_name && addr == extra_addr) ? extra_name
+                                                                        : nullptr;
                 if (name) {
                     size_t semi = line.find(';');
-                    std::string instr =
-                        line.substr(0, i) + "call " + name;
+                    std::string instr = line.substr(0, i) + "call " + name;
                     if (semi != std::string::npos) {
                         if (instr.size() + 1 < semi) {
                             instr.append(semi - instr.size(), ' ');
@@ -172,8 +171,7 @@ static void jit_write_layout_legend(FILE *f);
 }
 } // namespace nari
 
-static void jit_dump_asm(const std::string &func_name, const char *asm_text,
-                         uint64_t extra_addr = 0,
+static void jit_dump_asm(const std::string &func_name, const char *asm_text, uint64_t extra_addr = 0,
                          const char *extra_name = nullptr) {
     const char *env = getenv("NARI_JIT_DUMP_ASM");
     if (!env) {
@@ -186,8 +184,7 @@ static void jit_dump_asm(const std::string &func_name, const char *asm_text,
     }
     nari::jit::jit_write_layout_legend(f);
     fprintf(f, "\n; -- %s --\n", func_name.c_str());
-    std::string symbolized =
-        jit_symbolize_calls(asm_text, extra_addr, extra_name);
+    std::string symbolized = jit_symbolize_calls(asm_text, extra_addr, extra_name);
     fputs(symbolized.c_str(), f);
     fclose(f);
 }
@@ -244,8 +241,10 @@ static const int64_t VMStackStartOff = field_offset(&VM::stack) + offsetof(Array
 static const int64_t VMStackFinishOff = field_offset(&VM::stack) + offsetof(Array, storage_end);
 static const int64_t VMStackCapacityOff = field_offset(&VM::stack) + offsetof(Array, storage_capacity);
 static const int64_t VMGlobalCacheStartOff = field_offset(&VM::global_cache) + offsetof(Array, storage_begin);
-static const int64_t VMGlobalCacheValidStartOff = field_offset(&VM::global_cache_valid) + offsetof(ByteArray, storage_begin);
-static const int64_t VMGlobalCacheValidFinishOff = field_offset(&VM::global_cache_valid) + offsetof(ByteArray, storage_end);
+static const int64_t VMGlobalCacheValidStartOff =
+    field_offset(&VM::global_cache_valid) + offsetof(ByteArray, storage_begin);
+static const int64_t VMGlobalCacheValidFinishOff =
+    field_offset(&VM::global_cache_valid) + offsetof(ByteArray, storage_end);
 
 static const int64_t ArrayVecStartOff = field_offset(&ArrayObj::v) + offsetof(Array, storage_begin);
 static const int64_t ArrayVecFinishOff = field_offset(&ArrayObj::v) + offsetof(Array, storage_end);
@@ -288,13 +287,10 @@ static void jit_write_layout_legend(FILE *f) {
             ";   CallFrame.slot_base +%-4lld    CallFrame.captures  +%-4lld\n"
             ";   CallFrame.open_upvalues +%lld\n"
             "; ============================================================\n",
-            (long long)VMStackStartOff, (long long)VMStackFinishOff,
-            (long long)VMStackCapacityOff, (long long)VMCapturesRawOff,
-            (long long)VMGlobalCacheStartOff,
-            (long long)VMGlobalCacheValidStartOff, (long long)FramesStartOff,
-            (long long)FramesFinishOff, (long long)VMFramesCapacityOff,
-            (long long)ValSize, (long long)FrameSize, (long long)FrameFunctionOff,
-            (long long)FrameIpOff, (long long)SlotBaseOff,
+            (long long)VMStackStartOff, (long long)VMStackFinishOff, (long long)VMStackCapacityOff,
+            (long long)VMCapturesRawOff, (long long)VMGlobalCacheStartOff, (long long)VMGlobalCacheValidStartOff,
+            (long long)FramesStartOff, (long long)FramesFinishOff, (long long)VMFramesCapacityOff, (long long)ValSize,
+            (long long)FrameSize, (long long)FrameFunctionOff, (long long)FrameIpOff, (long long)SlotBaseOff,
             (long long)FrameCapturesOff, (long long)FrameOpenUpvalOff);
 }
 
@@ -429,8 +425,8 @@ void AsmJITMethodCompiler::assert_tables_stable() const {
     assert(compiled_fn_vec.data() == fn_vec_base && "compiled_fn_vec reallocated: baked code pointers now dangle");
 }
 
-AsmJITMethodCompiler::CompiledFunc
-AsmJITMethodCompiler::compile_chunk(const nari::bytecode::Chunk &chunk, uint32_t chunk_idx) {
+AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::compile_chunk(const nari::bytecode::Chunk &chunk,
+                                                                       uint32_t chunk_idx) {
     if (bound_chunk_ != &chunk) {
         reset_for_chunk(chunk);
     }
@@ -450,8 +446,7 @@ AsmJITMethodCompiler::compile_chunk(const nari::bytecode::Chunk &chunk, uint32_t
     // for parameterized functions, attempt a speculative register-tier
     // recompile with params typed Int48 (entry tag guards, a failed
     // guard dispatches to the general-path version just compiled)
-    if (fn && chunk.functions[chunk_idx].param_count > 0 &&
-        chunk.functions[chunk_idx].param_count <= 8) {
+    if (fn && chunk.functions[chunk_idx].param_count > 0 && chunk.functions[chunk_idx].param_count <= 8) {
         if (CompiledFunc spec = ir_compile(chunk, chunk_idx, fn)) {
             fn = spec;
         }
@@ -467,17 +462,14 @@ AsmJITMethodCompiler::compile_chunk(const nari::bytecode::Chunk &chunk, uint32_t
 // Optimizing-IR tier
 //
 // Build SSA IR, then lower it to AsmJIT
-AsmJITMethodCompiler::CompiledFunc
-AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t chunk_idx, CompiledFunc spec_fallback) {
+AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk,
+                                                                    uint32_t chunk_idx, CompiledFunc spec_fallback) {
     const bool spec = spec_fallback != nullptr;
     static const bool kJitReport = getenv("NARI_JIT_REPORT") != nullptr;
     auto report = [&](const char *what) {
         if (kJitReport) {
             fprintf(stderr, "[JIT] %-30s %s\n",
-                    chunk.functions[chunk_idx].name.empty()
-                        ? "<anon>"
-                        : chunk.functions[chunk_idx].name.c_str(),
-                    what);
+                    chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(), what);
         }
     };
     ir::Func irFuncs;
@@ -497,8 +489,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     ir::IntArraySlots int_arr_slots = ir::int_array_candidates(irFuncs);
     ir::infer_types(irFuncs, slot_types, &global_const_types_, &int_arr_slots, spec);
     for (int it = 0; it < 8; it++) {
-        ir::IntArraySlots next =
-            ir::analyze_int_array_slots(irFuncs, push_method_name_idx_, length_method_name_idx_);
+        ir::IntArraySlots next = ir::analyze_int_array_slots(irFuncs, push_method_name_idx_, length_method_name_idx_);
         if (next.size() == int_arr_slots.size()) {
             int_arr_slots = std::move(next);
             break;
@@ -516,12 +507,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     // last, on the final IR, so global use-counts are stable.
     ir::mark_inplace_concat(irFuncs);
     if (getenv("NARI_IR_DUMP")) {
-        fprintf(
-            stderr,
-            "=== IR for '%s' (func %u) ===\n%s",
-            chunk.functions[chunk_idx].name.c_str(),
-            chunk_idx,
-            ir::dump(irFuncs).c_str());
+        fprintf(stderr, "=== IR for '%s' (func %u) ===\n%s", chunk.functions[chunk_idx].name.c_str(), chunk_idx,
+                ir::dump(irFuncs).c_str());
     }
     // quantify cross-block redundant expressions that a future global-CSE/GVN pass could eliminate.
     // pure analysis: does not touch irFuncs or codegen. Runs on the final typed IR.
@@ -553,8 +540,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         arch::Gp reg;
         bool have_reg = false;
 
-        explicit FinishCache(arch::Compiler &cc_, arch::Gp vm_)
-            : cc(cc_), vm_reg(vm_) {
+        explicit FinishCache(arch::Compiler &cc_, arch::Gp vm_) : cc(cc_), vm_reg(vm_) {
             reg = cc.new_gp64("fc_endp");
         }
         // Return the vreg holding the current in-memory finish value,
@@ -611,9 +597,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
 
     typedef void (*VMFunc)(nari::bytecode::VM *);
 
-    auto call_vm = [&](VMFunc helper, nari::bytecode::VM *vm) {
-        helper(vm);
-    };
+    auto call_vm = [&](VMFunc helper, nari::bytecode::VM *vm) { helper(vm); };
     auto call_u32 = [&](const void *helper, uint32_t a) {
         fc.invalidate();
         InvokeNode *inv;
@@ -624,7 +608,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     auto call_u32_u32 = [&](const void *helper, uint32_t a, uint32_t b) {
         fc.invalidate();
         InvokeNode *inv;
-        arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper, FuncSignature::build<void, void *, uint32_t, uint32_t>());
+        arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper,
+                         FuncSignature::build<void, void *, uint32_t, uint32_t>());
         inv->set_arg(0, vm_reg);
         inv->set_arg(1, Imm(a));
         inv->set_arg(2, Imm(b));
@@ -779,9 +764,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             }
             return "?";
         };
-        auto raw_rep = [](ir::Ty t) {
-            return t == ir::Ty::Unknown || t == ir::Ty::Heap;
-        };
+        auto raw_rep = [](ir::Ty t) { return t == ir::Ty::Unknown || t == ir::Ty::Heap; };
         auto slot_ok = [&](ir::Ty t) {
             if (t == ir::Ty::Int48 || t == ir::Ty::Bool) {
                 return true;
@@ -813,8 +796,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             if (!b.phis.empty()) {
                 for (ir::ValueId pv : b.phis) {
                     const ir::Inst &pin = irFuncs.inst(pv);
-                    if (pin.type != ir::Ty::Int48 && pin.type != ir::Ty::Bool &&
-                        pin.type != ir::Ty::None) {
+                    if (pin.type != ir::Ty::Int48 && pin.type != ir::Ty::Bool && pin.type != ir::Ty::None) {
                         elig = false;
                         if (!reject) {
                             reject = "phi type non-int/bool/none";
@@ -893,10 +875,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                         // Representation conversion raw->untagged would need
                         // a type-directed unbox; type joins make it
                         // impossible (dst ty >= src ty), but keep the guard.
-                        if (in.imm_int >= 0 &&
-                            (size_t)in.imm_int < slot_types.size() &&
-                            raw_rep(slot_types[(uint32_t)in.imm_int]) &&
-                            !raw_rep(slot_types[in.imm_u32])) {
+                        if (in.imm_int >= 0 && (size_t)in.imm_int < slot_types.size() &&
+                            raw_rep(slot_types[(uint32_t)in.imm_int]) && !raw_rep(slot_types[in.imm_u32])) {
                             elig = false;
                             if (!reject) {
                                 reject = "copyslot raw->untagged";
@@ -904,10 +884,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                         }
                         // a Float xmm dst reads slot_vec[src], so src
                         // must also be an xmm Float slot.
-                        if (in.imm_u32 < slot_types.size() &&
-                            slot_types[in.imm_u32] == ir::Ty::Float &&
-                            !(in.imm_int >= 0 &&
-                              (size_t)in.imm_int < slot_types.size() &&
+                        if (in.imm_u32 < slot_types.size() && slot_types[in.imm_u32] == ir::Ty::Float &&
+                            !(in.imm_int >= 0 && (size_t)in.imm_int < slot_types.size() &&
                               slot_types[(uint32_t)in.imm_int] == ir::Ty::Float)) {
                             elig = false;
                             if (!reject) {
@@ -917,8 +895,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                         break;
                     case ir::Op::Not:
                         // Lowered as xor 1: valid ONLY for a Bool operand.
-                        if (in.operands.empty() ||
-                            irFuncs.inst(in.operands[0]).type != ir::Ty::Bool) {
+                        if (in.operands.empty() || irFuncs.inst(in.operands[0]).type != ir::Ty::Bool) {
                             elig = false;
                             if (!reject) {
                                 reject = "Not on non-bool";
@@ -952,8 +929,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                     case ir::Op::FSub:
                     case ir::Op::FMul:
                     case ir::Op::FDiv:
-                        if (in.operands.size() != 2 ||
-                            irFuncs.inst(in.operands[0]).type != ir::Ty::Float ||
+                        if (in.operands.size() != 2 || irFuncs.inst(in.operands[0]).type != ir::Ty::Float ||
                             irFuncs.inst(in.operands[1]).type != ir::Ty::Float) {
                             elig = false;
                             if (!reject) {
@@ -969,8 +945,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                     case ir::Op::FCmpLe:
                     case ir::Op::FCmpGt:
                     case ir::Op::FCmpGe:
-                        if (in.operands.size() != 2 ||
-                            irFuncs.inst(in.operands[0]).type != ir::Ty::Float ||
+                        if (in.operands.size() != 2 || irFuncs.inst(in.operands[0]).type != ir::Ty::Float ||
                             irFuncs.inst(in.operands[1]).type != ir::Ty::Float) {
                             elig = false;
                             if (!reject) {
@@ -996,8 +971,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                         }
                         break;
                 }
-                if (!any_result_ty && in.result != ir::InvalidValue &&
-                    in.type != ir::Ty::Int48 &&
+                if (!any_result_ty && in.result != ir::InvalidValue && in.type != ir::Ty::Int48 &&
                     in.type != ir::Ty::Bool && in.type != ir::Ty::None) {
                     elig = false;
                     if (!reject) {
@@ -1031,17 +1005,14 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         }
         if (dbg_elig && !elig) {
             fprintf(stderr, "[REG-TIER] %-30s reject: %s\n",
-                    chunk.functions[chunk_idx].name.empty()
-                        ? "<anon>"
-                        : chunk.functions[chunk_idx].name.c_str(),
+                    chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(),
                     reject ? reject : "?");
         }
 
         if (elig) {
             auto call_push_reg = [&](const void *helper, arch::Gp val) {
                 InvokeNode *inv;
-                arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper,
-                                 FuncSignature::build<void, void *, int64_t>());
+                arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper, FuncSignature::build<void, void *, int64_t>());
                 inv->set_arg(0, vm_reg);
                 inv->set_arg(1, val);
             };
@@ -1049,10 +1020,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             // parallel XMM home for Float slots. slot_reg[s] stays
             // default-constructed (unused) for xmm slots
             std::vector<arch::Vec> slot_vec(irFuncs.num_slots);
-            auto is_xmm_slot = [&](uint32_t s) {
-                return s < slot_types.size() &&
-                       slot_types[s] == ir::Ty::Float;
-            };
+            auto is_xmm_slot = [&](uint32_t s) { return s < slot_types.size() && slot_types[s] == ir::Ty::Float; };
             for (uint32_t s = 0; s < irFuncs.num_slots; s++) {
                 if (is_xmm_slot(s)) {
                     slot_vec[s] = arch::new_vec_f64(cc, "slot_vec");
@@ -1116,8 +1084,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                     arch::load(cc, slot_reg[s], arch::ptr(pbase, (int)((int64_t)s * ValSize)));
                     if (pt == ir::Ty::Int48) {
                         arch::Gp ptag = cc.new_gp64("r_param_tag");
-                        arch::load16_zx(cc, ptag,
-                                        arch::ptr16(pbase, (int)((int64_t)s * ValSize + tagWordOff)));
+                        arch::load16_zx(cc, ptag, arch::ptr16(pbase, (int)((int64_t)s * ValSize + tagWordOff)));
                         arch::cmp_imm(cc, ptag.r32(), Imm((int)tagInt));
                         arch::jcc(cc, arch::CC::kNE, spec_fail);
                         spec_fail_used = true;
@@ -1173,8 +1140,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             // one function-scoped GP per cached slot for the base pointer and one
             // for the element count, materialized once at the preheader and read
             // at every LoadIndex in the loop body.
-            ir::ArrayHeaderHoist hoist_plan =
-                ir::plan_array_header_hoist(irFuncs, int_arr_slots);
+            ir::ArrayHeaderHoist hoist_plan = ir::plan_array_header_hoist(irFuncs, int_arr_slots);
             std::vector<arch::Gp> hdr_base(irFuncs.num_slots);
             std::vector<arch::Gp> hdr_size(irFuncs.num_slots);
             for (uint32_t s : hoist_plan.slots) {
@@ -1287,10 +1253,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             // hand one op to a general-path (memory-stack ABI) helper.
             // Boxes + spills the entire operand stack to vm->stack.
             // The helper reads operands there, and a GC inside must see this frame's heap values
-            auto escape_ex = [&](const void *helper, int kind, uint32_t immA,
-                                 uint32_t immB, std::vector<RE *> extra,
-                                 size_t consumed, bool produces,
-                                 ir::Ty result_ty) -> RE {
+            auto escape_ex = [&](const void *helper, int kind, uint32_t immA, uint32_t immB, std::vector<RE *> extra,
+                                 size_t consumed, bool produces, ir::Ty result_ty) -> RE {
                 const size_t n = st.size() + extra.size();
                 arch::Gp fin = cc.new_gp64("r_esc_fin");
                 arch::load(cc, fin, arch::ptr(vm_reg, (int)VMStackFinishOff));
@@ -1333,8 +1297,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                     out.reg = cc.new_gp64("r_esc_void");
                     cc.mov(out.reg, Imm(0));
                 }
-                const int64_t drop =
-                    (int64_t)(n - consumed + (produces ? 1 : 0)) * ValSize;
+                const int64_t drop = (int64_t)(n - consumed + (produces ? 1 : 0)) * ValSize;
                 if (drop) {
                     arch::sub_imm(cc, fin2, drop);
                     arch::store(cc, arch::ptr(vm_reg, (int)VMStackFinishOff), fin2);
@@ -1342,9 +1305,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 return out;
             };
             // is this RE a raw untagged int/bool payload (inline register arith is valid) vs. boxed Value bits / none?
-            auto re_raw = [](const RE &e) {
-                return e.ty == ir::Ty::Int48 || e.ty == ir::Ty::Bool;
-            };
+            auto re_raw = [](const RE &e) { return e.ty == ir::Ty::Int48 || e.ty == ir::Ty::Bool; };
             // Result-type clamp for escaped Dyn ops
             auto esc_result_ty = [&](ir::Ty t) {
                 if (t == ir::Ty::Int48 || t == ir::Ty::Bool || raw_rep(t)) {
@@ -1400,10 +1361,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             arch::Gp ptr = cc.new_gp64("hdr_ptr");
                             arch::mov_reg(cc, ptr, slot_reg[s]);
                             arch::zero_extend_48(cc, ptr);
-                            arch::load(cc, hdr_base[s],
-                                       arch::ptr(ptr, (int)ArrayVecStartOff));
-                            arch::load(cc, hdr_size[s],
-                                       arch::ptr(ptr, (int)ArrayVecFinishOff));
+                            arch::load(cc, hdr_base[s], arch::ptr(ptr, (int)ArrayVecStartOff));
+                            arch::load(cc, hdr_size[s], arch::ptr(ptr, (int)ArrayVecFinishOff));
                             arch::sub2(cc, hdr_size[s], hdr_base[s]);
                             arch::shr(cc, hdr_size[s], 3);
                         }
@@ -1421,15 +1380,13 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                     bool is_cmp = last.op == ir::Op::DynCmpLt || last.op == ir::Op::DynCmpLe ||
                                   last.op == ir::Op::DynCmpGt || last.op == ir::Op::DynCmpGe ||
                                   last.op == ir::Op::DynCmpEq || last.op == ir::Op::DynCmpNe ||
-                                  last.op == ir::Op::ICmpLt || last.op == ir::Op::ICmpLe ||
-                                  last.op == ir::Op::ICmpGt || last.op == ir::Op::ICmpGe ||
-                                  last.op == ir::Op::ICmpEq || last.op == ir::Op::ICmpNe;
+                                  last.op == ir::Op::ICmpLt || last.op == ir::Op::ICmpLe || last.op == ir::Op::ICmpGt ||
+                                  last.op == ir::Op::ICmpGe || last.op == ir::Op::ICmpEq || last.op == ir::Op::ICmpNe;
                     // Ordered float relops only (Eq/Ne need the ZF+PF combine, not a single jcc).
                     // Both operands must be Float.
                     bool is_fcmp = (last.op == ir::Op::FCmpLt || last.op == ir::Op::FCmpLe ||
                                     last.op == ir::Op::FCmpGt || last.op == ir::Op::FCmpGe) &&
-                                   last.operands.size() == 2 &&
-                                   irFuncs.inst(last.operands[0]).type == ir::Ty::Float &&
+                                   last.operands.size() == 2 && irFuncs.inst(last.operands[0]).type == ir::Ty::Float &&
                                    irFuncs.inst(last.operands[1]).type == ir::Ty::Float;
                     // fusion emits a raw register cmp, so both
                     // operands must be raw-rep
@@ -1443,8 +1400,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                         }
                     }
                     if (term.op == ir::Op::Branch && ((is_cmp && cmp_operands_raw) || is_fcmp) &&
-                        !term.operands.empty() &&
-                        term.operands[0] == b.insts.back()) {
+                        !term.operands.empty() && term.operands[0] == b.insts.back()) {
                         // don't fuse if either branch successor has phis
                         bool succ_has_phi = false;
                         if (term.target0 >= 0 && (size_t)term.target0 < irFuncs.blocks.size() &&
@@ -1570,7 +1526,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                         // fused slot-store ops. No SSA result, no stack change
                         case ir::Op::StoreImmSlot:
                             if (raw_rep(slot_types[in.imm_u32])) {
-                                cc.mov(slot_reg[in.imm_u32], Imm(static_cast<int64_t>(nbIntTag | ((uint64_t)in.imm_int & nbPtrMask))));
+                                cc.mov(slot_reg[in.imm_u32],
+                                       Imm(static_cast<int64_t>(nbIntTag | ((uint64_t)in.imm_int & nbPtrMask))));
                                 slot_write_through(in.imm_u32);
                             } else {
                                 cc.mov(slot_reg[in.imm_u32], Imm(in.imm_int));
@@ -1578,7 +1535,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             break;
                         case ir::Op::StoreBImmSlot:
                             if (raw_rep(slot_types[in.imm_u32])) {
-                                cc.mov(slot_reg[in.imm_u32], Imm(static_cast<int64_t>(nbIntTag | ((uint64_t)in.imm_int & nbPtrMask))));
+                                cc.mov(slot_reg[in.imm_u32],
+                                       Imm(static_cast<int64_t>(nbIntTag | ((uint64_t)in.imm_int & nbPtrMask))));
                                 slot_write_through(in.imm_u32);
                             } else {
                                 cc.mov(slot_reg[in.imm_u32], Imm(in.imm_int ? 1 : 0));
@@ -1669,8 +1627,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 // mod-by-zero must raise the proper runtime
                                 // error; -1 kept off the idiv path to match
                                 // the general tier.
-                                RE r = escape_ex((const void *)jit_mod, 0, 0, 0,
-                                                 { &ra, &rb }, 2, true, ir::Ty::Int48);
+                                RE r = escape_ex((const void *)jit_mod, 0, 0, 0, { &ra, &rb }, 2, true, ir::Ty::Int48);
                                 arch::mov_reg(cc, res, r.reg);
                                 cc.bind(done);
                             }
@@ -1682,23 +1639,19 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             st.pop_back();
                             RE ra = st.back();
                             st.pop_back();
-                            bool inline_ok = in.type == ir::Ty::Int48 &&
-                                             in.operands.size() >= 2;
+                            bool inline_ok = in.type == ir::Ty::Int48 && in.operands.size() >= 2;
                             if (inline_ok) {
                                 const ir::Inst &obj = irFuncs.inst(in.operands[0]);
                                 const ir::Inst &key = irFuncs.inst(in.operands[1]);
-                                inline_ok = obj.op == ir::Op::LoadSlot &&
-                                            int_arr_slots.count(obj.imm_u32) != 0 &&
+                                inline_ok = obj.op == ir::Op::LoadSlot && int_arr_slots.count(obj.imm_u32) != 0 &&
                                             key.type == ir::Ty::Int48;
                             }
                             if (!inline_ok) {
                                 // guarded inline array fast path for UNPROVEN receivers
                                 const ir::Ty rty = esc_result_ty(in.type);
                                 const bool key_raw = ri.ty == ir::Ty::Int48;
-                                if (!raw_rep(ra.ty) || !(key_raw || raw_rep(ri.ty)) ||
-                                    !raw_rep(rty)) {
-                                    RE r = escape_ex((const void *)jit_get_index, 0, 0, 0,
-                                                     { &ra, &ri }, 2, true, rty);
+                                if (!raw_rep(ra.ty) || !(key_raw || raw_rep(ri.ty)) || !raw_rep(rty)) {
+                                    RE r = escape_ex((const void *)jit_get_index, 0, 0, 0, { &ra, &ri }, 2, true, rty);
                                     st.push_back(r);
                                     break;
                                 }
@@ -1713,8 +1666,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 arch::Gp ptr = cc.new_gp64("r_ggi_ptr");
                                 arch::mov_reg(cc, ptr, ra.reg);
                                 arch::zero_extend_48(cc, ptr);
-                                arch::cmp_mem8_imm(cc, arch::ptr8(ptr, (int)HeapTypeTagOff),
-                                                   Imm((int)tagArray));
+                                arch::cmp_mem8_imm(cc, arch::ptr8(ptr, (int)HeapTypeTagOff), Imm((int)tagArray));
                                 arch::jcc(cc, arch::CC::kNE, slow);
                                 arch::Gp idx = cc.new_gp64("r_ggi_idx");
                                 if (key_raw) {
@@ -1750,8 +1702,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 cc.mov(g, Imm(static_cast<int64_t>(nbNone)));
                                 arch::jmp(cc, done);
                                 cc.bind(slow);
-                                RE r = escape_ex((const void *)jit_get_index, 0, 0, 0,
-                                                 { &ra, &ri }, 2, true, rty);
+                                RE r = escape_ex((const void *)jit_get_index, 0, 0, 0, { &ra, &ri }, 2, true, rty);
                                 arch::mov_reg(cc, g, r.reg);
                                 cc.bind(done);
                                 st.push_back({ g, rty });
@@ -1813,17 +1764,15 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 const ir::Inst &obj = irFuncs.inst(in.operands[0]);
                                 const ir::Inst &key = irFuncs.inst(in.operands[1]);
                                 const ir::Inst &val = irFuncs.inst(in.operands[2]);
-                                inline_ok = obj.op == ir::Op::LoadSlot &&
-                                            int_arr_slots.count(obj.imm_u32) != 0 &&
-                                            key.type == ir::Ty::Int48 &&
-                                            val.type == ir::Ty::Int48;
+                                inline_ok = obj.op == ir::Op::LoadSlot && int_arr_slots.count(obj.imm_u32) != 0 &&
+                                            key.type == ir::Ty::Int48 && val.type == ir::Ty::Int48;
                             }
                             if (!inline_ok) {
                                 // guarded inline in-bounds store for UNPROVEN receivers
                                 const bool key_raw = ri.ty == ir::Ty::Int48;
                                 if (!raw_rep(ra.ty) || !(key_raw || raw_rep(ri.ty))) {
-                                    RE r = escape_ex((const void *)jit_set_index, 0, 0, 0,
-                                                     { &ra, &ri, &rv }, 3, true, in.type);
+                                    RE r = escape_ex((const void *)jit_set_index, 0, 0, 0, { &ra, &ri, &rv }, 3, true,
+                                                     in.type);
                                     st.push_back(r);
                                     break;
                                 }
@@ -1837,8 +1786,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 arch::Gp ptr = cc.new_gp64("r_gsi_ptr");
                                 arch::mov_reg(cc, ptr, ra.reg);
                                 arch::zero_extend_48(cc, ptr);
-                                arch::cmp_mem8_imm(cc, arch::ptr8(ptr, (int)HeapTypeTagOff),
-                                                   Imm((int)tagArray));
+                                arch::cmp_mem8_imm(cc, arch::ptr8(ptr, (int)HeapTypeTagOff), Imm((int)tagArray));
                                 arch::jcc(cc, arch::CC::kNE, slow);
                                 arch::Gp idx = cc.new_gp64("r_gsi_idx");
                                 if (key_raw) {
@@ -1874,8 +1822,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 }
                                 arch::jmp(cc, done);
                                 cc.bind(slow);
-                                escape_ex((const void *)jit_set_index, 0, 0, 0,
-                                          { &ra, &ri, &rv }, 3, true, in.type);
+                                escape_ex((const void *)jit_set_index, 0, 0, 0, { &ra, &ri, &rv }, 3, true, in.type);
                                 cc.bind(done);
                                 st.push_back(rv);
                                 break;
@@ -1913,8 +1860,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             // helper's exact semantics via escape. The
                             // helper's result equals val; the register RE
                             // already holds it, so discard the escape's copy.
-                            escape_ex((const void *)jit_set_index, 0, 0, 0,
-                                      { &ra, &ri, &rv }, 3, true, in.type);
+                            escape_ex((const void *)jit_set_index, 0, 0, 0, { &ra, &ri, &rv }, 3, true, in.type);
                             cc.bind(done);
                             // StoreIndex's IR result is the stored value.
                             st.push_back(rv);
@@ -1931,8 +1877,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             for (uint32_t k = 0; k < nelem; k++) {
                                 eptrs[k] = &elems[k];
                             }
-                            RE r = escape_ex((const void *)jit_make_array, 1, nelem, 0,
-                                             eptrs, nelem, true, in.type);
+                            RE r = escape_ex((const void *)jit_make_array, 1, nelem, 0, eptrs, nelem, true, in.type);
                             st.push_back(r);
                             break;
                         }
@@ -1947,8 +1892,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             for (uint32_t k = 0; k < argc + 1; k++) {
                                 aptrs[k] = &args[k];
                             }
-                            RE r = escape_ex(nullptr, 3, argc, (uint32_t)in.imm_int,
-                                             aptrs, argc + 1, true, in.type);
+                            RE r = escape_ex(nullptr, 3, argc, (uint32_t)in.imm_int, aptrs, argc + 1, true, in.type);
                             st.push_back(r);
                             break;
                         }
@@ -1956,20 +1900,16 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             const uint32_t method_idx = in.imm_u32;
                             const uint32_t argc = (uint32_t)in.imm_int;
                             // Inline arr.push(<raw int/bool>)
-                            bool inline_push =
-                                method_idx < chunk.strings.size() &&
-                                chunk.strings[method_idx] == "push" &&
-                                argc == 1 && in.operands.size() >= 2;
+                            bool inline_push = method_idx < chunk.strings.size() &&
+                                               chunk.strings[method_idx] == "push" && argc == 1 &&
+                                               in.operands.size() >= 2;
                             bool recv_proven = false;
                             if (inline_push) {
                                 const ir::Inst &recv = irFuncs.inst(in.operands[0]);
                                 const ir::Inst &arg = irFuncs.inst(in.operands[1]);
-                                recv_proven = recv.op == ir::Op::LoadSlot &&
-                                              int_arr_slots.count(recv.imm_u32) != 0;
-                                inline_push = raw_rep(recv.type) &&
-                                              raw_rep(in.type) && // result RE holds raw none bits
-                                              (arg.type == ir::Ty::Int48 ||
-                                               arg.type == ir::Ty::Bool);
+                                recv_proven = recv.op == ir::Op::LoadSlot && int_arr_slots.count(recv.imm_u32) != 0;
+                                inline_push = raw_rep(recv.type) && raw_rep(in.type) && // result RE holds raw none bits
+                                              (arg.type == ir::Ty::Int48 || arg.type == ir::Ty::Bool);
                             }
                             if (inline_push) {
                                 RE rarg = st.back();
@@ -1990,8 +1930,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 arch::mov_reg(cc, ptr, rrecv.reg);
                                 arch::zero_extend_48(cc, ptr);
                                 if (!recv_proven) {
-                                    arch::cmp_mem8_imm(cc, arch::ptr8(ptr, (int)HeapTypeTagOff),
-                                                       Imm((int)tagArray));
+                                    arch::cmp_mem8_imm(cc, arch::ptr8(ptr, (int)HeapTypeTagOff), Imm((int)tagArray));
                                     arch::jcc(cc, arch::CC::kNE, slow);
                                 }
                                 arch::Gp afin = cc.new_gp64("r_push_fin");
@@ -2010,9 +1949,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 arch::jmp(cc, done);
                                 cc.bind(slow);
                                 {
-                                    RE r = escape_ex((const void *)jit_call_method, 2,
-                                                     method_idx, argc, { &rrecv, &rarg },
-                                                     argc + 1, true, in.type);
+                                    RE r = escape_ex((const void *)jit_call_method, 2, method_idx, argc,
+                                                     { &rrecv, &rarg }, argc + 1, true, in.type);
                                     arch::mov_reg(cc, g, r.reg);
                                 }
                                 cc.bind(done);
@@ -2028,9 +1966,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             for (uint32_t k = 0; k < argc + 1; k++) {
                                 aptrs[k] = &args[k];
                             }
-                            RE r = escape_ex((const void *)jit_call_method, 2,
-                                             method_idx, argc, aptrs, argc + 1,
-                                             true, in.type);
+                            RE r = escape_ex((const void *)jit_call_method, 2, method_idx, argc, aptrs, argc + 1, true,
+                                             in.type);
                             st.push_back(r);
                             break;
                         }
@@ -2072,8 +2009,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             arch::jmp(cc, done);
                             cc.bind(slow);
                             {
-                                RE r = escape_ex((const void *)jit_load_global, 1,
-                                                 name_idx, 0, {}, 0, true, in.type);
+                                RE r = escape_ex((const void *)jit_load_global, 1, name_idx, 0, {}, 0, true, in.type);
                                 arch::mov_reg(cc, g, r.reg);
                             }
                             cc.bind(done);
@@ -2102,17 +2038,14 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             // Speculative both-int inline path
                             if (!re_raw(ra) || !re_raw(rb)) {
                                 const bool is_add = in.op == ir::Op::DynAdd || in.op == ir::Op::IAdd;
-                                const void *helper = is_add ? (const void *)jit_add
-                                                            : (const void *)jit_sub;
+                                const void *helper = is_add ? (const void *)jit_add : (const void *)jit_sub;
                                 const ir::Ty rty = esc_result_ty(in.type);
                                 // Bool operands have add semantics only the
                                 // helper knows; don't speculate.
-                                const bool can_inline =
-                                    (re_raw(ra) ? ra.ty == ir::Ty::Int48 : true) &&
-                                    (re_raw(rb) ? rb.ty == ir::Ty::Int48 : true);
+                                const bool can_inline = (re_raw(ra) ? ra.ty == ir::Ty::Int48 : true) &&
+                                                        (re_raw(rb) ? rb.ty == ir::Ty::Int48 : true);
                                 if (!can_inline) {
-                                    RE r = escape_ex(helper, 0, 0, 0, { &ra, &rb },
-                                                     2, true, rty);
+                                    RE r = escape_ex(helper, 0, 0, 0, { &ra, &rb }, 2, true, rty);
                                     st.push_back(r);
                                     break;
                                 }
@@ -2165,8 +2098,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 }
                                 arch::jmp(cc, done);
                                 cc.bind(slow);
-                                RE r = escape_ex(helper, 0, 0, 0, { &ra, &rb },
-                                                 2, true, rty);
+                                RE r = escape_ex(helper, 0, 0, 0, { &ra, &rb }, 2, true, rty);
                                 arch::mov_reg(cc, g, r.reg);
                                 cc.bind(done);
                                 st.push_back({ g, rty });
@@ -2249,12 +2181,10 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                 arch::float_cmp(cc, fa, fb);
                                 arch::float_to_bool_eq(cc, g, false);
                             } else {
-                                const bool swap = (in.op == ir::Op::FCmpLt ||
-                                                   in.op == ir::Op::FCmpLe);
-                                const arch::CC::Cond fcc =
-                                    (in.op == ir::Op::FCmpLt || in.op == ir::Op::FCmpGt)
-                                        ? arch::CC::kFGT
-                                        : arch::CC::kFGE;
+                                const bool swap = (in.op == ir::Op::FCmpLt || in.op == ir::Op::FCmpLe);
+                                const arch::CC::Cond fcc = (in.op == ir::Op::FCmpLt || in.op == ir::Op::FCmpGt)
+                                                               ? arch::CC::kFGT
+                                                               : arch::CC::kFGE;
                                 if (swap) {
                                     arch::float_cmp(cc, fb, fa);
                                 } else {
@@ -2273,13 +2203,10 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                             st.pop_back();
                             RE ra = st.back();
                             st.pop_back();
-                            const void *helper = (in.op == ir::Op::DynMul)
-                                                     ? (const void *)jit_mul
-                                                 : (in.op == ir::Op::DynDiv)
-                                                     ? (const void *)jit_div
-                                                     : (const void *)jit_mod;
-                            RE r = escape_ex(helper, 0, 0, 0, { &ra, &rb }, 2,
-                                             true, esc_result_ty(in.type));
+                            const void *helper = (in.op == ir::Op::DynMul)   ? (const void *)jit_mul
+                                                 : (in.op == ir::Op::DynDiv) ? (const void *)jit_div
+                                                                             : (const void *)jit_mod;
+                            RE r = escape_ex(helper, 0, 0, 0, { &ra, &rb }, 2, true, esc_result_ty(in.type));
                             st.push_back(r);
                             break;
                         }
@@ -2311,8 +2238,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                                         h = (const void *)jit_ne;
                                         break;
                                 }
-                                RE r = escape_ex(h, 0, 0, 0, { &ra, &rb }, 2,
-                                                 true, ir::Ty::Bool);
+                                RE r = escape_ex(h, 0, 0, 0, { &ra, &rb }, 2, true, ir::Ty::Bool);
                                 st.push_back(r);
                                 break;
                             }
@@ -2350,12 +2276,10 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                         st.pop_back();
                         RE ra = st.back();
                         st.pop_back();
-                        const bool swap = (fused_op == ir::Op::FCmpLt ||
-                                           fused_op == ir::Op::FCmpLe);
-                        arch::CC::Cond cond =
-                            (fused_op == ir::Op::FCmpLt || fused_op == ir::Op::FCmpGt)
-                                ? arch::CC::kFGT
-                                : arch::CC::kFGE;
+                        const bool swap = (fused_op == ir::Op::FCmpLt || fused_op == ir::Op::FCmpLe);
+                        arch::CC::Cond cond = (fused_op == ir::Op::FCmpLt || fused_op == ir::Op::FCmpGt)
+                                                  ? arch::CC::kFGT
+                                                  : arch::CC::kFGE;
                         // vec_of may materialize a const via reg_of; take both
                         // vecs before emitting the compare.
                         arch::Vec fa = vec_of(ra);
@@ -2480,7 +2404,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             cc.bind(shutdown_requested);
             {
                 InvokeNode *invoke;
-                arch::invoke_imm(cc, &invoke, (uint64_t)(uintptr_t)jit_poll_shutdown, FuncSignature::build<void, void *>());
+                arch::invoke_imm(cc, &invoke, (uint64_t)(uintptr_t)jit_poll_shutdown,
+                                 FuncSignature::build<void, void *>());
                 invoke->set_arg(0, vm_reg);
             }
             cc.ret();
@@ -2494,20 +2419,15 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 return nullptr;
             }
             const char *tier_tag = spec ? " [ir-reg-spec]" : " [ir-reg]";
-            jit_dump_asm(
-                chunk.functions[chunk_idx].name.empty()
-                    ? std::string("<anon>") + tier_tag
-                    : chunk.functions[chunk_idx].name + tier_tag,
-                asm_logger.data(),
-                (uint64_t)(uintptr_t)spec_fallback,
-                spec_fallback ? "spec_fallback (general tier)" : nullptr);
+            jit_dump_asm(chunk.functions[chunk_idx].name.empty() ? std::string("<anon>") + tier_tag
+                                                                 : chunk.functions[chunk_idx].name + tier_tag,
+                         asm_logger.data(), (uint64_t)(uintptr_t)spec_fallback,
+                         spec_fallback ? "spec_fallback (general tier)" : nullptr);
 
             {
-                std::string sym =
-                    chunk.functions[chunk_idx].name.empty()
-                        ? std::string(spec ? "anon_ir_reg_spec" : "anon_ir_reg")
-                        : chunk.functions[chunk_idx].name +
-                              (spec ? "_ir_reg_spec" : "_ir_reg");
+                std::string sym = chunk.functions[chunk_idx].name.empty()
+                                      ? std::string(spec ? "anon_ir_reg_spec" : "anon_ir_reg")
+                                      : chunk.functions[chunk_idx].name + (spec ? "_ir_reg_spec" : "_ir_reg");
                 register_gdb_jit_function(sym, reinterpret_cast<const void *>(fn), sz);
                 perf_jitdump_register(sym, reinterpret_cast<const void *>(fn), sz);
             }
@@ -2563,12 +2483,10 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         fc.set(endp);
     };
     auto both_float = [&](const ir::Inst &in) {
-        return irFuncs.inst(in.operands[0]).type == ir::Ty::Float &&
-               irFuncs.inst(in.operands[1]).type == ir::Ty::Float;
+        return irFuncs.inst(in.operands[0]).type == ir::Ty::Float && irFuncs.inst(in.operands[1]).type == ir::Ty::Float;
     };
     auto both_int = [&](const ir::Inst &in) {
-        return irFuncs.inst(in.operands[0]).type == ir::Ty::Int48 &&
-               irFuncs.inst(in.operands[1]).type == ir::Ty::Int48;
+        return irFuncs.inst(in.operands[0]).type == ir::Ty::Int48 && irFuncs.inst(in.operands[1]).type == ir::Ty::Int48;
     };
     {
         const uint32_t stack_bound = (uint32_t)irFuncs.insts.size() + 8;
@@ -2590,8 +2508,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         arch::Gp frame_init = cc.new_gp64("frame_init");
         arch::load(cc, frame_init, arch::ptr(vm_reg, (int)FramesFinishOff));
         arch::sub_imm(cc, frame_init, (int)FrameSize);
-        arch::load(cc, slot_base_bytes_vreg,
-                   arch::ptr(frame_init, (int)SlotBaseOff));
+        arch::load(cc, slot_base_bytes_vreg, arch::ptr(frame_init, (int)SlotBaseOff));
         arch::shl(cc, slot_base_bytes_vreg, slot_base_bytes_vreg, 3);
     }
 
@@ -2616,8 +2533,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             bool valid = false;
         };
         std::vector<Entry> entries;
-        explicit SlotRegCache(arch::Compiler &cc_, uint32_t num_slots)
-            : cc(cc_), entries(num_slots) {
+        explicit SlotRegCache(arch::Compiler &cc_, uint32_t num_slots) : cc(cc_), entries(num_slots) {
         }
         // If slot is cached, return true and set out_reg to a vreg holding the raw slot value, else return false.
         bool try_get(uint32_t s, arch::Gp &out_reg) {
@@ -2714,8 +2630,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                     emit_ir_store_raw_to_slot(slot, Value::none().raw_bits());
                     return;
                 case nari::bytecode::Constant::Type::INT:
-                    emit_ir_store_raw_to_slot(
-                        slot, Value::make_int_checked(cst.as_int).raw_bits());
+                    emit_ir_store_raw_to_slot(slot, Value::make_int_checked(cst.as_int).raw_bits());
                     return;
                 case nari::bytecode::Constant::Type::FLOAT: {
                     uint64_t raw;
@@ -2726,12 +2641,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 }
                 case nari::bytecode::Constant::Type::STRING: {
                     // Same safety as emit_ir_sconst_inline
-                    auto &mut_chunk =
-                        const_cast<nari::bytecode::Chunk &>(chunk);
-                    emit_ir_store_raw_to_slot(
-                        slot,
-                        mut_chunk.get_const_string(cst.string_idx)
-                            .raw_bits());
+                    auto &mut_chunk = const_cast<nari::bytecode::Chunk &>(chunk);
+                    emit_ir_store_raw_to_slot(slot, mut_chunk.get_const_string(cst.string_idx).raw_bits());
                     return;
                 }
                 case nari::bytecode::Constant::Type::FUNCTION:
@@ -2877,8 +2788,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         bool push_skip_val_guard = false;
         if (!in.operands.empty()) {
             const ir::Inst &recv = irFuncs.inst(in.operands[0]);
-            if (recv.op == ir::Op::LoadSlot &&
-                int_arr_slots.count(recv.imm_u32)) {
+            if (recv.op == ir::Op::LoadSlot && int_arr_slots.count(recv.imm_u32)) {
                 push_skip_arr_guard = true;
             }
         }
@@ -3413,13 +3323,11 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 bool sa = false, si = false;
                 if (in.operands.size() >= 1) {
                     const ir::Inst &obj = irFuncs.inst(in.operands[0]);
-                    if (obj.op == ir::Op::LoadSlot &&
-                        int_arr_slots.count(obj.imm_u32)) {
+                    if (obj.op == ir::Op::LoadSlot && int_arr_slots.count(obj.imm_u32)) {
                         sa = true;
                     }
                 }
-                if (in.operands.size() >= 2 &&
-                    irFuncs.inst(in.operands[1]).type == ir::Ty::Int48) {
+                if (in.operands.size() >= 2 && irFuncs.inst(in.operands[1]).type == ir::Ty::Int48) {
                     si = true;
                 }
                 emit_ir_load_index(sa, si);
@@ -3429,13 +3337,11 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 bool sa = false, si = false;
                 if (in.operands.size() >= 1) {
                     const ir::Inst &obj = irFuncs.inst(in.operands[0]);
-                    if (obj.op == ir::Op::LoadSlot &&
-                        int_arr_slots.count(obj.imm_u32)) {
+                    if (obj.op == ir::Op::LoadSlot && int_arr_slots.count(obj.imm_u32)) {
                         sa = true;
                     }
                 }
-                if (in.operands.size() >= 2 &&
-                    irFuncs.inst(in.operands[1]).type == ir::Ty::Int48) {
+                if (in.operands.size() >= 2 && irFuncs.inst(in.operands[1]).type == ir::Ty::Int48) {
                     si = true;
                 }
                 emit_ir_store_index(sa, si);
@@ -3451,9 +3357,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 call_u32((const void *)jit_make_array, in.imm_u32);
                 break;
             case ir::Op::MakeObject: {
-                const uint8_t *site =
-                    chunk.functions[chunk_idx].code.data() +
-                    in.bytecode_pc + 1;
+                const uint8_t *site = chunk.functions[chunk_idx].code.data() + in.bytecode_pc + 1;
                 call_u32_u64((const void *)jit_make_object_site, in.imm_u32, (uint64_t)(uintptr_t)site);
                 break;
             }
@@ -3461,8 +3365,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 // imm_u32==1: mark_inplace_concat proved the lhs is a single-use
                 // StrConcat result (fresh, uniquely-owned mutable string), so we
                 // append into its buffer instead of copy+alloc.
-                call0((const void *)(in.imm_u32 ? jit_str_concat_inplace
-                                                : jit_str_concat));
+                call0((const void *)(in.imm_u32 ? jit_str_concat_inplace : jit_str_concat));
                 break;
             case ir::Op::FormatValue:
                 call_u32((const void *)jit_format_value, in.imm_u32);
@@ -3569,8 +3472,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                     poll_shutdown();
                 }
                 // fast path: condition is statically Bool
-                bool cond_is_bool = !t.operands.empty() &&
-                                    t.operands[0] != ir::InvalidValue &&
+                bool cond_is_bool = !t.operands.empty() && t.operands[0] != ir::InvalidValue &&
                                     irFuncs.inst(t.operands[0]).type == ir::Ty::Bool;
                 if (cond_is_bool) {
                     arch::Gp endp = fc.get();
@@ -3588,11 +3490,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
                 // jit_check_truthy pops the condition and returns 1 (truthy) / 0.
                 fc.invalidate();
                 InvokeNode *inv;
-                arch::invoke_imm(
-                    cc,
-                    &inv,
-                    (uint64_t)(uintptr_t)jit_check_truthy,
-                    FuncSignature::build<int64_t, void *>());
+                arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)jit_check_truthy,
+                                 FuncSignature::build<int64_t, void *>());
                 inv->set_arg(0, vm_reg);
                 arch::Gp truth = cc.new_gp64("ir_truth");
                 inv->set_ret(0, truth);
@@ -3616,18 +3515,9 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         }
     };
     auto is_cmp_op = [](ir::Op op) {
-        return op == ir::Op::DynCmpLt ||
-               op == ir::Op::DynCmpLe ||
-               op == ir::Op::DynCmpGt ||
-               op == ir::Op::DynCmpGe ||
-               op == ir::Op::DynCmpEq ||
-               op == ir::Op::DynCmpNe ||
-               op == ir::Op::ICmpLt ||
-               op == ir::Op::ICmpLe ||
-               op == ir::Op::ICmpGt ||
-               op == ir::Op::ICmpGe ||
-               op == ir::Op::ICmpEq ||
-               op == ir::Op::ICmpNe;
+        return op == ir::Op::DynCmpLt || op == ir::Op::DynCmpLe || op == ir::Op::DynCmpGt || op == ir::Op::DynCmpGe ||
+               op == ir::Op::DynCmpEq || op == ir::Op::DynCmpNe || op == ir::Op::ICmpLt || op == ir::Op::ICmpLe ||
+               op == ir::Op::ICmpGt || op == ir::Op::ICmpGe || op == ir::Op::ICmpEq || op == ir::Op::ICmpNe;
     };
     // fusable only when both operands are statically Float and the op is an ordered relational (Lt/Le/Gt/Ge)
     auto is_fcmp_branch_fusable = [&](const ir::Inst &cmp) {
@@ -3654,8 +3544,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         arch::sub_imm(cc, endp, (int)(2 * ValSize));
         fc.set(endp);
         bool swap = (cmp.op == ir::Op::FCmpLt || cmp.op == ir::Op::FCmpLe);
-        arch::CC::Cond fcc =
-            (cmp.op == ir::Op::FCmpLt || cmp.op == ir::Op::FCmpGt) ? arch::CC::kFGT : arch::CC::kFGE;
+        arch::CC::Cond fcc = (cmp.op == ir::Op::FCmpLt || cmp.op == ir::Op::FCmpGt) ? arch::CC::kFGT : arch::CC::kFGE;
         if (swap) {
             arch::float_cmp(cc, fb, fa);
         } else {
@@ -3756,7 +3645,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         if (b.terminator != ir::InvalidValue && !b.insts.empty()) {
             const ir::Inst &term = irFuncs.inst(b.terminator);
             const ir::Inst &last = irFuncs.inst(b.insts.back());
-            bool branch_to_last = term.op == ir::Op::Branch && !term.operands.empty() && term.operands[0] == b.insts.back();
+            bool branch_to_last =
+                term.op == ir::Op::Branch && !term.operands.empty() && term.operands[0] == b.insts.back();
             // fuse compare-and-branch for both statically-typed int compares and dynamically-typed compares
             fuse_cmp_branch = branch_to_last && is_cmp_op(last.op);
             // static-float ordered cmp + branch -> ucomisd + jcc, skipping bool synthesis and check_truthy
@@ -3786,9 +3676,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     if (!ok) {
         if (kJitReport) {
             fprintf(stderr, "[JIT] %-30s BAIL general (unhandled op %s)\n",
-                    chunk.functions[chunk_idx].name.empty()
-                        ? "<anon>"
-                        : chunk.functions[chunk_idx].name.c_str(),
+                    chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(),
                     ir::op_name(unhandled_op));
         }
         return nullptr; // unhandled op; VM runs this function in the interpreter
@@ -3806,16 +3694,15 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         asmjit::String nodes_sb;
         asmjit::FormatOptions fo;
         asmjit::Formatter::format_node_list(nodes_sb, fo, &cc);
-        fprintf(stderr, "==== pre-RA nodes for '%s' ====\n%s\n", chunk.functions[chunk_idx].name.c_str(), nodes_sb.data());
+        fprintf(stderr, "==== pre-RA nodes for '%s' ====\n%s\n", chunk.functions[chunk_idx].name.c_str(),
+                nodes_sb.data());
     }
     Error err = cc.finalize();
     if (err != kErrorOk) {
         if (kJitReport) {
             fprintf(stderr, "[JIT] %-30s BAIL asmjit finalize err=%u (%s)\n",
-                    chunk.functions[chunk_idx].name.empty()
-                        ? "<anon>"
-                        : chunk.functions[chunk_idx].name.c_str(),
-                    err, asmjit::DebugUtils::error_as_string(err));
+                    chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(), err,
+                    asmjit::DebugUtils::error_as_string(err));
             if (jit_dump_asm_enabled()) {
                 fprintf(stderr, "---- partial asm ----\n%s---------------------\n", asm_logger.data());
             }
@@ -3825,19 +3712,15 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     size_t generated_code_size = code_holder.code_size();
     CompiledFunc fn = nullptr;
     err = this->rt.add(&fn, &code_holder);
-    jit_dump_asm(
-        chunk.functions[chunk_idx].name.empty()
-            ? "<anon> [ir]"
-            : chunk.functions[chunk_idx].name + " [ir]",
-        asm_logger.data());
+    jit_dump_asm(chunk.functions[chunk_idx].name.empty() ? "<anon> [ir]" : chunk.functions[chunk_idx].name + " [ir]",
+                 asm_logger.data());
     if (err != kErrorOk || !fn) {
         return nullptr;
     }
 
     {
-        std::string sym = chunk.functions[chunk_idx].name.empty()
-                              ? std::string("anon_ir")
-                              : chunk.functions[chunk_idx].name + "_ir";
+        std::string sym =
+            chunk.functions[chunk_idx].name.empty() ? std::string("anon_ir") : chunk.functions[chunk_idx].name + "_ir";
         register_gdb_jit_function(sym, reinterpret_cast<const void *>(fn), generated_code_size);
         perf_jitdump_register(sym, reinterpret_cast<const void *>(fn), generated_code_size);
     }

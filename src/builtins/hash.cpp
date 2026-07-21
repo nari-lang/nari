@@ -44,10 +44,7 @@ Value ScriptRuntime::builtin_hash_sha256(const Value *argvals, size_t argc, cons
     }
 
     if (!input.empty()) {
-        if (mbedtls_sha256_update(
-                &ctx,
-                reinterpret_cast<const unsigned char *>(input.data()),
-                input.size()) != 0) {
+        if (mbedtls_sha256_update(&ctx, reinterpret_cast<const unsigned char *>(input.data()), input.size()) != 0) {
             mbedtls_sha256_free(&ctx);
             runtime_fatal("Hash.sha256: mbedtls_sha256_update failed", call);
         }

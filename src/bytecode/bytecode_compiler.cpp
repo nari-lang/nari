@@ -474,8 +474,7 @@ void Compiler::compile_expr(const Expr *expr) {
 
     if (auto *unary = dynamic_cast<const UnaryExpr *>(expr)) {
         // increment/decrement operators (++x, --x, x++, x--)
-        if (unary->op == "++" || unary->op == "--" || unary->op == "post++" ||
-            unary->op == "post--") {
+        if (unary->op == "++" || unary->op == "--" || unary->op == "post++" || unary->op == "post--") {
             auto *ident = dynamic_cast<const IdentExpr *>(unary->operand.get());
             if (!ident) {
                 fprintf(stderr, "increment/decrement requires a variable\n");
@@ -751,8 +750,7 @@ void Compiler::compile_expr(const Expr *expr) {
                 }
 
                 // check if it's a parent local or parent capture
-                if (saved->resolve_local(name) != 0xFFFF ||
-                    saved->capture_map.find(name) != saved->capture_map.end()) {
+                if (saved->resolve_local(name) != 0xFFFF || saved->capture_map.find(name) != saved->capture_map.end()) {
                     captures.push_back(name);
                 }
             }
@@ -871,7 +869,8 @@ void Compiler::compile_expr(const Expr *expr) {
                 } else {
                     // Fallback: parse the expression source on demand.
                     auto expr_funcs = Parser::parse_program_from_source(interp->expr_sources[i]);
-                    if (expr_funcs.size() >= 2 && expr_funcs[1] && expr_funcs[1]->body && !expr_funcs[1]->body->stmts.empty()) {
+                    if (expr_funcs.size() >= 2 && expr_funcs[1] && expr_funcs[1]->body &&
+                        !expr_funcs[1]->body->stmts.empty()) {
                         auto *first_stmt = expr_funcs[1]->body->stmts[0].get();
                         if (auto *exprStmt = dynamic_cast<nari::ExprStmt *>(first_stmt)) {
                             frag_expr = exprStmt->expr.get();
@@ -982,8 +981,7 @@ void Compiler::compile_expr(const Expr *expr) {
                     uint32_t variant_str = chunk->add_string("__variant");
                     ctx->emit_op_short(OpCode::OP_GET_PROPERTY, (uint16_t)variant_str);
                     uint32_t name_str = chunk->add_string(bp->name);
-                    uint16_t name_const =
-                        ctx->add_constant(Constant::make_string(name_str));
+                    uint16_t name_const = ctx->add_constant(Constant::make_string(name_str));
                     ctx->emit_op_short(OpCode::OP_LOAD_CONST, name_const);
                     ctx->emit_op(OpCode::OP_EQ);
                     size_t variant_match = ctx->emit_jump(OpCode::OP_JUMP_IF_FALSE);
@@ -994,7 +992,8 @@ void Compiler::compile_expr(const Expr *expr) {
                     end_jumps.push_back(ctx->emit_jump(OpCode::OP_JUMP));
                     ctx->patch_jump(variant_match);
 
-                    // not a variant match; treat as a catch-all binding and bind the scrutinee value to the variable name
+                    // not a variant match; treat as a catch-all binding and bind the scrutinee value to the variable
+                    // name
                     ctx->emit_op(OpCode::OP_DUP); // dup scrutinee for the binding
                     uint16_t var_idx = ctx->declare_local(bp->name);
                     ctx->emit_op_short(OpCode::OP_STORE_VAR, var_idx);
@@ -1051,14 +1050,16 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    // compiles the body as an anonymous 0-param function and emits OP_SPAWN so the VM runs it asynchronously, returning a Handle value.
+    // compiles the body as an anonymous 0-param function and emits OP_SPAWN so the VM runs it asynchronously, returning
+    // a Handle value.
     if (auto *spawn_expr = dynamic_cast<const SpawnExpr *>(expr)) {
         if (!spawn_expr->body) {
             ctx->emit_op(OpCode::OP_LOAD_NONE);
             return;
         }
 
-        // compile spawn body as a 0-param anonymous function (same pattern as lambda compilation), capturing any referenced parent local.
+        // compile spawn body as a 0-param anonymous function (same pattern as lambda compilation), capturing any
+        // referenced parent local.
         FunctionMeta meta;
         meta.name = "<spawn>";
         meta.param_count = 0;
@@ -1078,8 +1079,7 @@ void Compiler::compile_expr(const Expr *expr) {
             collect_idents(spawn_expr->body.get(), body_idents);
 
             for (const auto &name : body_idents) {
-                if (saved->resolve_local(name) != 0xFFFF ||
-                    saved->capture_map.find(name) != saved->capture_map.end()) {
+                if (saved->resolve_local(name) != 0xFFFF || saved->capture_map.find(name) != saved->capture_map.end()) {
                     captures.push_back(name);
                 }
             }
@@ -1334,8 +1334,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
                         // Not local: skip the peephole when captured (no
                         // STR_APPEND_CAPTURE opcode); fall through to general
                         // assignment path below.
-                        if (ctx->capture_map.find(assign->target) == ctx->capture_map.end() &&
-                            !is_main_scope) {
+                        if (ctx->capture_map.find(assign->target) == ctx->capture_map.end() && !is_main_scope) {
                             // global variable
                             uint32_t str_idx = chunk->add_string(assign->target);
                             compile_expr(bin->right.get());
@@ -1361,8 +1360,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
                 ctx->emit_op_short(OpCode::OP_STORE_GLOBAL, static_cast<uint16_t>(str_idx));
                 ctx->emit_op(OpCode::OP_POP);
             }
-        } else if (auto cap_it = ctx->capture_map.find(assign->target);
-                   cap_it != ctx->capture_map.end()) {
+        } else if (auto cap_it = ctx->capture_map.find(assign->target); cap_it != ctx->capture_map.end()) {
             ctx->emit_op_short(OpCode::OP_STORE_CAPTURE, cap_it->second);
         } else {
             uint32_t str_idx = chunk->add_string(assign->target);
@@ -1400,8 +1398,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             if (this->try_depth == 0 && ctx->function->rest_param_index < 0) {
                 if (auto *tcall = dynamic_cast<const CallExpr *>(ret->value.get())) {
                     if (auto *ident = dynamic_cast<const IdentExpr *>(tcall->callee.get())) {
-                        if (ident->name == ctx->function->name &&
-                            !ctx->function->name.empty() &&
+                        if (ident->name == ctx->function->name && !ctx->function->name.empty() &&
                             ctx->function->name[0] != '<' && // not a lambda
                             tcall->args.size() <= 255) {
                             // evaluate all new arg values onto stack, then overwrite params.
@@ -1419,7 +1416,8 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             ctx->emit_op(OpCode::OP_LOAD_NONE);
         }
         // in strict mode, check the return value against the declared return type.
-        // context byte 1 = return-value check. Value is already on the top of stack, and OP_CHECK_TYPE will peek/validate/continue or throw.
+        // context byte 1 = return-value check. Value is already on the top of stack, and OP_CHECK_TYPE will
+        // peek/validate/continue or throw.
         if (strict_mode && !current_return_type_.empty()) {
             uint32_t type_str_idx = chunk->add_string(current_return_type_);
             ctx->emit_op(OpCode::OP_CHECK_TYPE);
@@ -1698,16 +1696,16 @@ void Compiler::compile_function_body(const Function *func, FunctionMeta &meta) {
     meta.strict_mode = strict_mode;
     meta.source_file = func->filename;
 
-    // Seed the line map with the function's definition line so that errors inside the parameter-check preamble point at the function header.
+    // Seed the line map with the function's definition line so that errors inside the parameter-check preamble point at
+    // the function header.
     if (func->line > 0) {
         ctx->emit_line(func->line);
     }
 
-    // strict mode enforcement: named non-lambda functions MUST have type annotations on all non-rest, non-ignored parameters and a return type.
-    // Lambdas/anonymous functions and internal compiler-generated functions are exempt.
+    // strict mode enforcement: named non-lambda functions MUST have type annotations on all non-rest, non-ignored
+    // parameters and a return type. Lambdas/anonymous functions and internal compiler-generated functions are exempt.
     if (strict_mode && !meta.is_lambda && !func->name.empty() &&
-        func->name.find("__top_level__") == std::string::npos &&
-        func->name.find("__module_") == std::string::npos) {
+        func->name.find("__top_level__") == std::string::npos && func->name.find("__module_") == std::string::npos) {
         bool had_error = false;
         for (const auto &param : func->params) {
             if (param.is_rest) {
@@ -1717,19 +1715,14 @@ void Compiler::compile_function_body(const Function *func, FunctionMeta &meta) {
                 continue;
             }
             if (!param.type) {
-                fprintf(
-                    stderr,
-                    "StrictModeError: parameter '%s' of function '%s' has no type annotation%s\n",
-                    param.name.c_str(), func->name.c_str(),
-                    func->loc_str().c_str());
+                fprintf(stderr, "StrictModeError: parameter '%s' of function '%s' has no type annotation%s\n",
+                        param.name.c_str(), func->name.c_str(), func->loc_str().c_str());
                 had_error = true;
             }
         }
         if (!func->return_type) {
-            fprintf(
-                stderr,
-                "StrictModeError: function '%s' has no return type annotation (add '-> <type>')%s\n",
-                func->name.c_str(), func->loc_str().c_str());
+            fprintf(stderr, "StrictModeError: function '%s' has no return type annotation (add '-> <type>')%s\n",
+                    func->name.c_str(), func->loc_str().c_str());
             had_error = true;
         }
         if (had_error) {
@@ -1907,10 +1900,9 @@ Chunk *Compiler::compile(const FuncList &functions) {
             typeInfo.alias_target = decl->alias_target->name;
         }
         for (const auto &field : decl->fields) {
-            typeInfo.fields.emplace_back(
-                field.name, field.type ? field.type->name : "number",
-                field.type ? field.type->is_array : false,
-                field.type ? field.type->fixed_array_count : 0);
+            typeInfo.fields.emplace_back(field.name, field.type ? field.type->name : "number",
+                                         field.type ? field.type->is_array : false,
+                                         field.type ? field.type->fixed_array_count : 0);
         }
         chunk->types.push_back(std::move(typeInfo));
     }

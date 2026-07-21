@@ -1,6 +1,7 @@
 #include "common.h"
 
-Value ScriptRuntime::builtin_module_import_namespace(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
+Value ScriptRuntime::builtin_module_import_namespace(const Value *argvals, size_t argc,
+                                                     const nari::CallExpr *callExpr) {
     if (argc != 1 || !argvals[0].is_string()) {
         runtime_fatal("__module_import_namespace expects a single module-path string argument", callExpr);
     }
@@ -49,9 +50,9 @@ Value ScriptRuntime::builtin_module_import_namespace(const Value *argvals, size_
         }
 
         if (!found) {
-            runtime_fatal(
-                "Module export '" + binding.export_name + "' was declared but no binding named '" + binding.local_name + "' exists in module '" + module_name + "'",
-                callExpr);
+            runtime_fatal("Module export '" + binding.export_name + "' was declared but no binding named '" +
+                              binding.local_name + "' exists in module '" + module_name + "'",
+                          callExpr);
         }
 
         ns_oobj->set_field(binding.export_name, resolved);
@@ -228,10 +229,8 @@ Value ScriptRuntime::builtin_time_components(const Value *argvals, size_t argc, 
         runtime_fatal("DateError: ms must be a number", call);
         return Value::none();
     }
-    int64_t ms = argvals[0].is_int() ? argvals[0].get_int()
-                                     : static_cast<int64_t>(argvals[0].get_float());
-    bool utc = (argc < 2) ? true : argvals[1].is_bool() ? argvals[1].get_bool()
-                                                        : true;
+    int64_t ms = argvals[0].is_int() ? argvals[0].get_int() : static_cast<int64_t>(argvals[0].get_float());
+    bool utc = (argc < 2) ? true : argvals[1].is_bool() ? argvals[1].get_bool() : true;
     tm tm{};
     int sub_ms = 0;
     if (!ms_to_tm(ms, utc, tm, sub_ms)) {
@@ -262,15 +261,11 @@ Value ScriptRuntime::builtin_time_from_components(const Value *argvals, size_t a
         return Value::none();
     }
     const ObjectObj *o = argvals[0].get_obj_ptr();
-    bool utc = (argc < 2) ? true : argvals[1].is_bool() ? argvals[1].get_bool()
-                                                        : true;
+    bool utc = (argc < 2) ? true : argvals[1].is_bool() ? argvals[1].get_bool() : true;
     int64_t year, month, day, hour, minute, second, sub_ms;
-    if (!get_int_field(o, "year", year, 1970) ||
-        !get_int_field(o, "month", month, 1) ||
-        !get_int_field(o, "day", day, 1) ||
-        !get_int_field(o, "hour", hour, 0) ||
-        !get_int_field(o, "minute", minute, 0) ||
-        !get_int_field(o, "second", second, 0) ||
+    if (!get_int_field(o, "year", year, 1970) || !get_int_field(o, "month", month, 1) ||
+        !get_int_field(o, "day", day, 1) || !get_int_field(o, "hour", hour, 0) ||
+        !get_int_field(o, "minute", minute, 0) || !get_int_field(o, "second", second, 0) ||
         !get_int_field(o, "ms", sub_ms, 0)) {
         runtime_fatal("DateError: date fields must be numbers", call);
         return Value::none();
@@ -304,11 +299,9 @@ Value ScriptRuntime::builtin_time_format(const Value *argvals, size_t argc, cons
         runtime_fatal("DateError: fmt must be a string", call);
         return Value::none();
     }
-    int64_t ms = argvals[0].is_int() ? argvals[0].get_int()
-                                     : static_cast<int64_t>(argvals[0].get_float());
+    int64_t ms = argvals[0].is_int() ? argvals[0].get_int() : static_cast<int64_t>(argvals[0].get_float());
     std::string fmt = argvals[1].get_string();
-    bool utc = (argc < 3) ? true : argvals[2].is_bool() ? argvals[2].get_bool()
-                                                        : true;
+    bool utc = (argc < 3) ? true : argvals[2].is_bool() ? argvals[2].get_bool() : true;
     std::tm tm{};
     int sub_ms = 0;
     if (!ms_to_tm(ms, utc, tm, sub_ms)) {
@@ -364,9 +357,7 @@ Value ScriptRuntime::builtin_time_parse_iso(const Value *argvals, size_t argc, c
     int tz_h = 0, tz_m = 0;
     bool saw_tz = false;
     size_t i = 0;
-    auto fail = [&]() {
-        return make_err(Value::make_string("DateError: invalid ISO-8601 string: '" + s + "'"));
-    };
+    auto fail = [&]() { return make_err(Value::make_string("DateError: invalid ISO-8601 string: '" + s + "'")); };
     auto read_int = [&](int width, int &out) -> bool {
         if (i + static_cast<size_t>(width) > s.size()) {
             return false;
@@ -465,8 +456,7 @@ Value ScriptRuntime::builtin_time_parse_iso(const Value *argvals, size_t argc, c
     if (i != s.size()) {
         return fail();
     }
-    if (month < 1 || month > 12 || day < 1 || day > 31 ||
-        hour > 23 || minute > 59 || second > 60 /* leap second */) {
+    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60 /* leap second */) {
         return fail();
     }
     std::tm tm{};
@@ -505,8 +495,8 @@ namespace {
 constexpr char URL_HEX[] = "0123456789ABCDEF";
 
 bool url_is_unreserved(unsigned char c) {
-    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-           (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~';
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' ||
+           c == '.' || c == '~';
 }
 
 bool url_is_path_safe(unsigned char c) {
@@ -569,16 +559,14 @@ Value ScriptRuntime::builtin_url_decode(const Value *argvals, size_t argc, const
         char c = s[i];
         if (c == '%') {
             if (i + 2 >= s.size()) {
-                return make_err(Value::make_string(
-                    "URLError: truncated percent-escape at end of string"));
+                return make_err(Value::make_string("URLError: truncated percent-escape at end of string"));
             }
             bool ok_hi = false, ok_lo = false;
             int hi = from_hex(s[i + 1], ok_hi);
             int lo = from_hex(s[i + 2], ok_lo);
             if (!ok_hi || !ok_lo) {
-                return make_err(Value::make_string(
-                    std::string("URLError: invalid hex digits in '%") +
-                    s[i + 1] + s[i + 2] + "'"));
+                return make_err(
+                    Value::make_string(std::string("URLError: invalid hex digits in '%") + s[i + 1] + s[i + 2] + "'"));
             }
             out.push_back(static_cast<char>((hi << 4) | lo));
             i += 2;

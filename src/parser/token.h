@@ -120,6 +120,8 @@ enum class TokenKind {
     TK_RSHIFTEQ,
     // regex literal /pattern/flags
     TK_REGEX,
+    // comment (only produced when tokenize() is given a comments sink)
+    TK_COMMENT,
     // unknown token
     TK_UNKNOWN
 };

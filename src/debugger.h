@@ -88,7 +88,8 @@ class DebugController {
     // check whether a given (source_file, 1-based line) tuple is a breakpoint.
     bool has_breakpoint(const std::string &path, int line) const;
 
-    // build a StopSnapshot by walking the VM's frames. Called on the VM thread just before it blocks in wait_for_resume().
+    // build a StopSnapshot by walking the VM's frames. Called on the VM thread just before it blocks in
+    // wait_for_resume().
     StopSnapshot snapshot_frames(const bytecode::VM &vm, StopReason reason) const;
 
     // if this returns true, the VM should immediately publish_stop() + wait.
@@ -113,12 +114,8 @@ class DebugController {
     void cmd_step_out(); // step out
     void cmd_pause();    // pause
 
-    void push_synthetic_frame(
-        std::string name,
-        std::string source_file,
-        int line,
-        size_t runtime_call_stack_index = (size_t)-1,
-        Value this_value = Value::none());
+    void push_synthetic_frame(std::string name, std::string source_file, int line,
+                              size_t runtime_call_stack_index = (size_t)-1, Value this_value = Value::none());
     void update_synthetic_frame_line(int line);
     void pop_synthetic_frame();
     size_t synthetic_frame_depth() const;

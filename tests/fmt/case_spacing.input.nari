@@ -1,0 +1,10 @@
+let x=1+2*3;
+let y = -x+ !flag;
+let z=a?b:c;
+let w = arr[ 0 ]?. field ??"default";
+func add(a,b){return a+b;}
+let s = obj . method( 1 ,2 );
+let t = a**b<<c%d;
+i++;
+--j;
+let u = a&&b||!c;

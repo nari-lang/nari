@@ -12,8 +12,7 @@ namespace jit {
 namespace stl {
 
 // the JITs null smart-pointer frame slots by storing zero words, so a null smart pointer must be all-zero bytes
-template <class P>
-inline bool null_is_all_zero() {
+template <class P> inline bool null_is_all_zero() {
     alignas(P) unsigned char buf[sizeof(P)];
     std::memset(buf, 0xAB, sizeof(buf));
     ::new (static_cast<void *>(buf)) P();

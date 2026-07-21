@@ -245,7 +245,8 @@ Value ScriptRuntime::builtin_shutdown_requested(const Value *, size_t, const nar
 Value ScriptRuntime::builtin_substr(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc > 0) {
         std::string str_storage;
-        const std::string &str = argvals[0].is_string() ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
+        const std::string &str =
+            argvals[0].is_string() ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
         int start = 0;
         if (argc > 1) {
             if (!coerce_numeric_index(argvals[1], start)) {
@@ -277,7 +278,8 @@ Value ScriptRuntime::builtin_substr(const Value *argvals, size_t argc, const nar
     return Value::make_string("");
 }
 
-// TODO: make index_of only show up on string and array, like we do with methods exclusive to those types, instead of being universal
+// TODO: make index_of only show up on string and array, like we do with methods exclusive to those types, instead of
+// being universal
 Value ScriptRuntime::builtin_indexOf(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
     if (argc < 2) {
         return Value::make_int(-1);
@@ -296,7 +298,9 @@ Value ScriptRuntime::builtin_indexOf(const Value *argvals, size_t argc, const na
 
     // string.index_of(search)
     if (!argvals[0].is_string()) {
-        runtime_fatal("TypeError: 'index_of' can only be called on a string or array, got " + value_type_name(argvals[0]), callExpr);
+        runtime_fatal("TypeError: 'index_of' can only be called on a string or array, got " +
+                          value_type_name(argvals[0]),
+                      callExpr);
     }
     std::string str = argvals[0].to_string();
     std::string search = argvals[1].to_string();
@@ -315,7 +319,8 @@ Value ScriptRuntime::builtin_lastIndexOf(const Value *argvals, size_t argc, cons
 
         if (search.empty()) {
             if (argc > 2 && (argvals[2].is_int() || argvals[2].is_float())) {
-                int64_t fi = (argvals[2].is_int()) ? argvals[2].get_int() : static_cast<int64_t>(argvals[2].get_float());
+                int64_t fi =
+                    (argvals[2].is_int()) ? argvals[2].get_int() : static_cast<int64_t>(argvals[2].get_float());
                 if (fi < 0) {
                     return Value::make_int(-1);
                 }
@@ -361,8 +366,12 @@ Value ScriptRuntime::builtin_split(const Value *argvals, size_t argc, const nari
     if (argc >= 2) {
         std::string str_storage;
         std::string delim_storage;
-        const std::string &str = (argvals[0].is_string() && !argvals[0].is_sso()) ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
-        const std::string &delim = (argvals[1].is_string() && !argvals[1].is_sso()) ? argvals[1].get_string() : (delim_storage = argvals[1].to_string());
+        const std::string &str = (argvals[0].is_string() && !argvals[0].is_sso())
+                                     ? argvals[0].get_string()
+                                     : (str_storage = argvals[0].to_string());
+        const std::string &delim = (argvals[1].is_string() && !argvals[1].is_sso())
+                                       ? argvals[1].get_string()
+                                       : (delim_storage = argvals[1].to_string());
         std::vector<Value> result;
 
         if (delim.empty()) {
@@ -425,21 +434,18 @@ Value ScriptRuntime::builtin_replaceAll(const Value *argvals, size_t argc, const
         }
         return Value::make_string(str);
     }
-    return (argc == 0) ? Value::make_string("")
-                       : Value::make_string(argvals[0].to_string());
+    return (argc == 0) ? Value::make_string("") : Value::make_string(argvals[0].to_string());
 }
 
 Value ScriptRuntime::builtin_trim(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc > 0) {
         std::string str = argvals[0].to_string();
         size_t start = 0;
-        while (start < str.size() &&
-               std::isspace(static_cast<unsigned char>(str[start]))) {
+        while (start < str.size() && std::isspace(static_cast<unsigned char>(str[start]))) {
             ++start;
         }
         size_t end = str.size();
-        while (end > start &&
-               std::isspace(static_cast<unsigned char>(str[end - 1]))) {
+        while (end > start && std::isspace(static_cast<unsigned char>(str[end - 1]))) {
             --end;
         }
         return Value::make_string(str.substr(start, end - start));
@@ -451,8 +457,7 @@ Value ScriptRuntime::builtin_trimStart(const Value *argvals, size_t argc, const 
     if (argc > 0) {
         std::string str = argvals[0].to_string();
         size_t start = 0;
-        while (start < str.size() &&
-               std::isspace(static_cast<unsigned char>(str[start]))) {
+        while (start < str.size() && std::isspace(static_cast<unsigned char>(str[start]))) {
             ++start;
         }
         return Value::make_string(str.substr(start));
@@ -529,8 +534,12 @@ Value ScriptRuntime::builtin_startsWith(const Value *argvals, size_t argc, const
     if (argc >= 2) {
         std::string str_storage;
         std::string prefix_storage;
-        const std::string &str = (argvals[0].is_string() && !argvals[0].is_sso()) ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
-        const std::string &prefix = (argvals[1].is_string() && !argvals[1].is_sso()) ? argvals[1].get_string() : (prefix_storage = argvals[1].to_string());
+        const std::string &str = (argvals[0].is_string() && !argvals[0].is_sso())
+                                     ? argvals[0].get_string()
+                                     : (str_storage = argvals[0].to_string());
+        const std::string &prefix = (argvals[1].is_string() && !argvals[1].is_sso())
+                                        ? argvals[1].get_string()
+                                        : (prefix_storage = argvals[1].to_string());
         return Value::make_bool(str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0);
     }
     return Value::make_bool(false);
@@ -540,9 +549,14 @@ Value ScriptRuntime::builtin_endsWith(const Value *argvals, size_t argc, const n
     if (argc >= 2) {
         std::string str_storage;
         std::string suffix_storage;
-        const std::string &str = (argvals[0].is_string() && !argvals[0].is_sso()) ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
-        const std::string &suffix = (argvals[1].is_string() && !argvals[1].is_sso()) ? argvals[1].get_string() : (suffix_storage = argvals[1].to_string());
-        return Value::make_bool(str.size() >= suffix.size() && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0);
+        const std::string &str = (argvals[0].is_string() && !argvals[0].is_sso())
+                                     ? argvals[0].get_string()
+                                     : (str_storage = argvals[0].to_string());
+        const std::string &suffix = (argvals[1].is_string() && !argvals[1].is_sso())
+                                        ? argvals[1].get_string()
+                                        : (suffix_storage = argvals[1].to_string());
+        return Value::make_bool(str.size() >= suffix.size() &&
+                                str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0);
     }
     return Value::make_bool(false);
 }
@@ -567,9 +581,8 @@ Value ScriptRuntime::builtin_charCodeAt(const Value *argvals, size_t argc, const
         // buffer when possible. byte_hash calls this ~720K times on ~30-char
         // strings, where a per-call to_string() copy dominated the profile.
         std::string str_storage;
-        const std::string &str = argvals[0].is_string()
-                                     ? argvals[0].get_string()
-                                     : (str_storage = argvals[0].to_string());
+        const std::string &str =
+            argvals[0].is_string() ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
         int index = 0;
         if (!coerce_numeric_index(argvals[1], index)) {
             return Value::make_int(-1);
@@ -662,8 +675,7 @@ Value ScriptRuntime::builtin_hex_decode(const Value *argvals, size_t argc, const
     return Value::make_string(out);
 }
 
-static const char B64_ALPHABET[] =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char B64_ALPHABET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 Value ScriptRuntime::builtin_base64_encode(const Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc < 1) {
@@ -674,8 +686,7 @@ Value ScriptRuntime::builtin_base64_encode(const Value *argvals, size_t argc, co
     out.reserve(((s.size() + 2) / 3) * 4);
     size_t i = 0;
     for (; i + 2 < s.size(); i += 3) {
-        unsigned int n = (static_cast<unsigned char>(s[i]) << 16) |
-                         (static_cast<unsigned char>(s[i + 1]) << 8) |
+        unsigned int n = (static_cast<unsigned char>(s[i]) << 16) | (static_cast<unsigned char>(s[i + 1]) << 8) |
                          (static_cast<unsigned char>(s[i + 2]));
         out.push_back(B64_ALPHABET[(n >> 18) & 0x3F]);
         out.push_back(B64_ALPHABET[(n >> 12) & 0x3F]);
@@ -690,8 +701,7 @@ Value ScriptRuntime::builtin_base64_encode(const Value *argvals, size_t argc, co
         out.push_back('=');
         out.push_back('=');
     } else if (rem == 2) {
-        unsigned int n = (static_cast<unsigned char>(s[i]) << 16) |
-                         (static_cast<unsigned char>(s[i + 1]) << 8);
+        unsigned int n = (static_cast<unsigned char>(s[i]) << 16) | (static_cast<unsigned char>(s[i + 1]) << 8);
         out.push_back(B64_ALPHABET[(n >> 18) & 0x3F]);
         out.push_back(B64_ALPHABET[(n >> 12) & 0x3F]);
         out.push_back(B64_ALPHABET[(n >> 6) & 0x3F]);
@@ -784,7 +794,8 @@ Value ScriptRuntime::builtin_padEnd(const Value *argvals, size_t argc, const nar
 Value ScriptRuntime::builtin_repeat(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
     if (argc >= 2) {
         if (!argvals[0].is_string()) {
-            runtime_fatal("TypeError: 'repeat' can only be called on a string, got " + value_type_name(argvals[0]), callExpr);
+            runtime_fatal("TypeError: 'repeat' can only be called on a string, got " + value_type_name(argvals[0]),
+                          callExpr);
         }
         std::string str = argvals[0].to_string();
         int count = argvals[1].get_int();
@@ -833,26 +844,20 @@ Value ScriptRuntime::builtin_sort(const Value *argvals, size_t argc, const nari:
         GcTempRoot _gr(*this);
         _gr.add(&cmp);
         _gr.add(&arr_val);
-        std::stable_sort(
-            arr.begin(),
-            arr.end(),
-            [&](const Value &a, const Value &b) {
-                Value r = call_function_value(cmp, { a, b });
-                return r.is_int() ? r.get_int() < 0 : r.as_number() < 0.0;
-            });
+        std::stable_sort(arr.begin(), arr.end(), [&](const Value &a, const Value &b) {
+            Value r = call_function_value(cmp, { a, b });
+            return r.is_int() ? r.get_int() < 0 : r.as_number() < 0.0;
+        });
     } else {
-        std::stable_sort(
-            arr.begin(),
-            arr.end(),
-            [](const Value &a, const Value &b) {
-                if (a.is_int() && b.is_int()) {
-                    return a.get_int() < b.get_int();
-                }
-                if (a.is_numeric() && b.is_numeric()) {
-                    return a.as_number() < b.as_number();
-                }
-                return a.to_string() < b.to_string();
-            });
+        std::stable_sort(arr.begin(), arr.end(), [](const Value &a, const Value &b) {
+            if (a.is_int() && b.is_int()) {
+                return a.get_int() < b.get_int();
+            }
+            if (a.is_numeric() && b.is_numeric()) {
+                return a.as_number() < b.as_number();
+            }
+            return a.to_string() < b.to_string();
+        });
     }
     return argvals[0];
 }
@@ -936,8 +941,7 @@ Value ScriptRuntime::builtin_find(const Value *argvals, size_t argc, const nari:
     _gr.add(&fn);
     _gr.add(&arr_val);
     for (size_t i = 0; i < arr.size(); i++) {
-        Value r =
-            call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
+        Value r = call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
         if (r.as_bool()) {
             return arr[i];
         }
@@ -1002,8 +1006,7 @@ Value ScriptRuntime::builtin_every(const Value *argvals, size_t argc, const nari
     _gr.add(&fn);
     _gr.add(&arr_val);
     for (size_t i = 0; i < arr.size(); i++) {
-        Value r =
-            call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
+        Value r = call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
         if (!r.as_bool()) {
             return Value::make_bool(false);
         }
@@ -1022,8 +1025,7 @@ Value ScriptRuntime::builtin_some(const Value *argvals, size_t argc, const nari:
     _gr.add(&fn);
     _gr.add(&arr_val);
     for (size_t i = 0; i < arr.size(); i++) {
-        Value r =
-            call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
+        Value r = call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
         if (r.as_bool()) {
             return Value::make_bool(true);
         }
@@ -1051,7 +1053,8 @@ Value ScriptRuntime::builtin_splice(const Value *argvals, size_t argc, const nar
     if (argc < 1 || !argvals[0].is_array()) {
         return Value::make_array();
     }
-    // TODO: I would really love to not use const_cast here, but this is simpler than refactoring several hundred functions to not be const
+    // TODO: I would really love to not use const_cast here, but this is simpler than refactoring several hundred
+    // functions to not be const
     auto &arr = const_cast<Value &>(argvals[0]).get_array();
     int64_t sz = (int64_t)arr.size();
 
@@ -1240,7 +1243,8 @@ Value ScriptRuntime::builtin_regex_new(const Value *argvals, size_t argc, const 
     // check up front so that we can easily return a RegexError
     srell::u8cregex re(pattern, srell_flags_from_string(flags));
     if (re.ecode() != 0) {
-        return make_err(Value::make_string("RegexError: invalid pattern (srell error " + std::to_string((int)re.ecode()) + ")"));
+        return make_err(
+            Value::make_string("RegexError: invalid pattern (srell error " + std::to_string((int)re.ecode()) + ")"));
     }
     return make_ok(Value::make_regex(std::move(pattern), std::move(flags)));
 }
@@ -1337,10 +1341,8 @@ Value ScriptRuntime::builtin_toNumber(const Value *argvals, size_t argc, const n
                     return Value::make_int(iv);
                 }
             }
-            bool is_float =
-                (s.find('.') != std::string::npos) ||
-                (s.find('e') != std::string::npos) ||
-                (s.find('E') != std::string::npos);
+            bool is_float = (s.find('.') != std::string::npos) || (s.find('e') != std::string::npos) ||
+                            (s.find('E') != std::string::npos);
 
             if (is_float) {
                 char *end = nullptr;
@@ -1481,7 +1483,7 @@ Value ScriptRuntime::builtin_isFunction(const Value *argvals, size_t argc, const
 }
 
 // Delegate(target, handler) -> a wrapper object to proxy object access.
-// `handler` is an object whose optional "get"/"set"/"has"/"call" fields 
+// `handler` is an object whose optional "get"/"set"/"has"/"call" fields
 // intercept the corresponding operations on the delegate; any absent trap falls through to `target`.
 Value ScriptRuntime::builtin_delegate_new(const Value *argvals, size_t argc, const nari::CallExpr *) {
     Value target = argc > 0 ? argvals[0] : Value::none();
@@ -1903,8 +1905,7 @@ struct JsonDirectParser {
             }
         }
         const size_t size = expected.size();
-        if ((size_t)(end - p) < size + 2 || p[size + 1] != '"' ||
-            std::memcmp(p + 1, expected.data(), size) != 0) {
+        if ((size_t)(end - p) < size + 2 || p[size + 1] != '"' || std::memcmp(p + 1, expected.data(), size) != 0) {
             return false;
         }
         p += size + 2;
@@ -1944,7 +1945,8 @@ struct JsonDirectParser {
             }
         }
         // Fast path: a plain integer (no '.'/'e'/'E'/'+').
-        // The scanner already delimited [start, p), std::from_chars parses it in place with no string allocation and no locale.
+        // The scanner already delimited [start, p), std::from_chars parses it in place with no string allocation and no
+        // locale.
         if (!is_float && have_digit && !int_overflow) {
             if (negative) {
                 if (magnitude == uint64_t(INT64_MAX) + 1) {
@@ -2098,12 +2100,8 @@ struct JsonDirectParser {
 
         Value obj = Value::make_object();
         ObjectObj *oobj = obj.get_obj_ptr();
-        auto key_at = [&](size_t i) -> std::string & {
-            return i < kInline ? ik[i] : overflow[i - kInline].first;
-        };
-        auto val_at = [&](size_t i) -> Value & {
-            return i < kInline ? iv[i] : overflow[i - kInline].second;
-        };
+        auto key_at = [&](size_t i) -> std::string & { return i < kInline ? ik[i] : overflow[i - kInline].first; };
+        auto val_at = [&](size_t i) -> Value & { return i < kInline ? iv[i] : overflow[i - kInline].second; };
 
         // Fast path: same keys (in order) as the previous object, we reuse its
         // shape, fill fields by slot, skips interning/transition hashing.

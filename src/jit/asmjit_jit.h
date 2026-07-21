@@ -50,7 +50,7 @@ class AsmJITMethodCompiler : public MethodJITBase {
     // Tracks which chunk owns the currently baked-in machine code
     const nari::bytecode::Chunk *bound_chunk_ = nullptr;
 
-    // Per-chunk write-once global-name -> proven type, 
+    // Per-chunk write-once global-name -> proven type,
     // built by ir::analyze_const_globals() in reset_for_chunk().
     ir::GlobalTypeMap global_const_types_;
 
@@ -65,7 +65,8 @@ class AsmJITMethodCompiler : public MethodJITBase {
 
     void reset_for_chunk(const nari::bytecode::Chunk &chunk);
 
-    // Debug tripwire enforcing the pointer-stability invariant relied upon by the raw addresses baked into generated code
+    // Debug tripwire enforcing the pointer-stability invariant relied upon by the raw addresses baked into generated
+    // code
     void assert_tables_stable() const;
 
     // Optimizing-IR tier, builds SSA IR and lowers it to AsmJIT.
@@ -73,7 +74,8 @@ class AsmJITMethodCompiler : public MethodJITBase {
     //
     // when `spec_fallback` is non-null, compile in SPECULATIVE mode:
     // seed all parameter slots as Int48 in type inference and attempt ONLY the register tier
-    CompiledFunc ir_compile(const nari::bytecode::Chunk &chunk, uint32_t chunk_idx, CompiledFunc spec_fallback = nullptr);
+    CompiledFunc ir_compile(const nari::bytecode::Chunk &chunk, uint32_t chunk_idx,
+                            CompiledFunc spec_fallback = nullptr);
 };
 
 } // namespace jit

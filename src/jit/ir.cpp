@@ -215,19 +215,15 @@ std::string dump(const Func &f) {
             snprintf(line, sizeof(line), " -> @%u", in.imm_u32);
             out += line;
         } else if (in.op == Op::StoreCSlot) {
-            snprintf(line, sizeof(line), " const#%lld -> @%u",
-                     (long long)in.imm_int, in.imm_u32);
+            snprintf(line, sizeof(line), " const#%lld -> @%u", (long long)in.imm_int, in.imm_u32);
             out += line;
         } else if (in.op == Op::CopySlot) {
-            snprintf(line, sizeof(line), " @%lld -> @%u",
-                     (long long)in.imm_int, in.imm_u32);
+            snprintf(line, sizeof(line), " @%lld -> @%u", (long long)in.imm_int, in.imm_u32);
             out += line;
-        } else if (in.op == Op::LoadSlot || in.op == Op::StoreSlot ||
-                   in.op == Op::LoadGlobal || in.op == Op::StoreGlobal ||
-                   in.op == Op::LoadCapture || in.op == Op::StoreCapture ||
-                   in.op == Op::LoadConst || in.op == Op::MakeArray ||
-                   in.op == Op::MakeObject || in.op == Op::FormatValue ||
-                   in.op == Op::LoadProperty || in.op == Op::StoreProperty) {
+        } else if (in.op == Op::LoadSlot || in.op == Op::StoreSlot || in.op == Op::LoadGlobal ||
+                   in.op == Op::StoreGlobal || in.op == Op::LoadCapture || in.op == Op::StoreCapture ||
+                   in.op == Op::LoadConst || in.op == Op::MakeArray || in.op == Op::MakeObject ||
+                   in.op == Op::FormatValue || in.op == Op::LoadProperty || in.op == Op::StoreProperty) {
             snprintf(line, sizeof(line), " @%u", in.imm_u32);
             out += line;
         } else if (in.op == Op::Call) {

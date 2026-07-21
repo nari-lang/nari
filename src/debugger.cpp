@@ -76,8 +76,7 @@ StopSnapshot DebugController::snapshot_frames(const bytecode::VM &vm, StopReason
         fs.source_file = it->source_file;
         fs.line = it->line;
         if (it->runtime_call_stack_index != (size_t)-1 && vm.runtime) {
-            const auto *locals = vm.runtime->debug_call_stack_frame(
-                it->runtime_call_stack_index);
+            const auto *locals = vm.runtime->debug_call_stack_frame(it->runtime_call_stack_index);
             if (locals) {
                 if (it->has_this) {
                     fs.locals.emplace_back("this", it->this_value);
@@ -116,7 +115,8 @@ StopSnapshot DebugController::snapshot_frames(const bytecode::VM &vm, StopReason
     return snap;
 }
 
-void DebugController::push_synthetic_frame(std::string name, std::string source_file, int line, size_t runtime_call_stack_index, Value this_value) {
+void DebugController::push_synthetic_frame(std::string name, std::string source_file, int line,
+                                           size_t runtime_call_stack_index, Value this_value) {
     std::lock_guard<std::mutex> lock(this->mtx);
     SyntheticFrame frame;
     frame.name = std::move(name);
@@ -147,15 +147,18 @@ size_t DebugController::synthetic_frame_depth() const {
     return synthetic_frames.size();
 }
 
-bool DebugController::should_stop(const bytecode::VM &vm, size_t pc, size_t frame_depth, int cur_line, const std::string &cur_file) {
+bool DebugController::should_stop(const bytecode::VM &vm, size_t pc, size_t frame_depth, int cur_line,
+                                  const std::string &cur_file) {
     std::unique_lock<std::mutex> lock(this->mtx);
 
-    // We never stop on instructions that don't have a source mapping, since the top-level `<main>` function has an empty line_map
+    // We never stop on instructions that don't have a source mapping, since the top-level `<main>` function has an
+    // empty line_map
     const bool has_line = cur_line > 0 && !cur_file.empty();
 
     if (FILE *f = dbg_log()) {
         std::lock_guard<std::mutex> log_lock(g_dbg_log_mu);
-        std::fprintf(f, "[vm] pc=%zu depth=%zu line=%d file='%s' mode=%d\n", pc, frame_depth, cur_line, cur_file.c_str(), this->step_mode);
+        std::fprintf(f, "[vm] pc=%zu depth=%zu line=%d file='%s' mode=%d\n", pc, frame_depth, cur_line,
+                     cur_file.c_str(), this->step_mode);
         std::fflush(f);
     }
 
@@ -240,15 +243,14 @@ void DebugController::publish_stop_and_wait(StopSnapshot snap) {
         cb_snap = stop_listener;
         stopped_cv.notify_all();
     }
-    // fire the listener outside the lock so the DAP writer can itself touch the controller (e.g. to read last_snapshot) without deadlocking
+    // fire the listener outside the lock so the DAP writer can itself touch the controller (e.g. to read last_snapshot)
+    // without deadlocking
     if (cb_snap) {
         cb_snap(last_stop);
     }
 
     std::unique_lock<std::mutex> lock(this->mtx);
-    resume_cv.wait(lock, [&] {
-        return !stopped || exited;
-    });
+    resume_cv.wait(lock, [&] { return !stopped || exited; });
 }
 
 static void set_step(DebugController *self, StepMode m, size_t anchor_depth) {

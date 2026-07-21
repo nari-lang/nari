@@ -44,7 +44,8 @@ typedef std::map<std::string, std::string> StringMap;
 // Generic bare-metal MCU: replace NARI_SLEEP_MILLIS / NARI_SLEEP_MICROS
 // in your platform glue layer before including this header, or accept a
 // no-op (async I/O paths are never reached in bytecode-only builds).
-#warning "No sleep implementation defined for this MCU platform. Timers will not work! Define NARI_SLEEP_MILLIS and NARI_SLEEP_MICROS to appropriate functions for your platform."
+#warning                                                                                                               \
+    "No sleep implementation defined for this MCU platform. Timers will not work! Define NARI_SLEEP_MILLIS and NARI_SLEEP_MICROS to appropriate functions for your platform."
 #ifndef NARI_SLEEP_MILLIS
 #define NARI_SLEEP_MILLIS(ms) ((void)(ms))
 #endif
@@ -56,17 +57,17 @@ typedef std::map<std::string, std::string> StringMap;
 // use POSIX nanosleep for emscripten or other NO_THREADS desktop builds
 #include <time.h>
 #ifndef NARI_SLEEP_MILLIS
-#define NARI_SLEEP_MILLIS(ms)                            \
-    do {                                                 \
-        struct timespec _ts{ 0, (long)(ms) * 1000000L }; \
-        nanosleep(&_ts, nullptr);                        \
+#define NARI_SLEEP_MILLIS(ms)                                                                                          \
+    do {                                                                                                               \
+        struct timespec _ts{ 0, (long)(ms) * 1000000L };                                                               \
+        nanosleep(&_ts, nullptr);                                                                                      \
     } while (0)
 #endif
 #ifndef NARI_SLEEP_MICROS
-#define NARI_SLEEP_MICROS(us)                         \
-    do {                                              \
-        struct timespec _ts{ 0, (long)(us) * 1000L }; \
-        nanosleep(&_ts, nullptr);                     \
+#define NARI_SLEEP_MICROS(us)                                                                                          \
+    do {                                                                                                               \
+        struct timespec _ts{ 0, (long)(us) * 1000L };                                                                  \
+        nanosleep(&_ts, nullptr);                                                                                      \
     } while (0)
 #endif
 #endif
@@ -167,12 +168,7 @@ struct NariFileOperation : IOOperation {
     std::string file_content;
 
     struct Result {
-        enum class Type {
-            None,
-            String,
-            Array,
-            Bool
-        } type = Type::None;
+        enum class Type { None, String, Array, Bool } type = Type::None;
 
         union {
             std::string str_value;
@@ -249,8 +245,7 @@ struct NariFileOperation : IOOperation {
                     new (&str_value) std::string(std::move(other.str_value));
                     break;
                 case Type::Array:
-                    new (&array_value)
-                        std::vector<std::string>(std::move(other.array_value));
+                    new (&array_value) std::vector<std::string>(std::move(other.array_value));
                     break;
                 case Type::Bool:
                     bool_value = other.bool_value;
@@ -569,7 +564,8 @@ class IOThreadPool {
 
                                 // Collect all filenames first
                                 std::vector<std::string> filenames;
-                                for (const auto &entry : nari::fs::list_directory(nari::fs::Path(file_op->file_path), err)) {
+                                for (const auto &entry :
+                                     nari::fs::list_directory(nari::fs::Path(file_op->file_path), err)) {
                                     filenames.push_back(entry.filename().string());
                                 }
 
@@ -579,8 +575,7 @@ class IOThreadPool {
                                 } else {
                                     // sort files, prioritize dot files/folders, and then case-insensitive alphabetical
                                     std::sort(
-                                        filenames.begin(),
-                                        filenames.end(),
+                                        filenames.begin(), filenames.end(),
                                         [](const std::string &a, const std::string &b) {
                                             bool a_dot = !a.empty() && a[0] == '.';
                                             bool b_dot = !b.empty() && b[0] == '.';
@@ -623,10 +618,8 @@ class IOThreadPool {
 
                                 if (bind(sock_fd, (sockaddr *)&addr, sizeof(addr)) < 0) {
                                     tcp_op->success = false;
-                                    tcp_op->error_msg =
-                                        "Failed to bind to port " +
-                                        std::to_string(tcp_op->port) + ": " +
-                                        std::string(strerror(errno));
+                                    tcp_op->error_msg = "Failed to bind to port " + std::to_string(tcp_op->port) +
+                                                        ": " + std::string(strerror(errno));
 
                                     NARI_CLOSE_SOCKET(sock_fd);
                                     break;
@@ -673,14 +666,16 @@ class IOThreadPool {
 
                                 if (stop || poll_result < 0) {
                                     tcp_op->success = false;
-                                    tcp_op->error_msg = stop ? "Shutdown requested" : "Poll failed: " + std::string(strerror(errno));
+                                    tcp_op->error_msg =
+                                        stop ? "Shutdown requested" : "Poll failed: " + std::string(strerror(errno));
                                     break;
                                 }
 
                                 struct sockaddr_in client_addr;
                                 socklen_t client_len = sizeof(client_addr);
 
-                                nari_socket_t raw_client_fd = accept(tcp_op->socket_fd, (struct sockaddr *)&client_addr, &client_len);
+                                nari_socket_t raw_client_fd =
+                                    accept(tcp_op->socket_fd, (struct sockaddr *)&client_addr, &client_len);
                                 if (raw_client_fd == NARI_INVALID_SOCKET) {
                                     tcp_op->success = false;
                                     tcp_op->error_msg = "Failed to accept connection: " + std::string(strerror(errno));
@@ -724,7 +719,8 @@ class IOThreadPool {
                                     ssize_t n = send(tcp_op->socket_fd, data + sent, total - sent, 0);
                                     if (n < 0) {
                                         tcp_op->success = false;
-                                        tcp_op->error_msg = "Failed to write to socket: " + std::string(strerror(errno));
+                                        tcp_op->error_msg =
+                                            "Failed to write to socket: " + std::string(strerror(errno));
                                         break;
                                     }
                                     sent += n;
@@ -774,10 +770,9 @@ class IOThreadPool {
 
                                 if (connect(sock_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
                                     tcp_op->success = false;
-                                    tcp_op->error_msg =
-                                        "Failed to connect to " + tcp_op->host +
-                                        ":" + std::to_string(tcp_op->port) + ": " +
-                                        std::string(strerror(errno));
+                                    tcp_op->error_msg = "Failed to connect to " + tcp_op->host + ":" +
+                                                        std::to_string(tcp_op->port) + ": " +
+                                                        std::string(strerror(errno));
 
                                     NARI_CLOSE_SOCKET(sock_fd);
                                     break;
@@ -806,10 +801,9 @@ class IOThreadPool {
 
                                 if (bind(sock_fd, (sockaddr *)&addr, sizeof(addr)) < 0) {
                                     udp_op->success = false;
-                                    udp_op->error_msg =
-                                        "Failed to bind UDP socket to port " +
-                                        std::to_string(udp_op->port) + ": " +
-                                        std::string(strerror(errno));
+                                    udp_op->error_msg = "Failed to bind UDP socket to port " +
+                                                        std::to_string(udp_op->port) + ": " +
+                                                        std::string(strerror(errno));
                                     NARI_CLOSE_SOCKET(sock_fd);
                                     break;
                                 }
@@ -844,13 +838,8 @@ class IOThreadPool {
                                 memcpy(&addr.sin_addr.s_addr, server->h_addr, server->h_length);
                                 addr.sin_port = htons(udp_op->port);
 
-                                ssize_t sent = sendto(
-                                    udp_op->socket_fd,
-                                    udp_op->data.data(),
-                                    udp_op->data.size(),
-                                    0,
-                                    (sockaddr *)&addr,
-                                    sizeof(addr));
+                                ssize_t sent = sendto(udp_op->socket_fd, udp_op->data.data(), udp_op->data.size(), 0,
+                                                      (sockaddr *)&addr, sizeof(addr));
                                 if (sent < 0) {
                                     udp_op->success = false;
                                     udp_op->error_msg = "Failed to send UDP datagram: " + std::string(strerror(errno));
@@ -904,13 +893,8 @@ class IOThreadPool {
                                 char buffer[65536]; // max UDP datagram payload
                                 struct sockaddr_in from_addr;
                                 socklen_t from_len = sizeof(from_addr);
-                                ssize_t bytes = recvfrom(
-                                    udp_op->socket_fd,
-                                    buffer,
-                                    sizeof(buffer),
-                                    0,
-                                    (sockaddr *)&from_addr,
-                                    &from_len);
+                                ssize_t bytes = recvfrom(udp_op->socket_fd, buffer, sizeof(buffer), 0,
+                                                         (sockaddr *)&from_addr, &from_len);
                                 if (bytes < 0) {
                                     udp_op->success = false;
                                     udp_op->error_msg = "Failed to recv UDP datagram: " + std::string(strerror(errno));
@@ -966,8 +950,7 @@ class IOThreadPool {
 
                                     // Collect response body
                                     curl_easy_setopt(
-                                        curl,
-                                        CURLOPT_WRITEFUNCTION,
+                                        curl, CURLOPT_WRITEFUNCTION,
                                         +[](char *ptr, size_t size, size_t nmemb, void *ud) {
                                             ((std::string *)ud)->append(ptr, size * nmemb);
                                             return size * nmemb;
@@ -976,8 +959,7 @@ class IOThreadPool {
 
                                     // Collect response headers
                                     curl_easy_setopt(
-                                        curl,
-                                        CURLOPT_HEADERFUNCTION,
+                                        curl, CURLOPT_HEADERFUNCTION,
                                         +[](char *ptr, size_t size, size_t nmemb, void *ud) {
                                             std::string hdr(ptr, size * nmemb);
                                             while (!hdr.empty() && (hdr.back() == '\r' || hdr.back() == '\n')) {
@@ -1028,7 +1010,8 @@ class IOThreadPool {
                                         http_op->success = true;
                                     } else {
                                         http_op->success = false;
-                                        http_op->error_msg = "HTTP request failed: " + std::string(curl_easy_strerror(result));
+                                        http_op->error_msg =
+                                            "HTTP request failed: " + std::string(curl_easy_strerror(result));
                                     }
 
                                     if (hdrs) {

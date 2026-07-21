@@ -124,9 +124,9 @@ struct TraceStep {
     uint32_t prop_slot_index = 0; // field index within the object's shape (shape-pointer scheme).
     // Stable for any object whose shape matches the entry guard;
     // the slot address is recomputed each access
-    void *obj_ptr = nullptr; // recorded ObjectObj* (for entry guard)
-    void *shape_ptr = nullptr; // recorded ObjectShape* (for object property guards)
-    uint32_t shape_ver = 0; // recorded shape_version (for entry guard)
+    void *obj_ptr = nullptr;                      // recorded ObjectObj* (for entry guard)
+    void *shape_ptr = nullptr;                    // recorded ObjectShape* (for object property guards)
+    uint32_t shape_ver = 0;                       // recorded shape_version (for entry guard)
     TraceType prop_val_type = TraceType::Unknown; // type of the property value
 
     // side-exit PC for body branch guards (SideExitIfFalse / SideExitIfTrue)
@@ -134,20 +134,20 @@ struct TraceStep {
 
     // closure call: pinned capture cell pointer (for ClosureInc / ClosureAddConst)
     void *capture_ptr = nullptr;
-    uint16_t closure_slot = 0; // local slot holding the closure value
+    uint16_t closure_slot = 0;        // local slot holding the closure value
     uint32_t rhs_prop_slot_index = 0; // second property slot for fused object updates
 };
 
 // trace recorder state
 struct TraceRecording {
     bool pending_record = false; // set true at hot back-edge -> start next iteration
-    bool recording = false; // actively collecting steps
-    bool aborted = false; // unsupported opcode seen -> skip compilation
+    bool recording = false;      // actively collecting steps
+    bool aborted = false;        // unsupported opcode seen -> skip compilation
 
     uint32_t func_idx = 0;
     size_t anchor_pc = 0; // PC of the backward JUMP opcode
     size_t target_pc = 0; // where the backward jump lands (loop header)
-    size_t exit_pc = 0; // where JUMP_IF_FALSE exits to (loop done)
+    size_t exit_pc = 0;   // where JUMP_IF_FALSE exits to (loop done)
 
     std::vector<TraceStep> steps;
     std::vector<TraceType> type_vstack; // parallel type stack used during recording
@@ -158,10 +158,10 @@ struct TraceRecording {
     bytecode::FunctionMeta *pending_inline_func = nullptr;
 
     // deferred local closure call state (set by LOAD_VAR when value is a closure)
-    void *pending_closure_capture0 = nullptr; // Value* to pinned capture[0]
-    uint16_t pending_closure_slot = 0; // local slot holding the closure value
+    void *pending_closure_capture0 = nullptr;                 // Value* to pinned capture[0]
+    uint16_t pending_closure_slot = 0;                        // local slot holding the closure value
     JitInlineKind pending_closure_kind = JitInlineKind::None; // ClosureInc or ClosureAddConst
-    int64_t pending_closure_imm = 0; // constant for ClosureAddConst
+    int64_t pending_closure_imm = 0;                          // constant for ClosureAddConst
 
     // depth counter for inlined function calls whose body is being executed
     // by the interpreter while the trace recorder skips those instructions

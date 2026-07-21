@@ -66,10 +66,8 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
     for (size_t fi = 0; fi < chunk.functions.size(); fi++) {
         const auto &func = chunk.functions[fi];
         printf("\n--- Function #%zu: %s ---\n", fi, func.name.c_str());
-        printf(
-            "  params: %u, captures: %u, rest_param: %d, lambda: %s\n",
-            func.param_count, func.capture_count, func.rest_param_index,
-            func.is_lambda ? "yes" : "no");
+        printf("  params: %u, captures: %u, rest_param: %d, lambda: %s\n", func.param_count, func.capture_count,
+               func.rest_param_index, func.is_lambda ? "yes" : "no");
         printf("  locals: %zu [", func.var_names.size());
         for (size_t i = 0; i < func.var_names.size(); i++) {
             if (i > 0) {
@@ -100,9 +98,9 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
                     printf("float(%g)\n", constant.as_float);
                     break;
                 case CType::STRING:
-                    printf(
-                        "string(%u) \"%s\"\n",
-                        constant.string_idx, constant.string_idx < chunk.strings.size() ? chunk.strings[constant.string_idx].c_str() : "???");
+                    printf("string(%u) \"%s\"\n", constant.string_idx,
+                           constant.string_idx < chunk.strings.size() ? chunk.strings[constant.string_idx].c_str()
+                                                                      : "???");
                     break;
                 case CType::FUNCTION:
                     printf("func(%u)\n", constant.func_idx);
@@ -127,11 +125,7 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
                     uint8_t src = func.code[ip++];
                     uint16_t idx = (func.code[ip] << 8) | func.code[ip + 1];
                     ip += 2;
-                    printf(
-                        "  capture[%u]: %s #%u\n",
-                        ci,
-                        src == 0   ? "local" : src == 1 ? "upvalue" : "global",
-                        idx);
+                    printf("  capture[%u]: %s #%u\n", ci, src == 0 ? "local" : src == 1 ? "upvalue" : "global", idx);
                 }
             } else if (operand_size == 0) {
                 printf("%s\n", opcode_name(op));
@@ -142,7 +136,8 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
                 uint16_t val = (func.code[ip] << 8) | func.code[ip + 1];
                 ip += 2;
                 // for jumps, show signed offset
-                if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE || op == OpCode::OP_JUMP_IF_NONE) {
+                if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE ||
+                    op == OpCode::OP_JUMP_IF_NONE) {
                     int16_t sval = (int16_t)val;
                     printf("%-16s %+d (-> %04zu)\n", opcode_name(op), sval, ip + sval);
                 } else if (op == OpCode::OP_LOAD_GLOBAL || op == OpCode::OP_STORE_GLOBAL) {
@@ -197,7 +192,8 @@ static void dump_chunk(const nari::bytecode::Chunk &chunk) {
                 ip += 2;
                 int16_t sa = (int16_t)a;
                 int16_t sb = (int16_t)b;
-                printf("%-16s catch=%+d (-> %04zu) finally=%+d (-> %04zu)\n", opcode_name(op), sa, ip + sa, sb, ip + sb);
+                printf("%-16s catch=%+d (-> %04zu) finally=%+d (-> %04zu)\n", opcode_name(op), sa, ip + sa, sb,
+                       ip + sb);
             }
         }
     }
@@ -267,7 +263,8 @@ int main(int argc, char **argv) {
     Parser::ParseResult user_parse = Parser::parse_program_recovering(src);
     if (!user_parse.ok()) {
         for (const auto &err : user_parse.errors) {
-            fprintf(stderr, "Parse error at %s:%d:%d: %s\n", err.filename.c_str(), err.line, err.col, err.message.c_str());
+            fprintf(stderr, "Parse error at %s:%d:%d: %s\n", err.filename.c_str(), err.line, err.col,
+                    err.message.c_str());
         }
         return 3;
     }

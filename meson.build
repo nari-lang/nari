@@ -224,6 +224,8 @@ sources = [
     'src/parser.cpp',
     'src/parser/module_resolver.cpp',
     'src/parser/lexer.cpp',
+    'src/fmt/formatter.cpp',
+    'src/fmt/fmt_cli.cpp',
     'src/debugger.cpp',
     'src/dap/dap_server.cpp',
 ]

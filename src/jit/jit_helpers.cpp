@@ -21,8 +21,7 @@ using namespace nari::bytecode;
 // Same operations as execute_instruction() but as standalone functions
 // so the JIT can call them directly.
 
-template <typename Call>
-static auto jit_runtime_call(VM *vm, Call &&call) -> decltype(call()) {
+template <typename Call> static auto jit_runtime_call(VM *vm, Call &&call) -> decltype(call()) {
     try {
         auto result = call();
         if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
@@ -46,8 +45,7 @@ static auto jit_runtime_call(VM *vm, Call &&call) -> decltype(call()) {
     }
 }
 
-template <typename Call>
-static void jit_runtime_call_void(VM *vm, Call &&call) {
+template <typename Call> static void jit_runtime_call_void(VM *vm, Call &&call) {
     try {
         call();
         if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
@@ -183,8 +181,7 @@ void jit_load_global(VM *vm, uint32_t name_idx) {
     // Fast path: the indexed global cache (same one the interpreter's
     // OP_LOAD_GLOBAL uses) skips the get_global name-hash lookup. Hot for globals
     // referenced in loops (e.g. MOD / mix in the benchmark).
-    if (NARI_LIKELY(name_idx < vm->global_cache_valid.size() &&
-                    vm->global_cache_valid[name_idx])) {
+    if (NARI_LIKELY(name_idx < vm->global_cache_valid.size() && vm->global_cache_valid[name_idx])) {
         vm->push(vm->global_cache[name_idx]);
         return;
     }
@@ -556,7 +553,8 @@ static void jit_call_value_impl(VM *vm, uint32_t argc, uint32_t callee_label_idx
         }
         std::string attempted = func_val.to_string();
         vm->stack.resize(slot_base);
-        vm->runtime_panic(Value::make_string("called a non-function value '" + vm->chunk->strings[callee_label_idx] + "'"));
+        vm->runtime_panic(
+            Value::make_string("called a non-function value '" + vm->chunk->strings[callee_label_idx] + "'"));
         if (vm->overflow_jmp) {
             std::longjmp(*vm->overflow_jmp, 1);
         }
@@ -654,9 +652,8 @@ static void jit_call_impl(VM *vm, uint32_t argc) {
         // Delegate call trap: d(args) -> handler.call(target, [args]).
         // After the is_function() fast path so ordinary calls are untouched
         if (func.is_delegate()) {
-            Value result = jit_runtime_call(vm, [&] {
-                return vm->runtime->delegate_call(func, vm->stack.data() + args_base, argc);
-            });
+            Value result = jit_runtime_call(
+                vm, [&] { return vm->runtime->delegate_call(func, vm->stack.data() + args_base, argc); });
             vm->stack.resize(args_base - 1); // pop args + func
             vm->push(std::move(result));
             return;
@@ -722,8 +719,7 @@ static void jit_call_impl(VM *vm, uint32_t argc) {
             // closures need args as vector for existing API.
             std::vector<Value> args(vm->stack.begin() + args_base, vm->stack.end());
             vm->stack.resize(args_base - 1);
-            vm->call_user_function(static_cast<uint32_t>(user_idx), args, nullptr,
-                                   captures);
+            vm->call_user_function(static_cast<uint32_t>(user_idx), args, nullptr, captures);
         } else {
             // no captures
             // pass args_base and argc; call_user_function_stack reads them and pops func+args itself.
@@ -778,7 +774,8 @@ void jit_call_method(VM *vm, uint32_t method_name_idx, uint32_t argc) {
             auto method_slot = method_obj->shape->index.find(intern_field(method_name));
             if (method_slot != method_obj->shape->index.end()) {
                 Value lazy_result;
-                if (method_obj->invoke_lazy_field(method_slot->second, vm->stack.data() + args_base, argc, lazy_result)) {
+                if (method_obj->invoke_lazy_field(method_slot->second, vm->stack.data() + args_base, argc,
+                                                  lazy_result)) {
                     vm->stack.resize(obj_idx);
                     vm->push(std::move(lazy_result));
                     return;
@@ -808,7 +805,8 @@ void jit_call_method(VM *vm, uint32_t method_name_idx, uint32_t argc) {
         } else {
             std::vector<Value> args(vm->stack.begin() + args_base, vm->stack.end());
             vm->stack.resize(obj_idx);
-            vm->push(jit_runtime_call(vm, [&] { return vm->runtime->delegate_call_method(obj, method_name, std::move(args)); }));
+            vm->push(jit_runtime_call(
+                vm, [&] { return vm->runtime->delegate_call_method(obj, method_name, std::move(args)); }));
         }
         vm->jit_safepoint();
         return;
@@ -1109,7 +1107,8 @@ void jit_make_object_site(VM *vm, uint32_t size, void *site) {
     vm->jit_safepoint(); // result is on the stack (rooted) before any collect
 }
 
-// ensure the VM value stack has headroom for `n` more entries before JIT code manually advances _M_finish to batch-store
+// ensure the VM value stack has headroom for `n` more entries before JIT code manually advances _M_finish to
+// batch-store
 void jit_reserve(VM *vm, uint32_t n) {
     vm->stack.reserve(vm->stack.size() + (size_t)n);
 }
@@ -1186,8 +1185,10 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
         vm->push(vm->jit_lookup_object_property(obj.get_obj_ptr(), (uint16_t)name_idx));
     } else if (obj.is_class_instance()) {
         const auto &instance = obj.get_class_instance();
-        if (instance->layout && instance->layout->private_fields.count(name) && vm->current_class_name != instance->class_name) {
-            fprintf(stderr, "Cannot access private field '%s' of class %s\n", name.c_str(), instance->class_name.c_str());
+        if (instance->layout && instance->layout->private_fields.count(name) &&
+            vm->current_class_name != instance->class_name) {
+            fprintf(stderr, "Cannot access private field '%s' of class %s\n", name.c_str(),
+                    instance->class_name.c_str());
             vm->has_error = true;
             vm->push(Value::none());
         } else {
@@ -1230,15 +1231,13 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
         } else if (name == "error") {
             vm->push(handle->error);
         } else if (name == "status_code") {
-            const Value *sc = handle->result.is_object()
-                                  ? handle->result.get_obj_ptr()->get_field("status_code")
-                                  : nullptr;
+            const Value *sc =
+                handle->result.is_object() ? handle->result.get_obj_ptr()->get_field("status_code") : nullptr;
             vm->push(sc ? *sc : Value::none());
         } else if (name == "duration") {
             if (handle->state == HandleData::Running) {
                 auto now = chrono::steady_clock::now();
-                auto elapsed = chrono::duration_cast<chrono::milliseconds>(
-                    now - handle->start_time);
+                auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - handle->start_time);
                 vm->push(Value::make_int(elapsed.count()));
             } else {
                 auto elapsed = chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
@@ -1264,16 +1263,15 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
             vm->push(Value::none());
         }
     } else {
-        // compiler-internal properties (like __variant, __data) are used as speculative probes in match/pattern expressions
+        // compiler-internal properties (like __variant, __data) are used as speculative probes in match/pattern
+        // expressions
         if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
             vm->push(Value::none());
         } else {
-            // JIT helpers cannot throw C++ exceptions through JIT-compiled frames; use the has_error flag pattern instead.
-            fprintf(
-                stderr,
-                "RuntimeError: cannot access property '%s' on %s value\n",
-                name.c_str(),
-                obj.is_none() ? "null" : "non-object");
+            // JIT helpers cannot throw C++ exceptions through JIT-compiled frames; use the has_error flag pattern
+            // instead.
+            fprintf(stderr, "RuntimeError: cannot access property '%s' on %s value\n", name.c_str(),
+                    obj.is_none() ? "null" : "non-object");
             vm->has_error = true;
             vm->push(Value::none());
         }
@@ -1344,7 +1342,8 @@ void jit_check_type(VM *vm, uint32_t type_str_idx, uint32_t packed) {
     } else if (val.is_class_instance()) {
         ok = (val.get_class_instance()->class_name == expected);
     }
-    // else: unknown annotation, skip, this should only be possible if we add new types in the future, and the interpreter doesn't support it yet
+    // else: unknown annotation, skip, this should only be possible if we add new types in the future, and the
+    // interpreter doesn't support it yet
 
     if (ok) {
         return; // fast path: type matches
@@ -1399,7 +1398,8 @@ void jit_check_type(VM *vm, uint32_t type_str_idx, uint32_t packed) {
         loc += ")";
     }
 
-    std::string msg = std::string("TypeError: expected ") + ctx_str + " of type '" + expected + "', got '" + actual + "'" + loc;
+    std::string msg =
+        std::string("TypeError: expected ") + ctx_str + " of type '" + expected + "', got '" + actual + "'" + loc;
 
     Value err = Value::make_string(msg);
     if (!vm->dispatch_throw(err)) {
@@ -1417,11 +1417,11 @@ namespace nari {
 namespace jit {
 
 // generated frame setup clears smart-pointer slots with zero stores
-// we require that std::shared_ptr<Value> is all-zero when null, and that CapturesList is a pair of pointers without padding.
+// we require that std::shared_ptr<Value> is all-zero when null, and that CapturesList is a pair of pointers without
+// padding.
 bool stl_layouts_ok() {
     static const bool ok = [] {
-        bool good = stl::null_is_all_zero<std::shared_ptr<Value>>() &&
-                    stl::null_is_all_zero<CapturesList>() &&
+        bool good = stl::null_is_all_zero<std::shared_ptr<Value>>() && stl::null_is_all_zero<CapturesList>() &&
                     sizeof(CapturesList) == 2 * sizeof(void *);
         if (!good) {
             fprintf(stderr, "nari: smart-pointer ABI check failed; JIT disabled (interpreter only)\n");

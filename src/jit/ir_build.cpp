@@ -89,9 +89,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         return false;
     }
 
-    auto u16 = [&](size_t p) -> uint16_t {
-        return (uint16_t)((code[p] << 8) | code[p + 1]);
-    };
+    auto u16 = [&](size_t p) -> uint16_t { return (uint16_t)((code[p] << 8) | code[p + 1]); };
     auto jtarget = [&](size_t op_pc) -> size_t {
         int16_t off = (int16_t)u16(op_pc + 1);
         return (size_t)((ptrdiff_t)(op_pc + 3) + off);
@@ -107,9 +105,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         int w = p1_width(op);
         if (w == 0) {
             if (kBuildReport) {
-                fprintf(stderr,
-                        "[IR-BUILD] %s: non-P1 opcode %s at pc=%zu\n",
-                        func_meta.name.c_str(),
+                fprintf(stderr, "[IR-BUILD] %s: non-P1 opcode %s at pc=%zu\n", func_meta.name.c_str(),
                         nari::bytecode::opcode_name(op), pc);
             }
             return false; // non-P1 opcode
@@ -251,8 +247,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     // predecessors leave different stack depths at this block's entry,
                     // this is a malformed CFG or unsupported shape, we should bail here.
                     if (kBuildReport) {
-                        fprintf(stderr,
-                                "[IR-BUILD] %s: pred depth mismatch at block start pc=%zu (%d vs %d)\n",
+                        fprintf(stderr, "[IR-BUILD] %s: pred depth mismatch at block start pc=%zu (%d vs %d)\n",
                                 func_meta.name.c_str(), start, depth, exit_depth[p]);
                     }
                     return false;
@@ -268,8 +263,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             }
             if (has_back_edge && depth != 0) {
                 if (kBuildReport) {
-                    fprintf(stderr,
-                            "[IR-BUILD] %s: loop header has entry depth %d at pc=%zu (back-edge requires 0)\n",
+                    fprintf(stderr, "[IR-BUILD] %s: loop header has entry depth %d at pc=%zu (back-edge requires 0)\n",
                             func_meta.name.c_str(), depth, start);
                 }
                 return false;
@@ -886,13 +880,8 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             if ((size_t)successor <= (size_t)bid && entry_depth[successor] >= 0) {
                 if (entry_depth[successor] != (int)vstk.size()) {
                     if (kBuildReport) {
-                        fprintf(stderr,
-                                "[IR-BUILD] %s: back-edge depth %zu -> %d mismatch (block %d -> %d)\n",
-                                func_meta.name.c_str(),
-                                vstk.size(),
-                                entry_depth[successor],
-                                (int)bid,
-                                (int)successor);
+                        fprintf(stderr, "[IR-BUILD] %s: back-edge depth %zu -> %d mismatch (block %d -> %d)\n",
+                                func_meta.name.c_str(), vstk.size(), entry_depth[successor], (int)bid, (int)successor);
                     }
                     return false;
                 }

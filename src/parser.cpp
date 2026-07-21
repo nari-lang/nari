@@ -262,8 +262,7 @@ static std::string resolve_include_path(const std::string &inc, const std::strin
         std::string name = std_module_name_from_spec(inc);
         const std::string &src = ::nari_std_module_source(name);
         if (src.empty()) {
-            g_last_import_resolution_error =
-                "Unknown stdlib module: 'std/" + name + "'";
+            g_last_import_resolution_error = "Unknown stdlib module: 'std/" + name + "'";
             return "";
         }
         return make_std_virtual_path(name);
@@ -316,8 +315,7 @@ void pop_error_context() {
 // prints filename:line:col header + message, and then exits.
 // (declared in parser/lexer.h so the lexer can report lexical errors.)
 void fatal_error(const std::string &msg, const Token *tok) {
-    std::string fname =
-        current_filename.empty() ? std::string("<input>") : current_filename;
+    std::string fname = current_filename.empty() ? std::string("<input>") : current_filename;
     int l = 0, c = 0;
     if (tok) {
         if (!tok->filename.empty()) {
@@ -460,9 +458,7 @@ class Parser {
                 return false;
 
             // ELF magic
-            if (hdr.e_ident[EI_MAG0] != ELFMAG0 ||
-                hdr.e_ident[EI_MAG1] != ELFMAG1 ||
-                hdr.e_ident[EI_MAG2] != ELFMAG2 ||
+            if (hdr.e_ident[EI_MAG0] != ELFMAG0 || hdr.e_ident[EI_MAG1] != ELFMAG1 || hdr.e_ident[EI_MAG2] != ELFMAG2 ||
                 hdr.e_ident[EI_MAG3] != ELFMAG3)
                 return false;
 
@@ -498,27 +494,30 @@ class Parser {
                     continue;
                 }
 
-                std::string internal_name = "__module_export_" + std::to_string(g_module_export_counter++) + "__" + local_name;
+                std::string internal_name =
+                    "__module_export_" + std::to_string(g_module_export_counter++) + "__" + local_name;
                 aliases[local_name] = internal_name;
                 (*it)->name = internal_name;
                 return;
             }
         };
 
-        auto append_named_import_binding =
-            [&](const std::string &local_name, const std::string &namespace_global_name, const std::string &export_name, const Token &src_tok) {
-                auto member_expr = std::make_unique<nari::MemberExpr>(std::make_unique<nari::IdentExpr>(namespace_global_name), export_name);
-                member_expr->line = src_tok.line;
-                member_expr->col = src_tok.col;
-                member_expr->filename = src_tok.filename.empty() ? current_filename : src_tok.filename;
-                auto var_decl = std::make_unique<nari::VarDeclStmt>(local_name, std::move(member_expr), VarDeclCtrl::LOCAL);
-                var_decl->line = src_tok.line;
-                var_decl->col = src_tok.col;
-                var_decl->filename = src_tok.filename.empty() ? current_filename : src_tok.filename;
-                top_block->stmts.push_back(std::move(var_decl));
-            };
+        auto append_named_import_binding = [&](const std::string &local_name, const std::string &namespace_global_name,
+                                               const std::string &export_name, const Token &src_tok) {
+            auto member_expr = std::make_unique<nari::MemberExpr>(
+                std::make_unique<nari::IdentExpr>(namespace_global_name), export_name);
+            member_expr->line = src_tok.line;
+            member_expr->col = src_tok.col;
+            member_expr->filename = src_tok.filename.empty() ? current_filename : src_tok.filename;
+            auto var_decl = std::make_unique<nari::VarDeclStmt>(local_name, std::move(member_expr), VarDeclCtrl::LOCAL);
+            var_decl->line = src_tok.line;
+            var_decl->col = src_tok.col;
+            var_decl->filename = src_tok.filename.empty() ? current_filename : src_tok.filename;
+            top_block->stmts.push_back(std::move(var_decl));
+        };
 
-        auto append_namespace_import_binding = [&](const std::string &local_name, const std::string &namespace_global_name, const Token &src_tok) {
+        auto append_namespace_import_binding = [&](const std::string &local_name,
+                                                   const std::string &namespace_global_name, const Token &src_tok) {
             auto ident_expr = std::make_unique<nari::IdentExpr>(namespace_global_name);
             ident_expr->line = src_tok.line;
             ident_expr->col = src_tok.col;
@@ -552,9 +551,8 @@ class Parser {
             if (g_visited_files.find(inc_path) == g_visited_files.end()) {
                 g_visited_files.insert(inc_path);
 
-                std::string context = (current_filename.empty() ? std::string("<input>") : current_filename) +
-                                      ":" + std::to_string(itok.line) + ":" +
-                                      std::to_string(itok.col);
+                std::string context = (current_filename.empty() ? std::string("<input>") : current_filename) + ":" +
+                                      std::to_string(itok.line) + ":" + std::to_string(itok.col);
                 push_error_context(context);
 
                 std::string included_src;
@@ -622,8 +620,7 @@ class Parser {
 
             // aggregate declaration: type Name<T> { ... } or union Name { ... }
             if (tok.kind == TokenKind::TK_IDENT &&
-                ((tok.text == "type" && looks_like_type_decl()) ||
-                 (tok.text == "union" && looks_like_union_decl()))) {
+                ((tok.text == "type" && looks_like_type_decl()) || (tok.text == "union" && looks_like_union_decl()))) {
                 auto type_decl = parse_type_decl();
                 register_type(std::move(type_decl));
                 return true;
@@ -657,8 +654,7 @@ class Parser {
             if (tok.kind == TokenKind::TK_IDENT && tok.text == "export") {
                 next();
 
-                if (peek().kind == TokenKind::TK_IDENT && peek().text == "func" &&
-                    looks_like_func_keyword_decl()) {
+                if (peek().kind == TokenKind::TK_IDENT && peek().text == "func" && looks_like_func_keyword_decl()) {
                     auto fn = parse_function();
                     register_module_export(fn->name, fn->name);
                     functions.push_back(std::move(fn));
@@ -724,7 +720,8 @@ class Parser {
                     return true;
                 }
 
-                error_and_exit("Top-level export currently supports 'export func ...', 'export let/global/const ...', or 'export { ... }'");
+                error_and_exit("Top-level export currently supports 'export func ...', 'export let/global/const ...', "
+                               "or 'export { ... }'");
             }
 
             // import "file.nari" OR import name from "library.so"
@@ -839,10 +836,12 @@ class Parser {
                     }
 
                     // transform into `let var_name = __ffi_load_library("path");`
-                    auto load_call = std::make_unique<nari::CallExpr>(std::make_unique<nari::IdentExpr>("__ffi_load_library"));
+                    auto load_call =
+                        std::make_unique<nari::CallExpr>(std::make_unique<nari::IdentExpr>("__ffi_load_library"));
                     load_call->args.push_back(std::make_unique<nari::StringExpr>(lib_path));
 
-                    auto var_decl = std::make_unique<nari::VarDeclStmt>(var_name, std::move(load_call), VarDeclCtrl::LOCAL);
+                    auto var_decl =
+                        std::make_unique<nari::VarDeclStmt>(var_name, std::move(load_call), VarDeclCtrl::LOCAL);
 
                     top_block->stmts.push_back(std::move(var_decl));
 
@@ -852,8 +851,7 @@ class Parser {
                     return true;
                 }
 
-                const Token &itok =
-                    peek(); // import path token (renamed to avoid shadowing)
+                const Token &itok = peek(); // import path token (renamed to avoid shadowing)
                 if (itok.kind != TokenKind::TK_STRING) {
                     error_and_exit("import requires a string filename or 'name from \"path\"' syntax");
                 }
@@ -918,12 +916,14 @@ class Parser {
 
             for (const auto &binding : exports) {
                 std::string internal_name = get_module_function_internal_name(module_name, binding.local_name);
-                auto value_expr = std::make_unique<nari::IdentExpr>(internal_name.empty() ? binding.local_name : internal_name);
+                auto value_expr =
+                    std::make_unique<nari::IdentExpr>(internal_name.empty() ? binding.local_name : internal_name);
                 value_expr->filename = module_name;
                 obj_expr->entries.push_back({ binding.export_name, std::move(value_expr) });
             }
 
-            auto namespace_decl = std::make_unique<nari::VarDeclStmt>(namespace_global, std::move(obj_expr), VarDeclCtrl::GLOBAL);
+            auto namespace_decl =
+                std::make_unique<nari::VarDeclStmt>(namespace_global, std::move(obj_expr), VarDeclCtrl::GLOBAL);
             namespace_decl->filename = module_name;
             top_block->stmts.push_back(std::move(namespace_decl));
         }
@@ -966,8 +966,7 @@ class Parser {
                     }
                     const std::string &name = func_ptr->name;
                     const std::string prefix = "__top_level__@";
-                    if (name.size() >= prefix.size() &&
-                        name.compare(0, prefix.size(), prefix) == 0) {
+                    if (name.size() >= prefix.size() && name.compare(0, prefix.size(), prefix) == 0) {
                         auto ident = std::make_unique<nari::IdentExpr>(name);
                         ident->line = func_ptr->line;
                         ident->col = func_ptr->col;
@@ -978,7 +977,8 @@ class Parser {
                         call_expr->line = func_ptr->line;
                         call_expr->col = func_ptr->col;
                         call_expr->filename = func_ptr->filename;
-                        // snapshot metadata before moving the call so that we don't dereference a moved-from unique_ptr.
+                        // snapshot metadata before moving the call so that we don't dereference a moved-from
+                        // unique_ptr.
                         int c_line = call_expr->line;
                         int c_col = call_expr->col;
                         std::string c_filename = call_expr->filename;
@@ -990,7 +990,8 @@ class Parser {
                     }
                 }
 
-                // attach aggregator metadata and insert it at the front so callers that inspect function lists see the aggregator early.
+                // attach aggregator metadata and insert it at the front so callers that inspect function lists see the
+                // aggregator early.
                 agg_fn->body = std::move(aggregate_block);
                 agg_fn->line = 0;
                 agg_fn->col = 0;
@@ -1020,11 +1021,10 @@ class Parser {
     // advance past tokens until a likely statement boundary so that the
     // top-level loop can attempt to parse the next construct cleanly.
     void synchronize() {
-        static const std::unordered_set<std::string> boundaryKeywords = {
-            "func", "let", "const", "if", "while", "for",
-            "foreach", "return", "continue", "break", "import", "export", "type",
-            "enum", "class", "match"
-        };
+        static const std::unordered_set<std::string> boundaryKeywords = { "func",     "let",   "const",   "if",
+                                                                          "while",    "for",   "foreach", "return",
+                                                                          "continue", "break", "import",  "export",
+                                                                          "type",     "enum",  "class",   "match" };
         while (!is_eof()) {
             TokenKind kind = peek().kind;
 
@@ -1096,8 +1096,7 @@ class Parser {
         }
 
         fprintf(stderr, "Exception at %s:%d:%d\n", use_fname.c_str(), line, col);
-        fprintf(stderr, "  %s %s:%d:%d\n", msg.c_str(), use_fname.c_str(), line,
-                col);
+        fprintf(stderr, "  %s %s:%d:%d\n", msg.c_str(), use_fname.c_str(), line, col);
 
         auto print_source_context = [&](const std::string &file, int lno, int cno) {
 #ifndef NARI_ESP_IDF
@@ -1202,14 +1201,11 @@ class Parser {
         if (next_idx < toks.size() && toks[next_idx].kind == TokenKind::TK_ARROW) {
             // skip '-> type'
             next_idx++; // skip '->'
-            if (next_idx < toks.size() &&
-                toks[next_idx].kind == TokenKind::TK_IDENT) {
+            if (next_idx < toks.size() && toks[next_idx].kind == TokenKind::TK_IDENT) {
                 next_idx++; // skip type name
                 // check for array syntax: type[]
-                if (next_idx < toks.size() &&
-                    toks[next_idx].kind == TokenKind::TK_LBRACKET &&
-                    next_idx + 1 < toks.size() &&
-                    toks[next_idx + 1].kind == TokenKind::TK_RBRACKET) {
+                if (next_idx < toks.size() && toks[next_idx].kind == TokenKind::TK_LBRACKET &&
+                    next_idx + 1 < toks.size() && toks[next_idx + 1].kind == TokenKind::TK_RBRACKET) {
                     next_idx += 2; // skip '[]'
                 }
             }
@@ -1241,15 +1237,12 @@ class Parser {
         }
 
         // single-var: for ( [let] IDENT in|of ... )
-        if (peek(v + 1).kind == TokenKind::TK_IDENT &&
-            (peek(v + 1).text == "in" || peek(v + 1).text == "of")) {
+        if (peek(v + 1).kind == TokenKind::TK_IDENT && (peek(v + 1).text == "in" || peek(v + 1).text == "of")) {
             return true;
         }
         // two-var: for ( [let] IDENT , IDENT in|of ... )
-        if (peek(v + 1).kind == TokenKind::TK_COMMA &&
-            peek(v + 2).kind == TokenKind::TK_IDENT &&
-            peek(v + 3).kind == TokenKind::TK_IDENT &&
-            (peek(v + 3).text == "in" || peek(v + 3).text == "of")) {
+        if (peek(v + 1).kind == TokenKind::TK_COMMA && peek(v + 2).kind == TokenKind::TK_IDENT &&
+            peek(v + 3).kind == TokenKind::TK_IDENT && (peek(v + 3).text == "in" || peek(v + 3).text == "of")) {
             return true;
         }
         return false;
@@ -1264,15 +1257,16 @@ class Parser {
             return false;
         }
         // Could be type Name { or type Name<T> { or type Alias BaseType
-        if (peek(2).kind == TokenKind::TK_LBRACE || peek(2).kind == TokenKind::TK_LT || peek(2).kind == TokenKind::TK_IDENT) {
+        if (peek(2).kind == TokenKind::TK_LBRACE || peek(2).kind == TokenKind::TK_LT ||
+            peek(2).kind == TokenKind::TK_IDENT) {
             return true;
         }
         return false;
     }
 
     bool looks_like_union_decl() {
-        return peek().kind == TokenKind::TK_IDENT && peek().text == "union" &&
-               peek(1).kind == TokenKind::TK_IDENT && peek(2).kind == TokenKind::TK_LBRACE;
+        return peek().kind == TokenKind::TK_IDENT && peek().text == "union" && peek(1).kind == TokenKind::TK_IDENT &&
+               peek(2).kind == TokenKind::TK_LBRACE;
     }
 
     bool looks_like_enum_decl() {
@@ -1283,8 +1277,7 @@ class Parser {
         if (peek(1).kind != TokenKind::TK_IDENT) {
             return false;
         }
-        if (peek(2).kind == TokenKind::TK_LBRACE ||
-            peek(2).kind == TokenKind::TK_LT) {
+        if (peek(2).kind == TokenKind::TK_LBRACE || peek(2).kind == TokenKind::TK_LT) {
             return true;
         }
         return false;
@@ -1298,14 +1291,14 @@ class Parser {
         if (peek(1).kind != TokenKind::TK_IDENT) {
             return false;
         }
-        if (peek(2).kind == TokenKind::TK_LBRACE || peek(2).kind == TokenKind::TK_LT || (peek(2).kind == TokenKind::TK_IDENT && peek(2).text == "extends")) {
+        if (peek(2).kind == TokenKind::TK_LBRACE || peek(2).kind == TokenKind::TK_LT ||
+            (peek(2).kind == TokenKind::TK_IDENT && peek(2).text == "extends")) {
             return true;
         }
         return false;
     }
 
-    template <typename T>
-    void parse_generic_arguments(T *type) {
+    template <typename T> void parse_generic_arguments(T *type) {
         if (peek().kind == TokenKind::TK_LT) {
             next(); // consume '<'
             while (!is_eof() && peek().kind != TokenKind::TK_GT) {
@@ -1331,8 +1324,8 @@ class Parser {
         if (nameTok.kind != TokenKind::TK_IDENT) {
             error_and_exit(is_union ? "Expected union name after 'union'" : "Expected type name after 'type'");
         }
-        auto type_decl = std::make_unique<nari::TypeDecl>(
-            nameTok.text, is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
+        auto type_decl = std::make_unique<nari::TypeDecl>(nameTok.text, is_union ? nari::TypeDeclKind::Union
+                                                                                 : nari::TypeDeclKind::Struct);
         type_decl->line = nameTok.line;
         type_decl->col = nameTok.col;
         type_decl->filename = nameTok.filename.empty() ? current_filename : nameTok.filename;
@@ -1706,8 +1699,7 @@ class Parser {
                     std::string type_name = next().text;
                     bool is_array = false;
                     // Check for array syntax: type[]
-                    if (peek().kind == TokenKind::TK_LBRACKET &&
-                        peek(1).kind == TokenKind::TK_RBRACKET) {
+                    if (peek().kind == TokenKind::TK_LBRACKET && peek(1).kind == TokenKind::TK_RBRACKET) {
                         next(); // consume '['
                         next(); // consume ']'
                         is_array = true;
@@ -1750,8 +1742,7 @@ class Parser {
             std::string return_type_name = next().text;
             bool is_array = false;
             // Check for array syntax: type[]
-            if (peek().kind == TokenKind::TK_LBRACKET &&
-                peek(1).kind == TokenKind::TK_RBRACKET) {
+            if (peek().kind == TokenKind::TK_LBRACKET && peek(1).kind == TokenKind::TK_RBRACKET) {
                 next(); // consume '['
                 next(); // consume ']'
                 is_array = true;
@@ -1820,7 +1811,8 @@ class Parser {
         }
     }
 
-    // constant propagation: replaces never-reassigned `let x = <literal>` references with the literal value, then re-folds.
+    // constant propagation: replaces never-reassigned `let x = <literal>` references with the literal value, then
+    // re-folds.
 
     using ConstMap = std::unordered_map<std::string, const nari::Expr *>;
     using NameSet = std::unordered_set<std::string>;
@@ -1840,7 +1832,8 @@ class Parser {
         return out;
     }
 
-    // collect_mutated_expr / collect_mutated_stmt: find every variable that is ever *assigned to* or *re-declared in a nested scope* within a subtree.
+    // collect_mutated_expr / collect_mutated_stmt: find every variable that is ever *assigned to* or *re-declared in a
+    // nested scope* within a subtree.
     static void collect_mutated_stmt(const nari::Stmt *s, NameSet &out) {
         if (!s) {
             return;
@@ -2155,9 +2148,8 @@ class Parser {
         ConstMap consts;
         for (const auto &s : blk->stmts) {
             if (const auto *vd = dynamic_cast<const nari::VarDeclStmt *>(s.get())) {
-                if (vd->destructure_kind == nari::DestructureKind::None &&
-                    !vd->name.empty() && !vd->is_global && vd->initializerExpr &&
-                    literal_any(vd->initializerExpr.get()) && !mutated.count(vd->name)) {
+                if (vd->destructure_kind == nari::DestructureKind::None && !vd->name.empty() && !vd->is_global &&
+                    vd->initializerExpr && literal_any(vd->initializerExpr.get()) && !mutated.count(vd->name)) {
                     consts[vd->name] = vd->initializerExpr.get();
                 }
             }
@@ -2394,8 +2386,7 @@ class Parser {
             }
         } else if (auto *as = dynamic_cast<nari::AssignStmt *>(prev)) {
             int64_t v = 0;
-            if (as->target == target && as->value &&
-                literal_int(as->value.get(), v)) {
+            if (as->target == target && as->value && literal_int(as->value.get(), v)) {
                 prev_numeric = true;
             }
         }
@@ -2479,7 +2470,8 @@ class Parser {
     }
 
     static bool literal_any(const nari::Expr *e) {
-        return dynamic_cast<const nari::NumberExpr *>(e) || dynamic_cast<const nari::StringExpr *>(e) || dynamic_cast<const nari::BoolExpr *>(e);
+        return dynamic_cast<const nari::NumberExpr *>(e) || dynamic_cast<const nari::StringExpr *>(e) ||
+               dynamic_cast<const nari::BoolExpr *>(e);
     }
 
     static std::string literal_to_string(const nari::Expr *e) {
@@ -2648,12 +2640,14 @@ class Parser {
             }
 
             if ((lfloat || rfloat) && (lint || lfloat) && (rint || rfloat)) {
-                double l = lfloat ? lf
-                                  : (lint ? (double)li
-                                          : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
-                double r = rfloat ? rf
-                                  : (rint ? (double)ri
-                                          : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
+                double l =
+                    lfloat ? lf
+                           : (lint ? (double)li
+                                   : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
+                double r =
+                    rfloat ? rf
+                           : (rint ? (double)ri
+                                   : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
                 if (op == "+") {
                     auto result = std::make_unique<nari::NumberExpr>(l + r);
                     copy_loc(result.get(), binaryExpr);
@@ -2683,9 +2677,10 @@ class Parser {
                 }
             }
 
-            if (op == "@" && literal_any(binaryExpr->left.get()) &&
-                literal_any(binaryExpr->right.get()) && (lstr || rstr)) {
-                std::string out = literal_to_string(binaryExpr->left.get()) + literal_to_string(binaryExpr->right.get());
+            if (op == "@" && literal_any(binaryExpr->left.get()) && literal_any(binaryExpr->right.get()) &&
+                (lstr || rstr)) {
+                std::string out =
+                    literal_to_string(binaryExpr->left.get()) + literal_to_string(binaryExpr->right.get());
                 auto result = std::make_unique<nari::StringExpr>(out);
                 copy_loc(result.get(), binaryExpr);
                 return result;
@@ -2696,8 +2691,15 @@ class Parser {
                 if (lint && rint) {
                     eq = (li == ri);
                 } else if ((lfloat || rfloat) && (lint || lfloat) && (rint || rfloat)) {
-                    double l = lfloat ? lf : (lint ? (double)li : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
-                    double r = rfloat ? rf : (rint ? (double)ri : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
+                    double l =
+                        lfloat
+                            ? lf
+                            : (lint ? (double)li
+                                    : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
+                    double r = rfloat ? rf
+                                      : (rint ? (double)ri
+                                              : number_to_double(
+                                                    dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
                     eq = std::fabs(l - r) < 1e-12;
                 } else if (lbool && rbool) {
                     eq = (lb == rb);
@@ -2735,8 +2737,14 @@ class Parser {
             }
 
             if ((lfloat || rfloat) && (lint || lfloat) && (rint || rfloat)) {
-                double l = lfloat ? lf : (lint ? (double)li : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
-                double r = rfloat ? rf : (rint ? (double)ri : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
+                double l =
+                    lfloat ? lf
+                           : (lint ? (double)li
+                                   : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
+                double r =
+                    rfloat ? rf
+                           : (rint ? (double)ri
+                                   : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
                 if (op == "<") {
                     auto result = std::make_unique<nari::BoolExpr>(l < r);
                     copy_loc(result.get(), binaryExpr);
@@ -2895,8 +2903,7 @@ class Parser {
                         next(); // consume ']'
                         is_array = true;
                     }
-                    param_type =
-                        std::make_unique<nari::TypeAnnotation>(type_name, is_array);
+                    param_type = std::make_unique<nari::TypeAnnotation>(type_name, is_array);
                 }
 
                 ExprPtr default_value = nullptr;
@@ -3000,14 +3007,12 @@ class Parser {
                     std::string type_name = next().text;
                     bool is_array = false;
                     // Check for array syntax: type[]
-                    if (peek().kind == TokenKind::TK_LBRACKET &&
-                        peek(1).kind == TokenKind::TK_RBRACKET) {
+                    if (peek().kind == TokenKind::TK_LBRACKET && peek(1).kind == TokenKind::TK_RBRACKET) {
                         next(); // consume '['
                         next(); // consume ']'
                         is_array = true;
                     }
-                    param_type =
-                        std::make_unique<nari::TypeAnnotation>(type_name, is_array);
+                    param_type = std::make_unique<nari::TypeAnnotation>(type_name, is_array);
                 }
 
                 ExprPtr default_value = nullptr;
@@ -3070,12 +3075,10 @@ class Parser {
             return;
         }
         const Token &nt = peek();
-        if (nt.kind == TokenKind::TK_EOF || nt.kind == TokenKind::TK_RBRACE ||
-            nt.kind == TokenKind::TK_SEMICOLON) {
+        if (nt.kind == TokenKind::TK_EOF || nt.kind == TokenKind::TK_RBRACE || nt.kind == TokenKind::TK_SEMICOLON) {
             return;
         }
-        if (nt.kind == TokenKind::TK_IDENT &&
-            (nt.text == "else" || nt.text == "case" || nt.text == "default")) {
+        if (nt.kind == TokenKind::TK_IDENT && (nt.text == "else" || nt.text == "case" || nt.text == "default")) {
             return;
         }
         if (nt.line == last.line) {
@@ -3112,7 +3115,8 @@ class Parser {
                         error_and_exit("Expected statement or block after else");
                     }
                 }
-                auto ifs = std::make_unique<nari::IfStmt>(std::move(cond), std::move(then_branch), std::move(else_branch));
+                auto ifs =
+                    std::make_unique<nari::IfStmt>(std::move(cond), std::move(then_branch), std::move(else_branch));
                 ifs->line = tok.line;
                 ifs->col = tok.col;
                 ifs->filename = tok.filename.empty() ? current_filename : tok.filename;
@@ -3162,7 +3166,8 @@ class Parser {
                     if (val_var.empty()) {
                         fs = std::make_unique<nari::ForEachStmt>(varTok.text, std::move(iterable), std::move(body));
                     } else {
-                        fs = std::make_unique<nari::ForEachStmt>(varTok.text, val_var, std::move(iterable), std::move(body));
+                        fs = std::make_unique<nari::ForEachStmt>(varTok.text, val_var, std::move(iterable),
+                                                                 std::move(body));
                     }
                     fs->line = kw.line;
                     fs->col = kw.col;
@@ -3176,7 +3181,8 @@ class Parser {
                 // either a declaration or an expression statement (or empty)
                 StmtPtr init = nullptr;
                 if (peek().kind != TokenKind::TK_SEMICOLON) {
-                    if (peek().kind == TokenKind::TK_IDENT && (peek().text == "let" || peek().text == "global" || peek().text == "const")) {
+                    if (peek().kind == TokenKind::TK_IDENT &&
+                        (peek().text == "let" || peek().text == "global" || peek().text == "const")) {
                         init = parse_stmt();
                     } else {
                         // Handle assignment (i = 0) or expression
@@ -3227,7 +3233,8 @@ class Parser {
                 }
                 expect(TokenKind::TK_RPAREN, "for )");
                 StmtPtr body = parse_block();
-                auto fs = std::make_unique<nari::ForStmt>(std::move(init), std::move(cond), std::move(post), std::move(body));
+                auto fs =
+                    std::make_unique<nari::ForStmt>(std::move(init), std::move(cond), std::move(post), std::move(body));
                 fs->line = kw.line;
                 fs->col = kw.col;
                 fs->filename = kw.filename.empty() ? current_filename : kw.filename;
@@ -3266,7 +3273,8 @@ class Parser {
                 next();
                 ExprPtr val = nullptr;
                 // optional return value
-                if (peek().kind != TokenKind::TK_SEMICOLON && peek().kind != TokenKind::TK_RBRACE && peek().kind != TokenKind::TK_EOF) {
+                if (peek().kind != TokenKind::TK_SEMICOLON && peek().kind != TokenKind::TK_RBRACE &&
+                    peek().kind != TokenKind::TK_EOF) {
                     val = parse_expression();
                 }
                 if (peek().kind == TokenKind::TK_SEMICOLON) {
@@ -3299,15 +3307,16 @@ class Parser {
                     std::string lib_path = next().text;
 
                     // create `let var_name = __ffi_load_library("path");`
-                    auto load_call = std::make_unique<nari::CallExpr>(std::make_unique<nari::IdentExpr>("__ffi_load_library"));
+                    auto load_call =
+                        std::make_unique<nari::CallExpr>(std::make_unique<nari::IdentExpr>("__ffi_load_library"));
                     load_call->args.push_back(std::make_unique<nari::StringExpr>(lib_path));
 
                     if (peek().kind == TokenKind::TK_SEMICOLON) {
                         next();
                     }
 
-                    auto var_decl = std::make_unique<nari::VarDeclStmt>(
-                        var_name, std::move(load_call), VarDeclCtrl::LOCAL);
+                    auto var_decl =
+                        std::make_unique<nari::VarDeclStmt>(var_name, std::move(load_call), VarDeclCtrl::LOCAL);
                     var_decl->line = importTok.line;
                     var_decl->col = importTok.col;
                     var_decl->filename = importTok.filename.empty() ? current_filename : importTok.filename;
@@ -3465,16 +3474,11 @@ class Parser {
 
             // compound assignment: +=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=
             TokenKind next_kind = peek(1).kind;
-            if (next_kind == TokenKind::TK_PLUSEQ ||
-                next_kind == TokenKind::TK_MINUSEQ ||
-                next_kind == TokenKind::TK_STAREQ ||
-                next_kind == TokenKind::TK_SLASHEQ ||
-                next_kind == TokenKind::TK_PERCENTEQ ||
-                next_kind == TokenKind::TK_AMPEQ ||
-                next_kind == TokenKind::TK_PIPEEQ ||
-                next_kind == TokenKind::TK_CARETEQ ||
-                next_kind == TokenKind::TK_LSHIFTEQ ||
-                next_kind == TokenKind::TK_RSHIFTEQ) {
+            if (next_kind == TokenKind::TK_PLUSEQ || next_kind == TokenKind::TK_MINUSEQ ||
+                next_kind == TokenKind::TK_STAREQ || next_kind == TokenKind::TK_SLASHEQ ||
+                next_kind == TokenKind::TK_PERCENTEQ || next_kind == TokenKind::TK_AMPEQ ||
+                next_kind == TokenKind::TK_PIPEEQ || next_kind == TokenKind::TK_CARETEQ ||
+                next_kind == TokenKind::TK_LSHIFTEQ || next_kind == TokenKind::TK_RSHIFTEQ) {
                 std::string name = next().text;
                 Token opTok = next(); // consume compound operator
 
@@ -3547,8 +3551,7 @@ class Parser {
                         }
                     } else if (k == TokenKind::TK_DOT) {
                         // skip identifier
-                        if (lookahead_idx < toks.size() &&
-                            peek(lookahead_idx).kind == TokenKind::TK_IDENT) {
+                        if (lookahead_idx < toks.size() && peek(lookahead_idx).kind == TokenKind::TK_IDENT) {
                             lookahead_idx++;
                         }
                     }
@@ -3569,8 +3572,7 @@ class Parser {
                 if (peek().kind == TokenKind::TK_SEMICOLON) {
                     next();
                 }
-                auto idxAssignStmt = std::make_unique<nari::IndexAssignStmt>(
-                    std::move(target), std::move(value));
+                auto idxAssignStmt = std::make_unique<nari::IndexAssignStmt>(std::move(target), std::move(value));
                 idxAssignStmt->line = tok.line;
                 idxAssignStmt->col = tok.col;
                 idxAssignStmt->filename = tok.filename.empty() ? current_filename : tok.filename;
@@ -3819,8 +3821,8 @@ class Parser {
                 if (!false_expr) {
                     error_and_exit("Expected expression after ':'");
                 }
-                auto te = std::make_unique<nari::TernaryExpr>(
-                    std::move(lhs), std::move(true_expr), std::move(false_expr));
+                auto te =
+                    std::make_unique<nari::TernaryExpr>(std::move(lhs), std::move(true_expr), std::move(false_expr));
                 te->line = qmark.line;
                 te->col = qmark.col;
                 te->filename = qmark.filename.empty() ? current_filename : qmark.filename;
@@ -3938,7 +3940,8 @@ class Parser {
             me->filename = op.filename.empty() ? current_filename : op.filename;
             return me;
         }
-        if (t.kind == TokenKind::TK_BANG || t.kind == TokenKind::TK_MINUS || t.kind == TokenKind::TK_PLUS || t.kind == TokenKind::TK_TILDE) {
+        if (t.kind == TokenKind::TK_BANG || t.kind == TokenKind::TK_MINUS || t.kind == TokenKind::TK_PLUS ||
+            t.kind == TokenKind::TK_TILDE) {
             Token op = t;
             next();
             ExprPtr operand = parse_unary();
@@ -3985,8 +3988,7 @@ class Parser {
         ExprPtr expr = parse_primary();
         while (true) {
             const Token &tok = peek();
-            if (tok.kind == TokenKind::TK_PLUSPLUS ||
-                tok.kind == TokenKind::TK_MINUSMINUS) {
+            if (tok.kind == TokenKind::TK_PLUSPLUS || tok.kind == TokenKind::TK_MINUSMINUS) {
                 // only treat as postfix if on the same line as the expression
                 if (expr && expr->line != 0 && tok.line != expr->line) {
                     break;
@@ -4228,8 +4230,7 @@ class Parser {
             // expect '=>' (either as FATARROW or as '=' followed by '>')
             if (peek().kind == TokenKind::TK_FATARROW) {
                 next(); // consume '=>'
-            } else if (peek().kind == TokenKind::TK_EQUAL &&
-                       peek(1).kind == TokenKind::TK_GT) {
+            } else if (peek().kind == TokenKind::TK_EQUAL && peek(1).kind == TokenKind::TK_GT) {
                 next(); // consume '='
                 next(); // consume '>'
             } else {
@@ -4358,7 +4359,9 @@ class Parser {
             // exponent markers. e.g. 0xDEAD must NOT be treated as float even though
             // it contains 'E'.
             bool is_hex_prefix = s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X');
-            bool is_float = !is_hex_prefix && ((s.find('.') != std::string::npos) || (s.find('e') != std::string::npos) || (s.find('E') != std::string::npos));
+            bool is_float =
+                !is_hex_prefix && ((s.find('.') != std::string::npos) || (s.find('e') != std::string::npos) ||
+                                   (s.find('E') != std::string::npos));
             std::unique_ptr<nari::NumberExpr> num_expr;
             if (is_float) {
                 double v = 0.0;
@@ -4372,8 +4375,7 @@ class Parser {
                 errno = 0;
                 char *endptr = nullptr;
 
-                bool is_hex =
-                    s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X');
+                bool is_hex = s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X');
                 int base = is_hex ? 16 : 10;
 
                 int64_t v = std::strtoll(s.c_str(), &endptr, base);
@@ -4428,8 +4430,7 @@ class Parser {
                 while (true) {
                     if (peek().kind == TokenKind::TK_ELLIPSIS) {
                         next(); // consume '...'
-                        auto spread =
-                            std::make_unique<nari::SpreadExpr>(parse_expression());
+                        auto spread = std::make_unique<nari::SpreadExpr>(parse_expression());
                         arr->elements.push_back(std::move(spread));
                         arr->has_spread = true;
                     } else {
@@ -4484,8 +4485,7 @@ class Parser {
                         if (peek().kind == TokenKind::TK_IDENT && peek().text == "func") {
                             // func(params) { ... }
                             value = parse_function_expression();
-                        } else if (peek().kind == TokenKind::TK_LPAREN &&
-                                   looks_like_arrow_function()) {
+                        } else if (peek().kind == TokenKind::TK_LPAREN && looks_like_arrow_function()) {
                             // (params) => { ... } arrow function expression
                             value = parse_arrow_function_expression();
                         } else {
@@ -4774,8 +4774,7 @@ std::string get_module_function_internal_name(const std::string &module_filename
 }
 
 std::string get_exported_function_local_name(const std::string &internal_name) {
-    for (const auto &[module_filename, aliases] :
-         module_function_alias_registry) {
+    for (const auto &[module_filename, aliases] : module_function_alias_registry) {
         (void)module_filename;
         for (const auto &[local_name, aliased_name] : aliases) {
             if (aliased_name == internal_name) {

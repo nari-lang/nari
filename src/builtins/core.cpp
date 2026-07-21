@@ -20,15 +20,13 @@ Value ScriptRuntime::builtin_eval(const Value *argvals, size_t argc, const nari:
     static size_t eval_counter = 0;
     const std::string wrapper_name = "__eval_fn_" + std::to_string(eval_counter++);
     const std::string eval_toplevel = "__top_level__@<eval>";
-    const std::string saved_filename =
-        (call && !call->filename.empty()) ? call->filename : "<eval>";
+    const std::string saved_filename = (call && !call->filename.empty()) ? call->filename : "<eval>";
 
     auto parse_src = [&](bool wrap, std::vector<Parser::ParseError> &errors) -> FuncList {
         Parser::set_source_filename("<eval>");
 
         Parser::ParseResult result = Parser::parse_program_recovering(
-            wrap ? "func " + wrapper_name + "() {\nreturn (" + src + ");\n}\n" : src,
-            false);
+            wrap ? "func " + wrapper_name + "() {\nreturn (" + src + ");\n}\n" : src, false);
 
         Parser::set_source_filename(saved_filename);
         if (!result.ok()) {
@@ -571,13 +569,10 @@ Value ScriptRuntime::builtin_net_conn_read(const Value *argvals, size_t argc, co
             read_op->callback = [this, callback_val, read_op]() {
                 if (callback_val.is_function()) {
                     if (read_op->success) {
-                        call_function_value(
-                            callback_val,
-                            { Value::none(), Value::make_string(read_op->result_string) });
+                        call_function_value(callback_val,
+                                            { Value::none(), Value::make_string(read_op->result_string) });
                     } else {
-                        call_function_value(
-                            callback_val,
-                            { Value::make_string(read_op->error_msg), Value::none() });
+                        call_function_value(callback_val, { Value::make_string(read_op->error_msg), Value::none() });
                     }
                 }
             };
@@ -740,8 +735,8 @@ Value ScriptRuntime::builtin_net_accept(const Value *argvals, size_t argc, const
     accept_op->callback = [this, handle, accept_op]() {
         handle->end_time = chrono::steady_clock::now();
         if (accept_op->success) {
-            handle->result = ScriptRuntime::make_ok(build_conn_object(
-                accept_op->client_fd, accept_op->client_ip, accept_op->client_port));
+            handle->result = ScriptRuntime::make_ok(
+                build_conn_object(accept_op->client_fd, accept_op->client_ip, accept_op->client_port));
             handle->state = HandleData::Completed;
         } else {
             handle->result = ScriptRuntime::make_err(Value::make_string(accept_op->error_msg));

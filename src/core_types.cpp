@@ -11,8 +11,7 @@
 namespace {
 class HeaderPool {
   public:
-    explicit HeaderPool(std::size_t cap)
-        : slots(new std::vector<void *>()), cap(cap) {
+    explicit HeaderPool(std::size_t cap) : slots(new std::vector<void *>()), cap(cap) {
         this->slots->reserve(cap);
     }
 
@@ -48,19 +47,16 @@ class HeaderPool {
 constexpr std::size_t HeaderPoolCap = 8192;
 
 // One pool per pooled type, selected at compile time. The pool is private to each TU and lazily constructed.
-template <class Derived>
-HeaderPool &pool_for() {
+template <class Derived> HeaderPool &pool_for() {
     static HeaderPool *p = new HeaderPool(HeaderPoolCap);
     return *p;
 }
 } // namespace
 
-template <class Derived>
-void *PooledHeapObject<Derived>::operator new(std::size_t sz) {
+template <class Derived> void *PooledHeapObject<Derived>::operator new(std::size_t sz) {
     return pool_for<Derived>().allocate(sz);
 }
-template <class Derived>
-void PooledHeapObject<Derived>::operator delete(void *ptr) noexcept {
+template <class Derived> void PooledHeapObject<Derived>::operator delete(void *ptr) noexcept {
     pool_for<Derived>().deallocate(ptr);
 }
 
@@ -191,9 +187,7 @@ const Value *ObjectObj::get_field(const std::string &name) const noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     auto it = shape->index.find(intern_field(name));
-    return it != shape->index.end()
-               ? const_cast<ObjectObj *>(this)->materialize_lazy_field(it->second)
-               : nullptr;
+    return it != shape->index.end() ? const_cast<ObjectObj *>(this)->materialize_lazy_field(it->second) : nullptr;
 }
 
 const Value *ObjectObj::get_field_by_id(uint32_t fid) const noexcept {
@@ -204,9 +198,7 @@ const Value *ObjectObj::get_field_by_id(uint32_t fid) const noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     auto it = shape->index.find(fid);
-    return it != shape->index.end()
-               ? const_cast<ObjectObj *>(this)->materialize_lazy_field(it->second)
-               : nullptr;
+    return it != shape->index.end() ? const_cast<ObjectObj *>(this)->materialize_lazy_field(it->second) : nullptr;
 }
 
 Value *ObjectObj::materialize_lazy_field(uint32_t slot) {

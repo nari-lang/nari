@@ -2,8 +2,6 @@
 #include <cmath>
 #include <cstdint>
 
-
-
 #include "compiler_support.h"
 
 #if COMPILER_IS_REAL_MSVC
@@ -40,11 +38,13 @@ inline bool mul_overflow_i64(int64_t a, int64_t b, int64_t *out) {
 
 inline bool add_overflow_i64(int64_t a, int64_t b, int64_t *out) {
     *out = a + b;
-    return (b > 0 && a > std::numeric_limits<int64_t>::max() - b) || (b < 0 && a < std::numeric_limits<int64_t>::min() - b);
+    return (b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
+           (b < 0 && a < std::numeric_limits<int64_t>::min() - b);
 }
 inline bool sub_overflow_i64(int64_t a, int64_t b, int64_t *out) {
     *out = a - b;
-    return (b < 0 && a > std::numeric_limits<int64_t>::max() + b) || (b > 0 && a < std::numeric_limits<int64_t>::min() + b);
+    return (b < 0 && a > std::numeric_limits<int64_t>::max() + b) ||
+           (b > 0 && a < std::numeric_limits<int64_t>::min() + b);
 }
 inline bool mul_overflow_i64(int64_t a, int64_t b, int64_t *out) {
     if (a == 0 || b == 0) {
@@ -71,13 +71,13 @@ inline bool mul_overflow_i64(int64_t a, int64_t b, int64_t *out) {
 
 #endif
 
-inline bool mul_overflow_i48(int64_t a, int64_t b, void* out) {
+inline bool mul_overflow_i48(int64_t a, int64_t b, void *out) {
     uint64_t low, adc_low;
     int64_t high;
 #if COMPILER_IS_REAL_MSVC
 #if !__ARM_ARCH
     low = _mul128(a, b, &high);
-    _addcarry_u64(_addcarry_u64(0, low, 0x800000000000ull, &adc_low), high, 0, (uint64_t*)&high);
+    _addcarry_u64(_addcarry_u64(0, low, 0x800000000000ull, &adc_low), high, 0, (uint64_t *)&high);
 #else
     low = (uint64_t)a * (uint64_t)b;
     high = __mulh(a, b);
@@ -92,11 +92,10 @@ inline bool mul_overflow_i48(int64_t a, int64_t b, void* out) {
     high += (int64_t)__builtin_add_overflow(low, 0x800000000000ull, &adc_low);
 #endif
     if (NARI_EXPECT(!(adc_low >> 48 | high), true)) {
-        *(int64_t*)out = low;
+        *(int64_t *)out = low;
         return false;
-    }
-    else {
-        *(double*)out = (double)a * (double)b;
+    } else {
+        *(double *)out = (double)a * (double)b;
         return true;
     }
 }
