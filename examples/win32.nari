@@ -262,7 +262,6 @@ global user32 = {
         return out;
     },
 
-
     GetClassNameA: func(hwnd, maxCharsOrNull) {
         let maxChars = maxCharsOrNull == null ? 256 : maxCharsOrNull;
         if (maxChars <= 0) {
@@ -413,7 +412,7 @@ global user32 = {
     DefWindowProcW: func(hwnd, msg, wParam, lParam) {
         return __ffi_call(user32_lib, "DefWindowProcW", SIG_DEFWINDOWPROC_W, [hwnd, msg, wParam, lParam]);
     },
-    
+
     RegisterClassExW: func(wndClass) {
         return __ffi_call(user32_lib, "RegisterClassExW", SIG_REGISTERCLASSEX_W, [wndClass]);
     },
@@ -427,20 +426,20 @@ global user32 = {
 
     MessageLoop: func() {
         let msgBuf = __ffi_alloc_struct("MSG");
-        
+
         while (true) {
             let ret = __ffi_call(user32_lib, "GetMessageW", SIG_GETMESSAGE_W, [msgBuf, 0, 0, 0]);
-            
+
             if (ret == -1) {
                 __ffi_free(msgBuf);
                 return -1;
             }
-            
+
             if (ret == 0) {
                 __ffi_free(msgBuf);
                 return 0;
             }
-            
+
             __ffi_call(user32_lib, "TranslateMessage", SIG_TRANSLATEMESSAGE, [msgBuf]);
             __ffi_call(user32_lib, "DispatchMessageW", SIG_DISPATCHMESSAGE_W, [msgBuf]);
         }

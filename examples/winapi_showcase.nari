@@ -206,9 +206,9 @@ print("Nari WinAPI showcase starting...");
 
 // Create callback for window procedure
 let wndProcPtr = __ffi_create_callback({
-    returns: "long",
-    params: ["pointer", "u32", "u64", "i64"]
-}, demoWndProc);
+        returns: "long",
+        params: ["pointer", "u32", "u64", "i64"]
+    }, demoWndProc);
 
 if (wndProcPtr == 0) {
     panic("Failed to create window procedure callback");
@@ -219,12 +219,12 @@ let hInstance = kernel32.GetModuleHandleW(null);
 
 // Create class name (as UTF-16 for the struct)
 let classNameW = __ffi_utf16("NariWindowClass");
-let classNameStr = "NariWindowClass";  // Keep string version for CreateWindowExW
+let classNameStr = "NariWindowClass"; // Keep string version for CreateWindowExW
 
 // Register window class using WNDCLASSEXW
 let wc = {
     cbSize: __ffi_sizeof("WNDCLASSEXW"),
-    style: 0x0003,  // CS_HREDRAW | CS_VREDRAW
+    style: 0x0003, // CS_HREDRAW | CS_VREDRAW
     lpfnWndProc: wndProcPtr,
     cbClsExtra: 0,
     cbWndExtra: 0,
@@ -249,7 +249,7 @@ if (atom == 0) {
 
 let hwnd = user32.CreateWindowExW(
     0,
-    classNameStr,  // Use string version - CreateWindowExW will convert it
+    classNameStr, // Use string version - CreateWindowExW will convert it
     "Nari WinAPI Showcase - Native Controls Demo",
     WS_OVERLAPPEDWINDOW | WS_VISIBLE,
     CW_USEDEFAULT,
@@ -518,4 +518,3 @@ __ffi_free(classNameW);
 __ffi_free_callback(wndProcPtr);
 
 print("Nari WinAPI showcase finished.");
-

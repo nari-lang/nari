@@ -139,89 +139,111 @@ func generate_directory_listing(dir_path, request_path) {
     let items = "";
     for (let i = 0; i < files_arr.length(); i = i + 1) {
         let current_file = files_arr[i];
-        // let trimmed = replace(replace(current_file, "\"", ""), "\"", "");
-        // if (trimmed.length() > 0) {
-        //     items = items + "<li><a href=\"" + base_path + trimmed + "\">" + trimmed + "</a></li>";
-        // }
         let trimmed = current_file.trim();
         if (trimmed.length() > 0) {
-            items = items + "<li><a href=\"" + base_path + trimmed + "\">" + trimmed + "</a></li>";
+            items = items + `<li><a href="{base_path + trimmed}">{trimmed}</a></li>`;
         }
     }
 
-    return "
-        <!DOCTYPE html>
-        <html>
-            <head><meta charset=\"UTF-8\"><title>Directory Listing</title><style>body{font-family:Arial,sans-serif;margin:40px}h1{color:#333}ul{list-style:none;padding:0}li{padding:8px;border-bottom:1px solid #eee}a{color:#06c;text-decoration:none}a:hover{text-decoration:underline}</style></head>
+    return `<!DOCTYPE html>
+        <html>            
+        <head>
+            <meta charset="UTF-8">
+            <title>Directory Listing</title>
+            <style>
+                body \{
+                    font-family:Arial,sans-serif;margin:40px
+                \}
+                h1 \{
+                    color:#333
+                \}
+                ul \{
+                    list-style:none;
+                    padding:0;
+                \}
+                li \{
+                    padding:8px;
+                    border-bottom:1px solid #eee
+                \}
+                a \{
+                    color:#06c;
+                    text-decoration:none;
+                \}
+                a:hover \{
+                    text-decoration: underline
+                \}
+            </style>
+        </head>
             <body>
-                <h1>Directory Listing</h1>
-                <ul>" + items + "</ul>
+            <h1>Directory Listing</h1>
+            <ul>{items}</ul>            
             </body>
-        </html>";
+        </html>
+        `;
 }
 
 func handle_request(conn) {
     print("Connection from " + conn.ip + ":" + conn.port);
 
     conn.read(conn, func(err, data) {
-        if (err) {
-            print("Error reading request: " + err);
-            conn.close(conn);
-            return;
-        }
+            if (err) {
+                print("Error reading request: " + err);
+                conn.close(conn);
+                return;
+            }
 
-        let request = parse_request(data);
+            let request = parse_request(data);
 
-        print(request.method + " " + request.path);
+            print(request.method + " " + request.path);
 
-        if (request.method != "GET") {
-            let response = build_response("405", "Method Not Allowed", "text/plain", "Method Not Allowed");
-            conn.write(conn, response);
-            return;
-        }
+            if (request.method != "GET") {
+                let response = build_response("405", "Method Not Allowed", "text/plain", "Method Not Allowed");
+                conn.write(conn, response);
+                return;
+            }
 
-        let file_path = sanitize_path(request.path);
-        let exists = fs.file_exists(file_path).await;
+            let file_path = sanitize_path(request.path);
+            let exists = fs.file_exists(file_path).await;
 
-        if (!exists) {
-            let body = "404 Not Found\n\nThe requested file '" + request.path + "' was not found.";
-            let response404 = build_response("404", "Not Found", "text/plain", body);
-            print("  -> 404 Not Found");
-            conn.write(conn, response404);
-            return;
-        }
+            if (!exists) {
+                let body = "404 Not Found\n\nThe requested file '" + request.path + "' was not found.";
+                let response404 = build_response("404", "Not Found", "text/plain", body);
+                print("  -> 404 Not Found");
+                conn.write(conn, response404);
+                return;
+            }
 
-        let is_dir = fs.is_directory(file_path);
-        if (is_dir) {
-            // serve index.html if it exists
-            let index_path = file_path + "/index.html";
-            let index_exists = fs.file_exists(index_path).await;
-            if (index_exists) {
-                let content = fs.read_file(index_path)
+            let is_dir = fs.is_directory(file_path);
+            if (is_dir) {
+                // serve index.html if it exists
+                let index_path = file_path + "/index.html";
+                let index_exists = fs.file_exists(index_path).await;
+                if (index_exists) {
+                    let content = fs.read_file(index_path)
                     .await
                     .unwrap();
-                let dir_response = build_response("200", "OK", "text/html", content);
-                print("  -> 200 OK (text/html)");
+                    let dir_response = build_response("200", "OK", "text/html", content);
+                    print("  -> 200 OK (text/html)");
+                    conn.write(conn, dir_response);
+                    return;
+                }
+
+                // else, generate directory listing
+                let dir_html = generate_directory_listing(file_path, request.path);
+                let dir_response = build_response("200", "OK", "text/html", dir_html);
+                print("  -> 200 OK (directory listing)");
                 conn.write(conn, dir_response);
                 return;
-            } 
+            }
 
-            // else, generate directory listing
-            let dir_html = generate_directory_listing(file_path, request.path);
-            let dir_response = build_response("200", "OK", "text/html", dir_html);
-            print("  -> 200 OK (directory listing)");
-            conn.write(conn, dir_response);
-            return;
-        }
-
-        let content = fs.read_file(file_path)
+            let content = fs.read_file(file_path)
             .await
             .unwrap();
-        let mime_type = get_mime_type(file_path) || "application/octet-stream";
-        let response200 = build_response("200", "OK", mime_type, content);
-        print(`  -> 200 OK ({mime_type})`);
-        conn.write(conn, response200);
-    });
+            let mime_type = get_mime_type(file_path) || "application/octet-stream";
+            let response200 = build_response("200", "OK", mime_type, content);
+            print(`  -> 200 OK ({mime_type})`);
+            conn.write(conn, response200);
+        });
 }
 
 global port = 8081;

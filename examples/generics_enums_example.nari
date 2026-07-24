@@ -136,22 +136,22 @@ func validateNumber(num) {
 print("Result<T, E> Examples");
 
 // division examples
-print(handleDivision(10, 2));    // "Result: 5"
-print(handleDivision(10, 0));    // "Error: Cannot divide by zero"
+print(handleDivision(10, 2)); // "Result: 5"
+print(handleDivision(10, 0)); // "Error: Cannot divide by zero"
 
 // parsing examples
 let parseOk = parseNumber("42");
 let parseFail = parseNumber("abc");
 
 print(match parseOk {
-    Ok(n) => "Parsed: " @ to_string(n),
-    Err(e) => "Parse error: " @ e
-});  // "Parsed: 42"
+        Ok(n) => "Parsed: " @ to_string(n),
+        Err(e) => "Parse error: " @ e
+    }); // "Parsed: 42"
 
 print(match parseFail {
-    Ok(n) => "Parsed: " @ to_string(n),
-    Err(e) => "Parse error: " @ e
-});  // "Parse error: Invalid number format"
+        Ok(n) => "Parsed: " @ to_string(n),
+        Err(e) => "Parse error: " @ e
+    }); // "Parse error: Invalid number format"
 
 print("");
 print("Option<T> Examples");
@@ -161,31 +161,31 @@ let numbers = [1, 2, 3, 4, 5];
 let found = find(numbers, func(x) { return x > 3; });
 let notFound = find(numbers, func(x) { return x > 10; });
 
-print(describeOption(found));      // "Got value: 4"
-print(describeOption(notFound));   // "No value found"
+print(describeOption(found)); // "Got value: 4"
+print(describeOption(notFound)); // "No value found"
 
 // object lookup
 let user = { name: "Alice", age: 30 };
 let nameOpt = getKey(user, "name");
 let emailOpt = getKey(user, "email");
 
-print(describeOption(nameOpt));    // "Got value: Alice"
-print(describeOption(emailOpt));   // "No value found"
+print(describeOption(nameOpt)); // "Got value: Alice"
+print(describeOption(emailOpt)); // "No value found"
 
 print("");
 print("Pattern Matching");
 
 // literal patterns
-print(classifyNumber(0));   // "zero"
-print(classifyNumber(1));   // "one"
-print(classifyNumber(99));  // "other"
+print(classifyNumber(0)); // "zero"
+print(classifyNumber(1)); // "one"
+print(classifyNumber(99)); // "other"
 
 // wildcard pattern
 let value = 42;
 let description = match value {
     _ => "The value is " @ to_string(value)
 };
-print(description);  // "The value is 42"
+print(description); // "The value is 42"
 
 print("");
 print("Result Chaining");
@@ -193,11 +193,11 @@ print("Result Chaining");
 // Map transformation
 let result1 = Ok(5);
 let doubled = result1.map(func(x) { return x * 2; });
-print(doubled.unwrap_or(0));  // 10
+print(doubled.unwrap_or(0)); // 10
 
 let result2 = Err("failed");
 let attempted = result2.map(func(x) { return x * 2; });
-print(attempted.unwrap_or(-1));  // -1
+print(attempted.unwrap_or(-1)); // -1
 print("");
 print("Validation");
 

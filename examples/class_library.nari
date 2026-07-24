@@ -57,7 +57,7 @@ class Library {
         print("\n" @ this.name @ " Library");
         print("Total Books: " @ to_string(this.bookCount));
         print("\nBook Collection:");
-        
+
         for (book in this.books) {
             print("  - " @ book.getInfo());
         }
@@ -101,7 +101,7 @@ class Library {
     public getStats() {
         let available = 0;
         let checkedOut = 0;
-        
+
         for (book in this.books) {
             if (book.isAvailable()) {
                 available = available + 1;
@@ -109,7 +109,7 @@ class Library {
                 checkedOut = checkedOut + 1;
             }
         }
-        
+
         print("\nLibrary Statistics");
         print("Total Books: " @ to_string(this.bookCount));
         print("Available: " @ to_string(available));
@@ -139,7 +139,7 @@ cityLibrary.listBooks();
 print("\nCheckout Process");
 cityLibrary.checkoutBook("1984");
 cityLibrary.checkoutBook("Fahrenheit 451");
-cityLibrary.checkoutBook("1984");  // Try to checkout again (should fail)
+cityLibrary.checkoutBook("1984"); // Try to checkout again (should fail)
 
 cityLibrary.listBooks();
 cityLibrary.getStats();

@@ -30,7 +30,7 @@ class Character {
     public gainExperience(xp: number) {
         this.experience = this.experience + xp;
         print(this.name @ " gained " @ to_string(xp) @ " XP!");
-        
+
         // Level up at 100 XP
         if (this.experience >= 100) {
             this.levelUp();
@@ -46,9 +46,9 @@ class Character {
     }
 
     public getStatus() -> string {
-        return this.name @ " [Lv " @ to_string(this.level) @ "] HP: " @ 
-               to_string(this.health) @ "/" @ to_string(this.maxHealth) @ 
-               " XP: " @ to_string(this.experience) @ "/100";
+        return this.name @ " [Lv " @ to_string(this.level) @ "] HP: " @
+        to_string(this.health) @ "/" @ to_string(this.maxHealth) @
+        " XP: " @ to_string(this.experience) @ "/100";
     }
 
     public isAlive() -> bool {
@@ -69,7 +69,7 @@ hero.heal(15);
 // Gain experience
 print("\n--- After Battle ---");
 hero.gainExperience(50);
-hero.gainExperience(60);  // This should trigger level up!
+hero.gainExperience(60); // This should trigger level up!
 
 print("\n--- Final Status ---");
 print(hero.getStatus());
