@@ -11,90 +11,90 @@
 // milliseconds.
 
 export let Date = {
-  // Returns ms-since-epoch (int).
-  now: func() { return __time_now_ms(); },
+    // Returns ms-since-epoch (int).
+    now: func() { return __time_now_ms(); },
 
-  // Construct a UTC timestamp (int ms) from components. month is 1..12.
-  // Panics on invalid components
-  utc: func(year, month, day, hour, minute, second, ms) {
-    if (hour == null) { hour = 0; }
-    if (minute == null) { minute = 0; }
-    if (second == null) { second = 0; }
-    if (ms == null) { ms = 0; }
-    return __time_from_components({
-        year: year,
-        month: month,
-        day: day,
-        hour: hour,
-        minute: minute,
-        second: second,
-        ms: ms
-    }, true).unwrap();
-  },
+    // Construct a UTC timestamp (int ms) from components. month is 1..12.
+    // Panics on invalid components
+    utc: func(year, month, day, hour, minute, second, ms) {
+        if (hour == null) { hour = 0; }
+        if (minute == null) { minute = 0; }
+        if (second == null) { second = 0; }
+        if (ms == null) { ms = 0; }
+        return __time_from_components({
+                year: year,
+                month: month,
+                day: day,
+                hour: hour,
+                minute: minute,
+                second: second,
+                ms: ms
+            }, true).unwrap();
+    },
 
-  // Parse an ISO-8601 / RFC-3339 string -> Result<int ms, string>.
-  // Ok(ms) on success
-  // Err(message) on malformed input.
-  parse_iso: func(s) { return __time_parse_iso(s); },
+    // Parse an ISO-8601 / RFC-3339 string -> Result<int ms, string>.
+    // Ok(ms) on success
+    // Err(message) on malformed input.
+    parse_iso: func(s) { return __time_parse_iso(s); },
 
-  // strftime-style format -> string. utc defaults to true.
-  // Panics if the timestamp is out of range.
-  format: func(ms, fmt, utc) {
-    if (utc == null) { utc = true; }
-    return __time_format(ms, fmt, utc).unwrap();
-  },
+    // strftime-style format -> string. utc defaults to true.
+    // Panics if the timestamp is out of range.
+    format: func(ms, fmt, utc) {
+        if (utc == null) { utc = true; }
+        return __time_format(ms, fmt, utc).unwrap();
+    },
 
-  // Build a Date instance from ms. opts.utc defaults to true.
-  from_ms: func(ms, opts) {
-    let use_utc = true;
-    if (opts != null && opts.utc != null) {
-        use_utc = opts.utc;
+    // Build a Date instance from ms. opts.utc defaults to true.
+    from_ms: func(ms, opts) {
+        let use_utc = true;
+        if (opts != null && opts.utc != null) {
+            use_utc = opts.utc;
+        }
+        let c = __time_components(ms, use_utc).unwrap();
+        let self = {
+            ms: ms,
+            year: c.year, month: c.month, day: c.day,
+            hour: c.hour, minute: c.minute, second: c.second,
+            millis: c.ms, weekday: c.weekday, yearday: c.yearday,
+            utc: use_utc
+        };
+        self.to_iso_string = func() {
+            // Hand-format to guarantee canonical YYYY-MM-DDTHH:MM:SS.sssZ
+            // (strftime's %Y zero-pads to >=4 but not exactly 4 across libc
+            // versions for negative years; we don't support BCE here).
+            let pad2 = func(n) {
+                if (n < 10) { return "0" @ ("" @ n); }
+                return "" @ n;
+            };
+            let pad3 = func(n) {
+                if (n < 10) { return "00" @ ("" @ n); }
+                if (n < 100) { return "0" @ ("" @ n); }
+                return "" @ n;
+            };
+            let pad4 = func(n) {
+                if (n < 10) { return "000" @ ("" @ n); }
+                if (n < 100) { return "00" @ ("" @ n); }
+                if (n < 1000) { return "0" @ ("" @ n); }
+                return "" @ n;
+            };
+            let suffix = "";
+            if (self.utc) { suffix = "Z"; }
+            return pad4(self.year) @ "-" @ pad2(self.month) @ "-" @ pad2(self.day)
+            @ "T" @ pad2(self.hour) @ ":" @ pad2(self.minute) @ ":" @ pad2(self.second)
+            @ "." @ pad3(self.millis) @ suffix;
+        };
+        self.format = func(fmt) {
+            return __time_format(self.ms, fmt, self.utc).unwrap();
+        };
+        self.add_ms = func(n) {
+            return Date.from_ms(self.ms + n, { utc: self.utc });
+        };
+        self.diff_ms = func(other) {
+            return self.ms - other.ms;
+        };
+        self.equals = func(other) {
+            return self.ms == other.ms;
+        };
+        return self;
     }
-    let c = __time_components(ms, use_utc).unwrap();
-    let self = {
-        ms: ms,
-        year: c.year, month: c.month, day: c.day,
-        hour: c.hour, minute: c.minute, second: c.second,
-        millis: c.ms, weekday: c.weekday, yearday: c.yearday,
-        utc: use_utc
-    };
-    self.to_iso_string = func() {
-        // Hand-format to guarantee canonical YYYY-MM-DDTHH:MM:SS.sssZ
-        // (strftime's %Y zero-pads to >=4 but not exactly 4 across libc
-        // versions for negative years; we don't support BCE here).
-        let pad2 = func(n) {
-        if (n < 10) { return "0" @ ("" @ n); }
-        return "" @ n;
-    };
-    let pad3 = func(n) {
-        if (n < 10)  { return "00" @ ("" @ n); }
-        if (n < 100) { return "0"  @ ("" @ n); }
-        return "" @ n;
-    };
-    let pad4 = func(n) {
-        if (n < 10) { return "000" @ ("" @ n); }
-        if (n < 100) { return "00"  @ ("" @ n); }
-        if (n < 1000) { return "0"  @ ("" @ n); }
-        return "" @ n;
-    };
-    let suffix = "";
-    if (self.utc) { suffix = "Z"; }
-    return pad4(self.year) @ "-" @ pad2(self.month) @ "-" @ pad2(self.day)
-        @ "T" @ pad2(self.hour) @ ":" @ pad2(self.minute) @ ":" @ pad2(self.second)
-        @ "." @ pad3(self.millis) @ suffix;
-    };
-    self.format = func(fmt) {
-        return __time_format(self.ms, fmt, self.utc).unwrap();
-    };
-    self.add_ms = func(n) {
-        return Date.from_ms(self.ms + n, { utc: self.utc });
-    };
-    self.diff_ms = func(other) {
-        return self.ms - other.ms;
-    };
-    self.equals = func(other) {
-        return self.ms == other.ms;
-    };
-    return self;
-  }
 };

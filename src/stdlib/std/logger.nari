@@ -22,7 +22,7 @@ export let Logger = {
     //  timestamps?: bool=true }
     create: func(opts) {
         if (opts == null) { opts = {}; }
-        
+
         let name = opts.has_key("name") ? opts.name : "";
         let level = opts.has_key("level") ? opts.level : "info";
         if (typeof(level) == "string") {
@@ -32,39 +32,39 @@ export let Logger = {
         let sink = opts.has_key("sink") ? opts.sink : print;
         let use_ts = opts.has_key("timestamps") ? opts.timestamps : true;
         let state = { level: level };
-    
-        let fmt = func(level_name, msg) {
-        let line = "";
-        if (use_ts) { line = "[" + ("" @ __math_floor(time())) + "] "; }
-        line = line + "[" + level_name + "]";
-        if (name != "") { line = line + " [" + name + "]"; }
-        return line + " " + msg;
-    };
-    
-    let log_at = func(threshold, level_name, msg) {
-        if (state.level > threshold) { return; }
-        sink(fmt(level_name, msg));
-    };
 
-    return {
-        trace: func(msg) { log_at(10, "trace", msg); },
-        debug: func(msg) { log_at(20, "debug", msg); },
-        info: func(msg) { log_at(30, "info", msg); },
-        warn: func(msg) { log_at(40, "warn", msg); },
-        error: func(msg) { log_at(50, "error", msg); },
-        fatal: func(msg) { log_at(60, "fatal", msg); },
-        // set_level(name|int) -> update minimum level
-        set_level: func(l) {
-            if (typeof(l) == "string") {
-                let n = Logger.levels[l];
-                if (n != null) {
-                    state.level = n;
+        let fmt = func(level_name, msg) {
+            let line = "";
+            if (use_ts) { line = "[" + ("" @ __math_floor(time())) + "] "; }
+            line = line + "[" + level_name + "]";
+            if (name != "") { line = line + " [" + name + "]"; }
+            return line + " " + msg;
+        };
+
+        let log_at = func(threshold, level_name, msg) {
+            if (state.level > threshold) { return; }
+            sink(fmt(level_name, msg));
+        };
+
+        return {
+            trace: func(msg) { log_at(10, "trace", msg); },
+            debug: func(msg) { log_at(20, "debug", msg); },
+            info: func(msg) { log_at(30, "info", msg); },
+            warn: func(msg) { log_at(40, "warn", msg); },
+            error: func(msg) { log_at(50, "error", msg); },
+            fatal: func(msg) { log_at(60, "fatal", msg); },
+            // set_level(name|int) -> update minimum level
+            set_level: func(l) {
+                if (typeof(l) == "string") {
+                    let n = Logger.levels[l];
+                    if (n != null) {
+                        state.level = n;
+                    }
+                } else {
+                    state.level = l;
                 }
-            } else {
-                state.level = l;
-            }
-        },
-        get_level: func() { return state.level; }
-    };
-  }
+            },
+            get_level: func() { return state.level; }
+        };
+    }
 };

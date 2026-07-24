@@ -5,14 +5,14 @@
 //  import { Hash } from "std/hash";
 
 export let Hash = {
-  // Hash.sha256(str) -> 64-char lowercase hex string of SHA-256(bytes(str))
-  sha256: func(s) {
-      return __hash_sha256(s);
-  },
+    // Hash.sha256(str) -> 64-char lowercase hex string of SHA-256(bytes(str))
+    sha256: func(s) {
+        return __hash_sha256(s);
+    },
 
-  // Hash.sha256_file(path) -> 64-char lowercase hex string of SHA-256
-  // of the file's bytes. Streams the file; safe for large archives.
-  sha256_file: func(path) {
-      return __hash_sha256_file(path);
-  }
+    // Hash.sha256_file(path) -> 64-char lowercase hex string of SHA-256
+    // of the file's bytes. Streams the file; safe for large archives.
+    sha256_file: func(path) {
+        return __hash_sha256_file(path);
+    }
 };

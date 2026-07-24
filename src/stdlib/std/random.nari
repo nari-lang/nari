@@ -6,46 +6,46 @@
 //  import { Random } from "std/random";
 
 export let Random = {
-  // Random.create(seed?) -> { next, next_int(lo, hi), next_float(), pick(arr) }
-  // seed=0 is reseeded to 1 (xorshift32 cannot recover from 0).
-  create: func(seed) {
-      if (seed == null) {
-          seed = __math_floor(__math_rand() * 2147483647) + 1;
-      }
-      if (seed == 0) { seed = 1; }
-      // 32-bit mask to keep state bounded (Nari ints are int48, ops are signed)
-      let state = { s: seed & 2147483647 };
+    // Random.create(seed?) -> { next, next_int(lo, hi), next_float(), pick(arr) }
+    // seed=0 is reseeded to 1 (xorshift32 cannot recover from 0).
+    create: func(seed) {
+        if (seed == null) {
+            seed = __math_floor(__math_rand() * 2147483647) + 1;
+        }
+        if (seed == 0) { seed = 1; }
+        // 32-bit mask to keep state bounded (Nari ints are int48, ops are signed)
+        let state = { s: seed & 2147483647 };
 
-      let step_fn = func() {
-          let x = state.s;
-          x = x ^ ((x << 13) & 2147483647);
-          x = x ^ ((x >> 17) & 2147483647);
-          x = x ^ ((x << 5) & 2147483647);
-          if (x == 0) { x = 1; }
-          state.s = x & 2147483647;
-          return state.s;
-      };
+        let step_fn = func() {
+            let x = state.s;
+            x = x ^ ((x << 13) & 2147483647);
+            x = x ^ ((x >> 17) & 2147483647);
+            x = x ^ ((x << 5) & 2147483647);
+            if (x == 0) { x = 1; }
+            state.s = x & 2147483647;
+            return state.s;
+        };
 
-      return {
-          // next() -> non-negative int in [0, 2^31)
-          next: step_fn,
-          // next_float() -> float in [0, 1)
-          next_float: func() {
-              return step_fn() / 2147483648;
-          },
-          // next_int(lo, hi) -> int in [lo, hi) (lo inclusive, hi exclusive)
-          next_int: func(lo, hi) {
-              if (hi <= lo) { return lo; }
-              let span = hi - lo;
-              return lo + (step_fn() % span);
-          },
-          // pick(arr) -> random element (or null on empty)
-          pick: func(arr) {
-              if (arr.length() == 0) { return null; }
-              return arr[step_fn() % arr.length()];
-          },
-          // seed() -> current state (for save/restore)
-          seed: func() { return state.s; }
-      };
-  }
+        return {
+            // next() -> non-negative int in [0, 2^31)
+            next: step_fn,
+            // next_float() -> float in [0, 1)
+            next_float: func() {
+                return step_fn() / 2147483648;
+            },
+            // next_int(lo, hi) -> int in [lo, hi) (lo inclusive, hi exclusive)
+            next_int: func(lo, hi) {
+                if (hi <= lo) { return lo; }
+                let span = hi - lo;
+                return lo + (step_fn() % span);
+            },
+            // pick(arr) -> random element (or null on empty)
+            pick: func(arr) {
+                if (arr.length() == 0) { return null; }
+                return arr[step_fn() % arr.length()];
+            },
+            // seed() -> current state (for save/restore)
+            seed: func() { return state.s; }
+        };
+    }
 };

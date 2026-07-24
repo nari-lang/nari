@@ -9,81 +9,81 @@
 // insert time, so Set.add(1) and Set.add("1") collide.
 
 export let Map = {
-  create: func() {
-    let store = {};
-    let order = [];
-    
-    return {
-        set: func(k, v) {
-            let key = "" @ k;
-            if (!store.has_key(key)) { order.push(key); }
-            store[key] = v;
-        },
-        get: func(k) {
-            let key = "" @ k;
-            if (!store.has_key(key)) { return null; }
-            return store[key];
-        },
-        has: func(k) { return store.has_key("" @ k); },
-        delete: func(k) {
-            let key = "" @ k;
-            if (!store.has_key(key)) { return false; }
-            // rebuild store without this key
-            let new_store = {};
-            let new_order = [];
-            let i = 0;
-            while (i < order.length()) {
-                if (order[i] != key) {
-                    new_order.push(order[i]);
-                    new_store[order[i]] = store[order[i]];
+    create: func() {
+        let store = {};
+        let order = [];
+
+        return {
+            set: func(k, v) {
+                let key = "" @ k;
+                if (!store.has_key(key)) { order.push(key); }
+                store[key] = v;
+            },
+            get: func(k) {
+                let key = "" @ k;
+                if (!store.has_key(key)) { return null; }
+                return store[key];
+            },
+            has: func(k) { return store.has_key("" @ k); },
+            delete: func(k) {
+                let key = "" @ k;
+                if (!store.has_key(key)) { return false; }
+                // rebuild store without this key
+                let new_store = {};
+                let new_order = [];
+                let i = 0;
+                while (i < order.length()) {
+                    if (order[i] != key) {
+                        new_order.push(order[i]);
+                        new_store[order[i]] = store[order[i]];
+                    }
+                    i = i + 1;
                 }
-                i = i + 1;
-            }
-            store = new_store;
-            order = new_order;
-            return true;
-        },
-        size: func() { return order.length(); },
-        clear: func() {
-            store = {};
-            order = [];
-        },
-        keys: func() {
-            // return a copy to avoid external mutation
-            let out = [];
-            let i = 0;
-            while (i < order.length()) {
-                out.push(order[i]); i = i + 1;
-            }
-            return out;
-        },
-        values: func() {
-            let out = [];
-            let i = 0;
-            while (i < order.length()) {
-                out.push(store[order[i]]);
-                i = i + 1;
-            }
-            return out;
-        },
-        entries: func() {
-            let out = [];
-            let i = 0;
-            while (i < order.length()) {
-                out.push([order[i], store[order[i]]]);
-                i = i + 1;
-            }
-            return out;
-        },
-        for_each: func(fn) {
-            let i = 0;
-            while (i < order.length()) {
-                fn(store[order[i]], order[i]);
-                i = i + 1;
+                store = new_store;
+                order = new_order;
+                return true;
+            },
+            size: func() { return order.length(); },
+            clear: func() {
+                store = {};
+                order = [];
+            },
+            keys: func() {
+                // return a copy to avoid external mutation
+                let out = [];
+                let i = 0;
+                while (i < order.length()) {
+                    out.push(order[i]); i = i + 1;
+                }
+                return out;
+            },
+            values: func() {
+                let out = [];
+                let i = 0;
+                while (i < order.length()) {
+                    out.push(store[order[i]]);
+                    i = i + 1;
+                }
+                return out;
+            },
+            entries: func() {
+                let out = [];
+                let i = 0;
+                while (i < order.length()) {
+                    out.push([order[i], store[order[i]]]);
+                    i = i + 1;
+                }
+                return out;
+            },
+            for_each: func(fn) {
+                let i = 0;
+                while (i < order.length()) {
+                    fn(store[order[i]], order[i]);
+                    i = i + 1;
+                }
             }
         }
     }
-  }
 }
 
 export let Set = {
@@ -96,7 +96,7 @@ export let Set = {
                 i = i + 1;
             }
         }
-        
+
         return {
             add: func(v) { m.set(v, true); },
             has: func(v) { return m.has(v); },
@@ -105,10 +105,10 @@ export let Set = {
             clear: func() { m.clear(); },
             values: func() { return m.keys(); },
             for_each: func(fn) {
-            let keys = m.keys();
-            let i = 0;
-            while (i < keys.length()) { fn(keys[i]); i = i + 1; }
-        }
-    };
-  }
+                let keys = m.keys();
+                let i = 0;
+                while (i < keys.length()) { fn(keys[i]); i = i + 1; }
+            }
+        };
+    }
 };

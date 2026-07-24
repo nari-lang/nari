@@ -5,7 +5,7 @@
 
 export let Path = {
     sep: "/",
-    
+
     is_absolute: func(p) {
         return p.length() > 0 && p.char_at(0) == "/";
     },

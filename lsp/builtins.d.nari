@@ -229,7 +229,6 @@ func test(subject: string) -> bool {}
 // Searches subject for the regex. Returns an object with `value`, `index`, and `groups` fields on match, or null if there is no match.
 func exec(subject: string) -> any {}
 
-
 // Represents a value that may be present (Some) or absent (None).
 enum Option<T> {
     Some(T),

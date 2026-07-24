@@ -8,380 +8,380 @@
 //  import { Foo } from "std/<name>";
 
 enum Result<T, E> {
-  Ok(T),
-  Err(E)
+    Ok(T),
+    Err(E)
 }
 
 enum Option<T> {
-  Some(T),
-  None
+    Some(T),
+    None
 }
 
 func __stdlib_init__() {
-  global stdlib_version = "0.0.3";
+    global stdlib_version = "0.0.3";
 
-  // Result helpers
-  global Ok = func(value) {
-      return {
-          __variant: "Ok",
-          __enum: "Result",
-          __data: value,
-          is_ok: func() {
-              return true;
-          },
-          is_err: func() {
-              return false;
-          },
-          expect: func(msg) {
-              return value;
-          },
-          unwrap: func() {
-              return value;
-          },
-          unwrap_or: func(default_val) {
-              return value;
-          },
-          unwrap_err: func() {
-              panic("Called unwrap_err on Ok value");
-          },
-          map: func(f) {
-              return Ok(f(value));
-          },
-          map_err: func(f) {
-              return Ok(value);
-          },
-          and_then: func(f) {
-              return f(value);
-          },
-          or_else: func(f) {
-              return Ok(value);
-          }
-      };
-  };
+    // Result helpers
+    global Ok = func(value) {
+        return {
+            __variant: "Ok",
+            __enum: "Result",
+            __data: value,
+            is_ok: func() {
+                return true;
+            },
+            is_err: func() {
+                return false;
+            },
+            expect: func(msg) {
+                return value;
+            },
+            unwrap: func() {
+                return value;
+            },
+            unwrap_or: func(default_val) {
+                return value;
+            },
+            unwrap_err: func() {
+                panic("Called unwrap_err on Ok value");
+            },
+            map: func(f) {
+                return Ok(f(value));
+            },
+            map_err: func(f) {
+                return Ok(value);
+            },
+            and_then: func(f) {
+                return f(value);
+            },
+            or_else: func(f) {
+                return Ok(value);
+            }
+        };
+    };
 
-  global Err = func(error) {
-      return {
-          __variant: "Err",
-          __enum: "Result",
-          __data: error,
-          is_ok: func() {
-              return false;
-          },
-          is_err: func() {
-              return true;
-          },
-          expect: func(msg) {
-              panic(msg);
-          },
-          unwrap: func() {
-              panic(error);
-          },
-          unwrap_or: func(default_val) {
-              return default_val;
-          },
-          unwrap_err: func() {
-              return error;
-          },
-          map: func(f) {
-              return Err(error);
-          },
-          map_err: func(f) {
-              return Err(f(error));
-          },
-          and_then: func(f) {
-              return Err(error);
-          },
-          or_else: func(f) {
-              return f(error);
-          }
-      };
-  };
+    global Err = func(error) {
+        return {
+            __variant: "Err",
+            __enum: "Result",
+            __data: error,
+            is_ok: func() {
+                return false;
+            },
+            is_err: func() {
+                return true;
+            },
+            expect: func(msg) {
+                panic(msg);
+            },
+            unwrap: func() {
+                panic(error);
+            },
+            unwrap_or: func(default_val) {
+                return default_val;
+            },
+            unwrap_err: func() {
+                return error;
+            },
+            map: func(f) {
+                return Err(error);
+            },
+            map_err: func(f) {
+                return Err(f(error));
+            },
+            and_then: func(f) {
+                return Err(error);
+            },
+            or_else: func(f) {
+                return f(error);
+            }
+        };
+    };
 
-  // Option helpers
-  global Some = func(value) {
-      return {
-          __variant: "Some",
-          __enum: "Option",
-          __data: value,
-          is_some: func() {
-              return true;
-          },
-          is_none: func() {
-              return false;
-          },
-          unwrap: func() {
-              return value;
-          },
-          unwrap_or: func(default_val) {
-              return value;
-          },
-          map: func(f) {
-              return Some(f(value));
-          },
-          and_then: func(f) {
-              return f(value);
-          },
-          or_else: func(f) {
-              return Some(value);
-          },
-          filter: func(pred) {
-              if (pred(value)) {
-                  return Some(value);
-              } else {
-                  return None();
-              }
-          }
-      };
-  };
+    // Option helpers
+    global Some = func(value) {
+        return {
+            __variant: "Some",
+            __enum: "Option",
+            __data: value,
+            is_some: func() {
+                return true;
+            },
+            is_none: func() {
+                return false;
+            },
+            unwrap: func() {
+                return value;
+            },
+            unwrap_or: func(default_val) {
+                return value;
+            },
+            map: func(f) {
+                return Some(f(value));
+            },
+            and_then: func(f) {
+                return f(value);
+            },
+            or_else: func(f) {
+                return Some(value);
+            },
+            filter: func(pred) {
+                if (pred(value)) {
+                    return Some(value);
+                } else {
+                    return None();
+                }
+            }
+        };
+    };
 
-  global None = func() {
-      return {
-          __variant: "None",
-          __enum: "Option",
-          is_some: func() {
-              return false;
-          },
-          is_none: func() {
-              return true;
-          },
-          unwrap: func() {
-              panic("Called unwrap on None value");
-          },
-          unwrap_or: func(default_val) {
-              return default_val;
-          },
-          map: func(f) {
-              return None();
-          },
-          and_then: func(f) {
-              return None();
-          },
-          or_else: func(f) {
-              return f();
-          },
-          filter: func(pred) {
-              return None();
-          }
-      };
-  };
+    global None = func() {
+        return {
+            __variant: "None",
+            __enum: "Option",
+            is_some: func() {
+                return false;
+            },
+            is_none: func() {
+                return true;
+            },
+            unwrap: func() {
+                panic("Called unwrap on None value");
+            },
+            unwrap_or: func(default_val) {
+                return default_val;
+            },
+            map: func(f) {
+                return None();
+            },
+            and_then: func(f) {
+                return None();
+            },
+            or_else: func(f) {
+                return f();
+            },
+            filter: func(pred) {
+                return None();
+            }
+        };
+    };
 
-  global yield = func() {
-      __yield();
-  };
+    global yield = func() {
+        __yield();
+    };
 
-  global String = {
-      capitalize: func(str) {
-          if (str.length() == 0) {
-              return str
-          }
+    global String = {
+        capitalize: func(str) {
+            if (str.length() == 0) {
+                return str
+            }
 
-          let first = str.char_at(0).to_upper();
-          let rest = str.substr(1);
-          return first + rest;
-      },
-      count_words: func(text) {
-          let trimmed = text.trim();
-          if (trimmed.length() == 0) {
-              return 0
-          }
+            let first = str.char_at(0).to_upper();
+            let rest = str.substr(1);
+            return first + rest;
+        },
+        count_words: func(text) {
+            let trimmed = text.trim();
+            if (trimmed.length() == 0) {
+                return 0
+            }
 
-          let words = trimmed.split(" ");
-          return words.length();
-      },
-      truncate: func(str, max_length) {
-          if (!max_length) {
-              max_length = 20;
-          }
+            let words = trimmed.split(" ");
+            return words.length();
+        },
+        truncate: func(str, max_length) {
+            if (!max_length) {
+                max_length = 20;
+            }
 
-          if (str.length() <= max_length) {
-              return str;
-          }
-          return str.substr(0, max_length - 3) + "...";
-      }
-  }
+            if (str.length() <= max_length) {
+                return str;
+            }
+            return str.substr(0, max_length - 3) + "...";
+        }
+    }
 
-  global Array = {
-      unique: func(arr) {
-          let result = [];
-          for (item in arr) {
-              let found = false;
-              for (existing in result) {
-                  if (existing == item) {
-                      found = true;
-                  }
-              }
-              if (!found) {
-                  result.push(item);
-              }
-          }
-          return result;
-      },
-      flatten: func(arr) {
-          let result = [];
-          for (item in arr) {
-              if (is_array(item)) {
-                  let flat = Array.flatten(item);
-                  result = result.concat(flat);
-              } else {
-                  result.push(item);
-              }
-          }
-          return result;
-      },
-      chunk: func(arr, size) {
-          let result = [];
-          for (let i = 0; i < arr.length(); i = i + size) {
-              let end = i + size;
-              if (end > arr.length()) {
-                  end = arr.length();
-              }
-              result.push(arr.slice(i, end));
-          }
-          return result;
-      },
-      find_max: func(arr) {
-          if (arr.length() == 0) {
-              return null;
-          }
+    global Array = {
+        unique: func(arr) {
+            let result = [];
+            for (item in arr) {
+                let found = false;
+                for (existing in result) {
+                    if (existing == item) {
+                        found = true;
+                    }
+                }
+                if (!found) {
+                    result.push(item);
+                }
+            }
+            return result;
+        },
+        flatten: func(arr) {
+            let result = [];
+            for (item in arr) {
+                if (is_array(item)) {
+                    let flat = Array.flatten(item);
+                    result = result.concat(flat);
+                } else {
+                    result.push(item);
+                }
+            }
+            return result;
+        },
+        chunk: func(arr, size) {
+            let result = [];
+            for (let i = 0; i < arr.length(); i = i + size) {
+                let end = i + size;
+                if (end > arr.length()) {
+                    end = arr.length();
+                }
+                result.push(arr.slice(i, end));
+            }
+            return result;
+        },
+        find_max: func(arr) {
+            if (arr.length() == 0) {
+                return null;
+            }
 
-          let max = arr[0];
-          for (let i = 1; i < arr.length(); i++) {
-              if (arr[i] > max) {
-                  max = arr[i];
-              }
-          }
-          return max;
-      },
-      sum: func(arr : number[]) {
-          let total = 0;
-          for (num in arr) {
-              total += num;
-          }
-          return total;
-      },
-      partition: func(arr, predicate) {
-          let pass = [];
-          let fail = [];
+            let max = arr[0];
+            for (let i = 1; i < arr.length(); i++) {
+                if (arr[i] > max) {
+                    max = arr[i];
+                }
+            }
+            return max;
+        },
+        sum: func(arr: number[]) {
+            let total = 0;
+            for (num in arr) {
+                total += num;
+            }
+            return total;
+        },
+        partition: func(arr, predicate) {
+            let pass = [];
+            let fail = [];
 
-          for (item in arr) {
-              if (predicate(item)) {
-                  pass.push(item);
-              } else {
-                  fail.push(item);
-              }
-          }
+            for (item in arr) {
+                if (predicate(item)) {
+                    pass.push(item);
+                } else {
+                    fail.push(item);
+                }
+            }
 
-          return [pass, fail];
-      },
-      intersection: func(arr1, arr2) {
-          let result = [];
-          for (item in arr1) {
-              let in_arr2 = false;
-              for (other in arr2) {
-                  if (other == item) {
-                      in_arr2 = true;
-                  }
-              }
-              let in_result = false;
-              for (existing in result) {
-                  if (existing == item) {
-                      in_result = true;
-                  }
-              }
-              if (in_arr2 && !in_result) {
-                  result.push(item);
-              }
-          }
-          return result;
-      }
-  }
+            return [pass, fail];
+        },
+        intersection: func(arr1, arr2) {
+            let result = [];
+            for (item in arr1) {
+                let in_arr2 = false;
+                for (other in arr2) {
+                    if (other == item) {
+                        in_arr2 = true;
+                    }
+                }
+                let in_result = false;
+                for (existing in result) {
+                    if (existing == item) {
+                        in_result = true;
+                    }
+                }
+                if (in_arr2 && !in_result) {
+                    result.push(item);
+                }
+            }
+            return result;
+        }
+    }
 
-  global Object = {
-      deep_clone: func(obj) {
-          if (is_array(obj)) {
-              let result = [];
-              for (item in obj) {
-                  result.push(Object.deep_clone(item));
-              }
-              return result;
-          }
+    global Object = {
+        deep_clone: func(obj) {
+            if (is_array(obj)) {
+                let result = [];
+                for (item in obj) {
+                    result.push(Object.deep_clone(item));
+                }
+                return result;
+            }
 
-          if (!is_object(obj)) {
-              return obj; // Primitive value
-          }
+            if (!is_object(obj)) {
+                return obj; // Primitive value
+            }
 
-          let result = {};
-          for (key in obj.keys()) {
-              result[key] = Object.deep_clone(obj[key]);
-          }
-          return result;
-      },
-      equals: func(obj1, obj2) {
-          if (!is_object(obj1) || !is_object(obj2)) {
-              return obj1 == obj2;
-          }
+            let result = {};
+            for (key in obj.keys()) {
+                result[key] = Object.deep_clone(obj[key]);
+            }
+            return result;
+        },
+        equals: func(obj1, obj2) {
+            if (!is_object(obj1) || !is_object(obj2)) {
+                return obj1 == obj2;
+            }
 
-          let keys1 = obj1.keys();
-          let keys2 = obj2.keys();
+            let keys1 = obj1.keys();
+            let keys2 = obj2.keys();
 
-          if (keys1.length() != keys2.length()) {
-              return false;
-          }
+            if (keys1.length() != keys2.length()) {
+                return false;
+            }
 
-          for (key in keys1) {
-              if (!obj2.has_key(key)) {
-                  return false;
-              }
-              if (!Object.equals(obj1[key], obj2[key])) {
-                  return false;
-              }
-          }
+            for (key in keys1) {
+                if (!obj2.has_key(key)) {
+                    return false;
+                }
+                if (!Object.equals(obj1[key], obj2[key])) {
+                    return false;
+                }
+            }
 
-          return true;
-      },
-      pick: func(obj, selected_keys) {
-          let result = {};
-          for (key in selected_keys) {
-              if (obj.has_key(key)) {
-                  result[key] = obj[key];
-              }
-          }
-          return result;
-      },
-      omit: func(obj, excluded_keys) {
-          let result = {};
-          let obj_keys = obj.keys();
+            return true;
+        },
+        pick: func(obj, selected_keys) {
+            let result = {};
+            for (key in selected_keys) {
+                if (obj.has_key(key)) {
+                    result[key] = obj[key];
+                }
+            }
+            return result;
+        },
+        omit: func(obj, excluded_keys) {
+            let result = {};
+            let obj_keys = obj.keys();
 
-          for (key in obj_keys) {
-              let excluded = false;
-              for (ex_key in excluded_keys) {
-                  if (ex_key == key) {
-                      excluded = true;
-                  }
-              }
-              if (!excluded) {
-                  result[key] = obj[key];
-              }
-          }
+            for (key in obj_keys) {
+                let excluded = false;
+                for (ex_key in excluded_keys) {
+                    if (ex_key == key) {
+                        excluded = true;
+                    }
+                }
+                if (!excluded) {
+                    result[key] = obj[key];
+                }
+            }
 
-          return result;
-      },
-      group_by: func(arr, key_fn) {
-          let result = {};
+            return result;
+        },
+        group_by: func(arr, key_fn) {
+            let result = {};
 
-          for (item in arr) {
-              let key = key_fn(item);
-              if (!result.has_key(key)) {
-                  result[key] = [];
-              }
-              result[key].push(item);
-          }
+            for (item in arr) {
+                let key = key_fn(item);
+                if (!result.has_key(key)) {
+                    result[key] = [];
+                }
+                result[key].push(item);
+            }
 
-          return result;
-      }
-  }
-  
-  global Spawn = {
+            return result;
+        }
+    }
+
+    global Spawn = {
         // race: Returns the fastest completing handle
         race: func(handles) {
             let i = 0;
@@ -474,216 +474,216 @@ func __stdlib_init__() {
             return results;
         },
     };
-  global math = {
-    PI: 3.141592653589793,
-    E: 2.718281828459045,
-    pow: func(base, exponent) {
-        return base ** exponent;
-    },
-    square: func(n) {
-        return n * n;
-    },
-    sqrt: __math_sqrt,
-    abs: func(n) {
-        return n < 0 ? -n : n;
-    },
-    min: func(a, b) {
-        return a < b ? a : b;
-    },
-    max: func(a, b) {
-        return a > b ? a : b;
-    },
-    clamp: func(n, lo, hi) {
-        if (n < lo) { return lo; }
-        if (n > hi) { return hi; }
-        return n;
-    },
-    round: func(n) {
-        return __math_floor(n + 0.5);
-    },
-    rand: __math_rand,
-    sin: __math_sin,
-    cos: __math_cos,
-    tan: __math_tan,
-    atan: __math_atan,
-    atan2: __math_atan2,
-    exp: __math_exp,
-    log: __math_log,
-    log10: func(x) {
-        return __math_log(x) / __math_log(10);
-    },
-    log2: func(x) {
-        return __math_log(x) / __math_log(2);
-    },
-    floor: __math_floor,
-    ceil: __math_ceil
-  };
+    global math = {
+        PI: 3.141592653589793,
+        E: 2.718281828459045,
+        pow: func(base, exponent) {
+            return base ** exponent;
+        },
+        square: func(n) {
+            return n * n;
+        },
+        sqrt: __math_sqrt,
+        abs: func(n) {
+            return n < 0 ? -n : n;
+        },
+        min: func(a, b) {
+            return a < b ? a : b;
+        },
+        max: func(a, b) {
+            return a > b ? a : b;
+        },
+        clamp: func(n, lo, hi) {
+            if (n < lo) { return lo; }
+            if (n > hi) { return hi; }
+            return n;
+        },
+        round: func(n) {
+            return __math_floor(n + 0.5);
+        },
+        rand: __math_rand,
+        sin: __math_sin,
+        cos: __math_cos,
+        tan: __math_tan,
+        atan: __math_atan,
+        atan2: __math_atan2,
+        exp: __math_exp,
+        log: __math_log,
+        log10: func(x) {
+            return __math_log(x) / __math_log(10);
+        },
+        log2: func(x) {
+            return __math_log(x) / __math_log(2);
+        },
+        floor: __math_floor,
+        ceil: __math_ceil
+    };
 
-  global platform = {
-    arch: __platform_arch(),
-    os: __platform_os(),
-    endianness: __platform_endianness(),
-    hostname: __platform_hostname(),
-    getenv: func(var) {
-        return __platform_getenv(var);
-    }
-  };
-
-  global process = {
-    argc: __process_argc(),
-    argv: __process_argv(),
-    stdin: {
-        read: read_all,
-        read_line: read_line
-    },
-    exec: func(command) {
-        return __process_exec(command);
-    },
-    exit: func(code) {
-        __process_exit(code);
-    },
-  };
-
-  global fs = {
-    read_file: func(path) {
-        return __fs_readFile(path);
-    },
-    write_file: func(path, content) {
-        return __fs_writeFile(path, content);
-    },
-    append_file: func(path, content) {
-        return __fs_appendFile(path, content);
-    },
-    exists: func(path) {
-        return __fs_fileExists(path);
-    },
-    file_exists: func(path) {
-        return __fs_fileExists(path);
-    },
-    is_directory: func(path) {
-        return __fs_isDirectory(path);
-    },
-    mkdir_all: func(path) {
-        return __fs_mkdirAll(path);
-    },
-    delete_file: func(path) {
-        return __fs_deleteFile(path);
-    },
-    list_dir: func(path) {
-        return __fs_listDir(path);
-    }
-  };
-
-  global net = {
-    // Legacy blocking server. Spins an internal accept loop and a yield
-    // loop on the main task, exiting only when shutdown is requested.
-    create_server: func(port, on_connection) {
-        __net_createServer(port, on_connection);
-    
-        while (!__shutdown_requested()) {
-            __yield();
+    global platform = {
+        arch: __platform_arch(),
+        os: __platform_os(),
+        endianness: __platform_endianness(),
+        hostname: __platform_hostname(),
+        getenv: func(var) {
+            return __platform_getenv(var);
         }
-    },
-    
-    // TCP client. Returns an IO handle that resolves to a conn:
-    //  { fd, ip, port }
-    // Read/write/close via net.read(conn, cb), net.write(conn, data, cb),
-    // net.close(conn). The conn object is also accepted directly.
-    connect: func(host, port) {
-        return __net_connect(host, port);
-    },
-    
-    // TCP listener (non-blocking). Returns an IO handle resolving to:
-    //  { fd, port }
-    // Pass port=null or 0 for an ephemeral kernel-assigned port; the
-    // resolved server.port reflects the bound port. Use net.accept(server)
-    // to wait for a single inbound connection (loop to keep accepting),
-    // and net.close_server(server) when done.
-    listen: func(port) {
-        let p = port;
-        if (p == null) { p = 0; }
-        return __net_listen(p);
-    },
-    
-    // Wait for one inbound TCP connection on a listening server. Returns
-    // an IO handle resolving to a conn object { fd, ip, port }. To issue
-    // accept concurrently with other work (e.g. a same-process connect),
-    // call accept() WITHOUT awaiting first, then await later.
-    accept: func(server) {
-        return __net_accept(server);
-    },
-    
-    // Read up to one chunk from a TCP conn. cb(err, data).
-    read: func(conn, cb) {
-        return __net_conn_read(conn, cb);
-    },
-    
-    // Write data to a TCP conn.
-    write: func(conn, data) {
-        return __net_conn_write(conn, data);
-    },
-    
-    // Close a TCP conn.
-    close: func(conn) {
-        return __net_conn_close(conn);
-    },
-    
-    // Close a TCP listener.
-    close_server: func(server) {
-        return __net_server_close(server);
-    },
-    
-    // UDP socket. Returns an IO handle resolving to { fd, port }.
-    // port null/0 -> ephemeral. Use net.udp_send(sock, host, port, data),
-    // net.udp_recv(sock, timeout_ms?), net.udp_close(sock).
-    udp_socket: func(port) {
-        let p = port;
-        if (p == null) { p = 0; }
-        return __udp_bind(p);
-    },
-    
-    // Send a UDP datagram. Returns an IO handle resolving to bytes sent.
-    udp_send: func(sock, host, port, data) {
-        return __udp_send(sock, host, port, data);
-    },
-    
-    // Receive one UDP datagram. timeout_ms is optional; null/0 blocks
-    // forever (until shutdown). Resolves to { data, ip, port }.
-    udp_recv: func(sock, timeout_ms) {
-        return __udp_recv(sock, timeout_ms);
-    },
-    
-    // Close a UDP socket.
-    udp_close: func(sock) {
-        return __udp_close(sock);
+    };
+
+    global process = {
+        argc: __process_argc(),
+        argv: __process_argv(),
+        stdin: {
+            read: read_all,
+            read_line: read_line
+        },
+        exec: func(command) {
+            return __process_exec(command);
+        },
+        exit: func(code) {
+            __process_exit(code);
+        },
+    };
+
+    global fs = {
+        read_file: func(path) {
+            return __fs_readFile(path);
+        },
+        write_file: func(path, content) {
+            return __fs_writeFile(path, content);
+        },
+        append_file: func(path, content) {
+            return __fs_appendFile(path, content);
+        },
+        exists: func(path) {
+            return __fs_fileExists(path);
+        },
+        file_exists: func(path) {
+            return __fs_fileExists(path);
+        },
+        is_directory: func(path) {
+            return __fs_isDirectory(path);
+        },
+        mkdir_all: func(path) {
+            return __fs_mkdirAll(path);
+        },
+        delete_file: func(path) {
+            return __fs_deleteFile(path);
+        },
+        list_dir: func(path) {
+            return __fs_listDir(path);
+        }
+    };
+
+    global net = {
+        // Legacy blocking server. Spins an internal accept loop and a yield
+        // loop on the main task, exiting only when shutdown is requested.
+        create_server: func(port, on_connection) {
+            __net_createServer(port, on_connection);
+
+            while (!__shutdown_requested()) {
+                __yield();
+            }
+        },
+
+        // TCP client. Returns an IO handle that resolves to a conn:
+        //  { fd, ip, port }
+        // Read/write/close via net.read(conn, cb), net.write(conn, data, cb),
+        // net.close(conn). The conn object is also accepted directly.
+        connect: func(host, port) {
+            return __net_connect(host, port);
+        },
+
+        // TCP listener (non-blocking). Returns an IO handle resolving to:
+        //  { fd, port }
+        // Pass port=null or 0 for an ephemeral kernel-assigned port; the
+        // resolved server.port reflects the bound port. Use net.accept(server)
+        // to wait for a single inbound connection (loop to keep accepting),
+        // and net.close_server(server) when done.
+        listen: func(port) {
+            let p = port;
+            if (p == null) { p = 0; }
+            return __net_listen(p);
+        },
+
+        // Wait for one inbound TCP connection on a listening server. Returns
+        // an IO handle resolving to a conn object { fd, ip, port }. To issue
+        // accept concurrently with other work (e.g. a same-process connect),
+        // call accept() WITHOUT awaiting first, then await later.
+        accept: func(server) {
+            return __net_accept(server);
+        },
+
+        // Read up to one chunk from a TCP conn. cb(err, data).
+        read: func(conn, cb) {
+            return __net_conn_read(conn, cb);
+        },
+
+        // Write data to a TCP conn.
+        write: func(conn, data) {
+            return __net_conn_write(conn, data);
+        },
+
+        // Close a TCP conn.
+        close: func(conn) {
+            return __net_conn_close(conn);
+        },
+
+        // Close a TCP listener.
+        close_server: func(server) {
+            return __net_server_close(server);
+        },
+
+        // UDP socket. Returns an IO handle resolving to { fd, port }.
+        // port null/0 -> ephemeral. Use net.udp_send(sock, host, port, data),
+        // net.udp_recv(sock, timeout_ms?), net.udp_close(sock).
+        udp_socket: func(port) {
+            let p = port;
+            if (p == null) { p = 0; }
+            return __udp_bind(p);
+        },
+
+        // Send a UDP datagram. Returns an IO handle resolving to bytes sent.
+        udp_send: func(sock, host, port, data) {
+            return __udp_send(sock, host, port, data);
+        },
+
+        // Receive one UDP datagram. timeout_ms is optional; null/0 blocks
+        // forever (until shutdown). Resolves to { data, ip, port }.
+        udp_recv: func(sock, timeout_ms) {
+            return __udp_recv(sock, timeout_ms);
+        },
+
+        // Close a UDP socket.
+        udp_close: func(sock) {
+            return __udp_close(sock);
+        }
+    };
+
+    if (platform.os == "emscripten") {
+        global http = {
+            fetch: func(url, options) {
+                panic("HTTP requests not supported in Emscripten environment!");
+            },
+        };
+    } else {
+        // accepts either a plain URL string or an options object: { url, method?, headers?, body? }
+        // returns a handle
+        global http = {
+            fetch: func(url, options) {
+                return __http_fetch(url, options);
+            },
+        };
     }
-  };
 
-if (platform.os == "emscripten") {
-    global http = {
-        fetch: func(url, options) {
-            panic("HTTP requests not supported in Emscripten environment!");
-        },
+    global JSON = {
+        // parse a JSON string into Result<value, string>.
+        // Ok(value) on success (object, array, string, number, bool, or null);
+        // Err(message) on malformed input.
+        parse: __json_parse,
+
+        // serialize a Nari value to Result<string, string>.
+        // Ok(json) on success; Err(message) on cyclic/too-deep structures.
+        // optional second argument `indent` (integer) enables pretty-printing
+        stringify: __json_stringify,
     };
-} else {
-    // accepts either a plain URL string or an options object: { url, method?, headers?, body? }
-    // returns a handle
-    global http = {
-        fetch: func(url, options) {
-            return __http_fetch(url, options);
-        },
-    };
-}
-
-global JSON = {
-    // parse a JSON string into Result<value, string>.
-    // Ok(value) on success (object, array, string, number, bool, or null);
-    // Err(message) on malformed input.
-    parse: __json_parse,
-
-    // serialize a Nari value to Result<string, string>.
-    // Ok(json) on success; Err(message) on cyclic/too-deep structures.
-    // optional second argument `indent` (integer) enables pretty-printing
-    stringify: __json_stringify,
-};
 }
