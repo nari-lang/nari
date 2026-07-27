@@ -3,29 +3,27 @@
 // Extraction performs safety checks against zip-slip / absolute paths /
 // symlinks / size limits - see src/builtins/archive.cpp for details.
 //
-//  import { Archive } from "std/archive";
+//  import Archive from "std/archive";
 
-export let Archive = {
-    // Archive.list(path) -> Result<[{ name, size, type, mtime }, ...], string>
-    // type: "file" | "dir" | "symlink" | "other"
-    list: func(path) {
-        return __archive_list(path);
-    },
+// Archive.create(archive_path, files, opts?) -> Result<{ files, bytes }, string>
+// Format inferred from extension: .tar / .tar.gz / .tgz / .zip.
+// `files`: array of either string (source path) or { src, dest }.
+// opts: { base_dir?: string } - when set, string sources are stored
+//  relative to base_dir; otherwise the basename is used.
+func create(archive_path, files, opts) {
+    return __archive_create(archive_path, files, opts);
+}
 
-    // Archive.extract(archive_path, dest_dir, opts?) -> Result<{ files, bytes }, string>
-    // opts: { max_files?: int=10000, max_bytes?: int=1<<30, allow_links?: bool=false }
-    // Rejects entries with absolute or escaping paths, and symlinks
-    // (unless allow_links=true). dest_dir is created if needed.
-    extract: func(archive_path, dest_dir, opts) {
-        return __archive_extract(archive_path, dest_dir, opts);
-    },
+// Archive.list(path) -> Result<[{ name, size, type, mtime }, ...], string>
+// type: "file" | "dir" | "symlink" | "other"
+func list(path) {
+    return __archive_list(path);
+}
 
-    // Archive.create(archive_path, files, opts?) -> Result<{ files, bytes }, string>
-    // Format inferred from extension: .tar / .tar.gz / .tgz / .zip.
-    // `files`: array of either string (source path) or { src, dest }.
-    // opts: { base_dir?: string } - when set, string sources are stored
-    //  relative to base_dir; otherwise the basename is used.
-    create: func(archive_path, files, opts) {
-        return __archive_create(archive_path, files, opts);
-    }
-};
+// Archive.extract(archive_path, dest_dir, opts?) -> Result<{ files, bytes }, string>
+// opts: { max_files?: int=10000, max_bytes?: int=1<<30, allow_links?: bool=false }
+// Rejects entries with absolute or escaping paths, and symlinks
+// (unless allow_links=true). dest_dir is created if needed.
+func extract(archive_path, dest_dir, opts) {
+    return __archive_extract(archive_path, dest_dir, opts);
+}

@@ -19,25 +19,23 @@
 //  URL.encode_path(s)  - path-safe (keeps "/" ":").
 //  URL.parse_query(s) / URL.format_query(obj)  - `?k=v&k2=v2` <-> object.
 
+// Component-encode a string (everything but unreserved is %XX).
+// Use for query keys/values, username, password, fragment.
+func encode(s) { return __url_encode(s, "component"); }
+
+// Path-safe encode (leaves "/" ":" "@" untouched). Use for path
+// segments where slashes are meaningful.
+func encode_path(s) { return __url_encode(s, "path"); }
+
+// Decode a percent-encoded string -> Result<string, string>.
+// Ok(decoded) on success; Err(message) on malformed input.
+func decode(s) { return __url_decode(s, false); }
+
+// Decode as application/x-www-form-urlencoded ("+" -> space).
+// Returns Result<string, string> (see decode).
+func decode_form(s) { return __url_decode(s, true); }
+
 export let URL = {
-    // Component-encode a string (everything but unreserved is %XX).
-    // Use for query keys/values, username, password, fragment.
-    encode: func(s) { return __url_encode(s, "component"); },
-
-    // Path-safe encode (leaves "/" ":" "@" untouched). Use for path
-    // segments where slashes are meaningful.
-    encode_path: func(s) { return __url_encode(s, "path"); },
-
-    // Decode a percent-encoded string -> Result<string, string>.
-    // Ok(decoded) on success; Err(message) on malformed input.
-    decode: func(s) { return __url_decode(s, false); },
-
-    // Decode as application/x-www-form-urlencoded ("+" -> space).
-    // Returns Result<string, string> (see decode).
-    decode_form: func(s) { return __url_decode(s, true); },
-
-    // Parse a query string ("a=1&b=2" or "?a=1&b=2") into an object.
-    // Repeated keys collapse to the LAST value. Use parse_query_all for arrays.
     parse_query: func(s) {
         let out = {};
         if (s == null || s == "") { return out; }
