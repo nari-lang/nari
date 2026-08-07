@@ -1,0 +1,158 @@
+// <, <=, > and >= must agree with ==. All four reach Value::compare_ordered(),
+// which gives two values an order only when they have the same class.
+//
+// Before this, the relational operators sent a string through as_number(), so
+// `1 <= "1" && 1 >= "1"` was true while `1 == "1"` was false. A string that is not
+// a number became 0.0, so `1 > "abc"` was true. The 1e-12 tolerance of == was also
+// missing from the relational operators, so `0 == 1e-13` was true while
+// `0 >= 1e-13` was false.
+//
+// op() hides a value from the constant folder, so these are run-time answers.
+
+func op(x) {
+    return x;
+}
+
+func fail(label, i, j) {
+    panic(label @ " failed for pair (" @ to_string(i) @ ", " @ to_string(j) @ ")");
+}
+
+let tiny = 1.0 / 10000000000000.0;
+let vals = [1, 2, 1.0, 0.0, tiny, "1", "a", "b", true, false, null];
+let n = vals.length;
+
+// --- every pair must satisfy the ordering axioms ---
+let i = 0;
+while (i < n) {
+    let j = 0;
+    while (j < n) {
+        let x = op(vals[i]);
+        let y = op(vals[j]);
+        let eq = x == y;
+        let lt = x < y;
+        let gt = x > y;
+        let le = x <= y;
+        let ge = x >= y;
+
+        // == must mean the same as <= together with >=
+        if ((le && ge) != eq) {
+            fail("(x<=y && x>=y) == (x==y)", i, j);
+        }
+        // <, == and > exclude each other
+        if (lt && eq) {
+            fail("not (x<y and x==y)", i, j);
+        }
+        if (gt && eq) {
+            fail("not (x>y and x==y)", i, j);
+        }
+        if (lt && gt) {
+            fail("not (x<y and x>y)", i, j);
+        }
+        // <= is < or ==, and >= is > or ==
+        if (le != (lt || eq)) {
+            fail("x<=y == (x<y || x==y)", i, j);
+        }
+        if (ge != (gt || eq)) {
+            fail("x>=y == (x>y || x==y)", i, j);
+        }
+        // the operators are symmetric when the operands change places
+        if (lt != (op(vals[j]) > op(vals[i]))) {
+            fail("x<y == y>x", i, j);
+        }
+        if (le != (op(vals[j]) >= op(vals[i]))) {
+            fail("x<=y == y>=x", i, j);
+        }
+        j = j + 1;
+    }
+    i = i + 1;
+}
+
+// --- a number and a string have no order ---
+if (op(1) < op("2")) {
+    panic("1 < \"2\" must be false");
+}
+if (op(1) > op("abc")) {
+    panic("1 > \"abc\" must be false");
+}
+if (op(0) <= op("abc")) {
+    panic("0 <= \"abc\" must be false");
+}
+if ((op(1) <= op("1")) || (op(1) >= op("1"))) {
+    panic("1 <= \"1\" and 1 >= \"1\" must both be false");
+}
+
+// --- ordering inside one class still works ---
+if (!(op(1) < op(2))) {
+    panic("1 < 2 must be true");
+}
+if (!(op(2.5) > op(1.5))) {
+    panic("2.5 > 1.5 must be true");
+}
+if (!(op(1) <= op(1))) {
+    panic("1 <= 1 must be true");
+}
+if (!(op("a") < op("b"))) {
+    panic("\"a\" < \"b\" must be true");
+}
+if (!(op(false) < op(true))) {
+    panic("false < true must be true");
+}
+if (!(op(null) <= op(null))) {
+    panic("null <= null must be true");
+}
+if (op(null) < op(null)) {
+    panic("null < null must be false");
+}
+
+// --- the folder must agree with the run time ---
+let f1 = 1 < 2;
+if (f1 != (op(1) < op(2))) {
+    panic("fold/runtime disagree on 1 < 2");
+}
+let f2 = 2.5 >= 2.5;
+if (f2 != (op(2.5) >= op(2.5))) {
+    panic("fold/runtime disagree on 2.5 >= 2.5");
+}
+let f3 = 0.0 >= 0.0;
+if (f3 != (op(0.0) >= op(0.0))) {
+    panic("fold/runtime disagree on 0.0 >= 0.0");
+}
+let f4 = 1 <= 1.0;
+if (f4 != (op(1) <= op(1.0))) {
+    panic("fold/runtime disagree on 1 <= 1.0");
+}
+
+// --- the JIT tiers must agree with the interpreter ---
+func is_lt(x, y) {
+    return x < y;
+}
+func is_ge(x, y) {
+    return x >= y;
+}
+let k = 0;
+let mixed_lt = 0;
+let mixed_ge = 0;
+let num_lt = 0;
+while (k < 120000) {
+    if (is_lt(1, "2")) {
+        mixed_lt = mixed_lt + 1;
+    }
+    if (is_ge(1, "1")) {
+        mixed_ge = mixed_ge + 1;
+    }
+    if (is_lt(1, 2)) {
+        num_lt = num_lt + 1;
+    }
+    k = k + 1;
+}
+if (mixed_lt != 0) {
+    panic("JIT says 1 < \"2\" is true, " @ to_string(mixed_lt) @ " times");
+}
+if (mixed_ge != 0) {
+    panic("JIT says 1 >= \"1\" is true, " @ to_string(mixed_ge) @ " times");
+}
+if (num_lt != 120000) {
+    panic("JIT says 1 < 2 is false; true count " @ to_string(num_lt));
+}
+
+print("test_comparison_coherence: ok!");

@@ -1,0 +1,13 @@
+func make_reader() {
+    let state = { answer: 42 };
+    return func() {
+        return state.answer;
+    };
+}
+
+let read_state = make_reader();
+__gc_collect();
+if (read_state() != 42) {
+    panic("GC lost captured closure state");
+}
+print("GC closure environment roots passed");

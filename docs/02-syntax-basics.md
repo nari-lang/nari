@@ -20,16 +20,36 @@ let uninitialized;    // null
 
 ### Type Annotations (Optional)
 
-Variables can have optional type annotations:
+A `let` or `const` declaration takes no type annotation. The type comes from the
+value:
 
 ```nari
-let age: number = 25;
-let name: string = "Bob";
-let items: number[] = [1, 2, 3];
-let person: Person = { name: "Alice", age: 30 };
+let age = 25;
+let name = "Bob";
+let items = [1, 2, 3];
+let person = { name: "Alice", age: 30 };
 ```
 
-Type annotations are for documentation and future validation - they don't enforce types at runtime in the current implementation.
+Annotations are accepted in three places: function parameters, a function return
+type after `->`, and the fields of a `type` or `class` declaration.
+
+```nari
+type Person {
+    name: string;
+    age: number
+}
+
+func greet(who: string, times: number) -> string {
+    return who @ "!";
+}
+
+class Point {
+    public x: number = 0;
+    public y: number = 0;
+}
+```
+
+Annotations are documentation only. Nothing checks them at run time.
 
 ### Assignment
 
@@ -279,7 +299,8 @@ let age = 30;
 let msg = `My name is {name} and I am {age} years old.`;
 
 // Expressions in interpolation
-let x = 5, y = 10;
+let x = 5;
+let y = 10;
 print(`Sum: {x + y}`);              // Sum: 15
 print(`Result: {x > 3 ? "big" : "small"}`);
 ```

@@ -1,0 +1,22 @@
+import { assert } from "../lib/assert.nari";
+
+func truthy(value) {
+    if (value) return true;
+    return false;
+}
+
+func falsy(value) {
+    if (value) return false;
+    return true;
+}
+
+for (let i = 0; i < 200; i++) {
+    assert(!truthy([]), "empty array must be falsy");
+    assert(!truthy({}), "empty object must be falsy");
+    assert(truthy([1]), "non-empty array must be truthy");
+    assert(truthy({ value: 1 }), "non-empty object must be truthy");
+    assert(falsy([]), "empty array must take the falsy edge");
+    assert(!falsy([1]), "non-empty array must take the truthy edge");
+}
+
+print("JIT boxed branch truthiness ok");

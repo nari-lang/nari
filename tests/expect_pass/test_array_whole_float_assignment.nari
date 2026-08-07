@@ -1,0 +1,7 @@
+let values = [0];
+let index = 1.0 - 1.0;
+values[index] = 42;
+if (values[0] != 42) {
+    panic("whole-number float array assignment failed");
+}
+print("whole-number float array assignment passed");

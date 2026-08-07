@@ -21,8 +21,10 @@ Nari is a dynamically-typed scripting language designed for rapid development wi
 
 ### Dynamic Typing with Type Hints
 ```nari
-let x = 42;                    // No type declaration needed
-let name: string = "Alice";    // Optional type annotation
+let x = 42;                          // Variables are never annotated
+func greet(name: string) -> string { // Parameters and return types can be
+    return "Hi " @ name;
+}
 ```
 
 ### First-Class Functions
@@ -45,11 +47,11 @@ func makeCounter() {
 ### Asynchronous Programming
 ```nari
 let handle = spawn {
-    let data = http.fetch("https://api.example.com/data");
-    return data;
+    return http.fetch("https://api.example.com/data").await;
 };
 
-let result = handle.value;
+let result = handle.await;          // a Result
+print(result.unwrap().status_code);
 ```
 
 ### String Interpolation

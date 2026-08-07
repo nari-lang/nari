@@ -63,9 +63,9 @@ print(arr);   // [1, 2, 3]
 Get array length.
 
 ```nari
-[1, 2, 3].length();     // 3
-[].length();            // 0
-[[1], [2]].length();    // 2
+print([1, 2, 3].length());     // 3
+print([].length());            // 0
+print([[1], [2]].length());    // 2
 
 let arr = [1, 2, 3];
 for (let i = 0; i < arr.length(); i++) {
@@ -132,10 +132,10 @@ print(d);  // [1, 2, 3, 4, 5, 6]
 Convert array to string.
 
 ```nari
-[1, 2, 3].join(", ");          // "1, 2, 3"
-["a", "b", "c"].join("-");     // "a-b-c"
-[true, false].join(" | ");     // "true | false"
-["single"].join(",");          // "single"
+print([1, 2, 3].join(", "));          // "1, 2, 3"
+print(["a", "b", "c"].join("-"));     // "a-b-c"
+print([true, false].join(" | "));     // "true | false"
+print(["single"].join(","));          // "single"
 ```
 
 **Parameters:** `separator` - String between elements
@@ -483,7 +483,7 @@ print(nested.flat(100));  // [1, 2, 3, 4, 5]
 ```nari
 func chunk(arr, size) {
     let result = [];
-    for (let i = 0; i < arr.length(); i += size) {
+    for (let i = 0; i < arr.length(); i = i + size) {
         let end = i + size;
         if (end > arr.length()) {
             end = arr.length();

@@ -1,7 +1,12 @@
 import math from "../dep/package_import_app/src/main.nari";
+import math_package from "../dep/package_import_libmath_pkg";
 
 if (math.run_checks() != "ok") {
     panic("package import resolution failed");
+}
+
+if (math_package.add(20, 22) != 42) {
+    panic("package directory import resolution failed");
 }
 
 print("success!");

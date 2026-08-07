@@ -1,0 +1,41 @@
+let collect = func(head, ...tail) {
+    return [head, tail];
+};
+
+let result = collect(null, 2, 3);
+if (result[0] != null) { panic("explicit null did not remain the first argument"); }
+if (result[1].length() != 2) { panic("rest parameter did not collect extra arguments"); }
+if (result[1][0] != 2 || result[1][1] != 3) { panic("rest parameter did not preserve values"); }
+
+func call_hot(fn, expected) {
+    let i = 0;
+    while (i < 4) {
+        let values = fn(null, 2, 3);
+        if (values[1].length() != expected) { panic("JIT call did not pack the rest parameter"); }
+        i++;
+    }
+}
+
+let run = 0;
+while (run < 80) {
+    call_hot(collect, 2);
+    run++;
+}
+
+let exact = func(head, ...tail) {
+    let total = head;
+    for (let value of tail) {
+        total = total + value;
+    }
+    return total;
+};
+
+func call_exact_hot(fn) {
+    let i = 0;
+    while (i < 80) {
+        if (fn(1, 2) != 3) { panic("JIT call did not pack an exact-arity rest parameter"); }
+        i++;
+    }
+}
+
+call_exact_hot(exact);

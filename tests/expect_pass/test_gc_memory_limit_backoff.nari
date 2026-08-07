@@ -1,0 +1,49 @@
+// Regression: a memory limit BELOW the live heap must not make every
+// allocation run a full mark-and-sweep.
+//
+// The memory-based collection heuristic (gc.cpp, `estimated_memory_usage >
+// memory_target`) has to back off past the live heap after a collection that
+// reclaims nothing, the way the count-based heuristic already does via
+// collection_target. Without that backoff, `trigger_collection` is cleared by
+// reset_allocation_count() but estimated_memory_usage is unchanged, so the very
+// next allocation re-triggers -> O(n^2) whole-heap scans.
+//
+// Asserted on totalCollections (not wall clock) so the check is timing- and
+// load-independent.
+
+print("GC memory-limit backoff test\n");
+
+// Hold everything live so no collection can ever reclaim anything.
+let live = [];
+
+// 1 byte: unsatisfiable by construction, every allocation is over the limit.
+__gc_set_memory_limit(1);
+
+let before = __gc_stats().totalCollections;
+
+let N = 3000;
+for (let i = 0; i < N; i = i + 1) {
+    live.push({ id: i, data: [i, i + 1, i + 2] });
+}
+
+let after = __gc_stats().totalCollections;
+let collections = after - before;
+
+__gc_set_memory_limit(0);
+
+print("  live objects retained: " @ live.length);
+print("  collections during " @ N @ " live allocations: " @ collections);
+
+// Nothing is collectable, so the count must stay tiny. Pre-fix this tracked the
+// allocation count (thousands); the doubling backoff keeps it logarithmic.
+if (live.length != N) {
+    print("FAIL: expected " @ N @ " live objects, got " @ live.length);
+    __process_exit(1);
+}
+if (collections > 64) {
+    print("FAIL: " @ collections @ " collections for " @ N @ " live allocations");
+    print("      memory-limit heuristic is not backing off past the live heap");
+    __process_exit(1);
+}
+
+print("\nPASS: memory limit backs off past the live heap");

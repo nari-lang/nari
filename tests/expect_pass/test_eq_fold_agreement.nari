@@ -1,0 +1,101 @@
+// The constant folder in parser.cpp and Value::values_equal() must give the same
+// answer for ==. The folder used to compare a mixed pair by stringifying both
+// sides, so `1 == "1"` folded to true but was false at run time.
+//
+// op() hides the value from the folder, so the left column below is the folded
+// answer and the right column is the run-time answer.
+
+func op(x) {
+    return x;
+}
+
+func agree(folded, runtime, label) {
+    if (folded != runtime) {
+        panic("fold/runtime disagree on " @ label @ ": folded=" @ to_string(folded) @ " runtime=" @ to_string(runtime));
+    }
+}
+
+func expect(actual, want, label) {
+    if (actual != want) {
+        panic(label @ ": expected " @ to_string(want) @ ", got " @ to_string(actual));
+    }
+}
+
+// --- the reported cases: a number never equals a string ---
+let a = 1 == "1";
+agree(a, op(1) == op("1"), "1 == \"1\"");
+expect(a, false, "1 == \"1\"");
+
+let b = 1 == "1.0";
+agree(b, op(1) == op("1.0"), "1 == \"1.0\"");
+expect(b, false, "1 == \"1.0\"");
+
+let c = 1.0 == "1.0";
+agree(c, op(1.0) == op("1.0"), "1.0 == \"1.0\"");
+expect(c, false, "1.0 == \"1.0\"");
+
+// --- a bool never equals a number ---
+let d = 0 == false;
+agree(d, op(0) == op(false), "0 == false");
+expect(d, false, "0 == false");
+
+let e = 1 == true;
+agree(e, op(1) == op(true), "1 == true");
+expect(e, false, "1 == true");
+
+// --- a bool never equals a string ---
+let f = "true" == true;
+agree(f, op("true") == op(true), "\"true\" == true");
+expect(f, false, "\"true\" == true");
+
+// --- string folding must still work ---
+let g = "a" == "a";
+agree(g, op("a") == op("a"), "\"a\" == \"a\"");
+expect(g, true, "\"a\" == \"a\"");
+
+let h = "1.0" == "1.0";
+agree(h, op("1.0") == op("1.0"), "\"1.0\" == \"1.0\"");
+expect(h, true, "\"1.0\" == \"1.0\"");
+
+let i = "a" == "b";
+agree(i, op("a") == op("b"), "\"a\" == \"b\"");
+expect(i, false, "\"a\" == \"b\"");
+
+// --- == stays loose across int and float ---
+let j = 1 == 1.0;
+agree(j, op(1) == op(1.0), "1 == 1.0");
+expect(j, true, "1 == 1.0");
+
+// --- != follows == ---
+let k = 1 != "1";
+agree(k, op(1) != op("1"), "1 != \"1\"");
+expect(k, true, "1 != \"1\"");
+
+let l = "a" != "a";
+agree(l, op("a") != op("a"), "\"a\" != \"a\"");
+expect(l, false, "\"a\" != \"a\"");
+
+// --- the JIT tiers must agree with the interpreter ---
+func cmp(x, y) {
+    return x == y;
+}
+let n = 0;
+let mixed_true = 0;
+let string_true = 0;
+while (n < 120000) {
+    if (cmp(1, "1")) {
+        mixed_true = mixed_true + 1;
+    }
+    if (cmp("1", "1")) {
+        string_true = string_true + 1;
+    }
+    n = n + 1;
+}
+if (mixed_true != 0) {
+    panic("JIT says 1 == \"1\" is true, " @ to_string(mixed_true) @ " times");
+}
+if (string_true != 120000) {
+    panic("JIT says \"1\" == \"1\" is false; true count " @ to_string(string_true));
+}
+
+print("test_eq_fold_agreement: ok!");

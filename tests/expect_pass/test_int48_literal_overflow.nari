@@ -1,0 +1,63 @@
+import { assert } from "../lib/assert.nari";
+
+// passing a value through a function parameter forces a real Value to be materialized
+// this bypasses the constant folder, but probably should not eventually.
+func id(x) {
+    return x;
+}
+
+let INT48_MAX = 140737488355327;
+let INT48_MIN = -140737488355328;
+
+// The boundaries themselves are representable and must stay exact ints.
+assert(typeof(INT48_MAX) == "int", "int48 max should stay an int");
+assert(typeof(INT48_MIN) == "int", "int48 min should stay an int");
+assert(id(INT48_MAX) == INT48_MAX, "int48 max must survive a call boundary");
+assert(id(INT48_MIN) == INT48_MIN, "int48 min must survive a call boundary");
+
+// One past the top of the range. This is the case that used to come back negative.
+let over = 140737488355328;
+assert(over > 0, "literal one past int48 max must stay positive");
+assert(over > INT48_MAX, "literal one past int48 max must compare greater than the max");
+assert(id(over) > 0, "value must stay positive across a call boundary");
+assert(id(over) == over, "folded and materialized value must agree");
+
+// A literal far outside the range: this used to arrive as -80592252960769.
+let huge = 999999999999999999;
+assert(huge > 0, "large literal must stay positive");
+assert(id(huge) > 0, "large literal must stay positive across a call boundary");
+assert(id(huge) == huge, "folded and materialized large literal must agree");
+
+// The value must also survive being stored in a container, which is another path
+// that materializes a Value rather than folding.
+let arr = [huge, over];
+assert(arr[0] > 0, "array element must stay positive");
+assert(arr[0] == huge, "array element must equal the literal");
+assert(arr[1] == over, "array element must equal the literal");
+
+// out-of-range literals promote to float
+assert(typeof(over) == "float", "out-of-int48 literal should promote to float");
+assert(typeof(huge) == "float", "out-of-int48 literal should promote to float");
+
+// negative direction, one past the bottom of the range.
+let under = -140737488355329;
+assert(under < 0, "literal one past int48 min must stay negative");
+assert(under < INT48_MIN, "literal one past int48 min must compare less than the min");
+assert(id(under) == under, "folded and materialized negative value must agree");
+
+// stringification must not depend on whether the folder got there first.
+assert(("" @ 0.5) == ("" @ id(0.5)), "folded and runtime float text must agree");
+assert(("" @ 2.0) == ("" @ id(2.0)), "folded and runtime whole-float text must agree");
+assert(("" @ huge) == ("" @ id(huge)), "folded and runtime large-literal text must agree");
+
+// test if it still works at every JIT tier
+let i = 0;
+while (i < 400) {
+    assert(id(huge) > 0, "large literal must stay positive at every JIT tier");
+    assert(id(over) == over, "value must agree at every JIT tier");
+    assert(id(under) == under, "negative value must agree at every JIT tier");
+    assert(id(INT48_MAX) == INT48_MAX, "int48 max must agree at every JIT tier");
+    i = i + 1;
+}
+
+print("int48 literal overflow: ok");

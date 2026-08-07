@@ -38,13 +38,11 @@ inline bool mul_overflow_i64(int64_t a, int64_t b, int64_t *out) {
 
 inline bool add_overflow_i64(int64_t a, int64_t b, int64_t *out) {
     *out = a + b;
-    return (b > 0 && a > std::numeric_limits<int64_t>::max() - b) ||
-           (b < 0 && a < std::numeric_limits<int64_t>::min() - b);
+    return (b > 0 && a > std::numeric_limits<int64_t>::max() - b) || (b < 0 && a < std::numeric_limits<int64_t>::min() - b);
 }
 inline bool sub_overflow_i64(int64_t a, int64_t b, int64_t *out) {
     *out = a - b;
-    return (b < 0 && a > std::numeric_limits<int64_t>::max() + b) ||
-           (b > 0 && a < std::numeric_limits<int64_t>::min() + b);
+    return (b < 0 && a > std::numeric_limits<int64_t>::max() + b) || (b > 0 && a < std::numeric_limits<int64_t>::min() + b);
 }
 inline bool mul_overflow_i64(int64_t a, int64_t b, int64_t *out) {
     if (a == 0 || b == 0) {

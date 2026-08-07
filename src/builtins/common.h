@@ -9,8 +9,8 @@
 #else
 #include <unistd.h> // isatty, fileno
 #endif
-#include "compiler_support.h"
-#include "nari_fs.h"
+#include "../compiler_support.h"
+#include "../nari_fs.h"
 #ifdef __linux__
 #include <endian.h>
 #endif
@@ -22,16 +22,16 @@
 #include <string>
 #include <vector>
 
-#include "runtime.h"
+#include "../runtime.h"
 #define SRELL_NO_THROW
-#include "thirdparty/srell.hpp"
+#include "../../thirdparty/srell.hpp"
 #ifndef DISABLE_HTTP
-#include "io.h"
+#include "../io.h"
 #endif
 #ifndef DISABLE_FFI
-#include "nari_ffi.h"
+#include "../nari_ffi.h"
 #endif
-#include "parser_api.h"
+#include "../parser_api.h"
 
 // Returns a human-readable type name for a Value (used in TypeError messages).
 static std::string value_type_name(const Value &v) {
@@ -83,8 +83,7 @@ bool utf8_to_utf16(const std::string &input, std::u16string &output) {
         return true;
     }
 
-    int required =
-        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input.c_str(), static_cast<int>(input.size()), nullptr, 0);
+    int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input.c_str(), static_cast<int>(input.size()), nullptr, 0);
 
     if (required <= 0) {
         return false;

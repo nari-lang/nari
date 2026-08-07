@@ -1,14 +1,11 @@
-// -- Date --------------------------------------------------------------------
-// Wall-clock time. All timestamps are integer milliseconds since the Unix
-// epoch (1970-01-01T00:00:00Z). Designed for determinism: parse_iso of a
-// value without an explicit timezone is treated as UTC.
+// Date
+//  Wall-clock time. All timestamps are integer milliseconds since the Unix epoch.
 //
 //  import { Date } from "std/date";
 //  let d = Date.from_ms(Date.now());
 //  d.year; d.month; d.day; d.to_iso_string();
 //
-// Format strings use C strftime with one extension: "%L" -> 3-digit
-// milliseconds.
+//  Format strings use C strftime with one extension: "%L" -> 3-digit milliseconds.
 
 export let Date = {
     // Returns ms-since-epoch (int).

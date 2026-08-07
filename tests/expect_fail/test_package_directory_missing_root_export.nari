@@ -1,0 +1,3 @@
+import package from "../dep/package_import_missing_root";
+
+print(package);

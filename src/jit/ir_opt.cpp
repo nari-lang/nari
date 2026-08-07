@@ -124,7 +124,9 @@ static bool is_nonfolding_binary(Op op) {
         case Op::IXor:
         case Op::IShl:
         case Op::IShr:
+        case Op::JsBitBinary:
         case Op::StrConcat:
+        case Op::Pow:
             return true;
         default:
             return false;
@@ -344,6 +346,9 @@ static bool simplify_block(Func &f, Block &b) {
             case Op::LoadCapture:
                 push_existing(v, false);
                 break;
+            case Op::MakeClosure:
+                push_existing(v, false);
+                break;
             case Op::Dup:
                 if (stack.empty()) {
                     push_existing(v, false);
@@ -371,6 +376,14 @@ static bool simplify_block(Func &f, Block &b) {
                 body.push_back(v);
                 clear_removable();
                 break;
+            case Op::StrAppendSlot:
+                if (stack.empty()) {
+                    body.push_back(v);
+                    break;
+                }
+                stack.pop_back();
+                push_existing(v, false);
+                break;
             case Op::StoreGlobal:
                 body.push_back(v);
                 clear_removable();
@@ -380,8 +393,11 @@ static bool simplify_block(Func &f, Block &b) {
                 clear_removable();
                 break;
             case Op::Not:
+            case Op::JsTruthy:
+            case Op::IsNone:
             case Op::INeg:
             case Op::INot:
+            case Op::JsBitNot:
             case Op::FormatValue:
             case Op::IterArray:
                 if (stack.empty()) {
@@ -404,6 +420,16 @@ static bool simplify_block(Func &f, Block &b) {
                 push_existing(v, false);
                 break;
             }
+            case Op::CallSpread:
+                if (stack.size() < 2) {
+                    body.push_back(v);
+                    stack.clear();
+                    break;
+                }
+                stack.pop_back();
+                stack.pop_back();
+                push_existing(v, false);
+                break;
             case Op::CallMethod: {
                 size_t n = (size_t)in.imm_int + 1;
                 if (stack.size() < n) {
@@ -418,6 +444,17 @@ static bool simplify_block(Func &f, Block &b) {
                 break;
             }
             case Op::LoadIndex:
+                if (stack.size() < 2) {
+                    body.push_back(v);
+                    stack.clear();
+                    break;
+                }
+                stack.pop_back();
+                stack.pop_back();
+                push_existing(v, false);
+                break;
+            case Op::ArrayPush:
+            case Op::ArraySpread:
                 if (stack.size() < 2) {
                     body.push_back(v);
                     stack.clear();
@@ -490,6 +527,7 @@ static bool simplify_block(Func &f, Block &b) {
 static bool eliminate_slot_round_trips(Func &f, Block &b) {
     bool changed = false;
     std::vector<ValueId> body;
+    std::unordered_map<ValueId, ValueId> remap;
     body.reserve(b.insts.size());
 
     for (size_t i = 0; i < b.insts.size();) {
@@ -503,6 +541,7 @@ static bool eliminate_slot_round_trips(Func &f, Block &b) {
             // stored value remains on top of the stack for the consumer.
             if (a.op == Op::StoreSlot && mid.op == Op::Pop && c.op == Op::LoadSlot && a.imm_u32 == c.imm_u32) {
                 body.push_back(b.insts[i]);
+                remap[b.insts[i + 2]] = a.operands[0];
                 i += 3;
                 changed = true;
                 continue;
@@ -524,6 +563,14 @@ static bool eliminate_slot_round_trips(Func &f, Block &b) {
 
     if (changed) {
         b.insts = std::move(body);
+        for (Inst &in : f.insts) {
+            for (ValueId &operand : in.operands) {
+                auto it = remap.find(operand);
+                if (it != remap.end()) {
+                    operand = it->second;
+                }
+            }
+        }
     }
     return changed;
 }
@@ -537,9 +584,11 @@ static bool eliminate_slot_round_trips(Func &f, Block &b) {
 //   BConst v; StoreSlot v @X; Pop v      ->  StoreBImmSlot #imm -> @X
 //   NConst v; StoreSlot v @X; Pop v      ->  StoreNSlot -> @X
 //   LoadConst v @K; StoreSlot v @X; Pop  ->  StoreCSlot const#K -> @X
-//   LoadSlot v @Y; StoreSlot v @X; Pop v ->  CopySlot @Y -> @X   (X != Y;
-//                                            X == Y is already killed by
-//                                            eliminate_slot_round_trips.)
+//   LoadSlot v @Y; StoreSlot v @X; Pop v ->  CopySlot @Y -> @X   (X != Y, X == Y is eliminated by eliminate_slot_round_trips)
+static inline bool slot_aliased(const Func &f, uint32_t slot) {
+    return slot < f.captured_local_slots.size() && f.captured_local_slots[slot] != 0;
+}
+
 static bool fuse_slot_stores(Func &f, Block &b) {
     bool changed = false;
     std::vector<ValueId> body;
@@ -587,12 +636,13 @@ static bool fuse_slot_stores(Func &f, Block &b) {
             const Inst &c = f.inst(b.insts[i + 2]);
             ValueId prod_id = b.insts[i];
 
-            bool prod_is_const = (a.op == Op::IConst || a.op == Op::BConst || a.op == Op::NConst ||
-                                  a.op == Op::LoadConst || a.op == Op::LoadSlot);
+            bool prod_is_const =
+                (a.op == Op::IConst || a.op == Op::BConst || a.op == Op::NConst || a.op == Op::LoadConst || a.op == Op::LoadSlot);
 
-            if (prod_is_const && mid.op == Op::StoreSlot && c.op == Op::Pop && !mid.operands.empty() &&
-                mid.operands[0] == prod_id && !c.operands.empty() && c.operands[0] == prod_id &&
-                no_other_users(prod_id, i + 3)) {
+            // the fused forms (StoreImmSlot/StoreCSlot/CopySlot/...) write raw slot
+            // memory and would silently skip the cell write-through
+            if (prod_is_const && mid.op == Op::StoreSlot && c.op == Op::Pop && !mid.operands.empty() && mid.operands[0] == prod_id &&
+                !c.operands.empty() && c.operands[0] == prod_id && !slot_aliased(f, mid.imm_u32) && no_other_users(prod_id, i + 3)) {
                 // Snapshot immediates BEFORE add_inst() may reallocate f.insts.
                 Op prod_op = a.op;
                 int64_t prod_imm_int = a.imm_int;
@@ -623,6 +673,10 @@ static bool fuse_slot_stores(Func &f, Block &b) {
                         // Skip the copy-to-self case: eliminate_slot_round_trips
                         // handles LoadSlot @X; StoreSlot @X; Pop as a no-op.
                         if (prod_imm_u32 == dst_slot) {
+                            goto no_fuse;
+                        }
+                        // CopySlot reads the source slot raw, bypassing its cell
+                        if (slot_aliased(f, prod_imm_u32)) {
                             goto no_fuse;
                         }
                         fused.op = Op::CopySlot;
@@ -733,6 +787,9 @@ static bool propagate_slot_consts(Func &f, Block &b) {
     for (ValueId v : b.insts) {
         Inst &in = f.inst(v);
         if (in.op == Op::LoadSlot) {
+            if (slot_aliased(f, in.imm_u32)) {
+                continue; // a call may have rewritten the cell; the load must stand
+            }
             auto it = known.find(in.imm_u32);
             if (it != known.end()) {
                 const Inst &c = f.inst(it->second);
@@ -745,7 +802,7 @@ static bool propagate_slot_consts(Func &f, Block &b) {
             }
         } else if (in.op == Op::StoreSlot) {
             ValueId sv = in.operands.empty() ? InvalidValue : in.operands[0];
-            if (sv != InvalidValue && is_const(f.inst(sv).op)) {
+            if (sv != InvalidValue && is_const(f.inst(sv).op) && !slot_aliased(f, in.imm_u32)) {
                 known[in.imm_u32] = sv;
             } else {
                 known.erase(in.imm_u32);
@@ -756,14 +813,20 @@ static bool propagate_slot_consts(Func &f, Block &b) {
     return changed;
 }
 
-// Dead store elimination: a StoreSlot to a slot that is never read (no LoadSlot
-// anywhere) is unobservable - slots are function-local and IR-eligible code has no
-// closures/upvalues that could alias them. StoreSlot is stack-neutral (it peeks),
-// so dropping it preserves the value stack; the peeked value stays on the stack for
-// the following Pop. Composes with const-prop (which removes the loads, making the
-// stores dead) and DCE (which then removes the now-unused value + its Pop).
+// Dead store elimination: a StoreSlot to a slot that is never read (no LoadSlot anywhere)
+//  and is not captured by a closure is unobservable, since a non-aliased slot is purely function-local.
+// 
+// StoreSlot is stack-neutral (it peeks), so dropping it preserves the value stack, the peeked value stays on the stack.
+// Composes with const-prop and DCE (which then removes the now-unused value + its Pop).
 static bool eliminate_dead_stores(Func &f) {
     std::vector<bool> loaded(f.num_slots, false);
+    // An aliased slot's store also writes its upvalue cell, which a closure can read
+    // even if this function never loads the slot again, so it is never unobservable.
+    for (uint32_t sl = 0; sl < f.num_slots; sl++) {
+        if (slot_aliased(f, sl)) {
+            loaded[sl] = true;
+        }
+    }
     for (const Inst &in : f.insts) {
         if (in.op == Op::LoadSlot && in.imm_u32 < loaded.size()) {
             loaded[in.imm_u32] = true;
@@ -884,6 +947,19 @@ static bool local_value_numbering(Func &f, Block &b) {
                 slot_version[in.imm_u32] = slot_ver(in.imm_u32) + 1;
                 body.push_back(v);
                 break;
+            case Op::StrAppendSlot:
+                slot_version[in.imm_u32] = slot_ver(in.imm_u32) + 1;
+                vnmap.clear();
+                body.push_back(v);
+                if (st.empty()) {
+                    st.clear();
+                } else {
+                    E rhs = st.back();
+                    st.pop_back();
+                    in.operands = { rhs.vid };
+                    st.push_back({ getvn("strapp:" + std::to_string((int)v)), v, body.size() - 1 });
+                }
+                break;
             case Op::StoreGlobal:
                 // stack-neutral (peek); invalidate global/load-index value numbers.
                 vnmap.clear();
@@ -896,6 +972,8 @@ static bool local_value_numbering(Func &f, Block &b) {
                 body.push_back(v);
                 break;
             case Op::Not:
+            case Op::JsTruthy:
+            case Op::IsNone:
             case Op::INeg:
             case Op::INot:
             case Op::FormatValue: {
@@ -928,7 +1006,9 @@ static bool local_value_numbering(Func &f, Block &b) {
             case Op::DynCmpGt:
             case Op::DynCmpGe:
             case Op::DynCmpEq:
-            case Op::DynCmpNe: {
+            case Op::DynCmpNe:
+            case Op::DynStrictCmpEq:
+            case Op::DynStrictCmpNe: {
                 if (st.size() < 2) {
                     body.push_back(v);
                     st.clear(); // lost track -> stop CSE for the rest of the block
@@ -940,7 +1020,9 @@ static bool local_value_numbering(Func &f, Block &b) {
                 st.pop_back();
                 in.operands = { lhs.vid, rhs.vid }; // keep operands consistent with CSE
                 int o1 = lhs.vn, o2 = rhs.vn;
-                if ((in.op == Op::DynAdd || in.op == Op::DynMul) && o1 > o2) {
+                if ((in.op == Op::DynAdd || in.op == Op::DynMul || in.op == Op::DynStrictCmpEq ||
+                     in.op == Op::DynStrictCmpNe) &&
+                    o1 > o2) {
                     std::swap(o1, o2); // commutative: normalize operand order
                 }
                 int vn = getvn(std::to_string((int)in.op) + ":" + std::to_string(o1) + ":" + std::to_string(o2));
@@ -964,11 +1046,13 @@ static bool local_value_numbering(Func &f, Block &b) {
                 break;
             }
             case Op::StrConcat:
+            case Op::Pow:
             case Op::IAnd:
             case Op::IOr:
             case Op::IXor:
             case Op::IShl:
-            case Op::IShr: {
+            case Op::IShr:
+            case Op::JsBitBinary: {
                 if (st.size() < 2) {
                     body.push_back(v);
                     st.clear();
@@ -1001,6 +1085,20 @@ static bool local_value_numbering(Func &f, Block &b) {
                 }
                 break;
             }
+            case Op::CallSpread:
+                body.push_back(v);
+                if (st.size() < 2) {
+                    st.clear();
+                } else {
+                    E args = st.back();
+                    st.pop_back();
+                    E callee = st.back();
+                    st.pop_back();
+                    in.operands = { callee.vid, args.vid };
+                    vnmap.clear();
+                    st.push_back({ getvn("calls:" + std::to_string((int)v)), v, body.size() - 1 });
+                }
+                break;
             case Op::CallMethod: {
                 size_t n = (size_t)in.imm_int + 1;
                 body.push_back(v);
@@ -1022,6 +1120,21 @@ static bool local_value_numbering(Func &f, Block &b) {
                     st.pop_back();
                     st.pop_back();
                     st.push_back({ getvn("idx:" + std::to_string((int)v)), v, body.size() - 1 });
+                }
+                break;
+            case Op::ArrayPush:
+            case Op::ArraySpread:
+                body.push_back(v);
+                if (st.size() < 2) {
+                    st.clear();
+                } else {
+                    E iterable = st.back();
+                    st.pop_back();
+                    E target = st.back();
+                    st.pop_back();
+                    in.operands = { target.vid, iterable.vid };
+                    vnmap.clear();
+                    st.push_back({ getvn("arraymut:" + std::to_string((int)v)), v, body.size() - 1 });
                 }
                 break;
             case Op::StoreIndex:
@@ -1049,6 +1162,10 @@ static bool local_value_numbering(Func &f, Block &b) {
                 }
                 break;
             }
+            case Op::MakeClosure:
+                body.push_back(v);
+                st.push_back({ getvn("closure:" + std::to_string((int)v)), v, body.size() - 1 });
+                break;
             case Op::IterArray: {
                 // Pop 1 / push 1. Use a per-instruction unique value number so it
                 // is never CSE-deduped (normalizing the same object twice yields
@@ -1110,8 +1227,7 @@ static bool thread_phi_branches(Func &f) {
                 continue; // desynced operands<->preds: skip (never true pre-fixpoint)
             }
             BlockId T = term.target0, F = term.target1;
-            if (T < 0 || F < 0 || (size_t)T >= f.blocks.size() || (size_t)F >= f.blocks.size() || T == (BlockId)bi ||
-                F == (BlockId)bi) {
+            if (T < 0 || F < 0 || (size_t)T >= f.blocks.size() || (size_t)F >= f.blocks.size() || T == (BlockId)bi || F == (BlockId)bi) {
                 continue;
             }
             if (!f.blocks[T].phis.empty() || !f.blocks[F].phis.empty()) {
@@ -1382,6 +1498,7 @@ static int classify(Op op) {
         case Op::LoadCapture:
             return GC_LCAP;
         case Op::StrConcat:
+        case Op::StrAppendSlot:
         case Op::FormatValue:
             return GC_STRCAT;
         case Op::FAdd:
@@ -1398,6 +1515,8 @@ static int classify(Op op) {
         case Op::INot:
         case Op::IShl:
         case Op::IShr:
+        case Op::JsBitBinary:
+        case Op::JsBitNot:
             return GC_IARITH;
         case Op::ICmpLt:
         case Op::ICmpLe:
@@ -1417,6 +1536,8 @@ static int classify(Op op) {
         case Op::DynCmpGe:
         case Op::DynCmpEq:
         case Op::DynCmpNe:
+        case Op::DynStrictCmpEq:
+        case Op::DynStrictCmpNe:
             return GC_CMP;
         case Op::DynAdd:
         case Op::DynSub:
@@ -1426,6 +1547,8 @@ static int classify(Op op) {
         case Op::Unbox:
         case Op::GuardInt48:
         case Op::Not:
+        case Op::JsTruthy:
+        case Op::IsNone:
             return GC_BOX;
         default:
             return GC_OTHER;
@@ -1449,6 +1572,8 @@ static bool commutative(Op op) {
         case Op::DynMul:
         case Op::DynCmpEq:
         case Op::DynCmpNe:
+        case Op::DynStrictCmpEq:
+        case Op::DynStrictCmpNe:
             return true;
         default:
             return false;
@@ -1496,8 +1621,7 @@ struct GvnTotals {
                 continue;
             }
 
-            fprintf(stderr, "[GVN]   %-8s %5ld (loop %ld)%s\n", gc_name(c), cls[c], cls_loop[c],
-                    gc_expensive(c) ? "  <== EXPENSIVE" : "");
+            fprintf(stderr, "[GVN]   %-8s %5ld (loop %ld)%s\n", gc_name(c), cls[c], cls_loop[c], gc_expensive(c) ? "  <== EXPENSIVE" : "");
 
             if (gc_expensive(c)) {
                 exp += cls[c];
@@ -1779,12 +1903,16 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
         Kill k;
         switch (in.op) {
             case Op::StoreSlot:
+            case Op::StrAppendSlot:
             case Op::StoreImmSlot:
             case Op::StoreBImmSlot:
             case Op::StoreNSlot:
             case Op::StoreCSlot:
             case Op::CopySlot:
                 k.slot = (int)in.imm_u32;
+                if (in.op == Op::StrAppendSlot) {
+                    k.h = true;
+                }
                 break;
             case Op::StoreGlobal:
                 k.g = true;
@@ -1794,9 +1922,12 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
                 break;
             case Op::StoreIndex:
             case Op::StoreProperty:
+            case Op::ArrayPush:
+            case Op::ArraySpread:
                 k.h = true;
                 break;
             case Op::Call:
+            case Op::CallSpread:
             case Op::CallMethod:
                 k.g = k.h = k.c = true;
                 break;
@@ -1976,8 +2107,8 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
         totals.cls[c] += lc[c];
         totals.cls_loop[c] += lc_loop[c];
     }
-    fprintf(stderr, "[GVN] %-24s#%-3u B=%zu | xred=%ld(loop=%ld) part=%ld |",
-            (fn_name && *fn_name) ? fn_name : "<anon>", fn_idx, rpo.size(), fx, fx_loop, part);
+    fprintf(stderr, "[GVN] %-24s#%-3u B=%zu | xred=%ld(loop=%ld) part=%ld |", (fn_name && *fn_name) ? fn_name : "<anon>", fn_idx,
+            rpo.size(), fx, fx_loop, part);
     for (int c = 0; c < GC_N; c++) {
         if (lc[c]) {
             fprintf(stderr, " %s=%ld(l%ld)", gc_name(c), lc[c], lc_loop[c]);
@@ -2165,8 +2296,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
                 return true;
             };
 
-            if ((in.op == Op::StoreImmSlot || in.op == Op::StoreBImmSlot || in.op == Op::StoreNSlot ||
-                 in.op == Op::StoreCSlot) &&
+            if ((in.op == Op::StoreImmSlot || in.op == Op::StoreBImmSlot || in.op == Op::StoreNSlot || in.op == Op::StoreCSlot) &&
                 in.imm_u32 == s) {
                 return true;
             }
@@ -2277,6 +2407,14 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
 }
 
 bool optimize(Func &f) {
+    // This used to bail on the entire function whenever ANY local was captured by a
+    // closure, which left 10.5% of JIT'd functions -- but 27.8% of all IR
+    // instructions, since they are the big ones -- completely unoptimized. Only three
+    // passes actually need locals to be unaliased, and each is gated per slot via
+    // slot_aliased() instead, so a function with one captured slot still gets the full
+    // pipeline on its other slots. Measured: ir_opt is worth ~192 ms (4.9%) overall
+    // and the three aliasing-sensitive passes are only ~28 ms of that; lifting the
+    // bail is worth -38.6 ms (0.99%) on tsc (14-pair interleaved A/B, t=5.4, 13/14).
     // Phi-branch threading runs first, exactly once, on the pristine build output:
     //      it is the only consumer of phi.operands[i]<->preds[i]
     bool any = thread_phi_branches(f);
@@ -2669,11 +2807,9 @@ IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_i
                     // operand[0] = receiver; rest = args. If receiver is a
                     // candidate, only two method calls keep it int-array-pure:
                     //   push(<Int48>)  (argc==1) - in-place int append,
-                    //   length()       (argc==0) - pure read of the element
-                    //                              count; stores nothing and
-                    //                              leaks no reference, so it
-                    //                              does not escape the array.
-                    // Any other method conservatively escapes the receiver.
+                    //   length()       (argc==0) - pure read of the element count
+                    // 
+                    // any other method conservatively escapes the receiver.
                     if (in.operands.empty()) {
                         break;
                     }
@@ -2681,8 +2817,7 @@ IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_i
                     bool recv_is_cand = is_loadslot_of_candidate(in.operands[0], &s);
                     if (recv_is_cand) {
                         bool is_push = in.imm_u32 == push_method_name_idx && in.imm_int == 1 && in.operands.size() == 2;
-                        bool is_length = length_ok && in.imm_u32 == length_method_name_idx && in.imm_int == 0 &&
-                                         in.operands.size() == 1;
+                        bool is_length = length_ok && in.imm_u32 == length_method_name_idx && in.imm_int == 0 && in.operands.size() == 1;
                         if (is_push) {
                             const Inst &arg = f.inst(in.operands[1]);
                             if (!is_int_ty(arg.type)) {
@@ -2704,13 +2839,18 @@ IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_i
                     break;
                 }
                 case Op::Call:
+                case Op::CallSpread:
                 case Op::StoreGlobal:
                 case Op::StoreCapture:
                 case Op::StoreProperty:
                 case Op::LoadProperty:
+                case Op::JsGetPropStatic:
                 case Op::MakeArray:
+                case Op::ArrayPush:
+                case Op::ArraySpread:
                 case Op::MakeObject:
                 case Op::StrConcat:
+                case Op::StrAppendSlot:
                 case Op::FormatValue:
                 case Op::IterArray:
                 case Op::Return: {
@@ -2757,8 +2897,8 @@ IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_i
     return out;
 }
 
-void infer_types(Func &f, std::vector<Ty> &slot_ty, const GlobalTypeMap *global_types,
-                 const IntArraySlots *int_array_slots, bool int48_params) {
+void infer_types(Func &f, std::vector<Ty> &slot_ty, const GlobalTypeMap *global_types, const IntArraySlots *int_array_slots,
+                 bool int48_params) {
     // Optimistic init: non-param slots start Bottom (refined upward by their
     // stores); params are dynamically typed at entry, so Unknown. Non-const value
     // types start Bottom; constants are fixed.
@@ -2811,14 +2951,18 @@ void infer_types(Func &f, std::vector<Ty> &slot_ty, const GlobalTypeMap *global_
                     nt = t;
                     break;
                 }
-                case Op::LoadConst:
                 case Op::Call:
+                case Op::CallSpread:
                 case Op::CallMethod:
                 case Op::LoadProperty:
+                case Op::JsGetPropStatic:
                 case Op::LoadCapture:
                 case Op::MakeArray:
+                case Op::ArrayPush:
+                case Op::ArraySpread:
                 case Op::MakeObject:
                 case Op::StrConcat:
+                case Op::StrAppendSlot:
                 case Op::FormatValue:
                 case Op::IterArray:
                     nt = Ty::Unknown;
@@ -2845,6 +2989,8 @@ void infer_types(Func &f, std::vector<Ty> &slot_ty, const GlobalTypeMap *global_
                     nt = f.inst(in.operands[0]).type;
                     break;
                 case Op::Not:
+                case Op::JsTruthy:
+                case Op::IsNone:
                     nt = Ty::Bool;
                     break;
                 case Op::INeg:
@@ -2856,6 +3002,8 @@ void infer_types(Func &f, std::vector<Ty> &slot_ty, const GlobalTypeMap *global_
                 case Op::IXor:
                 case Op::IShl:
                 case Op::IShr:
+                case Op::JsBitBinary:
+                case Op::JsBitNot:
                     nt = Ty::Int48;
                     break;
                 case Op::DynAdd:
@@ -2871,6 +3019,8 @@ void infer_types(Func &f, std::vector<Ty> &slot_ty, const GlobalTypeMap *global_
                 case Op::DynCmpGe:
                 case Op::DynCmpEq:
                 case Op::DynCmpNe:
+                case Op::DynStrictCmpEq:
+                case Op::DynStrictCmpNe:
                     nt = Ty::Bool;
                     break;
                 case Op::Phi: {
@@ -3140,8 +3290,8 @@ bool fold_redundant_not(Func &f) {
                 const Inst &a = f.inst(v);
                 const Inst &c = f.inst(b.insts[i + 1]);
                 ValueId x = out_body.back();
-                if (a.op == Op::Not && c.op == Op::Not && !a.operands.empty() && a.operands[0] == x &&
-                    !c.operands.empty() && c.operands[0] == v && f.inst(x).type == Ty::Bool) {
+                if (a.op == Op::Not && c.op == Op::Not && !a.operands.empty() && a.operands[0] == x && !c.operands.empty() &&
+                    c.operands[0] == v && f.inst(x).type == Ty::Bool) {
                     // drop nots, redirect any user of either to X.
                     remap[v] = x;
                     remap[b.insts[i + 1]] = x;
@@ -3231,8 +3381,6 @@ bool mark_inplace_concat(Func &f) {
 // prove a builtin global (e.g. "to_string") is unshadowable in this chunk
 uint32_t analyze_frozen_builtin(const nari::bytecode::Chunk &chunk, const char *name) {
     using namespace nari::bytecode;
-    // locate the name's string-pool index. If it isn't in the pool at all,
-    // no LoadGlobal can reference it, so there is nothing to fuse.
     uint32_t name_idx = UINT32_MAX;
     for (uint32_t i = 0; i < chunk.strings.size(); i++) {
         if (chunk.strings[i] == name) {
@@ -3243,14 +3391,11 @@ uint32_t analyze_frozen_builtin(const nari::bytecode::Chunk &chunk, const char *
     if (name_idx == UINT32_MAX) {
         return UINT32_MAX;
     }
-    // check if a user function with this name shadows the builtin at load time.
     for (const FunctionMeta &fn : chunk.functions) {
         if (fn.name == name) {
             return UINT32_MAX;
         }
     }
-    // check if any OP_STORE_GLOBAL to this name-index rebinds it at runtime.
-    // Scan every function's full bytecode, any unknown opcode means we should bail just in case.
     auto u16_at = [&](const ByteArray &code, size_t pc) -> uint16_t {
         return uint16_t((uint16_t(code[pc]) << 8) | uint16_t(code[pc + 1]));
     };

@@ -1,0 +1,22 @@
+import { assert } from "../lib/assert.nari";
+
+func typeof(value) {
+    return value + 1;
+}
+
+func __js_to_number(value) {
+    return value + 2;
+}
+
+func start() {
+    let type_result = 0;
+    let number_result = 0;
+    for (let i = 0; i < 100; i++) {
+        type_result = typeof(i);
+        number_result = __js_to_number(i);
+    }
+
+    assert(type_result == 100, "JIT bypassed user-defined typeof");
+    assert(number_result == 101, "JIT bypassed user-defined __js_to_number");
+    print("frozen builtin shadowing ok");
+}

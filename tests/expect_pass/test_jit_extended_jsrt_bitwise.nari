@@ -1,0 +1,27 @@
+import { assert } from "../lib/assert.nari";
+
+func __js_bitnot(value) { return ~__js_to_int32(value); }
+func __js_bitand(a, b) { return __js_to_int32(a) & __js_to_int32(b); }
+func __js_bitor(a, b) { return __js_to_int32(a) | __js_to_int32(b); }
+func __js_bitxor(a, b) { return __js_to_int32(a) ^ __js_to_int32(b); }
+func __js_shl(a, b) { return __js_to_int32(__js_to_int32(a) << (__js_to_uint32(b) % 32)); }
+func __js_shr(a, b) { return __js_to_int32(a) >> (__js_to_uint32(b) % 32); }
+func __js_ushr(a, b) {
+    let value = __js_to_uint32(a);
+    let shift = __js_to_uint32(b) % 32;
+    return math.floor(value / __js_pow(2, shift));
+}
+
+func exercise(a, b) {
+    return __js_bitnot(a) + __js_bitand(a, b) + __js_bitor(a, b) + __js_bitxor(a, b) +
+        __js_shl(a, b) + __js_shr(a, b) + __js_ushr(a, b);
+}
+
+func start() {
+    let result = 0;
+    for (let i = 0; i < 100; i = i + 1) {
+        result = exercise(-1, 1);
+    }
+    assert(result == 2147483642, "JIT JavaScript bitwise semantics failed");
+    print("jit extended jsrt bitwise ok");
+}

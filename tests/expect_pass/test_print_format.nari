@@ -1,0 +1,5 @@
+print("%s", "something");
+print("value=%s count=%i ratio=%f", "ok", 3.8, 1.5);
+print("object: %o", {answer: 42});
+print("%%", "literal");
+print("missing: %s %s", "one");

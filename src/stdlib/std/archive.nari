@@ -1,7 +1,7 @@
-// -- Archive -----------------------------------------------------------------
-// Archive read/write backed by libarchive (tar, tar.gz, zip).
-// Extraction performs safety checks against zip-slip / absolute paths /
-// symlinks / size limits - see src/builtins/archive.cpp for details.
+// Archive
+//  Archive read/write backed by libarchive (tar, tar.gz, zip).
+//  Extraction performs safety checks against zip-slip / absolute paths /
+//  symlinks / size limits - see src/builtins/archive.cpp for details.
 //
 //  import { Archive } from "std/archive";
 
@@ -23,8 +23,7 @@ export let Archive = {
     // Archive.create(archive_path, files, opts?) -> Result<{ files, bytes }, string>
     // Format inferred from extension: .tar / .tar.gz / .tgz / .zip.
     // `files`: array of either string (source path) or { src, dest }.
-    // opts: { base_dir?: string } - when set, string sources are stored
-    //  relative to base_dir; otherwise the basename is used.
+    // opts: { base_dir?: string }, when set, string sources are stored relative to base_dir, otherwise the basename is used.
     create: func(archive_path, files, opts) {
         return __archive_create(archive_path, files, opts);
     }

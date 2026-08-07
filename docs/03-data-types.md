@@ -25,10 +25,18 @@ Strings represent text:
 
 ```nari
 let str1 = "Hello";
-let str2 = 'World';
-let template = `Value: {42}`;
+let str2 = "World";
+let answer = 42;
+let template = `Value: {answer}`;
 let empty = "";
 ```
+
+Only double quotes and backticks delimit a string. Single quotes are not string
+delimiters.
+
+An interpolation slot must not begin with a numeric literal. `` `{answer}` ``
+and `` `{answer + 1}` `` both work, but `` `{42}` `` and `` `{1 + 1}` `` are
+parse errors. Bind the number to a name first.
 
 Strings are immutable. See [String Methods](13-string-methods.md) for operations.
 
@@ -72,9 +80,25 @@ arr[2] = 40;        // Modify element
 ```
 
 **Array Type Annotation:**
+
+A `let` takes no annotation. Use `number[]` and `string[]` in the places that
+accept a type: a parameter, a `->` return type, or a `type` or `class` field.
+
 ```nari
-let numbers: number[] = [1, 2, 3];
-let names: string[] = ["Alice", "Bob"];
+type Config {
+    ports: number[];
+    hosts: string[]
+}
+
+func total(values: number[]) -> number {
+    let sum = 0;
+    for (v in values) {
+        sum = sum + v;
+    }
+    return sum;
+}
+
+print(total([1, 2, 3]));   // 6
 ```
 
 See [Array Methods](14-array-methods.md) for operations.
@@ -95,6 +119,8 @@ let empty = {};
 
 **Object Access:**
 ```nari
+let person = { name: "Alice", age: 30, city: "Boston" };
+
 // Dot notation
 print(person.name);     // "Alice"
 person.age = 31;        // Modify
@@ -151,7 +177,7 @@ type Person {
     email: string
 }
 
-let user: Person = {
+let user = {
     name: "Alice",
     age: 25,
     email: "alice@example.com"
@@ -267,8 +293,14 @@ if ([1, 2]) {       // truthy (non-empty)
 Some operators automatically coerce types:
 
 ```nari
+// `+` concatenates when either operand is a string. It never reads a
+// string as a number, so this gives "53" and not 8.
+print("5" + 3);         // "53"
+print(5 + "3");         // "53"
+```
+
+```nari
 // Arithmetic coerces to number
-print("5" + 3);         // 8 (string "5" -> number 5)
 print(true + 1);        // 2 (true -> 1)
 
 // String concatenation with @
@@ -277,11 +309,24 @@ print(42 @ " items");   // "42 items"
 
 ### Comparison
 
+Comparison does not coerce. Two values of different type classes are never equal,
+and they have no order:
+
 ```nari
-print(5 == "5");        // Type coercion in comparison
-print(0 == false);      // true
-print(null == null);    // true
+print(5 == "5");        // false - a number is never equal to a string
+print(0 == false);      // false - a number is never equal to a bool
+print(null == null);    // true  - same class, same value
+print(5 < "50");        // false - no order across type classes
 ```
+
+Convert first to compare across classes:
+
+```nari
+print(5 == to_number("5"));   // true
+print(to_string(5) == "5");   // true
+```
+
+Refer to [Operators](04-operators.md) for the full rule and for `===`.
 
 ## Handles (Advanced)
 

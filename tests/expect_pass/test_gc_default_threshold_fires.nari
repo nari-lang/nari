@@ -1,0 +1,84 @@
+// Regression: the DEFAULT collection threshold must be low enough that the
+// count-based trigger actually fires on a realistic heap.
+//
+// gc.cpp's collect() already implements a correct, adaptive policy:
+//
+//     collection_target = tracked_count + max(collection_threshold, tracked_count)
+//
+// i.e. "collect again when the live object count doubles, but require at least
+// collection_threshold new objects first". That is non-quadratic and needs no
+// tuning -- EXCEPT that collection_threshold is also the floor on the FIRST
+// collection. Ship it above any realistic heap and the trigger never fires even
+// once, the doubling policy never engages, and memory grows without bound.
+//
+// That was the bug: the default was 67108864 objects (1<<26), roughly 10x the
+// peak of a real workload, so a long-running program never collected at all.
+// Measured on the tsc benchmark: peak RSS 1236 MB with the old default vs
+// 500 MB once the trigger fires.
+//
+// Asserted on __gc_stats() counters (not wall clock or RSS) so the check is
+// timing- and load-independent.
+
+print("GC default-threshold test\n");
+
+let s0 = __gc_stats();
+let threshold = s0.threshold;
+print("  default threshold: " @ threshold @ " objects");
+
+// (1) The threshold itself must be sane. This is the direct, instant check for
+// the bug, and it also bounds the allocation loop below -- without it a
+// regressed default would make this test try to allocate 67M objects.
+if (threshold <= 0) {
+    print("FAIL: non-positive collection threshold " @ threshold);
+    __process_exit(1);
+}
+let kMaxSaneThreshold = 4000000;
+if (threshold > kMaxSaneThreshold) {
+    print("FAIL: default collection threshold " @ threshold @ " exceeds " @ kMaxSaneThreshold);
+    print("      the count trigger will never fire on a realistic heap, so the");
+    print("      heap grows without bound (see gc.h collection_threshold)");
+    __process_exit(1);
+}
+
+// (2) Allocate past the threshold, retaining nothing, and confirm the trigger
+// fires AND the sweep is productive. N tracks the threshold so this adapts if
+// the default is legitimately retuned.
+let before = s0.totalCollections;
+let N = threshold + threshold / 5;
+let sink = 0;
+for (let i = 0; i < N; i = i + 1) {
+    let garbage = { id: i };
+    sink = sink + 1;
+}
+
+let s1 = __gc_stats();
+let collections = s1.totalCollections - before;
+let reclaimed = s1.totalCollected - s0.totalCollected;
+
+print("  allocated (garbage): " @ N);
+print("  collections: " @ collections);
+print("  objects reclaimed: " @ reclaimed);
+print("  tracked afterwards: " @ s1.tracked);
+
+if (sink != N) {
+    print("FAIL: loop did not run " @ N @ " times (got " @ sink @ ")");
+    __process_exit(1);
+}
+if (collections < 1) {
+    print("FAIL: no collection fired while allocating " @ N @ " objects past a");
+    print("      threshold of " @ threshold @ " -- the count trigger is dead");
+    __process_exit(1);
+}
+if (reclaimed < 1) {
+    print("FAIL: collection fired but reclaimed nothing; every object here is");
+    print("      unreachable garbage, so the sweep is not working");
+    __process_exit(1);
+}
+// The point of collecting: the heap must NOT have grown to hold all N objects.
+if (s1.tracked >= N) {
+    print("FAIL: tracked count " @ s1.tracked @ " did not stay below the " @ N);
+    print("      objects allocated -- the heap is not being bounded");
+    __process_exit(1);
+}
+
+print("\nPASS: default threshold fires and bounds the heap");

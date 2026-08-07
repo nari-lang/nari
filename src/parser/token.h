@@ -68,6 +68,10 @@ enum class TokenKind {
     TK_EQEQ,
     // !=
     TK_NEQ,
+    // ===
+    TK_STRICT_EQ,
+    // !==
+    TK_STRICT_NEQ,
     // &&
     TK_ANDAND,
     // ||

@@ -85,8 +85,7 @@ struct FFIStructDef {
     mutable std::vector<size_t> ffi_field_offsets;
 
     FFIStructDef() = default;
-    FFIStructDef(const std::string &n, const std::vector<FFIStructField> &f, bool u = false)
-        : name(n), is_union(u), fields(f) {
+    FFIStructDef(const std::string &n, const std::vector<FFIStructField> &f, bool u = false) : name(n), is_union(u), fields(f) {
     }
 
     ~FFIStructDef() {
@@ -95,14 +94,12 @@ struct FFIStructDef {
         }
     }
 
-    FFIStructDef(const FFIStructDef &other)
-        : name(other.name), is_union(other.is_union), fields(other.fields), ffi_struct_type(nullptr) {
+    FFIStructDef(const FFIStructDef &other) : name(other.name), is_union(other.is_union), fields(other.fields), ffi_struct_type(nullptr) {
     }
 
     FFIStructDef(FFIStructDef &&other) noexcept
-        : name(std::move(other.name)), is_union(other.is_union), fields(std::move(other.fields)),
-          ffi_struct_type(other.ffi_struct_type), ffi_field_types(std::move(other.ffi_field_types)),
-          ffi_field_offsets(std::move(other.ffi_field_offsets)) {
+        : name(std::move(other.name)), is_union(other.is_union), fields(std::move(other.fields)), ffi_struct_type(other.ffi_struct_type),
+          ffi_field_types(std::move(other.ffi_field_types)), ffi_field_offsets(std::move(other.ffi_field_offsets)) {
         other.ffi_struct_type = nullptr;
     }
 

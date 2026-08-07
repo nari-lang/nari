@@ -34,6 +34,16 @@
 // Provided by the generated embedded_stdlib.cpp
 extern std::string nari_std_prelude_source();
 
+static bool is_identifier_start(char c) {
+    unsigned char byte = static_cast<unsigned char>(c);
+    return std::isalpha(byte) || c == '_' || byte >= 0x80;
+}
+
+static bool is_identifier_continue(char c) {
+    unsigned char byte = static_cast<unsigned char>(c);
+    return std::isalnum(byte) || c == '_' || byte >= 0x80;
+}
+
 // count unmatched open-braces/parens so we know whether the user has finished their statement yet
 static int count_unmatched(const std::string &s) {
     int braces = 0, parens = 0;
@@ -124,7 +134,7 @@ static bool looks_like_assignment(const std::string &src) {
         return false;
     }
     // LHS must start with an identifier or '_'
-    if (!std::isalpha((unsigned char)src[i]) && src[i] != '_') {
+    if (!is_identifier_start(src[i])) {
         return false;
     }
 
@@ -147,7 +157,7 @@ static bool looks_like_assignment(const std::string &src) {
             ++i;
             continue;
         }
-        if (std::isalnum((unsigned char)c) || c == '_' || c == '.') {
+        if (is_identifier_continue(c) || c == '.') {
             ++i;
             continue;
         }
@@ -156,8 +166,7 @@ static bool looks_like_assignment(const std::string &src) {
             continue;
         }
         // Compound assignment: +=  -=  *=  /=  %=  @=
-        if ((c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '@') && i + 1 < src.size() &&
-            src[i + 1] == '=') {
+        if ((c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '@') && i + 1 < src.size() && src[i + 1] == '=') {
             return true;
         }
         // Plain assignment '=' but NOT ==, !=, <=, >=
@@ -204,8 +213,8 @@ static bool should_accumulate(const std::string &src) {
         return true;
     };
 
-    return sw("func ") || sw("func(") || sw("async func ") || sw("class ") || sw("type ") || sw("enum ") ||
-           sw("let ") || sw("global ") || sw("import ") || looks_like_assignment(src);
+    return sw("func ") || sw("func(") || sw("async func ") || sw("class ") || sw("type ") || sw("enum ") || sw("let ") || sw("global ") ||
+           sw("import ") || looks_like_assignment(src);
 }
 
 // trim trailing whitespace (without touching \n in the middle of the string).
@@ -303,8 +312,8 @@ static bool supports_ansi_output() {
   returns true on clean execution, false on parse / compile / runtime error.
 */
 #ifndef DISABLE_PARSER
-static bool compile_and_run(const std::string &stdlib_src, const std::string &accumulated, const std::string &new_code,
-                            bool auto_print, bool use_color, int argc, char **argv) {
+static bool compile_and_run(const std::string &stdlib_src, const std::string &accumulated, const std::string &new_code, bool auto_print,
+                            bool use_color, int argc, char **argv) {
     // build source that will be compiled in
     std::string full;
     if (!accumulated.empty()) {
@@ -405,10 +414,12 @@ static bool compile_and_run(const std::string &stdlib_src, const std::string &ac
 static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &colors) {
     using Color = replxx::Replxx::Color;
 
-    static constexpr const char *KEYWORDS[] = { "func",     "async", "await", "let",   "global", "return",
-                                                "if",       "else",  "for",   "while", "in",     "break",
-                                                "continue", "class", "type",  "enum",  "new",    "import",
-                                                "export",   "true",  "false", "not" };
+    replxx::Replxx::colors_t byte_colors(ctx.size(), Color::DEFAULT);
+
+    static constexpr const char *KEYWORDS[] = { 
+        "func", "async", "await", "let", "global", "return", "if", "else",
+        "for", "while", "in", "break", "continue", "class", "type", "enum",
+        "new", "import", "export", "true", "false", "not" };
 
     size_t i = 0;
     while (i < ctx.size()) {
@@ -417,7 +428,7 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
         // single-line comment
         if (c == '/' && i + 1 < ctx.size() && ctx[i + 1] == '/') {
             while (i < ctx.size()) {
-                colors[i++] = Color::GRAY;
+                byte_colors[i++] = Color::GRAY;
             }
             break;
         }
@@ -425,13 +436,13 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
         // string literals (double-quote and single-quote)
         if (c == '"' || c == '\'') {
             char delim = c;
-            colors[i++] = Color::YELLOW;
+            byte_colors[i++] = Color::YELLOW;
             while (i < ctx.size()) {
-                colors[i] = Color::YELLOW;
+                byte_colors[i] = Color::YELLOW;
                 if (ctx[i] == '\\') {
                     ++i;
                     if (i < ctx.size()) {
-                        colors[i++] = Color::YELLOW;
+                        byte_colors[i++] = Color::YELLOW;
                     }
                     continue;
                 }
@@ -444,22 +455,22 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
 
         // backtick template literals `text {expr} text`
         if (c == '`') {
-            colors[i++] = Color::YELLOW;
+            byte_colors[i++] = Color::YELLOW;
             while (i < ctx.size()) {
                 if (ctx[i] == '\\') {
                     // escape sequence, colour both chars as string
-                    colors[i++] = Color::YELLOW;
+                    byte_colors[i++] = Color::YELLOW;
                     if (i < ctx.size()) {
-                        colors[i++] = Color::YELLOW;
+                        byte_colors[i++] = Color::YELLOW;
                     }
                     continue;
                 }
                 if (ctx[i] == '`') {
-                    colors[i++] = Color::YELLOW;
+                    byte_colors[i++] = Color::YELLOW;
                     break;
                 }
                 if (ctx[i] == '{') {
-                    colors[i++] = Color::BRIGHTBLUE;
+                    byte_colors[i++] = Color::BRIGHTBLUE;
                     int depth = 1;
                     while (i < ctx.size() && depth > 0) {
                         if (ctx[i] == '{') {
@@ -467,7 +478,7 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
                         } else if (ctx[i] == '}') {
                             --depth;
                             if (depth == 0) {
-                                colors[i++] = Color::BRIGHTBLUE;
+                                byte_colors[i++] = Color::BRIGHTBLUE;
                                 break;
                             }
                         }
@@ -475,29 +486,28 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
                     }
                     continue;
                 }
-                colors[i++] = Color::YELLOW;
+                byte_colors[i++] = Color::YELLOW;
             }
             continue;
         }
 
         // numeric literals (integer / float / hex)
-        if (std::isdigit((unsigned char)c) ||
-            (c == '.' && i + 1 < ctx.size() && std::isdigit((unsigned char)ctx[i + 1]))) {
+        if (std::isdigit((unsigned char)c) || (c == '.' && i + 1 < ctx.size() && std::isdigit((unsigned char)ctx[i + 1]))) {
             while (i < ctx.size()) {
                 char d = ctx[i];
                 if (!std::isdigit((unsigned char)d) && d != '.' && d != 'x' && d != 'X' &&
                     !((d >= 'a' && d <= 'f') || (d >= 'A' && d <= 'F'))) {
                     break;
                 }
-                colors[i++] = Color::BRIGHTGREEN;
+                byte_colors[i++] = Color::BRIGHTGREEN;
             }
             continue;
         }
 
         // identifiers and keywords
-        if (std::isalpha(c) || c == '_') {
+        if (is_identifier_start(c)) {
             size_t start = i;
-            while (i < ctx.size() && (std::isalnum((ctx[i])) || ctx[i] == '_')) {
+            while (i < ctx.size() && is_identifier_continue(ctx[i])) {
                 ++i;
             }
 
@@ -511,12 +521,21 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
             }
             Color col = is_kw ? Color::BRIGHTBLUE : Color::DEFAULT;
             for (size_t j = start; j < i; ++j) {
-                colors[j] = col;
+                byte_colors[j] = col;
             }
             continue;
         }
 
         ++i;
+    }
+
+    size_t color_index = 0;
+    for (size_t byte_index = 0; byte_index < ctx.size() && color_index < colors.size(); ++byte_index) {
+        unsigned char byte = static_cast<unsigned char>(ctx[byte_index]);
+        if ((byte & 0xc0) == 0x80) {
+            continue;
+        }
+        colors[color_index++] = byte_colors[byte_index];
     }
 }
 #endif // DISABLE_REPL

@@ -28,6 +28,13 @@ option(
 )
 
 option(
+    'extended_jsrt',
+    type: 'boolean',
+    value: true,
+    description: 'Enable specialized bytecode operations for canonical JavaScript runtime helpers',
+)
+
+option(
     'disable_repl',
     type: 'boolean',
     value: false,

@@ -1,6 +1,4 @@
-func assert(cond, msg) {
-    if (!cond) panic(msg);
-}
+import { assert } from "../lib/assert.nari";
 
 func exercise_array(seed) {
     let values = [];
@@ -13,9 +11,19 @@ func exercise_array(seed) {
     return values[0] + values[1] + values[2] + values[3] + values[4];
 }
 
+func exercise_index_semantics(seed) {
+    let values = [seed, seed + 1];
+    let text = "ab";
+    let whole_float = 1.0 - 1.0;
+    if (values[whole_float] != seed) panic("whole-float array read failed");
+    if (values[-1] != null) panic("negative array read used from-end semantics");
+    if (text[-1] != null) panic("negative string read used from-end semantics");
+}
+
 let result = 0;
 for (let i = 0; i < 200; i++) {
     result = exercise_array(i);
+    exercise_index_semantics(i);
 }
 
 assert(result == 1018, "JIT array push/index result was " @ result);

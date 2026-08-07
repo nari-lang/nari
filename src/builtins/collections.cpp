@@ -108,26 +108,13 @@ Value ScriptRuntime::builtin_concat(const Value *argvals, size_t argc, const nar
 
 // Object builtins
 Value ScriptRuntime::builtin_keys(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if ((argc > 0) && argvals[0].is_object()) {
-        const ObjectObj *oobj = argvals[0].get_obj_ptr();
+    if (argc > 0 && (argvals[0].is_object() || argvals[0].is_function())) {
+        const ObjectObj *oobj = argvals[0].is_object() ? argvals[0].get_obj_ptr() : argvals[0].get_function().properties.get();
 
         std::vector<Value> result;
-        for (const auto &name : oobj->get_keys()) {
-            result.push_back(Value::make_string(name));
-        }
-        return Value::make_array(std::move(result));
-    }
-    return Value::make_array();
-}
-
-Value ScriptRuntime::builtin_values(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if ((argc > 0) && argvals[0].is_object()) {
-        const ObjectObj *oobj = argvals[0].get_obj_ptr();
-
-        std::vector<Value> result;
-        for (const auto &name : oobj->get_keys()) {
-            if (const Value *v = oobj->get_field(name)) {
-                result.push_back(*v);
+        if (oobj) {
+            for (const auto &name : oobj->get_keys()) {
+                result.push_back(Value::make_string(name));
             }
         }
         return Value::make_array(std::move(result));
@@ -135,12 +122,44 @@ Value ScriptRuntime::builtin_values(const Value *argvals, size_t argc, const nar
     return Value::make_array();
 }
 
-Value ScriptRuntime::builtin_hasKey(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if (argc >= 2 && argvals[0].is_object()) {
-        const ObjectObj *oobj = argvals[0].get_obj_ptr();
+Value ScriptRuntime::builtin_values(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc > 0 && (argvals[0].is_object() || argvals[0].is_function())) {
+        const ObjectObj *oobj = argvals[0].is_object() ? argvals[0].get_obj_ptr() : argvals[0].get_function().properties.get();
 
-        std::string key = argvals[1].to_string();
-        return Value::make_bool(oobj->has_field(key));
+        std::vector<Value> result;
+        if (oobj) {
+            for (const auto &name : oobj->get_keys()) {
+                if (const Value *v = oobj->get_field(name)) {
+                    result.push_back(*v);
+                }
+            }
+        }
+        return Value::make_array(std::move(result));
+    }
+    return Value::make_array();
+}
+
+Value ScriptRuntime::builtin_hasKey(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+    if (argc >= 2 && argvals[0].is_array()) {
+        auto *array = static_cast<ArrayObj *>(argvals[0].heap_ptr());
+        return Value::make_bool(array->has_property(argvals[1].to_string()));
+    }
+    if (argc >= 2 && (argvals[0].is_object() || argvals[0].is_function())) {
+        const ObjectObj *oobj = argvals[0].is_object() ? argvals[0].get_obj_ptr() : argvals[0].get_function().properties.get();
+
+        if (!oobj) {
+            return Value::make_bool(false);
+        }
+        if (argvals[1].is_string()) {
+            auto *key = static_cast<StringObj *>(argvals[1].heap_ptr());
+            if (key->immutable) {
+                if (key->field_id == UINT32_MAX) {
+                    key->field_id = intern_field(key->s);
+                }
+                return Value::make_bool(oobj->has_field_by_id(key->field_id));
+            }
+        }
+        return Value::make_bool(oobj->has_field(argvals[1].to_string()));
     }
     // Delegate has trap: has_key(delegate, key) -> handler.has(target, key).
     if (argc >= 2 && argvals[0].is_delegate()) {
@@ -150,18 +169,20 @@ Value ScriptRuntime::builtin_hasKey(const Value *argvals, size_t argc, const nar
 }
 
 Value ScriptRuntime::builtin_entries(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if (argc > 0 && argvals[0].is_object()) {
-        const ObjectObj *oobj = argvals[0].get_obj_ptr();
+    if (argc > 0 && (argvals[0].is_object() || argvals[0].is_function())) {
+        const ObjectObj *oobj = argvals[0].is_object() ? argvals[0].get_obj_ptr() : argvals[0].get_function().properties.get();
         std::vector<Value> result;
-        for (const auto &name : oobj->get_keys()) {
-            const Value *val = oobj->get_field(name);
-            if (!val) {
-                continue;
+        if (oobj) {
+            for (const auto &name : oobj->get_keys()) {
+                const Value *val = oobj->get_field(name);
+                if (!val) {
+                    continue;
+                }
+                std::vector<Value> pair;
+                pair.push_back(Value::make_string(name));
+                pair.push_back(*val);
+                result.push_back(Value::make_array(std::move(pair)));
             }
-            std::vector<Value> pair;
-            pair.push_back(Value::make_string(name));
-            pair.push_back(*val);
-            result.push_back(Value::make_array(std::move(pair)));
         }
         return Value::make_array(std::move(result));
     }
@@ -169,16 +190,22 @@ Value ScriptRuntime::builtin_entries(const Value *argvals, size_t argc, const na
 }
 
 Value ScriptRuntime::builtin_assign(const Value *argvals, size_t argc, const nari::CallExpr *call) {
-    if (argc >= 2 && argvals[0].is_object()) {
-        ObjectObj *target = const_cast<Value &>(argvals[0]).get_obj_ptr();
+    if (argc >= 2 && (argvals[0].is_object() || argvals[0].is_function())) {
         for (size_t i = 1; i < argc; i++) {
-            if (!argvals[i].is_object()) {
+            if (!argvals[i].is_object() && !argvals[i].is_function()) {
                 continue;
             }
-            const ObjectObj *src = argvals[i].get_obj_ptr();
+            const ObjectObj *src = argvals[i].is_object() ? argvals[i].get_obj_ptr() : argvals[i].get_function().properties.get();
+            if (!src) {
+                continue;
+            }
             for (const auto &name : src->get_keys()) {
                 if (const Value *val = src->get_field(name)) {
-                    target->set_field(name, *val);
+                    if (argvals[0].is_object()) {
+                        const_cast<Value &>(argvals[0]).get_obj_ptr()->set_field(name, *val);
+                    } else {
+                        const_cast<Value &>(argvals[0]).get_function().set_property(name, *val);
+                    }
                 }
             }
         }
@@ -219,20 +246,11 @@ Value ScriptRuntime::builtin_yield(const Value *, size_t, const nari::CallExpr *
     }
 
     process_completed_io();
-
-    int tasks_processed = 0;
-    while (!task_queue.empty() && tasks_processed < 10) {
-        HandlePtr next_task = task_queue.front();
-        task_queue.pop();
-        step_task(next_task);
-        if (next_task->state == HandleData::Running) {
-            task_queue.push(next_task);
-        }
-        tasks_processed++;
-    }
+    fire_due_intervals();
 
     NARI_SLEEP_MILLIS(1);
     process_completed_io();
+    fire_due_intervals();
 
     return Value::none();
 }
@@ -245,8 +263,7 @@ Value ScriptRuntime::builtin_shutdown_requested(const Value *, size_t, const nar
 Value ScriptRuntime::builtin_substr(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc > 0) {
         std::string str_storage;
-        const std::string &str =
-            argvals[0].is_string() ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
+        const std::string &str = argvals[0].is_string() ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
         int start = 0;
         if (argc > 1) {
             if (!coerce_numeric_index(argvals[1], start)) {
@@ -298,9 +315,7 @@ Value ScriptRuntime::builtin_indexOf(const Value *argvals, size_t argc, const na
 
     // string.index_of(search)
     if (!argvals[0].is_string()) {
-        runtime_fatal("TypeError: 'index_of' can only be called on a string or array, got " +
-                          value_type_name(argvals[0]),
-                      callExpr);
+        runtime_fatal("TypeError: 'index_of' can only be called on a string or array, got " + value_type_name(argvals[0]), callExpr);
     }
     std::string str = argvals[0].to_string();
     std::string search = argvals[1].to_string();
@@ -319,8 +334,7 @@ Value ScriptRuntime::builtin_lastIndexOf(const Value *argvals, size_t argc, cons
 
         if (search.empty()) {
             if (argc > 2 && (argvals[2].is_int() || argvals[2].is_float())) {
-                int64_t fi =
-                    (argvals[2].is_int()) ? argvals[2].get_int() : static_cast<int64_t>(argvals[2].get_float());
+                int64_t fi = (argvals[2].is_int()) ? argvals[2].get_int() : static_cast<int64_t>(argvals[2].get_float());
                 if (fi < 0) {
                     return Value::make_int(-1);
                 }
@@ -366,12 +380,10 @@ Value ScriptRuntime::builtin_split(const Value *argvals, size_t argc, const nari
     if (argc >= 2) {
         std::string str_storage;
         std::string delim_storage;
-        const std::string &str = (argvals[0].is_string() && !argvals[0].is_sso())
-                                     ? argvals[0].get_string()
-                                     : (str_storage = argvals[0].to_string());
-        const std::string &delim = (argvals[1].is_string() && !argvals[1].is_sso())
-                                       ? argvals[1].get_string()
-                                       : (delim_storage = argvals[1].to_string());
+        const std::string &str =
+            (argvals[0].is_string() && !argvals[0].is_sso()) ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
+        const std::string &delim =
+            (argvals[1].is_string() && !argvals[1].is_sso()) ? argvals[1].get_string() : (delim_storage = argvals[1].to_string());
         std::vector<Value> result;
 
         if (delim.empty()) {
@@ -534,12 +546,10 @@ Value ScriptRuntime::builtin_startsWith(const Value *argvals, size_t argc, const
     if (argc >= 2) {
         std::string str_storage;
         std::string prefix_storage;
-        const std::string &str = (argvals[0].is_string() && !argvals[0].is_sso())
-                                     ? argvals[0].get_string()
-                                     : (str_storage = argvals[0].to_string());
-        const std::string &prefix = (argvals[1].is_string() && !argvals[1].is_sso())
-                                        ? argvals[1].get_string()
-                                        : (prefix_storage = argvals[1].to_string());
+        const std::string &str =
+            (argvals[0].is_string() && !argvals[0].is_sso()) ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
+        const std::string &prefix =
+            (argvals[1].is_string() && !argvals[1].is_sso()) ? argvals[1].get_string() : (prefix_storage = argvals[1].to_string());
         return Value::make_bool(str.size() >= prefix.size() && str.compare(0, prefix.size(), prefix) == 0);
     }
     return Value::make_bool(false);
@@ -549,14 +559,11 @@ Value ScriptRuntime::builtin_endsWith(const Value *argvals, size_t argc, const n
     if (argc >= 2) {
         std::string str_storage;
         std::string suffix_storage;
-        const std::string &str = (argvals[0].is_string() && !argvals[0].is_sso())
-                                     ? argvals[0].get_string()
-                                     : (str_storage = argvals[0].to_string());
-        const std::string &suffix = (argvals[1].is_string() && !argvals[1].is_sso())
-                                        ? argvals[1].get_string()
-                                        : (suffix_storage = argvals[1].to_string());
-        return Value::make_bool(str.size() >= suffix.size() &&
-                                str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0);
+        const std::string &str =
+            (argvals[0].is_string() && !argvals[0].is_sso()) ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
+        const std::string &suffix =
+            (argvals[1].is_string() && !argvals[1].is_sso()) ? argvals[1].get_string() : (suffix_storage = argvals[1].to_string());
+        return Value::make_bool(str.size() >= suffix.size() && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0);
     }
     return Value::make_bool(false);
 }
@@ -581,8 +588,7 @@ Value ScriptRuntime::builtin_charCodeAt(const Value *argvals, size_t argc, const
         // buffer when possible. byte_hash calls this ~720K times on ~30-char
         // strings, where a per-call to_string() copy dominated the profile.
         std::string str_storage;
-        const std::string &str =
-            argvals[0].is_string() ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
+        const std::string &str = argvals[0].is_string() ? argvals[0].get_string() : (str_storage = argvals[0].to_string());
         int index = 0;
         if (!coerce_numeric_index(argvals[1], index)) {
             return Value::make_int(-1);
@@ -686,8 +692,8 @@ Value ScriptRuntime::builtin_base64_encode(const Value *argvals, size_t argc, co
     out.reserve(((s.size() + 2) / 3) * 4);
     size_t i = 0;
     for (; i + 2 < s.size(); i += 3) {
-        unsigned int n = (static_cast<unsigned char>(s[i]) << 16) | (static_cast<unsigned char>(s[i + 1]) << 8) |
-                         (static_cast<unsigned char>(s[i + 2]));
+        unsigned int n =
+            (static_cast<unsigned char>(s[i]) << 16) | (static_cast<unsigned char>(s[i + 1]) << 8) | (static_cast<unsigned char>(s[i + 2]));
         out.push_back(B64_ALPHABET[(n >> 18) & 0x3F]);
         out.push_back(B64_ALPHABET[(n >> 12) & 0x3F]);
         out.push_back(B64_ALPHABET[(n >> 6) & 0x3F]);
@@ -794,8 +800,7 @@ Value ScriptRuntime::builtin_padEnd(const Value *argvals, size_t argc, const nar
 Value ScriptRuntime::builtin_repeat(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
     if (argc >= 2) {
         if (!argvals[0].is_string()) {
-            runtime_fatal("TypeError: 'repeat' can only be called on a string, got " + value_type_name(argvals[0]),
-                          callExpr);
+            runtime_fatal("TypeError: 'repeat' can only be called on a string, got " + value_type_name(argvals[0]), callExpr);
         }
         std::string str = argvals[0].to_string();
         int count = argvals[1].get_int();
@@ -1170,43 +1175,7 @@ Value ScriptRuntime::builtin_flatMap(const Value *argvals, size_t argc, const na
 
 // Type checking and conversion builtins
 Value ScriptRuntime::builtin_typeof(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if (argc > 0) {
-        if (argvals[0].is_none()) {
-            return Value::make_string("null");
-        }
-        if (argvals[0].is_int()) {
-            return Value::make_string("int");
-        }
-        if (argvals[0].is_float()) {
-            return Value::make_string("float");
-        }
-        if (argvals[0].is_string()) {
-            return Value::make_string("string");
-        }
-        if (argvals[0].is_bool()) {
-            return Value::make_string("bool");
-        }
-        if (argvals[0].is_array()) {
-            return Value::make_string("array");
-        }
-        if (argvals[0].is_object()) {
-            return Value::make_string("object");
-        }
-        if (argvals[0].is_function()) {
-            return Value::make_string("function");
-        }
-        if (argvals[0].is_regex()) {
-            return Value::make_string("regex");
-        }
-        if (argvals[0].is_handle()) {
-            return Value::make_string("handle");
-        }
-        if (argvals[0].is_class_instance()) {
-            return Value::make_string(argvals[0].get_class_instance()->class_name);
-        }
-        return Value::make_string("null");
-    }
-    return Value::make_string("null");
+    return argc > 0 ? typeof_value(argvals[0]) : typeof_values[TY_NULL];
 }
 
 // Build SRELL syntax_option from a flags string
@@ -1243,8 +1212,7 @@ Value ScriptRuntime::builtin_regex_new(const Value *argvals, size_t argc, const 
     // check up front so that we can easily return a RegexError
     srell::u8cregex re(pattern, srell_flags_from_string(flags));
     if (re.ecode() != 0) {
-        return make_err(
-            Value::make_string("RegexError: invalid pattern (srell error " + std::to_string((int)re.ecode()) + ")"));
+        return make_err(Value::make_string("RegexError: invalid pattern (srell error " + std::to_string((int)re.ecode()) + ")"));
     }
     return make_ok(Value::make_regex(std::move(pattern), std::move(flags)));
 }
@@ -1341,8 +1309,7 @@ Value ScriptRuntime::builtin_toNumber(const Value *argvals, size_t argc, const n
                     return Value::make_int(iv);
                 }
             }
-            bool is_float = (s.find('.') != std::string::npos) || (s.find('e') != std::string::npos) ||
-                            (s.find('E') != std::string::npos);
+            bool is_float = (s.find('.') != std::string::npos) || (s.find('e') != std::string::npos) || (s.find('E') != std::string::npos);
 
             if (is_float) {
                 char *end = nullptr;
@@ -1363,6 +1330,84 @@ Value ScriptRuntime::builtin_toNumber(const Value *argvals, size_t argc, const n
         return Value::make_int(0);
     }
     return Value::make_int(0);
+}
+
+Value ScriptRuntime::builtin_js_toNumber(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc == 0) {
+        return Value::make_int(0);
+    }
+    const Value &v = argvals[0];
+    if (v.is_int()) {
+        return Value::make_int(v.get_int());
+    }
+    if (v.is_float()) {
+        return Value::make_float(v.get_float());
+    }
+    if (v.is_bool()) {
+        return Value::make_int(v.get_bool() ? 1 : 0);
+    }
+    if (v.is_none()) {
+        return Value::make_int(0);
+    }
+    if (v.is_array()) {
+        const auto &items = v.get_array();
+        if (items.empty()) {
+            return Value::make_int(0);
+        }
+        if (items.size() == 1) {
+            return builtin_js_toNumber(&items[0], 1, nullptr);
+        }
+        return Value::make_float(std::numeric_limits<double>::quiet_NaN());
+    }
+    if (!v.is_string()) {
+        return Value::make_float(std::numeric_limits<double>::quiet_NaN());
+    }
+
+    const std::string &raw = v.get_string();
+    size_t begin = 0;
+    size_t end = raw.size();
+    while (begin < end && std::isspace(static_cast<unsigned char>(raw[begin]))) {
+        begin++;
+    }
+    while (end > begin && std::isspace(static_cast<unsigned char>(raw[end - 1]))) {
+        end--;
+    }
+    if (begin == end) {
+        return Value::make_int(0);
+    }
+    const std::string s = raw.substr(begin, end - begin);
+    if (s == "Infinity" || s == "+Infinity") {
+        return Value::make_float(std::numeric_limits<double>::infinity());
+    }
+    if (s == "-Infinity") {
+        return Value::make_float(-std::numeric_limits<double>::infinity());
+    }
+
+    if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        uint64_t value = 0;
+        const char *first = s.data() + 2;
+        const char *last = s.data() + s.size();
+        auto [ptr, ec] = std::from_chars(first, last, value, 16);
+        if (ec == std::errc() && ptr == last) {
+            if (value <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+                return Value::make_int(static_cast<int64_t>(value));
+            }
+            return Value::make_float(static_cast<double>(value));
+        }
+        return Value::make_float(std::numeric_limits<double>::quiet_NaN());
+    }
+
+    char *parsed_end = nullptr;
+    errno = 0;
+    double value = std::strtod(s.c_str(), &parsed_end);
+    if (parsed_end == s.c_str() + s.size() && parsed_end != s.c_str() && errno != ERANGE && !std::isnan(value)) {
+        if (s.find_first_of(".eE") == std::string::npos && value >= static_cast<double>(std::numeric_limits<int64_t>::min()) &&
+            value <= static_cast<double>(std::numeric_limits<int64_t>::max())) {
+            return Value::make_int(static_cast<int64_t>(value));
+        }
+        return Value::make_float(value);
+    }
+    return Value::make_float(std::numeric_limits<double>::quiet_NaN());
 }
 
 Value ScriptRuntime::builtin_toString(const Value *argvals, size_t argc, const nari::CallExpr *) {
@@ -1515,16 +1560,26 @@ Value ScriptRuntime::builtin_delegateHandler(const Value *argvals, size_t argc, 
     }
     return Value::none();
 }
+// Casting a double to int64_t is undefined behaviour unless the truncated value is
+// representable, so NaN/+-inf/|x|>=2^63 must not reach the cast. UBSAN flagged this at
+// Math.floor(1e21) and Math.floor(NaN) while running the npm fixtures. Out-of-range
+// inputs keep their double value, which is also what JS Math.floor/ceil do.
+static inline Value nari_int_or_float(double d) {
+    if (!(d >= -9223372036854775808.0 && d < 9223372036854775808.0)) { // false for NaN too
+        return Value::make_float(d);
+    }
+    return Value::make_int(static_cast<int64_t>(d));
+}
 Value ScriptRuntime::builtin_math_floor(const Value *args, size_t argc, const CallExpr *) {
     if (argc > 0) {
-        return Value::make_int(static_cast<int64_t>(std::floor(args[0].as_number())));
+        return nari_int_or_float(std::floor(args[0].as_number()));
     }
     return Value::make_int(0);
 }
 
 Value ScriptRuntime::builtin_math_ceil(const Value *args, size_t argc, const CallExpr *) {
     if (argc > 0) {
-        return Value::make_int(static_cast<int64_t>(std::ceil(args[0].as_number())));
+        return nari_int_or_float(std::ceil(args[0].as_number()));
     }
     return Value::make_int(0);
 }
@@ -2036,14 +2091,13 @@ struct JsonDirectParser {
                 break;
             }
             std::string key;
-            if (!shape_matches || count >= expected_shape->names.size() ||
-                !match_shape_key(expected_shape->names[count])) {
+            if (!shape_matches || count >= expected_shape->field_ids.size() || !match_shape_key(expected_shape->name_at(count))) {
                 if (shape_matches) {
                     for (size_t i = 0; i < count; i++) {
                         if (i < kInline) {
-                            ik[i] = expected_shape->names[i];
+                            ik[i] = expected_shape->name_at(i);
                         } else {
-                            overflow[i - kInline].first = expected_shape->names[i];
+                            overflow[i - kInline].first = expected_shape->name_at(i);
                         }
                     }
                     shape_matches = false;
@@ -2087,12 +2141,12 @@ struct JsonDirectParser {
             return Value::make_object();
         }
 
-        if (shape_matches && expected_shape->names.size() != count) {
+        if (shape_matches && expected_shape->field_ids.size() != count) {
             for (size_t i = 0; i < count; i++) {
                 if (i < kInline) {
-                    ik[i] = expected_shape->names[i];
+                    ik[i] = expected_shape->name_at(i);
                 } else {
-                    overflow[i - kInline].first = expected_shape->names[i];
+                    overflow[i - kInline].first = expected_shape->name_at(i);
                 }
             }
             shape_matches = false;
@@ -2105,7 +2159,7 @@ struct JsonDirectParser {
 
         // Fast path: same keys (in order) as the previous object, we reuse its
         // shape, fill fields by slot, skips interning/transition hashing.
-        if (shape_matches && count > 0 && expected_shape->names.size() == count) {
+        if (shape_matches && count > 0 && expected_shape->field_ids.size() == count) {
             oobj->shape = expected_shape;
             oobj->fields.resize(count);
             for (size_t i = 0; i < count; i++) {
@@ -2119,7 +2173,7 @@ struct JsonDirectParser {
         for (size_t i = 0; i < count; i++) {
             oobj->set_field(key_at(i), std::move(val_at(i)));
         }
-        if (!oobj->dict_mode && !oobj->shape->names.empty()) {
+        if (!oobj->dict_mode && !oobj->shape->field_ids.empty()) {
             spec_shape = oobj->shape;
         }
         return obj;
@@ -2322,15 +2376,15 @@ static bool value_to_json_string(const Value &v, std::string &out, std::vector<c
         out += '{';
         const ObjectObj *o = v.get_obj_ptr();
         if (!o->dict_mode) {
-            // shape mode: fields[i] is the value for shape->names[i].
+            // shape mode: fields[i] is the value for shape->name_at(i).
             // Iterate by slot to avoid hashing each field name (get_keys + get_field).
-            const auto &names = o->shape->names;
-            for (size_t i = 0; i < names.size() && i < o->fields.size(); i++) {
+            const size_t n_named = o->shape->field_ids.size();
+            for (size_t i = 0; i < n_named && i < o->fields.size(); i++) {
                 if (i) {
                     out += ',';
                 }
                 out += '"';
-                json_escape_into(names[i], out);
+                json_escape_into(o->shape->name_at(i), out);
                 out += "\":";
                 if (!value_to_json_string(o->fields[i], out, seen)) {
                     return false;

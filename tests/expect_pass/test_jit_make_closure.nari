@@ -1,0 +1,37 @@
+import { assert } from "../lib/assert.nari";
+
+func exercise_local_capture(n) {
+    let state = 0;
+    let total = 0;
+    for (let i = 0; i < n; i++) {
+        let set = func(value) { state = value; };
+        let get = func() { return state; };
+        set(i);
+        total = total + get();
+    }
+    return [state, total];
+}
+
+func make_inherited_capture_test() {
+    let state = 0;
+    return func(n) {
+        let total = 0;
+        for (let i = 0; i < n; i++) {
+            let bump = func() { state = state + 1; return state; };
+            total = total + bump();
+        }
+        return [state, total];
+    };
+}
+
+let n = 10003;
+let local = exercise_local_capture(n);
+assert(local[0] == n - 1, "local capture did not update the parent binding");
+assert(local[1] == (n * (n - 1)) / 2, "sibling local captures did not share a cell");
+
+let inherited = make_inherited_capture_test();
+let nested = inherited(n);
+assert(nested[0] == n, "nested closure did not share its inherited capture");
+assert(nested[1] == (n * (n + 1)) / 2, "nested capture updates were not retained");
+
+print("test_jit_make_closure: ok");

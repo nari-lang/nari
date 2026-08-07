@@ -1,10 +1,8 @@
-// -- URL ---------------------------------------------------------------------
-// Permissive parser/builder for URLs of the shape
-//  scheme://[user[:pass]@]host[:port][/path][?query][#fragment]
-// Parsing is intentionally lenient (does not enforce host syntax) so that
-// it works for HTTP, ws://, file://, custom schemes, etc. For strict
-// WHATWG-conformant parsing you would want a dedicated native parser; this
-// is the 95% case for stdlib consumers.
+// URL
+//  Permissive parser/builder for URLs of the shape
+//   scheme://[user[:pass]@]host[:port][/path][?query][#fragment]
+//  Parsing is intentionally lenient (does not enforce host syntax) so that
+//  it works for HTTP, ws://, file://, custom schemes, etc.
 //
 //  import { URL } from "std/url";
 //  let u = URL.parse("https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top");
@@ -13,11 +11,11 @@
 //  u.params;  // { x: "1", y: "2" }
 //  u.to_string();
 //
-// Percent-encoding helpers:
-//  URL.encode(s) / URL.decode(s)  - strict component encoding
-//  (slashes encoded too).
-//  URL.encode_path(s)  - path-safe (keeps "/" ":").
-//  URL.parse_query(s) / URL.format_query(obj)  - `?k=v&k2=v2` <-> object.
+//  Percent-encoding helpers:
+//    URL.encode(s) / URL.decode(s) - strict component encoding
+//    (slashes encoded too).
+//    URL.encode_path(s) - path-safe (keeps "/" ":").
+//  URL.parse_query(s) / URL.format_query(obj) - `?k=v&k2=v2` <-> object.
 
 export let URL = {
     // Component-encode a string (everything but unreserved is %XX).

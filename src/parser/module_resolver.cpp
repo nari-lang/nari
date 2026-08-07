@@ -9,6 +9,7 @@
 #include "module_resolver.h"
 
 #include "../nari_fs.h"
+#include "../util.h"
 
 #include <ctype.h>
 #include <map>
@@ -19,20 +20,8 @@
 
 namespace Parser {
 
-static std::string trim_copy(const std::string &text) {
-    size_t start = 0;
-    while (start < text.size() && isspace((unsigned char)text[start])) {
-        start++;
-    }
-    size_t end = text.size();
-    while (end > start && isspace((unsigned char)text[end - 1])) {
-        end--;
-    }
-    return text.substr(start, end - start);
-}
-
 static std::string unquote_toml(const std::string &text) {
-    std::string trimmed = trim_copy(text);
+    std::string trimmed = trim_ascii(text);
     if (trimmed.size() >= 2 && trimmed.front() == '"' && trimmed.back() == '"') {
         return trimmed.substr(1, trimmed.size() - 2);
     }
@@ -106,11 +95,11 @@ static std::vector<std::string> split_top_level(const std::string &text, char se
         } else if (ch == ']') {
             depth_bracket--;
         } else if (ch == separator && depth_brace == 0 && depth_bracket == 0) {
-            parts.push_back(trim_copy(text.substr(start, i - start)));
+            parts.push_back(trim_ascii(text.substr(start, i - start)));
             start = i + 1;
         }
     }
-    std::string tail = trim_copy(text.substr(start));
+    std::string tail = trim_ascii(text.substr(start));
     if (!tail.empty()) {
         parts.push_back(tail);
     }
@@ -190,12 +179,12 @@ static StringMap parse_manifest_dependency_paths(const nari::fs::Path &manifest_
     std::string line;
     std::string section;
     while (std::getline(ss, line)) {
-        std::string cleaned = trim_copy(strip_toml_comment(line));
+        std::string cleaned = trim_ascii(strip_toml_comment(line));
         if (cleaned.empty()) {
             continue;
         }
         if (cleaned.front() == '[' && cleaned.back() == ']') {
-            section = trim_copy(cleaned.substr(1, cleaned.size() - 2));
+            section = trim_ascii(cleaned.substr(1, cleaned.size() - 2));
             continue;
         }
         if (section != "dependencies") {
@@ -206,11 +195,11 @@ static StringMap parse_manifest_dependency_paths(const nari::fs::Path &manifest_
             continue;
         }
         std::string dep_name = unquote_toml(cleaned.substr(0, eq));
-        std::string raw_spec = trim_copy(cleaned.substr(eq + 1));
+        std::string raw_spec = trim_ascii(cleaned.substr(eq + 1));
         if (raw_spec.size() < 2 || raw_spec.front() != '{' || raw_spec.back() != '}') {
             continue;
         }
-        std::string inner = trim_copy(raw_spec.substr(1, raw_spec.size() - 2));
+        std::string inner = trim_ascii(raw_spec.substr(1, raw_spec.size() - 2));
         for (const std::string &part : split_top_level(inner, ',')) {
             size_t inner_eq = find_unquoted_char(part, '=');
             if (inner_eq == std::string::npos) {
@@ -234,12 +223,12 @@ static StringMap parse_package_exports(const nari::fs::Path &manifest_path) {
     std::string line;
     std::string section;
     while (std::getline(ss, line)) {
-        std::string cleaned = trim_copy(strip_toml_comment(line));
+        std::string cleaned = trim_ascii(strip_toml_comment(line));
         if (cleaned.empty()) {
             continue;
         }
         if (cleaned.front() == '[' && cleaned.back() == ']') {
-            section = trim_copy(cleaned.substr(1, cleaned.size() - 2));
+            section = trim_ascii(cleaned.substr(1, cleaned.size() - 2));
             continue;
         }
         if (section != "exports") {
@@ -258,6 +247,29 @@ static StringMap parse_package_exports(const nari::fs::Path &manifest_path) {
     return result;
 }
 
+std::string resolve_package_directory_path(const std::string &path, std::string &error_out) {
+    namespace fs = nari::fs;
+    fs::Path package_root(path);
+    if (!fs::is_directory(package_root)) {
+        return path;
+    }
+
+    fs::Path manifest = package_root / "nari.toml";
+    if (!fs::is_regular_file(manifest)) {
+        error_out = "Import path '" + package_root.lexically_normal().string() + "' is a directory without a nari.toml manifest";
+        return "";
+    }
+
+    StringMap exports = parse_package_exports(manifest);
+    auto root_export = exports.find(".");
+    if (root_export == exports.end()) {
+        error_out = "Package directory '" + package_root.lexically_normal().string() + "' does not define the root export '.'";
+        return "";
+    }
+
+    return (package_root / fs::Path(root_export->second)).lexically_normal().string();
+}
+
 // `store_path` is the absolute install location npkg recorded on this machine;
 // `version` + `integrity` are the portable fields the store location
 // can be derived from when the lockfile came from another machine
@@ -274,13 +286,13 @@ static std::map<std::string, LockfilePackage> parse_lockfile_packages(const nari
     std::string line;
     std::string current_package;
     while (std::getline(ss, line)) {
-        std::string cleaned = trim_copy(strip_toml_comment(line));
+        std::string cleaned = trim_ascii(strip_toml_comment(line));
         if (cleaned.empty()) {
             continue;
         }
         if (cleaned.front() == '[' && cleaned.back() == ']') {
             current_package.clear();
-            std::string section = trim_copy(cleaned.substr(1, cleaned.size() - 2));
+            std::string section = trim_ascii(cleaned.substr(1, cleaned.size() - 2));
             if (!starts_with(section, "packages.")) {
                 continue;
             }
@@ -464,8 +476,7 @@ std::string resolve_package_import_path(const std::string &inc, const std::strin
     }
 
     if (matched_package.empty()) {
-        error_out =
-            "Package import '" + inc + "' is not listed in " + (project_root / "nari.toml").lexically_normal().string();
+        error_out = "Package import '" + inc + "' is not listed in " + (project_root / "nari.toml").lexically_normal().string();
         return "";
     }
 
@@ -508,8 +519,8 @@ std::string resolve_package_import_path(const std::string &inc, const std::strin
 
     fs::Path package_manifest = package_root / "nari.toml";
     if (!fs::exists(package_manifest)) {
-        error_out = "Package import '" + inc + "' resolved to '" + package_root.lexically_normal().string() +
-                    "' but no nari.toml was found there";
+        error_out =
+            "Package import '" + inc + "' resolved to '" + package_root.lexically_normal().string() + "' but no nari.toml was found there";
         if (!derived_dir.empty() && derived_dir != package_root) {
             error_out += " (also looked for " + derived_dir.string() + ")";
         }

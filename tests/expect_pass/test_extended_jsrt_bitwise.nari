@@ -1,0 +1,35 @@
+import { assert } from "../lib/assert.nari";
+
+func __js_bitnot(value) { return ~__js_to_int32(value); }
+func __js_bitand(a, b) { return __js_to_int32(a) & __js_to_int32(b); }
+func __js_bitor(a, b) { return __js_to_int32(a) | __js_to_int32(b); }
+func __js_bitxor(a, b) { return __js_to_int32(a) ^ __js_to_int32(b); }
+
+func __js_shl(a, b) {
+    return __js_to_int32(__js_to_int32(a) << (__js_to_uint32(b) % 32));
+}
+
+func __js_shr(a, b) {
+    return __js_to_int32(a) >> (__js_to_uint32(b) % 32);
+}
+
+func __js_ushr(a, b) {
+    let value = __js_to_uint32(a);
+    let shift = __js_to_uint32(b) % 32;
+    return math.floor(value / __js_pow(2, shift));
+}
+
+func start() {
+    assert(__js_bitnot("0") == -1, "bitnot string coercion failed");
+    assert(__js_bitand("7.9", true) == 1, "bitand coercion failed");
+    assert(__js_bitor(4294967296, 5) == 5, "bitor wrapping failed");
+    assert(__js_bitxor(-1, 2147483648) == 2147483647, "bitxor signed conversion failed");
+    assert(__js_shl(1, 31) == -2147483648, "left shift signed result failed");
+    assert(__js_shl(1, 32) == 1, "left shift count masking failed");
+    assert(__js_shr(2147483648, 1) == -1073741824, "signed right shift failed");
+    assert(__js_ushr(-1, 0) == 4294967295, "unsigned right shift range failed");
+    assert(__js_ushr(-1, 1) == 2147483647, "unsigned right shift failed");
+    assert(__js_bitand(0 / 0, 3) == 0, "NaN conversion failed");
+    assert(__js_bitor([], 2) == 2, "array conversion failed");
+    print("extended jsrt bitwise ok");
+}

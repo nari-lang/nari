@@ -1,6 +1,6 @@
-// -- Hex / Base64 ------------------------------------------------------------
-// Binary-safe Hex / Base64 codecs backed by native builtins. They operate
-// on raw byte strings (bytes 0-255), unlike from_char_code (capped at 127).
+// Hex / Base64
+//  Binary-safe Hex / Base64 codecs backed by native builtins. They operate
+//  on raw byte strings (bytes 0-255), unlike from_char_code (capped at 127).
 //
 //  import { Hex, Base64 } from "std/encoding";
 

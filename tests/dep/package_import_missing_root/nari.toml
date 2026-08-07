@@ -1,0 +1,6 @@
+packageFormat = 1
+name = "fixture/missing-root"
+version = "0.1.0"
+
+[exports]
+"./value" = "src/value.nari"

@@ -16,11 +16,7 @@
 // float ==/!= are correct under JIT, and (c) NaN semantics match the interpreter.
 // Run it with NARI_DISABLE_TRACE_JIT=1 to confirm interpreter-equivalence.
 
-func assert(cond, msg) {
-    if (!cond) {
-        panic("ASSERT FAILED: " @ msg);
-    }
-}
+import { assert } from "../lib/assert.nari";
 
 let ITERS = 2000; // well above TRACE_HOT_n (8) so the body runs compiled
 

@@ -1,12 +1,11 @@
-// -- Map / Set ---------------------------------------------------------------
-// Ordered string-keyed collections.
+// Map / Set
+//  Ordered string-keyed collections.
 //
 //  import { Map, Set } from "std/collections";
 //
-// Map: O(1) lookup via a backing object plus a parallel keys array for
-// stable insertion order. Keys are stringified at insert time.
-// Set: ordered string-keyed set built on top of Map. Stringifies values at
-// insert time, so Set.add(1) and Set.add("1") collide.
+//  Map: O(1) lookup via a backing object plus a parallel keys array for stable insertion order.
+//  Set: ordered string-keyed set built on top of Map. Stringifies values at
+//       insert time, so Set.add(1) and Set.add("1") collide.
 
 export let Map = {
     create: func() {

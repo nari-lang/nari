@@ -5,12 +5,7 @@
 
 import { Date } from "std/date";
 
-func assert(cond, msg) {
-    if (!cond) {
-        print("FAIL:", msg);
-        __process_exit(1);
-    }
-}
+import { assert } from "../lib/assert.nari";
 
 // Date.now / Date.utc / round-trip
 let nowMs = Date.now();

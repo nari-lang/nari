@@ -403,6 +403,20 @@ bool is_directory(const Path &path, std::error_code &ec) {
     return (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
+bool is_regular_file(const Path &path) {
+    std::error_code err;
+    return is_regular_file(path, err);
+}
+
+bool is_regular_file(const Path &path, std::error_code &ec) {
+    DWORD attrs = path_attributes(path, &ec);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        return false;
+    }
+    ec.clear();
+    return (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
 bool remove(const Path &path, std::error_code &ec) {
     DWORD attrs = path_attributes(path, &ec);
     if (attrs == INVALID_FILE_ATTRIBUTES) {
@@ -578,6 +592,14 @@ bool is_directory(const Path &path) {
 
 bool is_directory(const Path &path, std::error_code &ec) {
     return stdfs::is_directory(to_std_path(path), ec);
+}
+
+bool is_regular_file(const Path &path) {
+    return stdfs::is_regular_file(to_std_path(path));
+}
+
+bool is_regular_file(const Path &path, std::error_code &ec) {
+    return stdfs::is_regular_file(to_std_path(path), ec);
 }
 
 bool remove(const Path &path, std::error_code &ec) {

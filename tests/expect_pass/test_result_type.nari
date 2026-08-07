@@ -1,8 +1,6 @@
 // Test Result<T, E> enum and pattern matching
 
-func assert(cond, msg) {
-    if (!cond) { panic(msg); }
-}
+import { assert } from "../lib/assert.nari";
 
 // Function that returns a Result
 func divide(a, b) {

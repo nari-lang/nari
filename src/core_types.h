@@ -11,6 +11,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -20,6 +21,7 @@
 #include <vector>
 
 #include "ast.h"
+#include "compiler_support.h"
 #include "gc.h"
 
 namespace chrono = std::chrono;
@@ -54,7 +56,137 @@ struct FunctionMeta;
 using Object = ObjectObj *;
 using HandlePtr = HandleData *;
 using ClassInstancePtr = ClassInstance *;
-using CapturesList = std::shared_ptr<std::vector<std::shared_ptr<Value>>>;
+// Non-atomic reference-counted cell, used for closure upvalues.
+//
+// Thread-local pool for small, short-lived runtime allocations.
+struct SmallBufferPool {
+    static constexpr std::size_t kGranule = 16; // >= sizeof(void*), so a free block can hold its link
+    static constexpr std::size_t kMaxBytes = 512;
+    static constexpr std::size_t kClasses = kMaxBytes / kGranule;
+    static constexpr std::size_t kChunkBytes = 64 * 1024;
+
+    void *free_list[kClasses] = {};
+    char *bump = nullptr;
+    char *bump_end = nullptr;
+
+    // Precondition: 1 <= bytes <= kMaxBytes, giving classes 0..31.
+    static std::size_t class_index(std::size_t bytes) noexcept {
+        return (bytes + kGranule - 1) / kGranule - 1;
+    }
+    void *allocate(std::size_t bytes) {
+        const std::size_t ci = class_index(bytes);
+        void *&head = free_list[ci];
+        if (head) {
+            void *p = head;
+            head = *reinterpret_cast<void **>(p);
+            return p;
+        }
+        const std::size_t need = (ci + 1) * kGranule;
+        if ((std::size_t)(bump_end - bump) < need) {
+            // Abandon the tail of the current chunk (< 512 B of a 64 KiB chunk).
+            bump = static_cast<char *>(::operator new(kChunkBytes));
+            bump_end = bump + kChunkBytes;
+        }
+        void *p = bump;
+        bump += need;
+        return p;
+    }
+    void deallocate(void *p, std::size_t bytes) noexcept {
+        void *&head = free_list[class_index(bytes)];
+        *reinterpret_cast<void **>(p) = head;
+        head = p;
+    }
+};
+inline SmallBufferPool &small_buffer_pool() noexcept {
+    static thread_local SmallBufferPool pool;
+    return pool;
+}
+
+// These cells were CellRef. Script execution is single-threaded, so an atomic refcount is excessive
+// The layout is part of the JIT ABI and must not change!
+template <class T>
+class Rc {
+    struct Box {
+        uint32_t n; // first member, so a Box* and a &Box::n share an address
+        T v;
+    };
+    T *ptr = nullptr;
+    uint32_t *cnt = nullptr;
+
+    void release() noexcept {
+        if (cnt && --*cnt == 0) {
+            delete reinterpret_cast<Box *>(cnt);
+        }
+    }
+
+  public:
+    Rc() noexcept = default;
+    template <class... Args> static Rc make(Args &&...args) {
+        Box *b = new Box{ 1u, T(std::forward<Args>(args)...) };
+        Rc r;
+        r.ptr = &b->v;
+        r.cnt = &b->n;
+        return r;
+    }
+    Rc(const Rc &o) noexcept : ptr(o.ptr), cnt(o.cnt) {
+        if (cnt) {
+            ++*cnt;
+        }
+    }
+    Rc(Rc &&o) noexcept : ptr(o.ptr), cnt(o.cnt) {
+        o.ptr = nullptr;
+        o.cnt = nullptr;
+    }
+    Rc &operator=(const Rc &o) noexcept {
+        if (this != &o) {
+            if (o.cnt) {
+                ++*o.cnt;
+            }
+            release();
+            ptr = o.ptr;
+            cnt = o.cnt;
+        }
+        return *this;
+    }
+    Rc &operator=(Rc &&o) noexcept {
+        if (this != &o) {
+            release();
+            ptr = o.ptr;
+            cnt = o.cnt;
+            o.ptr = nullptr;
+            o.cnt = nullptr;
+        }
+        return *this;
+    }
+    ~Rc() {
+        release();
+    }
+    void reset() noexcept {
+        release();
+        ptr = nullptr;
+        cnt = nullptr;
+    }
+    T *get() const noexcept {
+        return ptr;
+    }
+    T &operator*() const noexcept {
+        return *ptr;
+    }
+    T *operator->() const noexcept {
+        return ptr;
+    }
+    explicit operator bool() const noexcept {
+        return ptr != nullptr;
+    }
+    bool operator==(const Rc &o) const noexcept {
+        return ptr == o.ptr;
+    }
+    bool operator!=(const Rc &o) const noexcept {
+        return ptr != o.ptr;
+    }
+};
+using CellRef = Rc<Value>;
+using CapturesList = std::shared_ptr<std::vector<CellRef>>;
 using FuncList = std::vector<nari::FunctionPtr>;
 
 enum class ValueTag : uint8_t {
@@ -86,6 +218,7 @@ enum class JitInlineKind : int32_t {
     GE = 14,
     EQ = 15,
     NE = 16,
+    Capture0 = 17,
 };
 
 inline int32_t to_int(JitInlineKind kind) {
@@ -98,8 +231,7 @@ struct HeapHeader {
     bool gc_marked = false;
     bool gc_tracked = false;
     uint32_t gc_est = 0;
-    HeapHeader *gc_next = nullptr;
-    HeapHeader *gc_prev = nullptr;
+    size_t gc_index = 0;
 };
 
 template <class Derived> struct PooledHeapObject {
@@ -197,8 +329,6 @@ struct Value {
     Array &get_array();
     ObjectObj *get_obj_ptr();
     const ObjectObj *get_obj_ptr() const;
-    ObjectObj *get_object();
-    const ObjectObj *get_object() const;
     FunctionData &get_function();
     const FunctionData &get_function() const;
     HandlePtr get_handle() const;
@@ -207,12 +337,10 @@ struct Value {
     const RegexObj *get_regex() const;
     DelegateData *get_delegate() const;
 
-    void inplace_int(int64_t v);
-    void inplace_int_checked(int64_t v);
     void set_int(int64_t v);
+    void set_int_checked(int64_t v);
     void set_bool(bool v);
     void set_float(double v);
-    void inplace_float(double v);
     size_t tag() const;
 
     double as_number() const;
@@ -220,6 +348,12 @@ struct Value {
     std::string to_string(bool in_container_context = false) const;
     std::string to_string_impl(bool in_container_context, std::vector<const void *> &seen) const;
     static bool values_equal(const Value &a, const Value &b);
+    static bool values_strict_equal(const Value &a, const Value &b);
+    static bool compare_ordered(const Value &a, const Value &b, int &cmp);
+    static bool values_lt(const Value &a, const Value &b);
+    static bool values_le(const Value &a, const Value &b);
+    static bool values_gt(const Value &a, const Value &b);
+    static bool values_ge(const Value &a, const Value &b);
 };
 
 static_assert(sizeof(Value) == sizeof(uint64_t), "Value must stay NaN-boxed to 8 bytes!");
@@ -240,8 +374,7 @@ template <class T> class OwnedArray {
     T *storage_end;
     T *storage_capacity;
 
-    OwnedArray() noexcept
-        : storage_begin(empty_storage()), storage_end(storage_begin), storage_capacity(storage_begin) {
+    OwnedArray() noexcept : storage_begin(empty_storage()), storage_end(storage_begin), storage_capacity(storage_begin) {
     }
     OwnedArray(const OwnedArray &other) : OwnedArray() {
         reserve(other.size());
@@ -354,7 +487,8 @@ template <class T> class OwnedArray {
             throw std::length_error("owned array capacity exceeds maximum size");
         }
         const size_type old_size = size();
-        T *replacement = new T[requested];
+        const size_type old_capacity = capacity();
+        T *replacement = allocate_storage(requested);
         if constexpr (std::is_trivially_copyable<T>::value) {
             std::memcpy(replacement, storage_begin, old_size * sizeof(T));
         } else {
@@ -363,7 +497,7 @@ template <class T> class OwnedArray {
             }
         }
         if (storage_begin != empty_storage()) {
-            delete[] storage_begin;
+            free_storage(storage_begin, old_capacity);
         }
         storage_begin = replacement;
         storage_end = replacement + old_size;
@@ -380,16 +514,26 @@ template <class T> class OwnedArray {
         }
         swap(replacement);
     }
-    void resize(size_type requested) {
+    NARI_ALWAYS_INLINE void resize(size_type requested) {
+        const size_type old_size = size();
+        if (requested <= old_size) {
+            if constexpr (std::is_trivially_destructible<T>::value) {
+                storage_end = storage_begin + requested;
+            } else {
+                while (size() > requested) {
+                    pop_back();
+                }
+            }
+            return;
+        }
+        grow_to(requested);
+    }
+    void grow_to(size_type requested) {
         if (requested > capacity()) {
             reserve(growth_capacity(requested));
         }
-        while (size() > requested) {
-            pop_back();
-        }
-        while (size() < requested) {
-            *storage_end++ = T{};
-        }
+        std::fill(storage_end, storage_begin + requested, T{});
+        storage_end = storage_begin + requested;
     }
     void resize(size_type requested, const T &value) {
         T copy = value;
@@ -467,6 +611,38 @@ template <class T> class OwnedArray {
     }
 
   private:
+    // Only pool types that can live in raw storage and need no destructor pass;
+    // anything else (e.g. CallFrame, which owns CellRefs) keeps plain new[]/delete[].
+    static constexpr bool kPooled =
+        std::is_trivially_copyable<T>::value && std::is_trivially_destructible<T>::value && alignof(T) <= 16;
+
+    // Allocates storage for `count` elements and default-initializes every one of
+    // them, exactly as `new T[count]` did. The initialization is deliberately kept:
+    // capacity beyond size() is guaranteed to hold well-formed values (NB_NONE for
+    // Value), and the GC and interpreter are only safe to read a stale slot because
+    // of that. Only the allocation is pooled.
+    static T *allocate_storage(size_type count) {
+        const std::size_t bytes = count * sizeof(T);
+        if constexpr (kPooled) {
+            if (bytes <= SmallBufferPool::kMaxBytes) {
+                T *p = static_cast<T *>(small_buffer_pool().allocate(bytes));
+                std::uninitialized_fill_n(p, count, T{});
+                return p;
+            }
+        }
+        return new T[count];
+    }
+    static void free_storage(T *p, size_type count) noexcept {
+        if constexpr (kPooled) {
+            const std::size_t bytes = count * sizeof(T);
+            if (bytes <= SmallBufferPool::kMaxBytes) {
+                small_buffer_pool().deallocate(p, bytes);
+                return;
+            }
+        }
+        delete[] p;
+    }
+
     static T *empty_storage() noexcept {
         static T empty;
         return &empty;
@@ -481,7 +657,7 @@ template <class T> class OwnedArray {
     }
     void release() noexcept {
         if (storage_begin != empty_storage()) {
-            delete[] storage_begin;
+            free_storage(storage_begin, capacity());
         }
     }
     size_type checked_size(size_type added) const {
@@ -500,10 +676,13 @@ template <class T> class OwnedArray {
         }
         return std::max(requested, grown);
     }
-    void ensure_one_more() {
-        if (storage_end == storage_capacity) {
-            reserve(growth_capacity(checked_size(1)));
+    NARI_ALWAYS_INLINE void ensure_one_more() {
+        if (NARI_UNLIKELY(storage_end == storage_capacity)) {
+            grow_for_one_more();
         }
+    }
+    void grow_for_one_more() {
+        reserve(growth_capacity(checked_size(1)));
     }
 };
 
@@ -514,7 +693,14 @@ static_assert(std::is_standard_layout<ByteArray>::value, "ByteArray layout is pa
 
 struct StringObj : HeapHeader, PooledHeapObject<StringObj> {
     std::string s;
+    mutable Value getter_key_cache;
+    mutable uint32_t field_id = UINT32_MAX;
+    mutable uint32_t getter_field_id = UINT32_MAX;
+    mutable uint32_t setter_field_id = UINT32_MAX;
+    mutable const ObjectShape *cached_shape = nullptr;
+    mutable uint32_t cached_slot = 0;
     bool immutable = false;
+    bool js_getter_prefix = false;
     StringObj() {
         type_tag = ValueTag::String;
     }
@@ -528,9 +714,12 @@ struct StringObj : HeapHeader, PooledHeapObject<StringObj> {
 
 struct ArrayObj : HeapHeader, PooledHeapObject<ArrayObj> {
     Array v;
-    ArrayObj() {
-        type_tag = ValueTag::Array;
-    }
+    std::unique_ptr<ObjectObj> properties;
+    ArrayObj();
+    ~ArrayObj();
+    const Value *get_property(const std::string &name) const noexcept;
+    bool has_property(const std::string &name) const noexcept;
+    void set_property(const std::string &name, Value value);
     // Header free-list pool (see PooledHeapObject in core_types.cpp).
     // Only the fixed-size header block is recycled.
     // The owned array storage is constructed/destructed normally.
@@ -539,9 +728,31 @@ struct ArrayObj : HeapHeader, PooledHeapObject<ArrayObj> {
 uint32_t intern_field(const std::string &name);
 const std::string &field_name(uint32_t id);
 
+inline const std::string &field_name(uint32_t id);
+
 struct ObjectShape {
-    std::vector<std::string> names;
-    std::unordered_map<uint32_t, uint32_t> index;
+    std::vector<uint32_t> field_ids;
+    mutable std::unordered_map<uint32_t, const ObjectShape *> transitions;
+    uint64_t field_mask = 0;
+
+    static constexpr uint32_t kNoSlot = UINT32_MAX;
+
+    const std::string &name_at(size_t slot) const {
+        return field_name(field_ids[slot]);
+    }
+    NARI_ALWAYS_INLINE uint32_t slot_of(uint32_t fid) const noexcept {
+        if ((field_mask & (uint64_t{ 1 } << (fid & 63))) == 0) {
+            return kNoSlot;
+        }
+        const size_t n = field_ids.size();
+        const uint32_t *ids = field_ids.data();
+        for (size_t i = 0; i < n; i++) {
+            if (ids[i] == fid) {
+                return (uint32_t)i;
+            }
+        }
+        return kNoSlot;
+    }
 };
 
 class ObjectShapeRegistry {
@@ -553,18 +764,18 @@ class ObjectShapeRegistry {
   private:
     const ObjectShape *empty = nullptr;
     std::vector<std::unique_ptr<ObjectShape>> shapes;
-    std::unordered_map<std::string, const ObjectShape *> cache;
 };
 
 std::unordered_map<std::string, uint32_t> &field_intern_map();
 std::vector<std::string> &field_intern_names();
 ObjectShapeRegistry &object_shape_registry();
+
 void delete_object_dict(ObjectDict *p) noexcept;
 
 struct ObjectObj : HeapHeader, PooledHeapObject<ObjectObj> {
     using LazyFieldFactory = Value (*)(void *, ObjectObj *, uint32_t);
     using LazyFieldInvoker = bool (*)(void *, ObjectObj *, uint32_t, const Value *, size_t, Value &);
-    static constexpr size_t kDictModeThreshold = 32;
+    static constexpr size_t kDictModeThreshold = 64;
 
     const ObjectShape *shape = nullptr;
     Array fields;
@@ -589,13 +800,17 @@ struct ObjectObj : HeapHeader, PooledHeapObject<ObjectObj> {
     Value *get_field(const std::string &name) noexcept;
     const Value *get_field(const std::string &name) const noexcept;
     // Lookup by a pre-interned field id, skipping the per-call intern_field() string hash.
+    Value *get_field_by_id(uint32_t fid) noexcept;
     const Value *get_field_by_id(uint32_t fid) const noexcept;
     Value *materialize_lazy_field(uint32_t slot);
     void clear_lazy_field(uint32_t slot) noexcept;
     bool invoke_lazy_field(uint32_t slot, const Value *args, size_t argc, Value &result);
     void promote_to_dict_mode();
     void set_field(const std::string &name, Value val);
+    void set_field_by_id(uint32_t fid, Value val);
     bool has_field(const std::string &name) const noexcept;
+    bool has_field_by_id(uint32_t fid) const noexcept;
+    const std::unordered_map<std::string, Value> &dict_fields() const noexcept;
     bool is_empty() const noexcept;
     size_t field_count() const noexcept;
     bool is_managed_native_struct() const noexcept {
@@ -604,20 +819,38 @@ struct ObjectObj : HeapHeader, PooledHeapObject<ObjectObj> {
 };
 
 struct FunctionData : HeapHeader, PooledHeapObject<FunctionData> {
+    // JIT call-path hot set, attempted to be ordered to minimise cache lines touched per call
+    nari::bytecode::FunctionMeta *jit_meta = nullptr;
+    int32_t jit_func_idx = -1;
+    uint32_t jit_locals_count = 0;
+    std::vector<CellRef> *jit_captures_raw = nullptr;
+    Value *jit_capture0_raw = nullptr;
+    Value *jit_capture1_raw = nullptr;
+    Value *jit_capture2_raw = nullptr;
+    int32_t jit_native_kind = 0;
+    JitInlineKind jit_inline_kind = JitInlineKind::None;
+    // mirrored FunctionMeta scalars (see #17): only valid when jit_meta != nullptr.
+    uint8_t jit_param_count = 0;
+    int8_t jit_rest_param_index = -1;
+    bool jit_js_undefined_params = false;
+    // 1-based index into ScriptRuntime::jit_builtin_table(); 0 == not a builtin.
+    uint16_t jit_builtin_id = 0;
+    int64_t jit_inline_imm = 0;
+
+    // cold
     std::string name;
     std::shared_ptr<nari::Function> func_ptr;
     CapturesList captures;
-    int32_t jit_func_idx = -1;
-    uint32_t jit_locals_count = 0;
-    nari::bytecode::FunctionMeta *jit_meta = nullptr;
-    JitInlineKind jit_inline_kind = JitInlineKind::None;
-    int32_t jit_native_kind = 0;
-    int64_t jit_inline_imm = 0;
-    Value *jit_capture0_raw = nullptr;
+    // JS-style callable objects need fields of their own. Keep the
+    // table lazy so ordinary Nari functions retain their compact hot path.
+    std::unique_ptr<ObjectObj> properties;
+    void cache_jit_captures() {
+        jit_captures_raw = captures.get();
+        jit_capture0_raw = captures && !captures->empty() ? (*captures)[0].get() : nullptr;
+        jit_capture1_raw = captures && captures->size() > 1 ? (*captures)[1].get() : nullptr;
+        jit_capture2_raw = captures && captures->size() > 2 ? (*captures)[2].get() : nullptr;
+    }
     // Pre-resolved runtime builtin member-function pointer for global builtins (toString, toNumber, etc.).
-    // Filled at registration time by VM::register_builtin so that the JIT call helper can dispatch in one indirect call
-    void *jit_builtin_fn[2] = { nullptr, nullptr };
-    bool jit_builtin_fn_valid = false;
 
     FunctionData() {
         type_tag = ValueTag::Function;
@@ -628,8 +861,18 @@ struct FunctionData : HeapHeader, PooledHeapObject<FunctionData> {
     FunctionData(std::string n, std::shared_ptr<nari::Function> ptr) : name(std::move(n)), func_ptr(std::move(ptr)) {
         type_tag = ValueTag::Function;
     }
-    // Capturing closures are short lived and allocation-heavy. Recycle only
-    // the fixed-size header; members still construct and destruct normally.
+    ObjectObj *ensure_properties();
+    const Value *get_property(const std::string &name) const noexcept;
+    void set_property(const std::string &name, Value val);
+    // the callers all have an interned field id memoized already (VM::field_id_for_name / method_field_ids / StringObj::field_id)
+    const Value *get_property_by_id(uint32_t fid) const noexcept;
+    void set_property_by_id(uint32_t fid, Value val);
+
+    // `fn.length` lives here rather than in `properties`.
+    static bool is_length_name(const std::string &name) noexcept {
+        return name.size() == 6 && name == "length";
+    }
+    Value int_length = Value::none();
 };
 
 struct ClassLayout {
@@ -674,7 +917,11 @@ struct DelegateData : HeapHeader {
 };
 
 struct HandleData : HeapHeader {
-    enum State { Running, Completed, Failed };
+    enum State {
+        Running,
+        Completed,
+        Failed
+    };
     State state = Running;
     Value result;
     Value error;
@@ -709,7 +956,12 @@ struct IntervalData {
 };
 
 struct Task {
-    enum State { Running, Yielded, Completed, Failed };
+    enum State {
+        Running,
+        Yielded,
+        Completed,
+        Failed
+    };
     State state = Running;
     const nari::BlockStmt *body = nullptr;
     size_t current_stmt = 0;
@@ -739,29 +991,22 @@ inline const ObjectShape *ObjectShapeRegistry::extend(const ObjectShape *base, u
     if (!base) {
         base = this->empty;
     }
-    if (base->index.count(fid) != 0) {
+    if (base->slot_of(fid) != ObjectShape::kNoSlot) {
         return base;
     }
 
-    std::string key;
-    for (const auto &name : base->names) {
-        key += std::to_string(intern_field(name));
-        key += ',';
-    }
-    key += std::to_string(fid);
-    auto it = this->cache.find(key);
-    if (it != this->cache.end()) {
+    auto it = base->transitions.find(fid);
+    if (it != base->transitions.end()) {
         return it->second;
     }
 
     auto next = std::make_unique<ObjectShape>();
-    next->names = base->names;
-    next->index = base->index;
-    next->index[fid] = next->names.size();
-    next->names.push_back(field_name(fid));
+    next->field_ids = base->field_ids;
+    next->field_mask = base->field_mask | (uint64_t{ 1 } << (fid & 63));
+    next->field_ids.push_back(fid);
     const ObjectShape *ptr = next.get();
     this->shapes.push_back(std::move(next));
-    this->cache[std::move(key)] = ptr;
+    base->transitions.emplace(fid, ptr);
     return ptr;
 }
 
@@ -792,16 +1037,19 @@ inline uint32_t intern_field(const std::string &name) {
     // short names hit a direct-mapped cache keyed by the packed name bytes
     // this skips the string hash and bucket walk of field_intern_map.
     const size_t len = name.size();
+    if (len == 0) {
+        return intern_field_slow(name);
+    }
     if (len - 1 < 8) { // 1..8 bytes (len 0 stays on the slow path)
         struct ShortNameEntry {
             uint64_t key;
             uint32_t len;
             uint32_t fid;
         };
-        static ShortNameEntry short_cache[512] = {};
+        static ShortNameEntry short_cache[4096] = {};
         uint64_t key = 0;
         std::memcpy(&key, name.data(), len);
-        ShortNameEntry &e = short_cache[(key * 0x9E3779B97F4A7C15ull >> 55) & 511];
+        ShortNameEntry &e = short_cache[(key * 0x9E3779B97F4A7C15ull >> 52) & 4095];
         if (e.key == key && e.len == len) {
             return e.fid;
         }
@@ -811,7 +1059,29 @@ inline uint32_t intern_field(const std::string &name) {
         e.fid = id;
         return id;
     }
-    return intern_field_slow(name);
+
+    // Repeated long property names are common in transpiled JavaScript. Avoid
+    // hashing the whole string on a hit; equality keeps collisions exact.
+    struct LongNameEntry {
+        uint64_t key = 0;
+        uint32_t len = 0;
+        uint32_t fid = UINT32_MAX;
+    };
+    static LongNameEntry long_cache[4096];
+    uint64_t first;
+    uint64_t last;
+    std::memcpy(&first, name.data(), sizeof(first));
+    std::memcpy(&last, name.data() + len - sizeof(last), sizeof(last));
+    uint64_t key = first ^ (last * 0x9E3779B97F4A7C15ull) ^ (len * 0xBF58476D1CE4E5B9ull);
+    LongNameEntry &e = long_cache[(key ^ (key >> 32)) & 4095];
+    if (e.key == key && e.len == len && e.fid != UINT32_MAX && field_name(e.fid) == name) {
+        return e.fid;
+    }
+    uint32_t id = intern_field_slow(name);
+    e.key = key;
+    e.len = len;
+    e.fid = id;
+    return id;
 }
 
 inline const std::string &field_name(uint32_t id) {
@@ -877,18 +1147,21 @@ inline Value Value::make_const_string(const std::string &val) {
     Value new_val = make_string(val);
     if (auto *str = (StringObj *)new_val.heap_ptr()) {
         str->immutable = true;
+        str->js_getter_prefix = val == "__js_getter__";
     }
     return new_val;
 }
 inline Value Value::make_function(std::string name) {
     Value val;
     auto *fn = new FunctionData(std::move(name));
+    GarbageCollector::instance().track(fn, GarbageCollector::TrackedType::Function);
     val._raw = NB_HEAP_TAG | reinterpret_cast<uint64_t>(fn);
     return val;
 }
 inline Value Value::make_function(std::string name, std::shared_ptr<nari::Function> func_ptr) {
     Value val;
     auto *fn = new FunctionData(std::move(name), std::move(func_ptr));
+    GarbageCollector::instance().track(fn, GarbageCollector::TrackedType::Function);
     val._raw = NB_HEAP_TAG | reinterpret_cast<uint64_t>(fn);
     return val;
 }
@@ -1026,12 +1299,6 @@ inline const ObjectObj *Value::get_obj_ptr() const {
     auto *p = heap_ptr();
     return p && p->type_tag == ValueTag::Object ? ((const ObjectObj *)p) : nullptr;
 }
-inline ObjectObj *Value::get_object() {
-    return get_obj_ptr();
-}
-inline const ObjectObj *Value::get_object() const {
-    return get_obj_ptr();
-}
 inline FunctionData &Value::get_function() {
     return *(FunctionData *)heap_ptr();
 }
@@ -1053,23 +1320,17 @@ inline const RegexObj *Value::get_regex() const {
 inline DelegateData *Value::get_delegate() const {
     return is_delegate() ? (DelegateData *)heap_ptr() : nullptr;
 }
-inline void Value::inplace_int(int64_t v) {
+inline void Value::set_int(int64_t v) {
     *this = make_int(v);
 }
-inline void Value::inplace_int_checked(int64_t v) {
+inline void Value::set_int_checked(int64_t v) {
     *this = make_int_checked(v);
-}
-inline void Value::set_int(int64_t v) {
-    inplace_int(v);
 }
 inline void Value::set_bool(bool v) {
     *this = make_bool(v);
 }
 inline void Value::set_float(double v) {
     *this = make_float(v);
-}
-inline void Value::inplace_float(double v) {
-    set_float(v);
 }
 inline size_t Value::tag() const {
     if (is_none()) {
@@ -1141,6 +1402,25 @@ inline bool Value::as_bool() const {
 }
 inline bool is_truthy(const Value &v) {
     return v.as_bool();
+}
+inline bool is_js_truthy(const Value &v) {
+    if (v.is_none()) {
+        return false;
+    }
+    if (v.is_bool()) {
+        return v.get_bool();
+    }
+    if (v.is_int()) {
+        return v.get_int() != 0;
+    }
+    if (v.is_float()) {
+        double value = v.get_float();
+        return value != 0.0 && !std::isnan(value);
+    }
+    if (v.is_string()) {
+        return !v.get_string().empty();
+    }
+    return true;
 }
 inline std::string Value::to_string(bool in_container_context) const {
     // `seen` tracks the ancestor container chain to prevent recursing until the C stack overflows.
@@ -1267,4 +1547,105 @@ inline bool Value::values_equal(const Value &a, const Value &b) {
         return a.is_string() && b.is_string() && a.get_string() == b.get_string();
     }
     return a._raw == b._raw;
+}
+
+// Three-way ordering, shared by <, <=, > and >=. The bytecode interpreter and the
+// JIT helpers both reach the operators through this one function.
+//
+// Returns false when a and b have no order, and then every relational operator
+// gives false. Only two values of the same class have an order. This keeps the
+// operators coherent with values_equal(): if two values are ==, they are also <=
+// and >=, and a value that is < another is never == to it.
+//
+// Numbers use the same 1e-12 tolerance as values_equal(). Without it, a pair that
+// == calls equal could still report < or >.
+//
+// The branch order matches values_equal(). is_numeric() covers int and float only,
+// so a bool never takes the numeric path.
+inline bool Value::compare_ordered(const Value &a, const Value &b, int &cmp) {
+    if (a.is_none() || b.is_none()) {
+        if (!a.is_none() || !b.is_none()) {
+            return false;
+        }
+        cmp = 0;
+        return true;
+    }
+    if (a.is_int() && b.is_int()) {
+        const int64_t x = a.get_int();
+        const int64_t y = b.get_int();
+        cmp = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    if (a.is_numeric() && b.is_numeric()) {
+        const double x = a.as_number();
+        const double y = b.as_number();
+        cmp = std::fabs(x - y) < 1e-12 ? 0 : (x < y ? -1 : 1);
+        return true;
+    }
+    if (a.is_bool() || b.is_bool()) {
+        if (!a.is_bool() || !b.is_bool()) {
+            return false;
+        }
+        const int x = a.get_bool() ? 1 : 0;
+        const int y = b.get_bool() ? 1 : 0;
+        cmp = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    if (a.is_string() || b.is_string()) {
+        if (!a.is_string() || !b.is_string()) {
+            return false;
+        }
+        const std::string &x = a.get_string();
+        const std::string &y = b.get_string();
+        cmp = x < y ? -1 : (x > y ? 1 : 0);
+        return true;
+    }
+    // Two heap values have an order only when they are the same object.
+    if (a._raw == b._raw) {
+        cmp = 0;
+        return true;
+    }
+    return false;
+}
+
+inline bool Value::values_lt(const Value &a, const Value &b) {
+    int cmp = 0;
+    return compare_ordered(a, b, cmp) && cmp < 0;
+}
+
+inline bool Value::values_le(const Value &a, const Value &b) {
+    int cmp = 0;
+    return compare_ordered(a, b, cmp) && cmp <= 0;
+}
+
+inline bool Value::values_gt(const Value &a, const Value &b) {
+    int cmp = 0;
+    return compare_ordered(a, b, cmp) && cmp > 0;
+}
+
+inline bool Value::values_ge(const Value &a, const Value &b) {
+    int cmp = 0;
+    return compare_ordered(a, b, cmp) && cmp >= 0;
+}
+
+inline bool Value::values_strict_equal(const Value &a, const Value &b) {
+    const uint16_t a_tag = a.tag_word();
+    const uint16_t b_tag = b.tag_word();
+
+    if (a_tag == TAG_HEAP && b_tag == TAG_HEAP) {
+        if (a._raw == b._raw) {
+            return true;
+        }
+        HeapHeader *a_heap = reinterpret_cast<HeapHeader *>(a._raw & PTR_MASK);
+        HeapHeader *b_heap = reinterpret_cast<HeapHeader *>(b._raw & PTR_MASK);
+        return a_heap->type_tag == ValueTag::String && b_heap->type_tag == ValueTag::String &&
+               static_cast<StringObj *>(a_heap)->s == static_cast<StringObj *>(b_heap)->s;
+    }
+    if (a_tag == TAG_INT && b_tag == TAG_INT) {
+        return a._raw == b._raw;
+    }
+    if (a.is_numeric() && b.is_numeric()) {
+        return a.as_number() == b.as_number();
+    }
+    return a_tag == b_tag && a._raw == b._raw;
 }

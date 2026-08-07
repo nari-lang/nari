@@ -7,9 +7,6 @@ FLAGS=()
 
 for arg in "$@"; do
     case "$arg" in
-        --tree-walk)
-            FLAGS+=("--tree-walk")
-        ;;
         --debug)
             BUILD_TYPE="debug"
             BUILD_ARG=""
@@ -24,7 +21,7 @@ for arg in "$@"; do
         ;;
         *)
             echo "Unknown test option: $arg" >&2
-            echo "Usage: ./run_tests.sh [--release|--debug|--sanitize] [--tree-walk]" >&2
+            echo "Usage: ./run_tests.sh [--release|--debug|--sanitize]" >&2
             exit 2
         ;;
     esac

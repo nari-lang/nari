@@ -1,0 +1,14 @@
+import { assert } from "../lib/assert.nari";
+
+func update(value) {
+    value = value + 1;
+    return value + 2;
+}
+
+let result = 0;
+for (let i = 0; i < 200; i++) {
+    result = update(i);
+}
+
+assert(result == 202, "JIT slot round-trip result was " @ result);
+print("JIT slot round-trip ok");

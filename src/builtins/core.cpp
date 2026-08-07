@@ -25,8 +25,8 @@ Value ScriptRuntime::builtin_eval(const Value *argvals, size_t argc, const nari:
     auto parse_src = [&](bool wrap, std::vector<Parser::ParseError> &errors) -> FuncList {
         Parser::set_source_filename("<eval>");
 
-        Parser::ParseResult result = Parser::parse_program_recovering(
-            wrap ? "func " + wrapper_name + "() {\nreturn (" + src + ");\n}\n" : src, false);
+        Parser::ParseResult result =
+            Parser::parse_program_recovering(wrap ? "func " + wrapper_name + "() {\nreturn (" + src + ");\n}\n" : src, false);
 
         Parser::set_source_filename(saved_filename);
         if (!result.ok()) {
@@ -54,45 +54,89 @@ Value ScriptRuntime::builtin_eval(const Value *argvals, size_t argc, const nari:
         return Value::none();
     }
 
-    // add parsed function to running program
-    std::vector<Function *> import_toplevels;
-    Function *wrapper_fn = nullptr;
+    // Normalize the entry name: expression-form source parses into `wrapper_name`,
+    // statement-form arrives as the <eval> top-level, which becomes the entry.
+    // Renaming also keeps repeated evals of identical source from colliding.
+    bool has_entry = false;
     for (auto &f : funcs) {
         if (!f) {
             continue;
         }
         if (f->name == wrapper_name) {
-            wrapper_fn = f.get();
+            has_entry = true;
         } else if (f->name == eval_toplevel) {
-            // rename so that repeated evals of the same content don't collide
             f->name = wrapper_name;
-            wrapper_fn = f.get();
-        } else if (f->name.find("__top_level__@") == 0) {
-            // imported modules carry their own top-level functions
-            import_toplevels.push_back(f.get());
-            toplevel_order.push_back(f->name);
+            has_entry = true;
         }
-        functions[f->name] = std::move(f);
     }
 
-    for (Function *toplevel : import_toplevels) {
-        execute_toplevel_function(toplevel);
-    }
-
-    if (!wrapper_fn) {
-        // declarations only, nothing to run
+    if (!external_eval_source) {
+        runtime_fatal("eval is unavailable: no active execution tier", call);
         return Value::none();
     }
-    return call_user_function(wrapper_fn, {});
+
+    // Compile into the running chunk and execute. Any `__top_level__@` bodies from
+    // imports in the eval'd source run first, in source order. No entry (declarations
+    // only) yields null.
+    Value result = external_eval_source(funcs, has_entry ? wrapper_name : std::string());
+
+    // Retain the parsed AST for the rest of the process: class declarations reached
+    // through the parser registry point into these nodes.
+    for (auto &f : funcs) {
+        if (f) {
+            functions[f->name] = std::move(f);
+        }
+    }
+    return result;
 #endif
 }
 
 Value ScriptRuntime::builtin_print(const Value *argvals, size_t argc, const nari::CallExpr *) {
     std::string line;
-    for (size_t i = 0; i < argc; ++i) {
-        if (i) {
-            line += ' ';
+    size_t next_arg = 0;
+    if (argc > 1 && argvals[0].is_string()) {
+        const std::string &format = argvals[0].get_string();
+        next_arg = 1;
+        for (size_t i = 0; i < format.size(); ++i) {
+            if (format[i] != '%' || i + 1 >= format.size()) {
+                line += format[i];
+                continue;
+            }
+
+            const char token = format[i + 1];
+            if (token == '%') {
+                line += '%';
+                ++i;
+                continue;
+            }
+            if (next_arg >= argc || std::string_view("sdifjoOc").find(token) == std::string_view::npos) {
+                line += format[i];
+                continue;
+            }
+
+            const Value &value = argvals[next_arg++];
+            if (token == 'c') {
+                ++i;
+                continue;
+            }
+            if (token == 'd' || token == 'f') {
+                line += Value::make_float(value.as_number()).to_string();
+            } else if (token == 'i') {
+                const double number = value.as_number();
+                if (std::isfinite(number) && number >= static_cast<double>(std::numeric_limits<int64_t>::min()) &&
+                    number < -static_cast<double>(std::numeric_limits<int64_t>::min())) {
+                    line += std::to_string(static_cast<int64_t>(std::trunc(number)));
+                } else {
+                    line += Value::make_float(number).to_string();
+                }
+            } else {
+                line += value.to_string();
+            }
+            ++i;
         }
+    }
+    for (size_t i = next_arg; i < argc; ++i) {
+        if (!line.empty() || i > next_arg) { line += ' '; }
         line += argvals[i].to_string();
     }
     line += '\n';
@@ -106,6 +150,28 @@ Value ScriptRuntime::builtin_print(const Value *argvals, size_t argc, const nari
     return Value::none();
 }
 
+Value ScriptRuntime::builtin_write_stdout(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc == 0) { return Value::none(); }
+
+    const std::string text = argvals[0].to_string();
+    if (stdout_writer) {
+        stdout_writer(text);
+    } else {
+        fwrite(text.data(), 1, text.size(), stdout);
+        fflush(stdout);
+    }
+    return Value::none();
+}
+
+Value ScriptRuntime::builtin_write_stderr(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc == 0) { return Value::none(); }
+
+    const std::string text = argvals[0].to_string();
+    fwrite(text.data(), 1, text.size(), stderr);
+    fflush(stderr);
+    return Value::none();
+}
+
 // panic(value): raise an uncatchable panic that unwinds to the top of the program.
 // this essentially aborts with an error value
 Value ScriptRuntime::builtin_panic(const Value *argvals, size_t argc, const nari::CallExpr *) {
@@ -116,6 +182,48 @@ Value ScriptRuntime::builtin_panic(const Value *argvals, size_t argc, const nari
     }
     flags.throw_flag = true;
     return Value::none();
+}
+
+// Internal recovery boundary for transpilers and compatibility runtimes.
+// Normal panic() calls remain fatal unless they occur inside this callback.
+Value ScriptRuntime::builtin_nari_catch(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+    if (argc != 1 || !argvals[0].is_function()) {
+        runtime_fatal("__nari_catch expects a single function argument", call);
+        return Value::none();
+    }
+
+    if (external_catch_function_value) {
+        return external_catch_function_value(argvals[0]);
+    }
+
+    Value result = call_function_value(argvals[0], {});
+    if (flags.throw_flag) {
+        Value error = take_pending_throw();
+        return make_err(error);
+    }
+    return make_ok(result);
+}
+
+// Invoke a function value with an explicit `this` receiver plus an argument array.
+// Exposed for transpiled JS: its dynamic method-dispatch shims need to bind a
+// receiver *without* writing a scratch property onto the receiver object.
+Value ScriptRuntime::builtin_nari_invoke_with_this(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+    if (argc < 2 || !argvals[0].is_function()) {
+        runtime_fatal("__nari_invoke_with_this expects (function, receiver, args_array)", call);
+        return Value::none();
+    }
+    Value fn = argvals[0];
+    Value receiver = argvals[1];
+    GcTempRoot _gr(*this);
+    _gr.add(&fn);
+    _gr.add(&receiver);
+    if (argc < 3 || !argvals[2].is_array()) {
+        return call_function_value(fn, nullptr, 0, &receiver);
+    }
+    Value args_val = argvals[2];
+    _gr.add(&args_val);
+    const auto &args = args_val.get_array();
+    return call_function_value(fn, args.data(), args.size(), &receiver);
 }
 
 Value ScriptRuntime::builtin_setTimeout(const Value *argvals, size_t argc, const nari::CallExpr *) {
@@ -134,6 +242,7 @@ Value ScriptRuntime::builtin_setTimeout(const Value *argvals, size_t argc, const
 
         // capture the complete callback Value to keep lambdas alive
         io_op->callback = [this, callback_val]() {
+            pending_timeouts--;
             if (callback_val.is_function()) {
                 call_function_value(callback_val, {});
             }
@@ -141,10 +250,47 @@ Value ScriptRuntime::builtin_setTimeout(const Value *argvals, size_t argc, const
 
         if (io_pool) {
             async_root_set(io_op.get(), { callback_val });
+            pending_timeouts++;
             io_pool->submit(io_op);
         }
     }
     return Value::none();
+}
+
+// Fires every interval whose deadline has passed. A callback may arm or clear timers,
+// including its own, so ids are snapshotted and re-looked-up before each call instead
+// of holding an iterator across the callback.
+void ScriptRuntime::fire_due_intervals() {
+    if (active_intervals.empty()) {
+        return;
+    }
+    auto now = chrono::steady_clock::now();
+    std::vector<int64_t> due;
+    for (const auto &[id, interval] : active_intervals) {
+        if (interval.next_fire <= now) {
+            due.push_back(id);
+        }
+    }
+    for (int64_t id : due) {
+        auto it = active_intervals.find(id);
+        if (it == active_intervals.end()) {
+            continue; // cleared by an earlier callback in this same batch
+        }
+        Value callback = it->second.callback;
+        int64_t period = it->second.interval_ms;
+        if (callback.is_function()) {
+            call_function_value(callback, {});
+        }
+        if (flags.throw_flag || Runtime::g_shutdown_requested.load() || Runtime::g_runtime_error_occurred.load()) {
+            return;
+        }
+        it = active_intervals.find(id);
+        if (it != active_intervals.end()) {
+            // reschedule from completion, so a callback slower than its period cannot
+            // build a backlog of instantly-due firings
+            it->second.next_fire = chrono::steady_clock::now() + chrono::milliseconds(period);
+        }
+    }
 }
 
 Value ScriptRuntime::builtin_setInterval(const Value *argvals, size_t argc, const nari::CallExpr *) {
@@ -569,8 +715,7 @@ Value ScriptRuntime::builtin_net_conn_read(const Value *argvals, size_t argc, co
             read_op->callback = [this, callback_val, read_op]() {
                 if (callback_val.is_function()) {
                     if (read_op->success) {
-                        call_function_value(callback_val,
-                                            { Value::none(), Value::make_string(read_op->result_string) });
+                        call_function_value(callback_val, { Value::none(), Value::make_string(read_op->result_string) });
                     } else {
                         call_function_value(callback_val, { Value::make_string(read_op->error_msg), Value::none() });
                     }
@@ -735,8 +880,7 @@ Value ScriptRuntime::builtin_net_accept(const Value *argvals, size_t argc, const
     accept_op->callback = [this, handle, accept_op]() {
         handle->end_time = chrono::steady_clock::now();
         if (accept_op->success) {
-            handle->result = ScriptRuntime::make_ok(
-                build_conn_object(accept_op->client_fd, accept_op->client_ip, accept_op->client_port));
+            handle->result = ScriptRuntime::make_ok(build_conn_object(accept_op->client_fd, accept_op->client_ip, accept_op->client_port));
             handle->state = HandleData::Completed;
         } else {
             handle->result = ScriptRuntime::make_err(Value::make_string(accept_op->error_msg));

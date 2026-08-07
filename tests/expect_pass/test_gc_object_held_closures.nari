@@ -1,0 +1,21 @@
+func make_holder() {
+    let state = { value: 40 };
+    return {
+        first: func() { return state.value + 1; },
+        second: func() { return state.value + 2; },
+        third: func() { return state.value + 3; }
+    };
+}
+
+let holder = make_holder();
+__gc_set_threshold(10);
+for (let i = 0; i < 1000; i++) {
+    let garbage = { index: i, values: [i, i + 1, i + 2] };
+}
+__gc_collect();
+
+if (holder.first() != 41 || holder.second() != 42 || holder.third() != 43) {
+    panic("GC corrupted an object-held closure");
+}
+
+print("GC object-held closures passed");

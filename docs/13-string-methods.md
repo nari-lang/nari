@@ -327,10 +327,10 @@ Split string into array.
 Join array elements into string.
 
 ```nari
-["a", "b", "c"].join(", ");      // "a, b, c"
-["hello", "world"].join(" ");    // "hello world"
-[1, 2, 3].join("-");             // "1-2-3"
-["single"].join(",");            // "single"
+print(["a", "b", "c"].join(", "));      // "a, b, c"
+print(["hello", "world"].join(" "));    // "hello world"
+print([1, 2, 3].join("-"));             // "1-2-3"
+print(["single"].join(","));            // "single"
 ```
 
 **Parameters:**
@@ -415,7 +415,8 @@ let msg = `Name: {name}, Age: {age}`;
 print(msg);  // "Name: Alice, Age: 30"
 
 // Expressions
-let x = 5, y = 10;
+let x = 5;
+let y = 10;
 print(`Sum: {x + y}`);            // "Sum: 15"
 
 // Function calls

@@ -1,10 +1,15 @@
 #include "gc.h"
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include "core_types.h"
 #include "runtime.h"
 
 #ifdef __linux__
 #include <malloc.h>
 #endif
+
+GarbageCollector GarbageCollector::singleton;
 
 // if the tracking map can't grow due to OOM, drop the entry rather than throw
 void GarbageCollector::track(HeapHeader *p, TrackedType type) noexcept {
@@ -14,35 +19,38 @@ void GarbageCollector::track(HeapHeader *p, TrackedType type) noexcept {
 
     // NaN-boxed Value = 8 bytes
     constexpr size_t VALUE_SIZE_ESTIMATE = 8;
+    // header sizes come from sizeof, so the estimate tracks the structs instead of differing from constants.
     size_t est = 0;
     switch (type) {
         case TrackedType::Array:
-            est = 40 + ((ArrayObj *)p)->v.capacity() * VALUE_SIZE_ESTIMATE;
+            est = sizeof(ArrayObj) + ((ArrayObj *)p)->v.capacity() * VALUE_SIZE_ESTIMATE;
             break;
         case TrackedType::Object:
-            est = 64 + ((ObjectObj *)p)->field_count() * VALUE_SIZE_ESTIMATE;
+            est = sizeof(ObjectObj) + ((ObjectObj *)p)->field_count() * VALUE_SIZE_ESTIMATE;
             break;
         case TrackedType::ClassInstance:
-            est = 64 + ((ClassInstance *)p)->field_values.capacity() * VALUE_SIZE_ESTIMATE;
+            est = sizeof(ClassInstance) + ((ClassInstance *)p)->field_values.capacity() * VALUE_SIZE_ESTIMATE;
             break;
         case TrackedType::String:
-            est = 32;
+            est = sizeof(StringObj);
+            break;
+        case TrackedType::Function:
+            est = sizeof(FunctionData);
             break;
         default:
             est = 64;
             break;
     }
 
-    // intrusive list push-front. No allocation, no hashing, cannot fail.
     p->gc_est = (est > 0xFFFFFFFFull) ? 0xFFFFFFFFu : (uint32_t)est;
-    p->gc_prev = nullptr;
-    p->gc_next = gc_list_head;
-    if (gc_list_head) {
-        gc_list_head->gc_prev = p;
+    try {
+        p->gc_index = tracked_objects.size();
+        tracked_objects.push_back(p);
+    } catch (...) {
+        return;
     }
-    gc_list_head = p;
     p->gc_tracked = true;
-    tracked_count++;
+    tracked_count = tracked_objects.size();
 
     allocation_count++;
     total_allocated++;
@@ -51,10 +59,10 @@ void GarbageCollector::track(HeapHeader *p, TrackedType type) noexcept {
     if (tracked_count > peak_tracked) {
         peak_tracked = tracked_count;
     }
-    if (memory_limit > 0 && estimated_memory_usage > memory_limit) {
+    if (memory_target > 0 && estimated_memory_usage > memory_target) {
         trigger_collection = true;
     }
-    if (allocation_count >= collection_threshold) {
+    if (tracked_count >= collection_target) {
         trigger_collection = true;
     }
 }
@@ -63,22 +71,17 @@ void GarbageCollector::untrack(HeapHeader *p) {
     if (!p || !p->gc_tracked) {
         return;
     }
-    // Unlink from the intrusive list.
-    if (p->gc_prev) {
-        p->gc_prev->gc_next = p->gc_next;
-    } else {
-        gc_list_head = p->gc_next; // p was head
+    const size_t index = p->gc_index;
+    HeapHeader *last = tracked_objects.back();
+    if (index + 1 != tracked_objects.size()) {
+        tracked_objects[index] = last;
+        last->gc_index = index;
     }
-    if (p->gc_next) {
-        p->gc_next->gc_prev = p->gc_prev;
-    }
-    p->gc_next = p->gc_prev = nullptr;
+    tracked_objects.pop_back();
     p->gc_tracked = false;
     size_t est = p->gc_est;
     estimated_memory_usage = (estimated_memory_usage >= est) ? estimated_memory_usage - est : 0;
-    if (tracked_count > 0) {
-        tracked_count--;
-    }
+    tracked_count = tracked_objects.size();
 }
 
 // mark phase
@@ -94,7 +97,7 @@ bool GarbageCollector::is_marked(HeapHeader *p) const {
 }
 
 void GarbageCollector::clear_marks() {
-    for (HeapHeader *p = gc_list_head; p; p = p->gc_next) {
+    for (HeapHeader *p : tracked_objects) {
         p->gc_marked = false;
     }
 }
@@ -103,7 +106,11 @@ void GarbageCollector::clear_marks() {
 void GarbageCollector::mark_value(const Value &root) {
     auto push = [this](const Value &v) {
         if (v.is_heap()) {
-            mark_stack.push_back(v.raw_bits());
+            HeapHeader *p = v.heap_ptr();
+            if (p && !p->gc_marked) {
+                p->gc_marked = true;
+                mark_stack.push_back(v.raw_bits());
+            }
         }
     };
     push(root);
@@ -111,14 +118,24 @@ void GarbageCollector::mark_value(const Value &root) {
         const Value v = Value::from_raw(mark_stack.back());
         mark_stack.pop_back();
         HeapHeader *p = v.heap_ptr();
-        if (!p || p->gc_marked) {
-            continue;
-        }
-        p->gc_marked = true;
         switch (p->type_tag) {
+            case ValueTag::String:
+                push(((StringObj *)p)->getter_key_cache);
+                break;
             case ValueTag::Array:
                 for (const auto &elem : ((ArrayObj *)p)->v) {
                     push(elem);
+                }
+                if (auto *properties = ((ArrayObj *)p)->properties.get()) {
+                    for (const Value &field : properties->fields) {
+                        push(field);
+                    }
+                    push(properties->lazy_payload);
+                    if (properties->dict_mode) {
+                        for (const auto &entry : properties->dict_fields()) {
+                            push(entry.second);
+                        }
+                    }
                 }
                 break;
             case ValueTag::Object: {
@@ -130,10 +147,8 @@ void GarbageCollector::mark_value(const Value &root) {
                 push(obj->lazy_payload);
                 // dict-mode storage
                 if (obj->dict_mode) {
-                    for (const auto &name : obj->get_keys()) {
-                        if (const Value *dv = obj->get_field(name)) {
-                            push(*dv);
-                        }
+                    for (const auto &entry : obj->dict_fields()) {
+                        push(entry.second);
                     }
                 }
                 break;
@@ -164,12 +179,43 @@ void GarbageCollector::mark_value(const Value &root) {
                 }
                 break;
             case ValueTag::Function: {
-                // only closures have captures (and only they are GC-tracked)
                 auto *fd = ((FunctionData *)p);
                 if (fd->captures) {
                     for (const auto &cell : *fd->captures) {
                         if (cell) {
                             push(*cell);
+                        }
+                    }
+                }
+                if (fd->func_ptr && fd->func_ptr->closure_env_ptr) {
+                    const auto &closure_env = *(const std::shared_ptr<std::map<std::string, Value>> *)fd->func_ptr->closure_env_ptr;
+                    if (closure_env && marked_closure_environments.insert(closure_env.get()).second) {
+                        for (const auto &[name, value] : *closure_env) {
+                            push(value);
+                        }
+                    }
+                }
+                if (fd->func_ptr && fd->func_ptr->closure_owner_env_ptr) {
+                    using ClosureOwnerMap = std::map<std::string, std::shared_ptr<std::map<std::string, Value>>>;
+                    const auto &owners = *(const std::shared_ptr<ClosureOwnerMap> *)fd->func_ptr->closure_owner_env_ptr;
+                    if (owners) {
+                        for (const auto &[name, environment] : *owners) {
+                            if (environment && marked_closure_environments.insert(environment.get()).second) {
+                                for (const auto &[owner_name, value] : *environment) {
+                                    push(value);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (fd->properties) {
+                    for (const Value &field : fd->properties->fields) {
+                        push(field);
+                    }
+                    push(fd->properties->lazy_payload);
+                    if (fd->properties->dict_mode) {
+                        for (const auto &entry : fd->properties->dict_fields()) {
+                            push(entry.second);
                         }
                     }
                 }
@@ -182,7 +228,7 @@ void GarbageCollector::mark_value(const Value &root) {
                 break;
             }
             default:
-                break; // string and others: leaf objects, no children
+                break;
         }
     }
 }
@@ -195,39 +241,64 @@ size_t GarbageCollector::sweep() {
     if (!enabled) {
         return 0;
     }
-
-    // walk the intrusive list, unlinking unreachable objects into `garbage`
-    std::vector<HeapHeader *> garbage;
-    HeapHeader *p = gc_list_head;
-    while (p) {
-        HeapHeader *next = p->gc_next;
-        if (!p->gc_marked) {
-            // unlink
-            if (p->gc_prev) {
-                p->gc_prev->gc_next = p->gc_next;
-            } else {
-                gc_list_head = p->gc_next;
+    
+    static const size_t kGcPrefetch = []() -> size_t {
+        if (const char *e = getenv("NARI_GC_PREFETCH")) {
+            long v = strtol(e, nullptr, 10);
+            if (v >= 0 && v < 4096) {
+                return (size_t)v;
             }
-            if (p->gc_next) {
-                p->gc_next->gc_prev = p->gc_prev;
-            }
-            p->gc_next = p->gc_prev = nullptr;
-            p->gc_tracked = false;
-            size_t est = p->gc_est;
-            estimated_memory_usage = (estimated_memory_usage >= est) ? estimated_memory_usage - est : 0;
-            if (tracked_count > 0) {
-                tracked_count--;
-            }
-            garbage.push_back(p);
         }
-        p = next;
+        return 64;
+    }();
+    const auto pf = [this](size_t i) {
+        if (i < tracked_objects.size()) {
+            __builtin_prefetch(tracked_objects[i], 1, 1);
+        }
+    };
+
+    // Partition in place so large collections do not allocate a second pointer array.
+    size_t live_count = 0;
+    size_t garbage_begin = tracked_objects.size();
+    while (live_count < garbage_begin) {
+        pf(live_count + kGcPrefetch);
+        if (garbage_begin >= kGcPrefetch) {
+            pf(garbage_begin - kGcPrefetch);
+        }
+        if (tracked_objects[live_count]->gc_marked) {
+            live_count++;
+            continue;
+        }
+        do {
+            garbage_begin--;
+        } while (live_count < garbage_begin && !tracked_objects[garbage_begin]->gc_marked);
+        if (live_count == garbage_begin) {
+            break;
+        }
+        std::swap(tracked_objects[live_count], tracked_objects[garbage_begin]);
+        live_count++;
     }
 
+    for (size_t i = 0; i < live_count; i++) {
+        pf(i + kGcPrefetch);
+        HeapHeader *p = tracked_objects[i];
+        p->gc_index = i;
+        p->gc_marked = false;
+    }
+    const size_t garbage_count = tracked_objects.size() - live_count;
+    tracked_count = live_count;
+
     // clear container contents (breaks cycles)
-    for (HeapHeader *g : garbage) {
+    for (size_t i = live_count; i < tracked_objects.size(); i++) {
+        pf(i + kGcPrefetch);
+        HeapHeader *g = tracked_objects[i];
+        g->gc_tracked = false;
+        const size_t est = g->gc_est;
+        estimated_memory_usage = (estimated_memory_usage >= est) ? estimated_memory_usage - est : 0;
         switch (g->type_tag) {
             case ValueTag::Array:
                 ((ArrayObj *)g)->v.clear();
+                ((ArrayObj *)g)->properties.reset();
                 break;
             case ValueTag::Object:
                 ((ObjectObj *)g)->clear_fields();
@@ -246,6 +317,7 @@ size_t GarbageCollector::sweep() {
                 break;
             case ValueTag::Function:
                 ((FunctionData *)g)->captures.reset();
+                ((FunctionData *)g)->properties.reset();
                 break;
             case ValueTag::Delegate: {
                 auto *d = ((DelegateData *)g);
@@ -258,8 +330,13 @@ size_t GarbageCollector::sweep() {
         }
     }
 
-    // delete
-    for (HeapHeader *g : garbage) {
+    // Delete from the back so each removed registry entry can be popped immediately.
+    while (tracked_objects.size() > live_count) {
+        if (tracked_objects.size() > live_count + kGcPrefetch) {
+            __builtin_prefetch(tracked_objects[tracked_objects.size() - 1 - kGcPrefetch], 1, 1);
+        }
+        HeapHeader *g = tracked_objects.back();
+        tracked_objects.pop_back();
         switch (g->type_tag) {
             case ValueTag::Array:
                 delete ((ArrayObj *)g);
@@ -287,7 +364,7 @@ size_t GarbageCollector::sweep() {
         }
     }
 
-    return garbage.size();
+    return garbage_count;
 }
 
 // full collection
@@ -296,19 +373,36 @@ size_t GarbageCollector::collect(const std::vector<const Value *> &roots) {
         return 0;
     }
     total_collections++;
-    clear_marks();
+    static const bool gc_profile = getenv("NARI_GC_PROFILE") != nullptr;
+    std::chrono::steady_clock::time_point t0, t1, t2;
+    size_t tracked_before = tracked_objects.size();
+    if (gc_profile) t0 = std::chrono::steady_clock::now();
+    marked_closure_environments.clear();
     for (const Value *root : roots) {
         if (root) {
             mark_value(*root);
         }
     }
+    if (gc_profile) t1 = std::chrono::steady_clock::now();
     // don't retain a pathologically grown worklist across collections (512KB cap)
     if (mark_stack.capacity() > 65536) {
         mark_stack.shrink_to_fit();
     }
     size_t collected = sweep();
+    if (gc_profile) {
+        t2 = std::chrono::steady_clock::now();
+        auto ms = [](std::chrono::steady_clock::time_point a, std::chrono::steady_clock::time_point b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        fprintf(stderr, "[gcprof] #%zu tracked_before=%zu live=%zu roots=%zu mark=%.2fms sweep=%.2fms\n",
+                (size_t)total_collections, tracked_before, tracked_count, roots.size(), ms(t0, t1), ms(t1, t2));
+    }
     total_collected += collected;
     reset_allocation_count();
+    collection_target = tracked_count + std::max(collection_threshold, tracked_count);
+    if (memory_limit > 0) {
+        memory_target = std::max(memory_limit, estimated_memory_usage * 2);
+    }
     return collected;
 }
 
@@ -322,6 +416,6 @@ size_t GarbageCollector::force_collect(const std::vector<const Value *> &roots) 
 
 // TODO?: consolidate these variables into the Stats struct so that we can just directly return that instead of copying
 GarbageCollector::Stats GarbageCollector::get_stats() const {
-    return Stats{ tracked_count,   allocation_count, total_collections,    total_collected,
-                  total_allocated, peak_tracked,     collection_threshold, enabled };
+    return Stats { tracked_count, allocation_count, total_collections, total_collected,
+                   total_allocated, peak_tracked, collection_threshold, enabled };
 }

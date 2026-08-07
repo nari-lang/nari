@@ -1,0 +1,131 @@
+// Regression tests for per-iteration closure capture in loops.
+//
+// CallFrame caches one upvalue cell per local slot for the frame's whole lifetime.
+// Loop iterations reuse the same slot, so every closure made in a loop used to share
+// a single cell, and stores wrote through to it: `for (let i=0;i<3;i++) fns.push(
+// func(){return i;})` produced 3,3,3 instead of 0,1,2. Loops now emit
+// OP_CLOSE_UPVALUES at the end of each iteration for the locals they declare, which
+// hands the next iteration fresh cells. Locals declared *outside* the loop keep
+// sharing one cell, which is what `var` semantics need.
+
+import { assert } from "../lib/assert.nari";
+
+func join(fns) {
+    let out = "";
+    for (f in fns) {
+        if (out != "") { out = out @ ","; }
+        out = out @ f();
+    }
+    return out;
+}
+
+// === for (let i ...): each closure keeps its own iteration value ===
+let a = [];
+for (let i = 0; i < 3; i++) {
+    a.push(func() { return i; });
+}
+assert(join(a) == "0,1,2", "for(let) capture, got: " @ join(a));
+
+// === a `let` in the loop body is also per-iteration ===
+let b = [];
+let k = 0;
+while (k < 3) {
+    let m = k * 10;
+    b.push(func() { return m; });
+    k = k + 1;
+}
+assert(join(b) == "0,10,20", "while-body let capture, got: " @ join(b));
+
+// === `continue` must not skip the close ===
+let c = [];
+for (let i = 0; i < 5; i++) {
+    if (i == 2) { continue; }
+    c.push(func() { return i; });
+}
+assert(join(c) == "0,1,3,4", "for(let) with continue, got: " @ join(c));
+
+let d = [];
+let n = 0;
+while (n < 5) {
+    n = n + 1;
+    if (n == 3) { continue; }
+    let m = n;
+    d.push(func() { return m; });
+}
+assert(join(d) == "1,2,4,5", "while with continue, got: " @ join(d));
+
+// === for-in binds per iteration ===
+let e = [];
+for (v in [7, 8, 9]) {
+    e.push(func() { return v; });
+}
+assert(join(e) == "7,8,9", "for-in capture, got: " @ join(e));
+
+let f2 = [];
+for (v in [1, 2, 3, 4]) {
+    if (v == 2) { continue; }
+    f2.push(func() { return v; });
+}
+assert(join(f2) == "1,3,4", "for-in with continue, got: " @ join(f2));
+
+// === key/value iteration ===
+let g = [];
+for (key, val in { x: 1, y: 2 }) {
+    g.push(func() { return key @ "=" @ val; });
+}
+assert(join(g) == "x=1,y=2", "for-in kv capture, got: " @ join(g));
+
+// === nested loops close independently ===
+let h = [];
+for (let i = 0; i < 2; i++) {
+    for (let j = 0; j < 2; j++) {
+        h.push(func() { return i * 10 + j; });
+    }
+}
+assert(join(h) == "0,1,10,11", "nested loop capture, got: " @ join(h));
+
+// === break leaves the already-captured cells alone ===
+let i2 = [];
+for (let i = 0; i < 10; i++) {
+    i2.push(func() { return i; });
+    if (i == 1) { break; }
+}
+assert(join(i2) == "0,1", "capture with break, got: " @ join(i2));
+
+// === a local declared OUTSIDE the loop stays shared (var semantics) ===
+let j2 = [];
+let outer = 1;
+for (let i = 0; i < 2; i++) {
+    j2.push(func() { return outer; });
+}
+outer = 99;
+assert(join(j2) == "99,99", "outer local must stay shared, got: " @ join(j2));
+
+// === each call gets its own frame, so cells never leak between calls ===
+func mk() {
+    let r = [];
+    for (let i = 0; i < 3; i++) {
+        r.push(func() { return i; });
+    }
+    return r;
+}
+assert(join(mk()) == "0,1,2", "first call, got: " @ join(mk()));
+assert(join(mk()) == "0,1,2", "second call, got: " @ join(mk()));
+
+// === still correct once the loop is hot enough to JIT ===
+func hot() {
+    let acc = 0;
+    for (let i = 0; i < 200; i++) {
+        let cl = func() { return i; };
+        acc = acc + cl();
+    }
+    return acc;
+}
+let want = 199 * 200 / 2;
+let got = 0;
+for (let t = 0; t < 300; t++) {
+    got = hot();
+}
+assert(got == want, "JIT-hot loop capture: expected " @ want @ ", got " @ got);
+
+print("loop closure capture: all assertions passed");

@@ -43,8 +43,8 @@ void pop_error_context();
 FuncList parse_program_from_source(const std::string &src, bool create_aggregator = true);
 
 // recovering parse: collects all errors, returns a ParseResult.
-// returned AST is partial when errors.size() > 0; statements that triggered errors are skipped and parsing resumes at
-// the next boundary.
+// returned AST is partial when errors.size() > 0. 
+// statements that triggered errors are skipped and parsing resumes at the next boundary.
 ParseResult parse_program_recovering(const std::string &src, bool create_aggregator = true);
 
 // type registry stuff

@@ -8,6 +8,7 @@
 //   textDocument/didClose
 //   textDocument/completion
 //   textDocument/hover
+//   textDocument/signatureHelp
 //   textDocument/definition
 //   textDocument/references
 //   textDocument/typeDefinition
@@ -15,6 +16,7 @@
 //   textDocument/inlayHint
 //   textDocument/semanticTokens/full
 
+// TODO: move lsp into src/
 #ifndef DISABLE_PARSER
 #include "ast.h"
 #include "core_types.h"
@@ -138,6 +140,7 @@ struct SymInfo {
     // "string", "number", "bool", "regex", "array", "object", "function", "null", "" = unknown.
     std::string inferred_type;
     std::string owner_class;
+    std::string call_return_type;
 };
 
 struct MemberInfo {
@@ -149,6 +152,9 @@ struct MemberInfo {
     bool is_method = false;
     bool is_public = true;
     bool is_static = false;
+    std::string return_type;
+    std::string doc_comment;
+    std::vector<std::string> parameter_types;
 };
 
 struct ClassInfo {
@@ -686,7 +692,9 @@ static std::string build_func_sig(const nari::Function &fn, const std::string &n
         if (p.type) {
             s += ": " + p.type->to_string();
         }
-        // TODO: default value omitted, make it an option maybe?
+        if (p.default_value) {
+            s += p.default_value->kind == nari::ExprKind::Null ? " = null" : " = ...";
+        }
     }
     s += ")";
     if (fn.return_type) {
@@ -715,6 +723,9 @@ static std::string build_method_sig(const nari::ClassMethod &method, const std::
         s += p.name;
         if (p.type) {
             s += ": " + p.type->to_string();
+        }
+        if (p.default_value) {
+            s += p.default_value->kind == nari::ExprKind::Null ? " = null" : " = ...";
         }
     }
     s += ")";
@@ -830,9 +841,11 @@ static bool is_scope_owner_kind(int kind) {
     return kind == CK_Function || kind == CK_Method;
 }
 
-static int find_enclosing_scope_line(const std::vector<SymInfo> &symbols,
-                                     const std::string &source_file,
-                                     int cursor_line_1) {
+static int find_enclosing_scope_line(
+    const std::vector<SymInfo> &symbols,
+    const std::string &source_file,
+    int cursor_line_1
+) {
     int enclosing_scope_line = 0;
     for (const auto &sym : symbols) {
         if (!is_scope_owner_kind(sym.kind)) {
@@ -848,10 +861,12 @@ static int find_enclosing_scope_line(const std::vector<SymInfo> &symbols,
     return enclosing_scope_line;
 }
 
-static const SymInfo *find_symbol_in_scope(const std::vector<SymInfo> &symbols,
-                                           const std::string &name,
-                                           const std::string &source_file,
-                                           int cursor_line_1) {
+static const SymInfo *find_symbol_in_scope(
+    const std::vector<SymInfo> &symbols,
+    const std::string &name,
+    const std::string &source_file,
+    int cursor_line_1
+) {
     int enclosing_scope_line = find_enclosing_scope_line(symbols, source_file, cursor_line_1);
     const SymInfo *fallback = nullptr;
     for (const auto &sym : symbols) {
@@ -880,11 +895,13 @@ static const ClassInfo *find_class_info(const std::vector<ClassInfo> &classes, c
     return nullptr;
 }
 
-static const MemberInfo *find_class_member(const std::vector<ClassInfo> &classes,
-                                           const std::string &class_name,
-                                           const std::string &member_name,
-                                           bool static_only,
-                                           std::unordered_set<std::string> &visited) {
+static const MemberInfo *find_class_member(
+    const std::vector<ClassInfo> &classes,
+    const std::string &class_name,
+    const std::string &member_name,
+    bool static_only,
+    std::unordered_set<std::string> &visited
+) {
     if (!visited.insert(class_name).second) {
         return nullptr;
     }
@@ -906,12 +923,181 @@ static const MemberInfo *find_class_member(const std::vector<ClassInfo> &classes
     return nullptr;
 }
 
-static const MemberInfo *find_class_member(const std::vector<ClassInfo> &classes,
-                                           const std::string &class_name,
-                                           const std::string &member_name,
-                                           bool static_only = false) {
+static const MemberInfo *find_class_member(
+    const std::vector<ClassInfo> &classes,
+    const std::string &class_name,
+    const std::string &member_name,
+    bool static_only = false
+) {
     std::unordered_set<std::string> visited;
     return find_class_member(classes, class_name, member_name, static_only, visited);
+}
+
+static std::string extract_doc_comment(const std::string &text, int sym_line_1based);
+static std::string extract_doc_comment(const std::vector<std::string> &lines, int sym_line_1based);
+
+static std::filesystem::path find_package_declarations(const std::string &specifier, const std::string &source_file) {
+    std::filesystem::path source_dir = std::filesystem::path(source_file).parent_path();
+    if (specifier.rfind("./", 0) == 0 || specifier.rfind("../", 0) == 0) {
+        std::filesystem::path base = source_dir / specifier;
+        std::vector<std::filesystem::path> candidates;
+        if (base.extension() == ".nari") {
+            candidates.push_back(base.parent_path() / (base.stem().string() + ".d.nari"));
+        }
+        candidates.push_back(std::filesystem::path(base.string() + ".d.nari"));
+        for (const auto &candidate : candidates) {
+            if (std::filesystem::is_regular_file(candidate)) {
+                return candidate;
+            }
+        }
+        return {};
+    }
+
+    for (std::filesystem::path dir = source_dir; !dir.empty();) {
+        std::filesystem::path candidate = dir / "nari_modules" /
+            std::filesystem::path(specifier + ".d.nari");
+        if (std::filesystem::is_regular_file(candidate)) {
+            return candidate;
+        }
+        std::filesystem::path parent = dir.parent_path();
+        if (parent == dir) {
+            break;
+        }
+        dir = std::move(parent);
+    }
+    return {};
+}
+
+static bool load_package_declarations(const std::filesystem::path &path,
+                                      const std::string &binding_name,
+                                      SymInfo &binding,
+                                      std::vector<ClassInfo> &classes) {
+    std::ifstream input(path);
+    if (!input) {
+        return false;
+    }
+    std::string content((std::istreambuf_iterator<char>(input)),
+                        std::istreambuf_iterator<char>());
+    std::string default_name;
+    std::vector<std::string> source_lines;
+    std::istringstream lines(content);
+    for (std::string line; std::getline(lines, line);) {
+        source_lines.push_back(line);
+        size_t marker = default_name.empty() ? line.find("// @default ") : std::string::npos;
+        if (marker != std::string::npos) {
+            default_name = line.substr(marker + 12);
+            size_t end = default_name.find_first_of(" \t\r");
+            if (end != std::string::npos) {
+                default_name.resize(end);
+            }
+        }
+    }
+    if (default_name.empty()) {
+        return false;
+    }
+
+    Parser::set_source_filename(path.string());
+    auto result = Parser::parse_program_recovering(content, /*create_aggregator=*/false);
+    if (!result.ok()) {
+        return false;
+    }
+    for (const auto &fn : result.functions) {
+        if (!fn || fn->name != default_name) {
+            continue;
+        }
+        binding.kind = CK_Function;
+        binding.inferred_type = "function";
+        binding.call_return_type = fn->return_type ? fn->return_type->to_string() : "";
+        binding.detail = build_func_sig(*fn, binding_name);
+        binding.doc_comment = extract_doc_comment(source_lines, fn->line);
+        break;
+    }
+
+    for (const auto &[name, declaration] : Parser::get_all_registered_classes()) {
+        if (!declaration || declaration->filename != path.string() || find_class_info(classes, name)) {
+            continue;
+        }
+        ClassInfo cls;
+        cls.name = name;
+        cls.line = declaration->line;
+        cls.col = declaration->col;
+        cls.source_file = path.string();
+        cls.parent_name = declaration->parent_name;
+        for (const auto &field : declaration->fields) {
+            MemberInfo member;
+            member.name = field.name;
+            member.detail = "property " + field.name;
+            member.source_file = path.string();
+            member.line = field.line;
+            member.col = field.col;
+            member.return_type = field.type ? field.type->to_string() : "";
+            if (!member.return_type.empty()) member.detail += ": " + member.return_type;
+            member.doc_comment = extract_doc_comment(source_lines, field.line);
+            cls.members.push_back(std::move(member));
+        }
+        for (const auto &method : declaration->methods) {
+            MemberInfo member;
+            member.name = method.name;
+            member.detail = build_method_sig(method, declaration->name);
+            member.source_file = path.string();
+            member.line = method.line;
+            member.col = method.col;
+            member.is_method = true;
+            member.is_static = method.is_static;
+            member.return_type = method.return_type ? method.return_type->to_string() : "";
+            for (const auto &param : method.params) {
+                member.parameter_types.push_back(param.type ? param.type->to_string() : "");
+            }
+            member.doc_comment = extract_doc_comment(source_lines, method.line);
+            cls.members.push_back(std::move(member));
+        }
+        classes.push_back(std::move(cls));
+    }
+    return binding.kind == CK_Function;
+}
+
+static std::string infer_expr_type(const nari::Expr *e,
+                                   const std::vector<SymInfo> &symbols,
+                                   const std::vector<ClassInfo> &classes,
+                                   const std::string &source_file,
+                                   int line) {
+    std::string simple = infer_expr_type(e);
+    if (!simple.empty() || !e) {
+        return simple;
+    }
+    if (e->kind == nari::ExprKind::Member) {
+        const auto *member = static_cast<const nari::MemberExpr *>(e);
+        std::string receiver_type = infer_expr_type(
+            member->object.get(), symbols, classes, source_file, line);
+        if (const MemberInfo *info = find_class_member(classes, receiver_type, member->member)) {
+            return info->return_type;
+        }
+    }
+    if (e->kind != nari::ExprKind::Call) {
+        if (e->kind == nari::ExprKind::Ident) {
+            const auto *ident = static_cast<const nari::IdentExpr *>(e);
+            if (const SymInfo *sym = find_symbol_in_scope(symbols, ident->name, source_file, line)) {
+                return sym->inferred_type;
+            }
+        }
+        return "";
+    }
+    const auto *call = static_cast<const nari::CallExpr *>(e);
+    if (call->callee && call->callee->kind == nari::ExprKind::Ident) {
+        const auto *ident = static_cast<const nari::IdentExpr *>(call->callee.get());
+        if (const SymInfo *sym = find_symbol_in_scope(symbols, ident->name, source_file, line)) {
+            return sym->call_return_type;
+        }
+    }
+    if (call->callee && call->callee->kind == nari::ExprKind::Member) {
+        const auto *member = static_cast<const nari::MemberExpr *>(call->callee.get());
+        std::string receiver_type = infer_expr_type(
+            member->object.get(), symbols, classes, source_file, line);
+        if (const MemberInfo *info = find_class_member(classes, receiver_type, member->member)) {
+            return info->return_type;
+        }
+    }
+    return "";
 }
 
 static std::string resolve_receiver_class_name(const std::vector<SymInfo> &symbols,
@@ -937,7 +1123,15 @@ static std::string resolve_receiver_class_name(const std::vector<SymInfo> &symbo
     if (!receiver_sym) {
         return "";
     }
-    return receiver_sym->inferred_type;
+    std::string type_name = receiver_sym->inferred_type;
+    size_t generic = type_name.find('<');
+    if (generic != std::string::npos) {
+        type_name.resize(generic);
+    }
+    if (type_name.size() >= 2 && type_name.substr(type_name.size() - 2) == "[]") {
+        type_name.resize(type_name.size() - 2);
+    }
+    return type_name;
 }
 
 static std::string build_function_expr_sig(const std::string &name, const nari::FunctionExpr *fn) {
@@ -1042,14 +1236,73 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                        const StringMap &ns_to_path,
                        const std::vector<std::string> &source_lines,
                        int scope_fn_line = 0,
-                       std::vector<ObjectLiteralInfo> *object_literals = nullptr) {
+                       std::vector<ObjectLiteralInfo> *object_literals = nullptr,
+                       std::vector<ClassInfo> *classes = nullptr,
+                       const std::string &source_file = "") {
     for (const auto &sptr : stmts) {
         if (!sptr) {
             continue;
         }
         const nari::Stmt *s = sptr.get();
 
-        if (s->stmt_kind == nari::StmtKind::VarDecl) {
+        if (s->stmt_kind == nari::StmtKind::Expr && classes) {
+            const auto *expr_stmt = static_cast<const nari::ExprStmt *>(s);
+            if (expr_stmt->expr && expr_stmt->expr->kind == nari::ExprKind::Call) {
+                const auto *call = static_cast<const nari::CallExpr *>(expr_stmt->expr.get());
+                const MemberInfo *called_member = nullptr;
+                if (call->callee && call->callee->kind == nari::ExprKind::Member) {
+                    const auto *member = static_cast<const nari::MemberExpr *>(call->callee.get());
+                    std::string receiver_type = infer_expr_type(
+                        member->object.get(), out, *classes, source_file, s->line);
+                    called_member = find_class_member(*classes, receiver_type, member->member);
+                }
+                if (called_member && !called_member->parameter_types.empty()) {
+                    for (size_t i = 0; i < call->args.size(); ++i) {
+                        const auto *arg = call->args[i].get();
+                        if (!arg || arg->kind != nari::ExprKind::Function) {
+                            continue;
+                        }
+                        size_t parameter_index = std::min(i, called_member->parameter_types.size() - 1);
+                        std::string callback_type = called_member->parameter_types[parameter_index];
+                        if (callback_type.size() >= 2 && callback_type.substr(callback_type.size() - 2) == "[]") {
+                            callback_type.resize(callback_type.size() - 2);
+                        }
+                        size_t generic = callback_type.find('<');
+                        if (generic != std::string::npos) {
+                            callback_type.resize(generic);
+                        }
+                        const MemberInfo *call_signature = find_class_member(*classes, callback_type, "call");
+                        if (!call_signature) {
+                            continue;
+                        }
+
+                        const auto *fn = static_cast<const nari::FunctionExpr *>(arg);
+                        SymInfo scope_owner{"", "callback", CK_Function, fn->line, fn->col, source_file};
+                        out.push_back(std::move(scope_owner));
+                        for (size_t p = 0; p < fn->params.size(); ++p) {
+                            const auto &param = fn->params[p];
+                            SymInfo param_info;
+                            param_info.name = param.name;
+                            param_info.detail = "(parameter) " + param.name;
+                            param_info.kind = CK_Variable;
+                            param_info.line = fn->line;
+                            param_info.col = fn->col;
+                            param_info.source_file = source_file;
+                            param_info.scope_fn_line = fn->line;
+                            if (p < call_signature->parameter_types.size()) {
+                                param_info.inferred_type = call_signature->parameter_types[p];
+                                param_info.detail += ": " + param_info.inferred_type;
+                            }
+                            out.push_back(std::move(param_info));
+                        }
+                        if (fn->body) {
+                            walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, fn->line,
+                                       object_literals, classes, source_file);
+                        }
+                    }
+                }
+            }
+        } else if (s->stmt_kind == nari::StmtKind::VarDecl) {
             const auto *vd = static_cast<const nari::VarDeclStmt *>(s);
             if (vd->destructure_kind == nari::DestructureKind::None) {
                 if (!vd->name.empty()) {
@@ -1075,12 +1328,17 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                             }
                         }
                     }
-                    int decl_col = resolve_identifier_col(source_lines, vd->name, s->line, s->col,
-                                                          (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+                    
+                    int decl_col = resolve_identifier_col(
+                        source_lines, vd->name, s->line, s->col,
+                        (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+                    
                     if (is_import) {
                         out.push_back({ vd->name, import_detail, CK_Module, s->line, decl_col, import_source_path });
                     } else {
-                        std::string itype = infer_expr_type(vd->initializerExpr.get());
+                        std::string itype = classes
+                            ? infer_expr_type(vd->initializerExpr.get(), out, *classes, source_file, s->line)
+                            : infer_expr_type(vd->initializerExpr.get());
                         std::string det;
                         if (!itype.empty()) {
                             det = (vd->is_global ? "global " : "") + itype + " " + vd->name;
@@ -1090,6 +1348,20 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                         SymInfo si{ vd->name, det, CK_Variable, s->line, decl_col };
                         si.scope_fn_line = scope_fn_line;
                         si.inferred_type = itype;
+                        if (classes && vd->initializerExpr &&
+                            vd->initializerExpr->kind == nari::ExprKind::Call) {
+                            const auto *call = static_cast<const nari::CallExpr *>(vd->initializerExpr.get());
+                            if (call->callee && call->callee->kind == nari::ExprKind::Ident &&
+                                static_cast<const nari::IdentExpr *>(call->callee.get())->name == "require" &&
+                                !call->args.empty() && call->args[0] &&
+                                call->args[0]->kind == nari::ExprKind::String) {
+                                const auto *arg = static_cast<const nari::StringExpr *>(call->args[0].get());
+                                std::filesystem::path declarations = find_package_declarations(arg->value, source_file);
+                                if (!declarations.empty()) {
+                                    load_package_declarations(declarations, vd->name, si, *classes);
+                                }
+                            }
+                        }
                         out.push_back(std::move(si));
 
                         if (object_literals && vd->initializerExpr && vd->initializerExpr->kind == nari::ExprKind::ObjectLiteral) {
@@ -1106,8 +1378,10 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
             } else if (vd->destructure_kind == nari::DestructureKind::Array) {
                 for (const auto &nm : vd->array_names) {
                     if (!nm.empty()) {
-                        int decl_col = resolve_identifier_col(source_lines, nm, s->line, s->col,
-                                                              (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+                        int decl_col = resolve_identifier_col(
+                            source_lines, nm, s->line, s->col,
+                            (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+                        
                         SymInfo si{ nm, "variable", CK_Variable, s->line, decl_col };
                         si.scope_fn_line = scope_fn_line;
                         out.push_back(std::move(si));
@@ -1117,8 +1391,10 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                 for (const auto &[key, local] : vd->object_bindings) {
                     (void)key;
                     if (!local.empty()) {
-                        int decl_col = resolve_identifier_col(source_lines, local, s->line, s->col,
-                                                              (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+                        int decl_col = resolve_identifier_col(
+                            source_lines, local, s->line, s->col,
+                            (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+                        
                         SymInfo si{ local, "variable", CK_Variable, s->line, decl_col };
                         si.scope_fn_line = scope_fn_line;
                         out.push_back(std::move(si));
@@ -1129,44 +1405,46 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
         } else if (s->stmt_kind == nari::StmtKind::ForEach) {
             const auto *fe = static_cast<const nari::ForEachStmt *>(s);
             if (!fe->var.empty()) {
-                int decl_col = resolve_identifier_col(source_lines, fe->var, s->line, s->col,
-                                                      (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+                int decl_col = resolve_identifier_col(
+                    source_lines, fe->var, s->line, s->col,
+                    (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+                
                 SymInfo si{ fe->var, "variable", CK_Variable, s->line, decl_col };
                 si.scope_fn_line = scope_fn_line;
                 out.push_back(std::move(si));
             }
             if (fe->body && fe->body->stmt_kind == nari::StmtKind::Block) {
                 walk_stmts(static_cast<const nari::BlockStmt *>(fe->body.get())->stmts, out, ns_to_path,
-                           source_lines, scope_fn_line, object_literals);
+                           source_lines, scope_fn_line, object_literals, classes, source_file);
             }
 
         } else if (s->stmt_kind == nari::StmtKind::Block) {
             walk_stmts(static_cast<const nari::BlockStmt *>(s)->stmts, out, ns_to_path,
-                       source_lines, scope_fn_line, object_literals);
+                       source_lines, scope_fn_line, object_literals, classes, source_file);
 
         } else if (s->stmt_kind == nari::StmtKind::If) {
             const auto *is = static_cast<const nari::IfStmt *>(s);
             if (is->then_branch && is->then_branch->stmt_kind == nari::StmtKind::Block) {
                 walk_stmts(static_cast<const nari::BlockStmt *>(is->then_branch.get())->stmts, out, ns_to_path,
-                           source_lines, scope_fn_line, object_literals);
+                           source_lines, scope_fn_line, object_literals, classes, source_file);
             }
             if (is->else_branch && is->else_branch->stmt_kind == nari::StmtKind::Block) {
                 walk_stmts(static_cast<const nari::BlockStmt *>(is->else_branch.get())->stmts, out, ns_to_path,
-                           source_lines, scope_fn_line, object_literals);
+                           source_lines, scope_fn_line, object_literals, classes, source_file);
             }
 
         } else if (s->stmt_kind == nari::StmtKind::While) {
             const auto *ws = static_cast<const nari::WhileStmt *>(s);
             if (ws->body && ws->body->stmt_kind == nari::StmtKind::Block) {
                 walk_stmts(static_cast<const nari::BlockStmt *>(ws->body.get())->stmts, out, ns_to_path,
-                           source_lines, scope_fn_line, object_literals);
+                           source_lines, scope_fn_line, object_literals, classes, source_file);
             }
 
         } else if (s->stmt_kind == nari::StmtKind::For) {
             const auto *fs = static_cast<const nari::ForStmt *>(s);
             if (fs->body && fs->body->stmt_kind == nari::StmtKind::Block) {
                 walk_stmts(static_cast<const nari::BlockStmt *>(fs->body.get())->stmts, out, ns_to_path,
-                           source_lines, scope_fn_line, object_literals);
+                           source_lines, scope_fn_line, object_literals, classes, source_file);
             }
         }
     }
@@ -1175,7 +1453,8 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
 static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
                                             const std::string &doc_filename,
                                             const std::vector<std::string> &source_lines,
-                                            std::vector<ObjectLiteralInfo> *object_literals = nullptr) {
+                                            std::vector<ObjectLiteralInfo> *object_literals = nullptr,
+                                            std::vector<ClassInfo> *classes = nullptr) {
     std::vector<SymInfo> out;
 
     // Build reverse map: namespace global name -> source file path
@@ -1196,7 +1475,8 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
             // their source file so goto-def can navigate to them.
             if (fn->body) {
                 size_t before = out.size();
-                walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, 0, object_literals);
+                walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, 0,
+                           object_literals, classes, fn->filename);
                 for (size_t j = before; j < out.size(); ++j) {
                     if (out[j].source_file.empty()) {
                         out[j].source_file = fn->filename;
@@ -1264,7 +1544,8 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
                 out.push_back(std::move(paramInfo));
             }
             if (fn->body) {
-                walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, fn->line, object_literals);
+                walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, fn->line,
+                           object_literals, classes, fn->filename);
             }
         }
     }
@@ -1322,7 +1603,9 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
             }
 
             if (method.body) {
-                walk_stmts(method.body->stmts, out, ns_to_path, source_lines, method.line, object_literals);
+                walk_stmts(method.body->stmts, out, ns_to_path, source_lines, method.line,
+                           object_literals, classes,
+                           method.filename.empty() ? cd->filename : method.filename);
             }
         }
     }
@@ -1483,6 +1766,46 @@ word_at(const std::string &text, int line0, int col0) {
 
 // Scan backward from `sym_line_1based - 1` collecting consecutive /// or // lines.
 // Returns the comment text (newline-joined), or empty string if none.
+static std::string extract_doc_comment(const std::vector<std::string> &lines, int sym_line_1based) {
+    if (sym_line_1based <= 1 || sym_line_1based > (int)lines.size()) {
+        return {};
+    }
+
+    std::vector<std::string> comment_lines;
+    for (int i = sym_line_1based - 2; i >= 0; --i) {
+        std::string_view sv = lines[i];
+        size_t p = 0;
+        while (p < sv.size() && (sv[p] == ' ' || sv[p] == '\t')) {
+            ++p;
+        }
+        sv = sv.substr(p);
+        if (sv.empty()) {
+            break;
+        }
+
+        std::string_view content;
+        if (sv.size() >= 3 && sv.substr(0, 3) == "///") {
+            content = sv.substr(3);
+        } else if (sv.size() >= 2 && sv.substr(0, 2) == "//") {
+            content = sv.substr(2);
+        } else {
+            break;
+        }
+        if (!content.empty() && content[0] == ' ') {
+            content.remove_prefix(1);
+        }
+        comment_lines.emplace_back(content);
+    }
+
+    std::reverse(comment_lines.begin(), comment_lines.end());
+    std::string result;
+    for (size_t i = 0; i < comment_lines.size(); ++i) {
+        if (i) result += '\n';
+        result += comment_lines[i];
+    }
+    return result;
+}
+
 static std::string extract_doc_comment(const std::string &text, int sym_line_1based) {
     if (sym_line_1based <= 1) {
         return {};
@@ -2145,6 +2468,8 @@ class NariLspServer {
             handle_completion(id, params);
         } else if (method == "textDocument/hover") {
             handle_hover(id, params);
+        } else if (method == "textDocument/signatureHelp") {
+            handle_signature_help(id, params);
         } else if (method == "textDocument/definition") {
             handle_definition(id, params);
         } else if (method == "textDocument/references") {
@@ -2416,6 +2741,7 @@ class NariLspServer {
         result["capabilities"]["completionProvider"]["triggerCharacters"] = json::array({ "." });
         result["capabilities"]["completionProvider"]["resolveProvider"] = false;
         result["capabilities"]["hoverProvider"] = true;
+        result["capabilities"]["signatureHelpProvider"]["triggerCharacters"] = json::array({ "(", "," });
         result["capabilities"]["definitionProvider"] = true;
         result["capabilities"]["referencesProvider"] = true;
         result["capabilities"]["typeDefinitionProvider"] = true;
@@ -2879,6 +3205,7 @@ class NariLspServer {
                         bool static_only = (receiver == receiver_class);
                         if (const MemberInfo *member = find_class_member(docs_[uri].classes, receiver_class, word, static_only)) {
                             detail = member->detail;
+                            comment = member->doc_comment;
                         }
                     }
                 }
@@ -2907,7 +3234,7 @@ class NariLspServer {
         }
 
         // direct search in document symbols, scope-aware for locals/params
-        if (!found_sym) {
+        if (!found_sym && detail.empty()) {
             std::string doc_fs_path_h = uri;
             if (doc_fs_path_h.rfind("file://", 0) == 0) {
                 doc_fs_path_h = doc_fs_path_h.substr(7);
@@ -2992,6 +3319,105 @@ class NariLspServer {
         json result;
         result["contents"] = std::move(contents);
         result["range"] = std::move(range);
+        send_response(id, std::move(result));
+    }
+
+    //  textDocument/signatureHelp
+    void handle_signature_help(const json &id, const json &params) {
+        const auto &td = params.contains("textDocument") ? params["textDocument"] : json{};
+        const auto &pos = params.contains("position") ? params["position"] : json{};
+        std::string uri = td.value("uri", std::string{});
+        int line = pos.value("line", 0);
+        int col = pos.value("character", 0);
+        std::shared_lock<std::shared_timed_mutex> docs_lk(docs_mutex_);
+        auto doc_it = docs_.find(uri);
+        if (doc_it == docs_.end()) {
+            send_response(id, nullptr);
+            return;
+        }
+
+        const DocState &doc = doc_it->second;
+        std::vector<std::string> lines = lsp_split_lines(doc.content);
+        if (line < 0 || line >= (int)lines.size()) {
+            send_response(id, nullptr);
+            return;
+        }
+        std::string before = lines[line].substr(0, std::min<int>(col, lines[line].size()));
+        int depth = 0;
+        int open = -1;
+        for (int i = (int)before.size() - 1; i >= 0; --i) {
+            if (before[i] == ')') {
+                ++depth;
+            } else if (before[i] == '(') {
+                if (depth == 0) {
+                    open = i;
+                    break;
+                }
+                --depth;
+            }
+        }
+        if (open < 0) {
+            send_response(id, nullptr);
+            return;
+        }
+
+        int end = open;
+        int start = end;
+        while (start > 0 && (std::isalnum((unsigned char)before[start - 1]) ||
+                             before[start - 1] == '_' || before[start - 1] == '.')) {
+            --start;
+        }
+        std::string callee = before.substr(start, end - start);
+        std::string receiver;
+        std::string name = callee;
+        size_t dot = callee.rfind('.');
+        if (dot != std::string::npos) {
+            receiver = callee.substr(0, dot);
+            name = callee.substr(dot + 1);
+        }
+
+        std::string filename = uri.rfind("file://", 0) == 0 ? uri.substr(7) : uri;
+        std::string detail;
+        std::string documentation;
+        if (receiver.empty()) {
+            if (const SymInfo *sym = find_symbol_in_scope(doc.symbols, name, filename, line + 1)) {
+                detail = sym->detail;
+                documentation = sym->doc_comment;
+            }
+        } else {
+            std::string receiver_type = resolve_receiver_class_name(
+                doc.symbols, doc.classes, receiver, filename, line + 1);
+            if (const MemberInfo *member = find_class_member(doc.classes, receiver_type, name)) {
+                detail = member->detail;
+                documentation = member->doc_comment;
+            }
+        }
+        if (detail.empty()) {
+            send_response(id, nullptr);
+            return;
+        }
+
+        int active_parameter = 0;
+        depth = 0;
+        for (int i = open + 1; i < (int)before.size(); ++i) {
+            if (before[i] == '(' || before[i] == '[' || before[i] == '{') {
+                ++depth;
+            } else if (before[i] == ')' || before[i] == ']' || before[i] == '}') {
+                --depth;
+            } else if (before[i] == ',' && depth == 0) {
+                ++active_parameter;
+            }
+        }
+
+        json signature;
+        signature["label"] = detail;
+        if (!documentation.empty()) {
+            signature["documentation"] = documentation;
+        }
+        json result;
+        result["signatures"] = json::array({ std::move(signature) });
+        result["activeSignature"] = 0;
+        result["activeParameter"] = active_parameter;
         send_response(id, std::move(result));
     }
 
@@ -3762,8 +4188,9 @@ class NariLspServer {
         }
         emit_unused_warnings(result.functions, filename, source_lines, diagnostics);
         emit_strict_type_warnings(result.functions, filename, source_lines, diagnostics);
-        new_symbols = collect_symbols(result.functions, filename, source_lines, &new_object_literals);
         new_classes = collect_classes();
+        new_symbols = collect_symbols(result.functions, filename, source_lines,
+                                      &new_object_literals, &new_classes);
         result.functions.clear(); // free all AST unique_ptrs now
         result.functions.shrink_to_fit();
 

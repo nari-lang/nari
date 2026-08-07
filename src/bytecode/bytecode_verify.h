@@ -63,9 +63,12 @@ class BytecodeVerifier {
         return static_cast<int16_t>(read_u16_be(p));
     }
 
-    static bool is_instruction_boundary(size_t pc, const std::unordered_map<size_t, size_t> &pc_to_index,
-                                        size_t code_size) {
-        return pc == code_size || pc_to_index.find(pc) != pc_to_index.end();
+    // pc -> instruction index, as a flat table indexed by byte offset rather than a hash map.
+    using PcIndex = std::vector<uint32_t>;
+    static constexpr uint32_t kNoInsn = UINT32_MAX;
+
+    static bool is_instruction_boundary(size_t pc, const PcIndex &pc_to_index, size_t code_size) {
+        return pc == code_size || (pc < pc_to_index.size() && pc_to_index[pc] != kNoInsn);
     }
 
     static int64_t jump_target_after_operand(size_t operand_pc, size_t operand_size, int16_t rel) {
@@ -73,18 +76,16 @@ class BytecodeVerifier {
     }
 
     static bool add_successor(const std::string &where, const std::vector<InsnInfo> &insns,
-                              const std::unordered_map<size_t, size_t> &pc_to_index, size_t code_size,
-                              std::queue<size_t> &work, std::vector<int> &height_at, size_t target_pc, int out_height,
-                              size_t from_pc) {
+                              const PcIndex &pc_to_index, size_t code_size, std::queue<size_t> &work,
+                              std::vector<int> &height_at, size_t target_pc, int out_height, size_t from_pc) {
         if (target_pc == code_size) {
             return true;
         }
-        auto it = pc_to_index.find(target_pc);
-        if (it == pc_to_index.end()) {
+        if (target_pc >= pc_to_index.size() || pc_to_index[target_pc] == kNoInsn) {
             fail(where, from_pc, "control-flow target is not an instruction boundary");
             return false;
         }
-        size_t target_idx = it->second;
+        size_t target_idx = pc_to_index[target_pc];
         int &known = height_at[target_idx];
         if (known == -1) {
             known = out_height;
@@ -92,8 +93,7 @@ class BytecodeVerifier {
             return true;
         }
         if (known != out_height) {
-            fail(where, from_pc,
-                 "inconsistent stack height at control-flow join targeting pc " + std::to_string(target_pc));
+            fail(where, from_pc, "inconsistent stack height at control-flow join targeting pc " + std::to_string(target_pc));
             return false;
         }
         (void)insns;
@@ -148,9 +148,12 @@ class BytecodeVerifier {
             case OpCode::OP_NEG:
             case OpCode::OP_FORMAT_VALUE:
             case OpCode::OP_NOT:
+            case OpCode::OP_JS_TRUTHY:
             case OpCode::OP_BIT_NOT:
+            case OpCode::OP_JS_BIT_NOT:
             case OpCode::OP_SPAWN:
             case OpCode::OP_GET_PROPERTY:
+            case OpCode::OP_JS_GET_PROP_STATIC:
             case OpCode::OP_ITER_ARRAY:
                 return set_delta(1, 1);
 
@@ -168,10 +171,18 @@ class BytecodeVerifier {
             case OpCode::OP_BIT_AND:
             case OpCode::OP_BIT_OR:
             case OpCode::OP_BIT_XOR:
+            case OpCode::OP_JS_BIT_AND:
+            case OpCode::OP_JS_BIT_OR:
+            case OpCode::OP_JS_BIT_XOR:
+            case OpCode::OP_JS_SHL:
+            case OpCode::OP_JS_SHR:
+            case OpCode::OP_JS_USHR:
             case OpCode::OP_LSHIFT:
             case OpCode::OP_RSHIFT:
             case OpCode::OP_EQ:
             case OpCode::OP_NE:
+            case OpCode::OP_STRICT_EQ:
+            case OpCode::OP_STRICT_NE:
             case OpCode::OP_LT:
             case OpCode::OP_LE:
             case OpCode::OP_GT:
@@ -187,7 +198,14 @@ class BytecodeVerifier {
                 return set_delta(3, 1);
 
             case OpCode::OP_SET_PROPERTY:
+            case OpCode::OP_JS_SET_PROP_STATIC:
                 return set_delta(2, 1);
+
+            case OpCode::OP_JS_POSTINC:
+                return set_delta(1, 1);
+
+            case OpCode::OP_CLOSE_UPVALUES:
+                return set_delta(0, 0);
 
             case OpCode::OP_MAKE_ARRAY:
                 return set_delta(static_cast<int>(insn.u16_a), 1);
@@ -239,7 +257,7 @@ class BytecodeVerifier {
     }
 
     static bool verify_stack_flow(const std::string &where, const std::vector<InsnInfo> &insns,
-                                  const std::unordered_map<size_t, size_t> &pc_to_index, size_t code_size) {
+                                  const PcIndex &pc_to_index, size_t code_size) {
         if (insns.empty()) {
             return true;
         }
@@ -266,9 +284,8 @@ class BytecodeVerifier {
                     return false;
                 }
                 const InsnInfo &branch = insns[idx + 1];
-                if (branch.pc != insn.pc + insn.size ||
-                    (branch.op != OpCode::OP_JUMP_IF_FALSE && branch.op != OpCode::OP_JUMP_IF_TRUE &&
-                     branch.op != OpCode::OP_JUMP_IF_NONE)) {
+                if (branch.pc != insn.pc + insn.size || (branch.op != OpCode::OP_JUMP_IF_FALSE && branch.op != OpCode::OP_JUMP_IF_TRUE &&
+                                                         branch.op != OpCode::OP_JUMP_IF_NONE)) {
                     fail(where, insn.pc, "iterator opcode must be followed by a conditional jump");
                     return false;
                 }
@@ -278,12 +295,11 @@ class BytecodeVerifier {
                 int64_t target = jump_target_after_operand(branch.operand_pc, 2, branch.jump_a);
                 const size_t after_branch_pc = branch.pc + branch.size;
 
-                if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target),
-                                   false_height, branch.pc)) {
+                if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), false_height,
+                                   branch.pc)) {
                     return false;
                 }
-                if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, after_branch_pc, true_height,
-                                   branch.pc)) {
+                if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, after_branch_pc, true_height, branch.pc)) {
                     return false;
                 }
                 continue;
@@ -307,8 +323,8 @@ class BytecodeVerifier {
 
                 case OpCode::OP_JUMP: {
                     int64_t target = jump_target_after_operand(insn.operand_pc, 2, insn.jump_a);
-                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at,
-                                       static_cast<size_t>(target), out_height, insn.pc)) {
+                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), out_height,
+                                       insn.pc)) {
                         return false;
                     }
                     break;
@@ -318,12 +334,11 @@ class BytecodeVerifier {
                 case OpCode::OP_JUMP_IF_TRUE:
                 case OpCode::OP_JUMP_IF_NONE: {
                     int64_t target = jump_target_after_operand(insn.operand_pc, 2, insn.jump_a);
-                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at,
-                                       static_cast<size_t>(target), out_height, insn.pc)) {
+                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), out_height,
+                                       insn.pc)) {
                         return false;
                     }
-                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, next_pc, out_height,
-                                       insn.pc)) {
+                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, next_pc, out_height, insn.pc)) {
                         return false;
                     }
                     break;
@@ -335,21 +350,18 @@ class BytecodeVerifier {
                     // fallthrough.
                     int64_t catch_target = jump_target_after_operand(insn.operand_pc, 4, insn.jump_a);
                     int64_t finally_target = jump_target_after_operand(insn.operand_pc, 4, insn.jump_b);
-                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, next_pc, out_height,
-                                       insn.pc)) {
+                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, next_pc, out_height, insn.pc)) {
                         return false;
                     }
-                    if (catch_target != static_cast<int64_t>(next_pc) &&
-                        catch_target != static_cast<int64_t>(code_size)) {
-                        if (!add_successor(where, insns, pc_to_index, code_size, work, height_at,
-                                           static_cast<size_t>(catch_target), out_height + 1, insn.pc)) {
+                    if (catch_target != static_cast<int64_t>(next_pc) && catch_target != static_cast<int64_t>(code_size)) {
+                        if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(catch_target),
+                                           out_height + 1, insn.pc)) {
                             return false;
                         }
                     }
-                    if (finally_target != static_cast<int64_t>(next_pc) &&
-                        finally_target != static_cast<int64_t>(code_size)) {
-                        if (!add_successor(where, insns, pc_to_index, code_size, work, height_at,
-                                           static_cast<size_t>(finally_target), out_height, insn.pc)) {
+                    if (finally_target != static_cast<int64_t>(next_pc) && finally_target != static_cast<int64_t>(code_size)) {
+                        if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(finally_target),
+                                           out_height, insn.pc)) {
                             return false;
                         }
                     }
@@ -357,8 +369,7 @@ class BytecodeVerifier {
                 }
 
                 default:
-                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, next_pc, out_height,
-                                       insn.pc)) {
+                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, next_pc, out_height, insn.pc)) {
                         return false;
                     }
                     break;
@@ -368,8 +379,7 @@ class BytecodeVerifier {
         return true;
     }
 
-    static bool verify_function(const Chunk &chunk, const FunctionMeta &fn, size_t n_strs, size_t n_funcs,
-                                size_t fn_idx) {
+    static bool verify_function(const Chunk &chunk, const FunctionMeta &fn, size_t n_strs, size_t n_funcs, size_t fn_idx) {
         const ByteArray &code = fn.code;
         const size_t n_code = code.size();
         const size_t n_consts = fn.constants.size();
@@ -390,7 +400,7 @@ class BytecodeVerifier {
         }
 
         std::vector<InsnInfo> insns;
-        std::unordered_map<size_t, size_t> pc_to_index;
+        PcIndex pc_to_index(n_code, kNoInsn);
 
         size_t pc = 0;
         while (pc < n_code) {
@@ -398,6 +408,12 @@ class BytecodeVerifier {
             info.pc = pc;
             info.op_byte = code[pc];
             info.op = static_cast<OpCode>(info.op_byte);
+#ifndef NARI_EXTENDED_JSRT
+            if (info.op >= OpCode::OP_JS_BIT_AND && info.op <= OpCode::OP_JS_USHR) {
+                fail(where, info.pc, "extended JSRT opcode is disabled in this runtime");
+                return false;
+            }
+#endif
             pc++;
             info.operand_pc = pc;
 
@@ -421,6 +437,16 @@ class BytecodeVerifier {
                     }
                     break;
                 }
+                case OpCode::OP_CLOSE_UPVALUES: {
+                    // first_slot may equal n_locals, which closes nothing
+                    uint16_t idx = read_u16_be(&code[pc]);
+                    info.u16_a = idx;
+                    if (idx > n_locals) {
+                        fail(where, info.pc, "OP_CLOSE_UPVALUES: first slot index out of range");
+                        return false;
+                    }
+                    break;
+                }
                 case OpCode::OP_LOAD_VAR:
                 case OpCode::OP_STORE_VAR:
                 case OpCode::OP_STR_APPEND_VAR: {
@@ -437,6 +463,9 @@ class BytecodeVerifier {
                 case OpCode::OP_STR_APPEND_GLOBAL:
                 case OpCode::OP_OBJECT_SET:
                 case OpCode::OP_GET_PROPERTY:
+                case OpCode::OP_JS_GET_PROP_STATIC:
+                case OpCode::OP_JS_SET_PROP_STATIC:
+                case OpCode::OP_JS_POSTINC:
                 case OpCode::OP_SET_PROPERTY: {
                     uint16_t idx = read_u16_be(&code[pc]);
                     info.u16_a = idx;
@@ -527,15 +556,14 @@ class BytecodeVerifier {
                         fail(where, info.pc, "OP_MAKE_CLOSURE: func_idx out of range");
                         return false;
                     }
-                    uint8_t cap_count = code[pc + 2];
-                    info.u8_a = cap_count;
-                    if (pc + 3 + static_cast<size_t>(cap_count) * 3 > n_code) {
+                    uint16_t cap_count = read_u16_be(&code[pc + 2]);
+                    if (pc + 4 + static_cast<size_t>(cap_count) * 3 > n_code) {
                         fail(where, info.pc, "OP_MAKE_CLOSURE: capture descriptors truncated");
                         return false;
                     }
-                    for (uint8_t ci = 0; ci < cap_count; ci++) {
-                        uint8_t source = code[pc + 3 + ci * 3];
-                        uint16_t cidx = read_u16_be(&code[pc + 3 + ci * 3 + 1]);
+                    for (uint16_t ci = 0; ci < cap_count; ci++) {
+                        uint8_t source = code[pc + 4 + ci * 3];
+                        uint16_t cidx = read_u16_be(&code[pc + 4 + ci * 3 + 1]);
                         if (source == 0) {
                             if (cidx >= n_locals) {
                                 fail(where, info.pc, "OP_MAKE_CLOSURE: capture source=local idx out of range");
@@ -556,9 +584,9 @@ class BytecodeVerifier {
                             return false;
                         }
                     }
-                    info.size = 1 + 3 + static_cast<size_t>(cap_count) * 3;
-                    pc += 3 + static_cast<size_t>(cap_count) * 3;
-                    pc_to_index[info.pc] = insns.size();
+                    info.size = 1 + 4 + static_cast<size_t>(cap_count) * 3;
+                    pc += 4 + static_cast<size_t>(cap_count) * 3;
+                    pc_to_index[info.pc] = static_cast<uint32_t>(insns.size());
                     insns.push_back(info);
                     continue;
                 }
@@ -592,7 +620,7 @@ class BytecodeVerifier {
 
             info.size = 1 + static_cast<size_t>(osz);
             pc += static_cast<size_t>(osz);
-            pc_to_index[info.pc] = insns.size();
+            pc_to_index[info.pc] = static_cast<uint32_t>(insns.size());
             insns.push_back(info);
         }
 
@@ -615,10 +643,8 @@ class BytecodeVerifier {
                     break;
                 }
                 case OpCode::OP_SETUP_TRY: {
-                    size_t catch_target =
-                        static_cast<size_t>(jump_target_after_operand(insn.operand_pc, 4, insn.jump_a));
-                    size_t finally_target =
-                        static_cast<size_t>(jump_target_after_operand(insn.operand_pc, 4, insn.jump_b));
+                    size_t catch_target = static_cast<size_t>(jump_target_after_operand(insn.operand_pc, 4, insn.jump_a));
+                    size_t finally_target = static_cast<size_t>(jump_target_after_operand(insn.operand_pc, 4, insn.jump_b));
                     if (!is_instruction_boundary(catch_target, pc_to_index, n_code)) {
                         fail(where, insn.pc, "OP_SETUP_TRY: catch target is not an instruction boundary");
                         return false;

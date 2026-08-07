@@ -38,7 +38,7 @@ print(+x);         // 5   - Unary plus
 ## Comparison Operators
 
 ```nari
-let a = 5
+let a = 5;
 let b = 10;
 
 print(a == b);     // false - Equal
@@ -48,6 +48,56 @@ print(a > b);      // false - Greater than
 print(a <= b);     // true  - Less than or equal
 print(a >= b);     // false - Greater than or equal
 ```
+
+### Comparison compares inside one type class only
+
+A comparison is defined only for two values of the same type class. The classes
+are number (int and float), string, bool, null and object. Nari never converts a
+string to a number to compare it.
+
+Two values of different classes are never equal, and they have no order. All four
+relational operators give `false` for such a pair:
+
+```nari
+print(1 == "1");     // false - a number is never equal to a string
+print(1 == true);    // false - a number is never equal to a bool
+print(0 == false);   // false - same rule
+
+print(1 < "2");      // false - no order between a number and a string
+print(1 > "abc");    // false - same, and no 0 fallback
+print(1 <= "1");     // false - not equal, so not less or equal
+```
+
+Use `to_number(...)` or `to_string(...)` to compare across classes on purpose.
+
+Inside one class the operators work as expected. An int and a float are both
+numbers, so they compare with each other:
+
+```nari
+print(1 == 1.0);     // true  - int and float are one class
+print("a" < "b");    // true  - strings compare byte by byte
+print(false < true); // true  - false is 0 and true is 1
+```
+
+The operators stay consistent with each other. If `a == b`, then `a <= b` and
+`a >= b` are both true. If `a < b`, then `a == b` is false.
+
+### `==` against `===`
+
+`==` treats two numbers as equal when they differ by less than `1e-12`. This
+hides the rounding error of float arithmetic. `===` compares floats exactly.
+That tolerance is the only difference between the two operators. `===` is just
+as strict about type classes as `==`.
+
+```nari
+print(0.1 + 0.2 == 0.3);   // true  - the difference is below 1e-12
+print(0.1 + 0.2 === 0.3);  // false - the bits differ
+print(1 === 1.0);          // true  - same class, exact same value
+print(1 !== 2);            // true  - `!==` is the negation of `===`
+```
+
+The relational operators use the same `1e-12` tolerance, so a pair that `==`
+calls equal is never reported as `<` or `>`.
 
 ## Logical Operators
 
@@ -293,6 +343,20 @@ arr[1] = 25;         // Modify
 print(arr[1]);       // 25
 ```
 
+## Bitwise Operators
+
+These operate on integers. `~` is the unary complement:
+
+```nari
+print(6 & 3);     // 2  - AND
+print(6 | 3);     // 7  - OR
+print(6 ^ 3);     // 5  - XOR
+print(~6);        // -7 - complement
+print(1 << 4);    // 16 - shift left
+print(64 >> 3);   // 8  - shift right
+print(-8 >> 1);   // -4 - shift right keeps the sign
+```
+
 ## Operator Precedence
 
 From highest to lowest:
@@ -303,13 +367,17 @@ From highest to lowest:
 4. Exponentiation: `**`
 5. Multiplicative: `*` `/` `%`
 6. Additive: `+` `-` `@`
-7. Comparison: `<` `>` `<=` `>=`
-8. Equality: `==` `!=`
-9. Logical AND: `&&`
-10. Logical OR: `||`
-11. Nullish coalescing: `??`
-12. Ternary: `?:`
-13. Assignment: `=` `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`
+7. Shift: `<<` `>>`
+8. Comparison: `<` `>` `<=` `>=`
+9. Equality: `==` `!=` `===` `!==`
+10. Bitwise AND: `&`
+11. Bitwise XOR: `^`
+12. Bitwise OR: `|`
+13. Logical AND: `&&`
+14. Logical OR: `||`
+15. Nullish coalescing: `??`
+16. Ternary: `?:`
+17. Assignment: `=` `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`
 
 **Use parentheses for clarity:**
 

@@ -114,8 +114,8 @@ class DebugController {
     void cmd_step_out(); // step out
     void cmd_pause();    // pause
 
-    void push_synthetic_frame(std::string name, std::string source_file, int line,
-                              size_t runtime_call_stack_index = (size_t)-1, Value this_value = Value::none());
+    void push_synthetic_frame(std::string name, std::string source_file, int line, size_t runtime_call_stack_index = (size_t)-1,
+                              Value this_value = Value::none());
     void update_synthetic_frame_line(int line);
     void pop_synthetic_frame();
     size_t synthetic_frame_depth() const;

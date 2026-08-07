@@ -1,10 +1,15 @@
-// -- Hash --------------------------------------------------------------------
-// Cryptographic hash helpers backed by mbedtls. Intended for integrity
-// checks (lockfile, registry archives) - not authentication.
+// Hash
+//  Cryptographic hash helpers backed by mbedtls. Intended for integrity
+//  checks (lockfile, registry archives) - not authentication.
 //
 //  import { Hash } from "std/hash";
 
 export let Hash = {
+    // Hash.sha1(str) -> 40-char lowercase hex string of SHA-1(bytes(str))
+    sha1: func(s) {
+        return __hash_sha1(s);
+    },
+
     // Hash.sha256(str) -> 64-char lowercase hex string of SHA-256(bytes(str))
     sha256: func(s) {
         return __hash_sha256(s);

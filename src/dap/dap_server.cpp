@@ -8,7 +8,7 @@
 #include "parser_api.h"
 #include "runtime.h"
 
-#include "../../thirdparty/json.hpp"
+#include "thirdparty/json.hpp"
 
 #include <cstdio>
 #include <cstdlib>

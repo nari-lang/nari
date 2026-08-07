@@ -4,12 +4,7 @@
 
 import { URL } from "std/url";
 
-func assert(cond, msg) {
-    if (!cond) {
-        print("FAIL:", msg);
-        __process_exit(1);
-    }
-}
+import { assert } from "../lib/assert.nari";
 
 // -- encode / decode ---------------------------------------------------------
 assert(URL.encode("hello world") == "hello%20world", "encode space");

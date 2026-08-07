@@ -1,0 +1,17 @@
+func make_pair() {
+    let state = null;
+    let set_state = func(value) {
+        state = value;
+    };
+    let get_state = func() {
+        return state;
+    };
+    return [set_state, get_state];
+}
+
+let pair = make_pair();
+pair[0](42);
+if (pair[1]() != 42) {
+    panic("sibling closures did not share their captured binding");
+}
+print("nested closure shared binding passed");

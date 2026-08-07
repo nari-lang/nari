@@ -41,6 +41,10 @@ const char *op_name(Op op) {
             return "ishl";
         case Op::IShr:
             return "ishr";
+        case Op::JsBitBinary:
+            return "js.bit.binary";
+        case Op::JsBitNot:
+            return "js.bit.not";
         case Op::FAdd:
             return "fadd";
         case Op::FSub:
@@ -61,6 +65,8 @@ const char *op_name(Op op) {
             return "dyn.mod";
         case Op::DynDiv:
             return "dyn.div";
+        case Op::Pow:
+            return "pow";
         case Op::ICmpLt:
             return "icmp.lt";
         case Op::ICmpLe:
@@ -97,8 +103,16 @@ const char *op_name(Op op) {
             return "dyn.eq";
         case Op::DynCmpNe:
             return "dyn.ne";
+        case Op::DynStrictCmpEq:
+            return "dyn.strict.eq";
+        case Op::DynStrictCmpNe:
+            return "dyn.strict.ne";
         case Op::Not:
             return "not";
+        case Op::JsTruthy:
+            return "js.truthy";
+        case Op::IsNone:
+            return "is.none";
         case Op::Box:
             return "box";
         case Op::Unbox:
@@ -133,10 +147,18 @@ const char *op_name(Op op) {
             return "copy.slot";
         case Op::MakeArray:
             return "make.array";
+        case Op::ArrayPush:
+            return "array.push";
+        case Op::ArraySpread:
+            return "array.spread";
         case Op::MakeObject:
             return "make.object";
+        case Op::MakeClosure:
+            return "make.closure";
         case Op::StrConcat:
             return "str.concat";
+        case Op::StrAppendSlot:
+            return "str.append.slot";
         case Op::FormatValue:
             return "format";
         case Op::IterArray:
@@ -147,10 +169,20 @@ const char *op_name(Op op) {
             return "store.index";
         case Op::LoadProperty:
             return "load.prop";
+        case Op::JsGetPropStatic:
+            return "js.get.prop.static";
+        case Op::JsPostinc:
+            return "js.postinc";
         case Op::StoreProperty:
             return "store.prop";
+        case Op::JsSetPropStatic:
+            return "js.set.prop.static";
+        case Op::CloseUpvalues:
+            return "close.upvalues";
         case Op::Call:
             return "call";
+        case Op::CallSpread:
+            return "call.spread";
         case Op::CallMethod:
             return "call.method";
         case Op::Phi:
@@ -159,6 +191,8 @@ const char *op_name(Op op) {
             return "jump";
         case Op::Branch:
             return "branch";
+        case Op::SelfTailCall:
+            return "self.tail.call";
         case Op::Return:
             return "return";
     }
@@ -220,10 +254,11 @@ std::string dump(const Func &f) {
         } else if (in.op == Op::CopySlot) {
             snprintf(line, sizeof(line), " @%lld -> @%u", (long long)in.imm_int, in.imm_u32);
             out += line;
-        } else if (in.op == Op::LoadSlot || in.op == Op::StoreSlot || in.op == Op::LoadGlobal ||
-                   in.op == Op::StoreGlobal || in.op == Op::LoadCapture || in.op == Op::StoreCapture ||
-                   in.op == Op::LoadConst || in.op == Op::MakeArray || in.op == Op::MakeObject ||
-                   in.op == Op::FormatValue || in.op == Op::LoadProperty || in.op == Op::StoreProperty) {
+        } else if (in.op == Op::LoadSlot || in.op == Op::StoreSlot || in.op == Op::LoadGlobal || in.op == Op::StoreGlobal ||
+                   in.op == Op::LoadCapture || in.op == Op::StoreCapture || in.op == Op::LoadConst || in.op == Op::MakeArray ||
+                    in.op == Op::MakeObject || in.op == Op::MakeClosure || in.op == Op::StrAppendSlot || in.op == Op::FormatValue ||
+                   in.op == Op::LoadProperty || in.op == Op::JsGetPropStatic || in.op == Op::JsPostinc ||
+                   in.op == Op::StoreProperty) {
             snprintf(line, sizeof(line), " @%u", in.imm_u32);
             out += line;
         } else if (in.op == Op::Call) {

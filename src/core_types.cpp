@@ -137,6 +137,8 @@ Value Value::make_handle(HandlePtr handlePtr) {
 
 struct ObjectDict {
     std::unordered_map<std::string, Value> map;
+    // Insertion order for Object.keys(); the map alone cannot preserve it.
+    std::vector<std::string> keys;
 };
 
 void delete_object_dict(ObjectDict *p) noexcept {
@@ -149,12 +151,12 @@ ObjectObj::ObjectObj() : shape(object_shape_registry().empty_shape()) {
 std::vector<std::string> ObjectObj::get_keys() const {
     std::vector<std::string> out;
     if (dict_mode && dict) {
-        out.reserve(dict->map.size());
-        for (const auto &kv : dict->map) {
-            out.push_back(kv.first);
-        }
+        out = dict->keys;
     } else {
-        out = shape->names;
+        out.reserve(shape->field_ids.size());
+        for (size_t i = 0; i < shape->field_ids.size(); i++) {
+            out.push_back(shape->name_at(i));
+        }
     }
     return out;
 }
@@ -177,8 +179,8 @@ Value *ObjectObj::get_field(const std::string &name) noexcept {
         auto it = dict->map.find(name);
         return it != dict->map.end() ? &it->second : nullptr;
     }
-    auto it = shape->index.find(intern_field(name));
-    return it != shape->index.end() ? materialize_lazy_field(it->second) : nullptr;
+    const uint32_t slot = shape->slot_of(intern_field(name));
+    return slot != ObjectShape::kNoSlot ? materialize_lazy_field(slot) : nullptr;
 }
 
 const Value *ObjectObj::get_field(const std::string &name) const noexcept {
@@ -186,8 +188,8 @@ const Value *ObjectObj::get_field(const std::string &name) const noexcept {
         auto it = dict->map.find(name);
         return it != dict->map.end() ? &it->second : nullptr;
     }
-    auto it = shape->index.find(intern_field(name));
-    return it != shape->index.end() ? const_cast<ObjectObj *>(this)->materialize_lazy_field(it->second) : nullptr;
+    const uint32_t slot = shape->slot_of(intern_field(name));
+    return slot != ObjectShape::kNoSlot ? const_cast<ObjectObj *>(this)->materialize_lazy_field(slot) : nullptr;
 }
 
 const Value *ObjectObj::get_field_by_id(uint32_t fid) const noexcept {
@@ -197,8 +199,8 @@ const Value *ObjectObj::get_field_by_id(uint32_t fid) const noexcept {
         auto it = dict->map.find(field_name(fid));
         return it != dict->map.end() ? &it->second : nullptr;
     }
-    auto it = shape->index.find(fid);
-    return it != shape->index.end() ? const_cast<ObjectObj *>(this)->materialize_lazy_field(it->second) : nullptr;
+    const uint32_t slot = shape->slot_of(fid);
+    return slot != ObjectShape::kNoSlot ? const_cast<ObjectObj *>(this)->materialize_lazy_field(slot) : nullptr;
 }
 
 Value *ObjectObj::materialize_lazy_field(uint32_t slot) {
@@ -259,13 +261,17 @@ void ObjectObj::promote_to_dict_mode() {
     while (lazy_field_mask) {
         const uint32_t slot = (uint32_t)ctzll(lazy_field_mask);
         materialize_lazy_field(slot);
+        clear_lazy_field(slot);
     }
     // move existing shape-mode fields into the hash map, preserving values.
     dict.reset(new ObjectDict());
-    const auto &names = shape->names;
-    dict->map.reserve(names.size() * 2);
-    for (size_t i = 0; i < names.size() && i < fields.size(); i++) {
-        dict->map.emplace(names[i], std::move(fields[i]));
+    const size_t nfields = shape->field_ids.size();
+    dict->map.reserve(nfields * 2);
+    dict->keys.reserve(nfields);
+    for (size_t i = 0; i < nfields && i < fields.size(); i++) {
+        const std::string &nm = shape->name_at(i);
+        dict->map.emplace(nm, std::move(fields[i]));
+        dict->keys.push_back(nm);
     }
     fields.clear();
     fields.shrink_to_fit();
@@ -279,6 +285,9 @@ void ObjectObj::set_field(const std::string &name, Value val) {
     if (frozen) {
         return;
     }
+    // Dict mode is the only path that genuinely needs the name; everything else is
+    // keyed by field id, so hand over to the by-id path rather than duplicating the
+    // shape/promote logic here.
     if (dict_mode) {
         if (!dict) {
             dict.reset(new ObjectDict());
@@ -288,21 +297,22 @@ void ObjectObj::set_field(const std::string &name, Value val) {
             it->second = std::move(val);
         } else {
             dict->map.emplace(name, std::move(val));
+            dict->keys.push_back(name);
             shape_version++;
         }
         return;
     }
-    uint32_t fid = intern_field(name);
-    auto it = shape->index.find(fid);
-    if (it != shape->index.end()) {
-        clear_lazy_field(it->second);
-        fields[it->second] = std::move(val);
+    const uint32_t fid = intern_field(name);
+    if (const uint32_t slot = shape->slot_of(fid); slot != ObjectShape::kNoSlot) {
+        clear_lazy_field(slot);
+        fields[slot] = std::move(val);
         return;
     }
-    // if we'd exceed the dict-mode threshold, promote first
-    if (shape->names.size() >= kDictModeThreshold) {
+    // adding a field: promote to dict mode first if this shape is already too wide
+    if (shape->field_ids.size() >= kDictModeThreshold) {
         promote_to_dict_mode();
         dict->map.emplace(name, std::move(val));
+        dict->keys.push_back(name);
         shape_version++;
         return;
     }
@@ -315,7 +325,59 @@ bool ObjectObj::has_field(const std::string &name) const noexcept {
     if (dict_mode && dict) {
         return dict->map.count(name) != 0;
     }
-    return shape->index.count(intern_field(name)) != 0;
+    return has_field_by_id(intern_field(name));
+}
+
+Value *ObjectObj::get_field_by_id(uint32_t fid) noexcept {
+    if (dict_mode && dict) {
+        // Rare (only past kDictModeThreshold fields)
+        // Recover the name and use the string path so dict-mode semantics are preserved exactly
+        auto it = dict->map.find(field_name(fid));
+        return it != dict->map.end() ? &it->second : nullptr;
+    }
+    const uint32_t slot = shape->slot_of(fid);
+    return slot != ObjectShape::kNoSlot ? materialize_lazy_field(slot) : nullptr;
+}
+
+void ObjectObj::set_field_by_id(uint32_t fid, Value val) {
+    // Same trust boundary as the string-keyed path: a frozen object rejects every write,
+    // including the by-id fast path the JIT's inline caches use.
+    if (frozen) {
+        return;
+    }
+    if (dict_mode) {
+        set_field(field_name(fid), std::move(val));
+        return;
+    }
+    if (const uint32_t slot = shape->slot_of(fid); slot != ObjectShape::kNoSlot) {
+        clear_lazy_field(slot);
+        fields[slot] = std::move(val);
+        return;
+    }
+    if (shape->field_ids.size() >= kDictModeThreshold) {
+        promote_to_dict_mode();
+        const std::string &name = field_name(fid);
+        dict->map.emplace(name, std::move(val));
+        dict->keys.push_back(name);
+        shape_version++;
+        return;
+    }
+    shape = object_shape_registry().extend(shape, fid);
+    fields.push_back(std::move(val));
+    shape_version++;
+}
+
+bool ObjectObj::has_field_by_id(uint32_t fid) const noexcept {
+    if (dict_mode && dict) {
+        return dict->map.count(field_name(fid)) != 0;
+    }
+    return shape->slot_of(fid) != ObjectShape::kNoSlot;
+}
+
+static const std::unordered_map<std::string, Value> g_empty_dict_fields;
+
+const std::unordered_map<std::string, Value> &ObjectObj::dict_fields() const noexcept {
+    return (dict_mode && dict) ? dict->map : g_empty_dict_fields;
 }
 
 bool ObjectObj::is_empty() const noexcept {
@@ -365,4 +427,69 @@ const Value *ClassInstance::get_field(const std::string &name) const noexcept {
         return nullptr;
     }
     return &field_values[idx];
+}
+
+// ArrayObj
+ArrayObj::ArrayObj() {
+    type_tag = ValueTag::Array;
+}
+
+ArrayObj::~ArrayObj() = default;
+
+const Value *ArrayObj::get_property(const std::string &name) const noexcept {
+    return properties ? properties->get_field(name) : nullptr;
+}
+
+bool ArrayObj::has_property(const std::string &name) const noexcept {
+    return properties && properties->has_field(name);
+}
+
+void ArrayObj::set_property(const std::string &name, Value value) {
+    if (!properties) {
+        properties = std::make_unique<ObjectObj>();
+    }
+    properties->set_field(name, std::move(value));
+}
+
+// FunctionData property bag
+static uint32_t length_field_id() noexcept {
+    static const uint32_t id = intern_field("length");
+    return id;
+}
+
+ObjectObj *FunctionData::ensure_properties() {
+    if (!properties) {
+        properties = std::make_unique<ObjectObj>();
+    }
+    return properties.get();
+}
+
+const Value *FunctionData::get_property(const std::string &name) const noexcept {
+    if (!int_length.is_none() && is_length_name(name)) {
+        return &int_length;
+    }
+    return properties ? properties->get_field(name) : nullptr;
+}
+
+void FunctionData::set_property(const std::string &name, Value val) {
+    if (val.is_int() && is_length_name(name)) {
+        int_length = val;
+        return;
+    }
+    ensure_properties()->set_field(name, std::move(val));
+}
+
+const Value *FunctionData::get_property_by_id(uint32_t fid) const noexcept {
+    if (fid == length_field_id() && !int_length.is_none()) {
+        return &int_length;
+    }
+    return properties ? properties->get_field_by_id(fid) : nullptr;
+}
+
+void FunctionData::set_property_by_id(uint32_t fid, Value val) {
+    if (fid == length_field_id() && val.is_int()) {
+        int_length = val;
+        return;
+    }
+    ensure_properties()->set_field_by_id(fid, std::move(val));
 }

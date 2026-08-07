@@ -1,0 +1,16 @@
+import { assert } from "../lib/assert.nari";
+
+class Sample {}
+
+func start() {
+    let values = [none, 42, 1.5, "text", true, [1], { key: 1 }, start, /x/, Sample()];
+    let expected = ["null", "int", "float", "string", "bool", "array", "object", "function", "regex", "Sample"];
+
+    for (let iteration = 0; iteration < 100; iteration++) {
+        for (let i = 0; i < values.length(); i++) {
+            assert(typeof(values[i]) == expected[i], "incorrect frozen typeof result");
+        }
+    }
+
+    print("jit frozen builtin typeof ok");
+}

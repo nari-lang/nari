@@ -1,0 +1,3 @@
+import package from "../dep";
+
+print(package);

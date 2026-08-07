@@ -203,16 +203,22 @@ import "third.nari";   // Finally this
 The standard library is automatically imported:
 
 ```nari
-// No import needed for:
-// - math module
-// - io module
-// - http module
-// - net module
-// - system module
+// No import needed for these globals:
+// - math, fs, http, net, JSON, Object, Array, String
+// - platform, process, Spawn, yield, stdlib_version
+// - Ok, Err, Some, None
 
 print(math.sqrt(16));        // 4
-print(system.version);       // stdlib version
+print(stdlib_version);       // "0.0.3"
 ```
+
+There is no `system` module and no `io` module. Standard input lives on
+`process.stdin`, and file operations live on `fs`.
+
+These names are already bound, so do not reuse them. A top-level
+`func process(x) { ... }` is **silently ignored** because the `process` global
+wins, and the same declaration nested inside another function is a parse error.
+Pick a different name.
 
 See [Standard Library](12-stdlib.md) for details.
 

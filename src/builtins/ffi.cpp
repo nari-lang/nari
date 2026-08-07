@@ -123,8 +123,7 @@ Value ScriptRuntime::builtin_ffi_membersof(const Value *argvals, size_t argc, co
 
     Value result_val = Value::make_object();
     ObjectObj *res_oobj = result_val.get_obj_ptr();
-    res_oobj->set_field(resolved_decl->kind == nari::TypeDeclKind::Union ? "union" : "struct",
-                        Value::make_string(resolved_type_name));
+    res_oobj->set_field(resolved_decl->kind == nari::TypeDeclKind::Union ? "union" : "struct", Value::make_string(resolved_type_name));
     res_oobj->set_field("fields", Value::make_array(std::move(fields_array)));
 
     return result_val;
@@ -213,8 +212,7 @@ static std::vector<FFIType> infer_types_from_format_string(const std::string &fm
         }
 
         // Optional flags: - + space 0 # '
-        while (i < len &&
-               (fmt[i] == '-' || fmt[i] == '+' || fmt[i] == ' ' || fmt[i] == '0' || fmt[i] == '#' || fmt[i] == '\'')) {
+        while (i < len && (fmt[i] == '-' || fmt[i] == '+' || fmt[i] == ' ' || fmt[i] == '0' || fmt[i] == '#' || fmt[i] == '\'')) {
             ++i;
         }
 
@@ -310,8 +308,7 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
     }
 
     if (!argvals[0].is_object()) {
-        fprintf(stderr, "ERROR: First argument to __ffi_call is not an object (type index: %zu)\n",
-                (size_t)argvals[0].tag());
+        fprintf(stderr, "ERROR: First argument to __ffi_call is not an object (type index: %zu)\n", (size_t)argvals[0].tag());
         return Value::none();
     }
 
@@ -402,37 +399,32 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
                             if (field_oobj->has_field("name") && field_oobj->has_field("type")) {
 
                                 std::string field_name = field_oobj->get_field("name")->get_string();
-                                std::string field_type_str = field_oobj->get_field("type")->get_string();
+                                std::string type_str = field_oobj->get_field("type")->get_string();
                                 FFIType field_type = FFIType::Void;
 
-                                if (field_type_str == "i8" || field_type_str == "int8" || field_type_str == "char") {
+                                if (type_str == "i8" || type_str == "int8" || type_str == "char") {
                                     field_type = FFIType::Int8;
-                                } else if (field_type_str == "u8" || field_type_str == "uint8" ||
-                                           field_type_str == "uchar" || field_type_str == "byte") {
+                                } else if (type_str == "u8" || type_str == "uint8" || type_str == "uchar" || type_str == "byte") {
                                     field_type = FFIType::UInt8;
-                                } else if (field_type_str == "i16" || field_type_str == "int16" ||
-                                           field_type_str == "short") {
+                                } else if (type_str == "i16" || type_str == "int16" || type_str == "short") {
                                     field_type = FFIType::Int16;
-                                } else if (field_type_str == "u16" || field_type_str == "uint16" ||
-                                           field_type_str == "ushort" || field_type_str == "word") {
+                                } else if (type_str == "u16" || type_str == "uint16" || type_str == "ushort" || type_str == "word") {
                                     field_type = FFIType::UInt16;
-                                } else if (field_type_str == "int" || field_type_str == "i32" ||
-                                           field_type_str == "int32") {
+                                } else if (type_str == "int" || type_str == "i32" || type_str == "int32") {
                                     field_type = FFIType::Int32;
-                                } else if (field_type_str == "long" || field_type_str == "i64" ||
-                                           field_type_str == "int64") {
+                                } else if (type_str == "long" || type_str == "i64" || type_str == "int64") {
                                     field_type = FFIType::Int64;
-                                } else if (field_type_str == "uint" || field_type_str == "u32") {
+                                } else if (type_str == "uint" || type_str == "u32") {
                                     field_type = FFIType::UInt32;
-                                } else if (field_type_str == "ulong" || field_type_str == "u64") {
+                                } else if (type_str == "ulong" || type_str == "u64") {
                                     field_type = FFIType::UInt64;
-                                } else if (field_type_str == "float") {
+                                } else if (type_str == "float") {
                                     field_type = FFIType::Float;
-                                } else if (field_type_str == "double") {
+                                } else if (type_str == "double") {
                                     field_type = FFIType::Double;
-                                } else if (field_type_str == "bool") {
+                                } else if (type_str == "bool") {
                                     field_type = FFIType::Bool;
-                                } else if (field_type_str == "string" || field_type_str == "pointer") {
+                                } else if (type_str == "string" || type_str == "pointer") {
                                     field_type = FFIType::Pointer;
                                 }
 
@@ -440,18 +432,16 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
                                 if (field_oobj->has_field("count")) {
                                     const Value *count_v = field_oobj->get_field("count");
                                     if (!count_v || !count_v->is_int() || count_v->get_int() <= 0) {
-                                        fprintf(stderr, "ERROR: FFI struct field '%s' has an invalid fixed count\n",
-                                                field_name.c_str());
+                                        fprintf(stderr, "ERROR: FFI struct field '%s' has an invalid fixed count\n", field_name.c_str());
                                         continue;
                                     }
                                     field_count = static_cast<size_t>(count_v->get_int());
                                 }
                                 fields.emplace_back(field_name, field_type, field_count);
                                 if (field_type == FFIType::Void) {
-                                    fields.back().aggregate_def = create_struct_def_from_type(field_type_str);
+                                    fields.back().aggregate_def = create_struct_def_from_type(type_str);
                                     if (!fields.back().aggregate_def) {
-                                        fprintf(stderr, "ERROR: Unsupported FFI aggregate field type '%s'\n",
-                                                field_type_str.c_str());
+                                        fprintf(stderr, "ERROR: Unsupported FFI aggregate field type '%s'\n", type_str.c_str());
                                         fields.pop_back();
                                     } else {
                                         fields.back().type = FFIType::Struct;
@@ -776,12 +766,11 @@ Value ScriptRuntime::builtin_ffi_write_struct(const Value *argvals, size_t argc,
             fprintf(stderr, "ERROR: __ffi_write_struct() managed struct type or size is invalid\n");
             return Value::none();
         }
-        return Value::make_bool(nari::write_struct_to_memory(nari::managed_struct_pointer(argvals[0]),
-                                                             owner->native_struct_type, argvals[1]));
+        return Value::make_bool(
+            nari::write_struct_to_memory(nari::managed_struct_pointer(argvals[0]), owner->native_struct_type, argvals[1]));
     }
     if (argc < 3 || !argvals[0].is_int() || !argvals[1].is_string() || !argvals[2].is_object()) {
-        fprintf(stderr,
-                "ERROR: __ffi_write_struct() requires (owner, object) or (pointer_int, type_name_string, object)\n");
+        fprintf(stderr, "ERROR: __ffi_write_struct() requires (owner, object) or (pointer_int, type_name_string, object)\n");
         return Value::none();
     }
 
@@ -869,9 +858,7 @@ Value ScriptRuntime::builtin_ffi_create_callback(const Value *argvals, size_t ar
         if (type_val.is_object()) {
             const ObjectObj *descriptor = type_val.get_obj_ptr();
             if (descriptor->has_field("union")) {
-                fprintf(
-                    stderr,
-                    "ERROR: Passing unions by value in callbacks is not supported, pass a union pointer instead!\n");
+                fprintf(stderr, "ERROR: Passing unions by value in callbacks is not supported, pass a union pointer instead!\n");
             } else {
                 fprintf(stderr, "ERROR: Aggregate types are not supported in callbacks\n");
             }

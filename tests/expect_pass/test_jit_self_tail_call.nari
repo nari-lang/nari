@@ -1,0 +1,29 @@
+import { assert } from "../lib/assert.nari";
+
+func rotate(count, first, second, third) {
+    let overwritten = count + first + second + third;
+    if (count == 0) {
+        return [first, second, third, overwritten];
+    }
+    return rotate(count - 1, second, third, first);
+}
+
+func fill_default(count, value = 41) {
+    let overwritten = value + 1;
+    if (count == 0) {
+        return [value, overwritten];
+    }
+    return fill_default(count - 1);
+}
+
+func start() {
+    let rotated = rotate(10003, 1, 2, 3);
+    assert(rotated[0] == 2, "self tail call reordered first argument");
+    assert(rotated[1] == 3, "self tail call reordered second argument");
+    assert(rotated[2] == 1, "self tail call reordered third argument");
+    assert(rotated[3] == 6, "self tail call reset local frame");
+
+    let defaulted = fill_default(10003, 9);
+    assert(defaulted[0] == 41, "self tail call reset omitted parameter");
+    assert(defaulted[1] == 42, "self tail call reran default preamble and locals");
+}

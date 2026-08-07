@@ -939,7 +939,7 @@ __ffi_free_callback(wndproc);
 ## Error Handling
 
 If a library fails to load, the returned object will have:
-```nari
+```text
 {
     loaded: false,
     error: "Error message",

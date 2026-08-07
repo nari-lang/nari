@@ -1,0 +1,33 @@
+import { assert } from "../lib/assert.nari";
+
+func js_truthy(value) {
+    return __js_truthy(value);
+}
+
+func sample_function() {
+    return 1;
+}
+
+let nan_value = 0.0 / 0.0;
+let empty_array = [];
+let empty_object = {};
+global __js_undefined = {};
+
+for (let i = 0; i < 200; i++) {
+    assert(!js_truthy(null), "null must be falsy");
+    assert(!js_truthy(false), "false must be falsy");
+    assert(js_truthy(true), "true must be truthy");
+    assert(!js_truthy(0), "integer zero must be falsy");
+    assert(!js_truthy(0.0), "float zero must be falsy");
+    assert(js_truthy(-1), "nonzero integer must be truthy");
+    assert(js_truthy(1.5), "nonzero float must be truthy");
+    assert(!js_truthy(nan_value), "NaN must be falsy");
+    assert(!js_truthy(""), "empty string must be falsy");
+    assert(js_truthy("value"), "nonempty string must be truthy");
+    assert(js_truthy(empty_array), "empty array must be truthy");
+    assert(js_truthy(empty_object), "empty object must be truthy");
+    assert(js_truthy(sample_function), "function must be truthy");
+    assert(!js_truthy(__js_undefined), "undefined singleton must be falsy");
+}
+
+print("JIT JavaScript truthiness ok");

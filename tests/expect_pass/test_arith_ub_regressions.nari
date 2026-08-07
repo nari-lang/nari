@@ -1,21 +1,7 @@
-// Regression tests for arithmetic UB fixes (audit findings A, B, C).
-//
-// All of these used to be undefined behavior in C++ that happened to
-// "work" on x86 by accident. After the fix:
-//   - OP_MUL overflow promotes to float
-//   - bitwise/shift on float operand goes through safe_double_to_i64
-//   - OP_NEG of INT48_MIN promotes to float
-//   - shift count >= 64 or negative is masked with & 63
+import { assert } from "../lib/assert.nari";
 
-func assert(cond, msg) {
-    if (!cond) {
-        panic("ASSERT FAILED: " @ msg);
-    }
-}
-
-// === A: OP_MUL int*int that overflows int64 must NOT wrap silently ===
-// 2^47 - 1 squared overflows int64 (~2^94). Pre-fix this was UB (UBSan trap).
-// Post-fix: promoted to a float so the result is a finite-but-rounded double.
+// A: OP_MUL int*int that overflows int64 must NOT wrap silently
+// 2^47 - 1 squared overflows int64 (~2^94).
 let big = 140737488355327;  // INT48_MAX
 let prod = big * big;
 // The exact integer is 19807040619342695735406594, way beyond int64.
@@ -34,10 +20,7 @@ assert(mix < (-big), "INT48_MAX * (-INT48_MAX) must be a large negative, got: " 
 let small = 1000 * 1000;
 assert(small == 1000000, "1000 * 1000 must equal 1000000, got: " @ small);
 
-// === B: bitwise/shift ops with NaN / Inf / out-of-range double operands ===
-// Pre-fix: static_cast<int64_t>(NaN) is UB; on x86 the result happens to be
-// INT64_MIN, leading to a "0" via & or | by chance. Post-fix: explicit guard
-// returns 0, so the operation is at least defined and stable.
+// B: bitwise/shift ops with NaN / Inf / out-of-range double operands
 let nan_val = 0.0 / 0.0;
 let r1 = nan_val | 0;
 assert(r1 == 0, "NaN | 0 must be defined and equal 0, got: " @ r1);
@@ -54,14 +37,12 @@ let inf_val = 1.0 / 0.0;
 let r5 = inf_val & 0xFF;
 assert(r5 == 0, "Inf-like & 0xFF must be 0, got: " @ r5);
 
-// huge finite double - also out of int64 range. Built by repeated
-// multiplication because Nari's parser doesn't currently accept the
-// `1e30` exponent literal form.
+// huge finite double, also out of int64 range.
 let huge = 1.0 * 100000000000.0 * 100000000000.0;  // ~1e22, well beyond int64
 let r6 = huge & 0xFFFFFFFF;
 assert(r6 == 0, "huge float & mask must be 0 (defined), got: " @ r6);
 
-// === C: -INT48_MIN must promote to float instead of silently wrapping ===
+// C: -INT48_MIN must promote to float instead of silently wrapping
 let imin = -140737488355328; // INT48_MIN
 let neg = -imin;
 // Without the fix, neg == INT48_MIN (silent wrap). With the fix, neg is a
@@ -72,7 +53,7 @@ let x = -42;
 let y = -x;
 assert(y == 42, "-(-42) must equal 42, got: " @ y);
 
-// === Shift count masking: x << 64 / x >> 64 / x << -1 must not be UB ===
+// Shift count masking: x << 64 / x >> 64 / x << -1 must not be UB
 // Mask & 63: 64 -> 0, so x << 64 == x; x << -1 -> shift by 63 (== -1 & 63).
 let s1 = 1 << 64;
 assert(s1 == 1, "1 << 64 (mask & 63 -> 0) must equal 1, got: " @ s1);

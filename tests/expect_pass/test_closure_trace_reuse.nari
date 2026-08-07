@@ -1,6 +1,4 @@
-func assert(cond, msg) {
-    if (!cond) { panic(msg); }
-}
+import { assert } from "../lib/assert.nari";
 
 func make_counter() {
     let n = 0;

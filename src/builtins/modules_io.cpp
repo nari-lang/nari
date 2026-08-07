@@ -1,13 +1,11 @@
 #include "common.h"
 
-Value ScriptRuntime::builtin_module_import_namespace(const Value *argvals, size_t argc,
-                                                     const nari::CallExpr *callExpr) {
+Value ScriptRuntime::builtin_module_import_namespace(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
     if (argc != 1 || !argvals[0].is_string()) {
         runtime_fatal("__module_import_namespace expects a single module-path string argument", callExpr);
     }
 
     const std::string module_name = argvals[0].get_string();
-    ensure_module_loaded(module_name, callExpr);
     const auto &exports = Parser::get_module_exports(module_name);
     Value result_ns = Value::make_object();
     ObjectObj *ns_oobj = result_ns.get_obj_ptr();
@@ -50,8 +48,8 @@ Value ScriptRuntime::builtin_module_import_namespace(const Value *argvals, size_
         }
 
         if (!found) {
-            runtime_fatal("Module export '" + binding.export_name + "' was declared but no binding named '" +
-                              binding.local_name + "' exists in module '" + module_name + "'",
+            runtime_fatal("Module export '" + binding.export_name + "' was declared but no binding named '" + binding.local_name +
+                              "' exists in module '" + module_name + "'",
                           callExpr);
         }
 
@@ -263,9 +261,8 @@ Value ScriptRuntime::builtin_time_from_components(const Value *argvals, size_t a
     const ObjectObj *o = argvals[0].get_obj_ptr();
     bool utc = (argc < 2) ? true : argvals[1].is_bool() ? argvals[1].get_bool() : true;
     int64_t year, month, day, hour, minute, second, sub_ms;
-    if (!get_int_field(o, "year", year, 1970) || !get_int_field(o, "month", month, 1) ||
-        !get_int_field(o, "day", day, 1) || !get_int_field(o, "hour", hour, 0) ||
-        !get_int_field(o, "minute", minute, 0) || !get_int_field(o, "second", second, 0) ||
+    if (!get_int_field(o, "year", year, 1970) || !get_int_field(o, "month", month, 1) || !get_int_field(o, "day", day, 1) ||
+        !get_int_field(o, "hour", hour, 0) || !get_int_field(o, "minute", minute, 0) || !get_int_field(o, "second", second, 0) ||
         !get_int_field(o, "ms", sub_ms, 0)) {
         runtime_fatal("DateError: date fields must be numbers", call);
         return Value::none();
@@ -495,8 +492,7 @@ namespace {
 constexpr char URL_HEX[] = "0123456789ABCDEF";
 
 bool url_is_unreserved(unsigned char c) {
-    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' ||
-           c == '.' || c == '~';
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~';
 }
 
 bool url_is_path_safe(unsigned char c) {
@@ -565,8 +561,7 @@ Value ScriptRuntime::builtin_url_decode(const Value *argvals, size_t argc, const
             int hi = from_hex(s[i + 1], ok_hi);
             int lo = from_hex(s[i + 2], ok_lo);
             if (!ok_hi || !ok_lo) {
-                return make_err(
-                    Value::make_string(std::string("URLError: invalid hex digits in '%") + s[i + 1] + s[i + 2] + "'"));
+                return make_err(Value::make_string(std::string("URLError: invalid hex digits in '%") + s[i + 1] + s[i + 2] + "'"));
             }
             out.push_back(static_cast<char>((hi << 4) | lo));
             i += 2;

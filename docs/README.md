@@ -57,11 +57,11 @@ func greet(person: Person) {
 ### Async HTTP Request
 ```nari
 let handle = spawn {
-    let response = await http.fetch("https://example.com");
-    return response.status_code;
+    let result = http.fetch("https://example.com").await;
+    return result.unwrap().status_code;
 };
 
-print("Status:", handle.value);
+print("Status:", handle.await);
 ```
 
 ## Language Features at a Glance

@@ -246,8 +246,7 @@ static ffi_type *get_ffi_struct_type(FFIStructDef *struct_def) {
 
     size_t element_count = 0;
     for (const auto &field : struct_def->fields) {
-        ffi_type *field_type =
-            field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
+        ffi_type *field_type = field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
         if (field.count == 0 || field.count > std::numeric_limits<size_t>::max() - element_count || !field_type) {
             delete ffi_struct;
             return nullptr;
@@ -262,10 +261,8 @@ static ffi_type *get_ffi_struct_type(FFIStructDef *struct_def) {
         ffi_type *alignment_carrier = nullptr;
         size_t union_size = 0;
         for (const auto &field : struct_def->fields) {
-            ffi_type *field_type =
-                field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
-            if (!field_type || field_type->size == 0 ||
-                field.count > std::numeric_limits<size_t>::max() / field_type->size) {
+            ffi_type *field_type = field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
+            if (!field_type || field_type->size == 0 || field.count > std::numeric_limits<size_t>::max() / field_type->size) {
                 delete ffi_struct;
                 return nullptr;
             }
@@ -286,8 +283,7 @@ static ffi_type *get_ffi_struct_type(FFIStructDef *struct_def) {
     } else {
         struct_def->ffi_field_types.reserve(element_count + 1);
         for (const auto &field : struct_def->fields) {
-            ffi_type *field_type =
-                field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
+            ffi_type *field_type = field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
             for (size_t i = 0; field_type && i < field.count; i++) {
                 struct_def->ffi_field_types.push_back(field_type);
             }
@@ -636,8 +632,7 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
     }
 }
 
-static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value &object,
-                             std::deque<std::string> *strings = nullptr) {
+static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value &object, std::deque<std::string> *strings = nullptr) {
     if (!object.is_object() || def.ffi_field_offsets.size() != def.fields.size()) {
         return false;
     }
@@ -648,8 +643,7 @@ static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value 
         }
         const Value *field_value = obj->get_field(field.name);
         if (field_value && (!field_value->is_array() || field_value->get_array().size() != field.count)) {
-            fprintf(stderr, "ERROR: FFI struct field '%s' requires exactly %zu array elements\n", field.name.c_str(),
-                    field.count);
+            fprintf(stderr, "ERROR: FFI struct field '%s' requires exactly %zu array elements\n", field.name.c_str(), field.count);
             return false;
         }
     }
@@ -659,13 +653,11 @@ static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value 
         if (!field_value) {
             continue;
         }
-        ffi_type *element_type =
-            field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
+        ffi_type *element_type = field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
         const size_t stride = element_type ? element_type->size : 0;
         if (field.count == 1) {
             if (field.aggregate_def) {
-                if (!write_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def, *field_value,
-                                      strings)) {
+                if (!write_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def, *field_value, strings)) {
                     return false;
                 }
             } else {
@@ -693,22 +685,19 @@ static Value read_ffi_struct(const char *buffer, const FFIStructDef &def) {
     ObjectObj *obj = result.get_obj_ptr();
     for (size_t field_index = 0; field_index < def.fields.size(); field_index++) {
         const auto &field = def.fields[field_index];
-        ffi_type *element_type =
-            field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
+        ffi_type *element_type = field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
         const size_t stride = element_type ? element_type->size : 0;
         if (field.count == 1) {
-            obj->set_field(field.name,
-                           field.aggregate_def
-                               ? read_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def)
-                               : read_ffi_scalar(buffer + def.ffi_field_offsets[field_index], field.type));
+            obj->set_field(field.name, field.aggregate_def
+                                           ? read_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def)
+                                           : read_ffi_scalar(buffer + def.ffi_field_offsets[field_index], field.type));
             continue;
         }
         std::vector<Value> values;
         values.reserve(field.count);
         for (size_t i = 0; i < field.count; i++) {
             const char *element = buffer + def.ffi_field_offsets[field_index] + i * stride;
-            values.push_back(field.aggregate_def ? read_ffi_struct(element, *field.aggregate_def)
-                                                 : read_ffi_scalar(element, field.type));
+            values.push_back(field.aggregate_def ? read_ffi_struct(element, *field.aggregate_def) : read_ffi_scalar(element, field.type));
         }
         obj->set_field(field.name, Value::make_array(std::move(values)));
     }
@@ -740,8 +729,7 @@ FFICaller::CIFCache &FFICaller::get_or_create_cif(const FFISignature &sig) {
         return_type = get_ffi_type(sig.return_type);
     }
 
-    ffi_status status =
-        ffi_prep_cif(&cache.cif, FFI_DEFAULT_ABI, cache.param_types.size(), return_type, cache.param_types.data());
+    ffi_status status = ffi_prep_cif(&cache.cif, FFI_DEFAULT_ABI, cache.param_types.size(), return_type, cache.param_types.data());
 
     if (status != FFI_OK) {
         static CIFCache error_cache;
@@ -765,8 +753,8 @@ FFICaller::CIFCache &FFICaller::get_or_create_cif_variadic(const FFISignature &s
     }
 
     ffi_type *return_type = get_ffi_type(sig.return_type);
-    ffi_status status = ffi_prep_cif_var(&cache.cif, FFI_DEFAULT_ABI, sig.fixed_param_count, cache.param_types.size(),
-                                         return_type, cache.param_types.data());
+    ffi_status status = ffi_prep_cif_var(&cache.cif, FFI_DEFAULT_ABI, sig.fixed_param_count, cache.param_types.size(), return_type,
+                                         cache.param_types.data());
 
     if (status != FFI_OK) {
         static CIFCache error_cache;
@@ -916,8 +904,7 @@ static bool contains_union(const std::shared_ptr<FFIStructDef> &def) {
                        [](const FFIStructField &field) { return contains_union(field.aggregate_def); });
 }
 
-template <typename T>
-static void store_ffi_argument(std::vector<T> &values, std::vector<void *> &arg_pointers, T value) {
+template <typename T> static void store_ffi_argument(std::vector<T> &values, std::vector<void *> &arg_pointers, T value) {
     values.push_back(value);
     arg_pointers.push_back(&values.back());
 }
@@ -1018,8 +1005,8 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
     if (!func_ptr) {
         return Value::none();
     }
-    if (contains_union(sig.return_struct_def) || std::any_of(sig.param_struct_defs.begin(), sig.param_struct_defs.end(),
-                                                             [](const auto &def) { return contains_union(def); })) {
+    if (contains_union(sig.return_struct_def) ||
+        std::any_of(sig.param_struct_defs.begin(), sig.param_struct_defs.end(), [](const auto &def) { return contains_union(def); })) {
         fprintf(stderr, "ERROR: Passing unions or aggregates containing unions by value is not supported portably; "
                         "pass a pointer instead\n");
         return Value::none();
@@ -1161,8 +1148,8 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
     if (!func_ptr) {
         return Value::none();
     }
-    if (contains_union(sig.return_struct_def) || std::any_of(sig.param_struct_defs.begin(), sig.param_struct_defs.end(),
-                                                             [](const auto &def) { return contains_union(def); })) {
+    if (contains_union(sig.return_struct_def) ||
+        std::any_of(sig.param_struct_defs.begin(), sig.param_struct_defs.end(), [](const auto &def) { return contains_union(def); })) {
         fprintf(stderr, "ERROR: Passing unions or aggregates containing unions by value is not supported portably; "
                         "pass a pointer instead\n");
         return Value::none();
@@ -1514,8 +1501,7 @@ std::shared_ptr<FFIStructDef> create_struct_def_from_type(const std::string &typ
 
             const nari::TypeDecl *next_decl = Parser::get_registered_type(resolved_decl->alias_target->name);
             if (!next_decl) {
-                fprintf(stderr, "ERROR: Cannot create struct from primitive type '%s'\n",
-                        resolved_decl->alias_target->name.c_str());
+                fprintf(stderr, "ERROR: Cannot create struct from primitive type '%s'\n", resolved_decl->alias_target->name.c_str());
                 return nullptr;
             }
 
@@ -1528,8 +1514,7 @@ std::shared_ptr<FFIStructDef> create_struct_def_from_type(const std::string &typ
         }
 
         if (std::find(resolving.begin(), resolving.end(), resolved_decl->name) != resolving.end()) {
-            fprintf(stderr, "ERROR: Recursive by-value FFI aggregate '%s' is not supported\n",
-                    resolved_decl->name.c_str());
+            fprintf(stderr, "ERROR: Recursive by-value FFI aggregate '%s' is not supported\n", resolved_decl->name.c_str());
             return nullptr;
         }
         resolving.push_back(resolved_decl->name);
@@ -1578,8 +1563,7 @@ std::shared_ptr<FFIStructDef> create_struct_def_from_type(const std::string &typ
         std::vector<FFIStructField> fields;
         for (const auto &field : resolved_decl->fields) {
             if (field.type->is_array) {
-                fprintf(stderr, "ERROR: Dynamic array field '%s' cannot be used in an FFI struct\n",
-                        field.name.c_str());
+                fprintf(stderr, "ERROR: Dynamic array field '%s' cannot be used in an FFI struct\n", field.name.c_str());
                 return nullptr;
             }
             const size_t count = field.type->fixed_array_count > 0 ? field.type->fixed_array_count : 1;
@@ -1588,8 +1572,7 @@ std::shared_ptr<FFIStructDef> create_struct_def_from_type(const std::string &typ
             std::vector<std::string> field_aliases;
             std::string resolved_field_name = field.type->name;
             while (resolved_field_decl && resolved_field_decl->is_alias()) {
-                if (std::find(field_aliases.begin(), field_aliases.end(), resolved_field_decl->name) !=
-                    field_aliases.end()) {
+                if (std::find(field_aliases.begin(), field_aliases.end(), resolved_field_decl->name) != field_aliases.end()) {
                     fprintf(stderr, "ERROR: Cyclic FFI type alias involving '%s'\n", resolved_field_decl->name.c_str());
                     resolving.pop_back();
                     return nullptr;
@@ -1910,8 +1893,8 @@ void *FFICallbackManager::create_callback(const FFISignature &sig, const Value &
     }
 
     ffi_type *return_type = get_ffi_type_ptr(sig.return_type);
-    ffi_status status = ffi_prep_cif(&callback->cif, FFI_DEFAULT_ABI, (unsigned int)sig.param_types.size(), return_type,
-                                     callback->param_types.data());
+    ffi_status status =
+        ffi_prep_cif(&callback->cif, FFI_DEFAULT_ABI, (unsigned int)sig.param_types.size(), return_type, callback->param_types.data());
 
     if (status != FFI_OK) {
         fprintf(stderr, "ERROR: ffi_prep_cif failed with status %d\n", status);

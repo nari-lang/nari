@@ -3,8 +3,24 @@
 #ifndef _WIN32
 #include <cxxabi.h>
 #endif
+#include <cctype>
 #include <memory>
 #include <string>
+#include <string_view>
+
+// trim leading/trailing whitespace. 
+// single definition shared by the lexer and the module resolver, which each had their own identical copy.
+inline std::string trim_ascii(std::string_view s) {
+    size_t begin = 0;
+    while (begin < s.size() && std::isspace(static_cast<unsigned char>(s[begin]))) {
+        ++begin;
+    }
+    size_t end = s.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(s[end - 1]))) {
+        --end;
+    }
+    return std::string(s.substr(begin, end - begin));
+}
 
 inline std::string demangle(const char *name) {
 #ifndef _WIN32
@@ -18,8 +34,7 @@ inline std::string demangle(const char *name) {
 #endif
 }
 
-template <class T, class... Args>
-typename std::enable_if<!std::is_array<T>::value, T *>::type construct_at(T *p, Args &&...args) {
+template <class T, class... Args> typename std::enable_if<!std::is_array<T>::value, T *>::type construct_at(T *p, Args &&...args) {
     return ::new ((void *)p) T(std::forward<Args>(args)...);
 }
 

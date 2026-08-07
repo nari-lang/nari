@@ -6,7 +6,7 @@ Nari provides built-in support for asynchronous operations through `spawn` block
 
 ### Basic spawn
 
-Execute code asynchronously and get a handle:
+Execute code asynchronously and get a handle. Wait for the result with `.await`:
 
 ```nari
 let handle = spawn {
@@ -14,46 +14,53 @@ let handle = spawn {
     return 42;
 };
 
-let result = handle.value;
+let result = handle.await;
 print(result);  // 42
 ```
 
+A handle recognizes exactly these members: `await`, `ready`, `failed`, `error`,
+`status_code` and `duration`. Anything else, **including `.value`**, silently
+gives `null` rather than raising an error. Always use `.await`.
+
+`await X` in prefix position is sugar for `X.await`. The two forms are identical.
+
 ### HTTP Requests
+
+`http.fetch` gives a handle. Awaiting it gives a `Result`, and unwrapping that
+gives the response object `{ status_code, body, headers }`:
 
 ```nari
 let handle = spawn {
-    let response = http.fetch("https://example.com");
-    return response.status_code;
+    let result = http.fetch("https://example.com").await;
+    return result.unwrap().status_code;
 };
 
 print("Request started...");
-let status = handle.value;
-print("Status code: " @ status);
+let status = handle.await;
+print("Status code: " @ to_string(status));
 ```
 
 ### Multiple Concurrent Operations
 
 ```nari
 let handle1 = spawn {
-    let data = http.fetch("https://api1.com/data");
-    return data;
+    return http.fetch("https://api1.com/data").await;
 };
 
 let handle2 = spawn {
-    let data = http.fetch("https://api2.com/data");
-    return data;
+    return http.fetch("https://api2.com/data").await;
 };
 
 // Both requests run concurrently
-let result1 = handle1.value;
-let result2 = handle2.value;
+let result1 = handle1.await;   // a Result
+let result2 = handle2.await;
 ```
 
 ## Spawn Methods
 
 ### Spawn.map
 
-Create multiple spawn handles from an array:
+Create one handle per array element. It does not wait for anything:
 
 ```nari
 let urls = [
@@ -66,30 +73,36 @@ let handles = Spawn.map(urls, func(url) {
     return http.fetch(url);
 });
 
-print("Created " @ handles.length() @ " handles");
+print("Created " @ to_string(handles.length()) @ " handles");
 ```
 
 ### Spawn.all
 
-Wait for all operations to complete:
+Wait for every handle and give an array of the **resolved values**, in the same
+order as the handles. For `http.fetch` each value is a `Result`:
 
 ```nari
 let urls = ["https://example.com", "https://api.example.com"];
-let handles = Spawn.map(urls, func(url) { 
-    return http.fetch(url); 
+let handles = Spawn.map(urls, func(url) {
+    return http.fetch(url);
 });
 
 let results = Spawn.all(handles);
 
-// results is an array of all responses
 for (result in results) {
-    print("Status: " @ result.status_code);
+    if (result.is_ok()) {
+        print("Status: " @ to_string(result.unwrap().status_code));
+    } else {
+        print("Failed: " @ to_string(result.unwrap_err()));
+    }
 }
 ```
 
 ### Spawn.race
 
-Get the first completed operation:
+Wait for the first handle to finish, whether it succeeded or failed. The result
+is `{ index, value, duration, handle }`. `index` points into the array you
+passed, `duration` is milliseconds, and `value` is the resolved value:
 
 ```nari
 let urls = [
@@ -98,23 +111,27 @@ let urls = [
     "https://medium-server.com"
 ];
 
-let handles = Spawn.map(urls, func(url) { 
-    return http.fetch(url); 
+let handles = Spawn.map(urls, func(url) {
+    return http.fetch(url);
 });
 
 let winner = Spawn.race(handles);
-print("Fastest URL index: " @ winner.index);
-print("Duration: " @ winner.duration @ "ms");
-print("Result: " @ winner.value.status_code);
+print("Fastest URL index: " @ to_string(winner.index));
+print("Duration: " @ to_string(winner.duration) @ "ms");
+print("Status: " @ to_string(winner.value.unwrap().status_code));
 ```
+
+`winner.value` is a plain object field here, not a handle member, so it does
+hold the resolved value.
 
 ### Spawn.any
 
-Get the first successful operation:
+Wait for the first handle that succeeds. The result is
+`{ index, value, duration }` with no `handle` field:
 
 ```nari
-let handles = Spawn.map(urls, func(url) { 
-    return http.fetch(url); 
+let handles = Spawn.map(urls, func(url) {
+    return http.fetch(url);
 });
 
 let firstSuccess = Spawn.any(handles);
@@ -125,7 +142,7 @@ print("First successful: " @ urls[firstSuccess.index]);
 
 ### set_timeout
 
-Execute code after a delay:
+Execute code after a delay. It returns `null`, so a timeout cannot be cancelled:
 
 ```nari
 print("Starting...");
@@ -139,7 +156,8 @@ print("Timer set!");
 
 ### set_interval
 
-Execute code repeatedly at intervals:
+Execute code repeatedly at intervals. It returns an integer id for
+`clear_interval`:
 
 ```nari
 let count = 0;
@@ -229,16 +247,24 @@ spawn {
 
 ### HTTP GET
 
+`http.fetch` returns a handle. Await it for a `Result`, then unwrap for the
+response object `{ status_code, body, headers }`:
+
 ```nari
-let response = http.fetch("https://api.example.com/data");
-print("Status: " @ response.status_code);
-print("Body: " @ response.body);
+let result = http.fetch("https://api.example.com/data").await;
+if (result.is_err()) {
+    print("Request failed: " @ to_string(result.unwrap_err()));
+} else {
+    let response = result.unwrap();
+    print("Status: " @ to_string(response.status_code));
+    print("Body: " @ response.body);
+}
 ```
 
 ### HTTP POST/Custom Requests
 
 ```nari
-let response = http.fetch("https://api.example.com/users", {
+let result = http.fetch("https://api.example.com/users", {
     method: "POST",
     headers: {
         "Content-Type": "application/json"
@@ -246,68 +272,68 @@ let response = http.fetch("https://api.example.com/users", {
     body: JSON.stringify({
         name: "Alice",
         age: 30
-    })
-});
+    }).unwrap()
+}).await;
 
-print("Status: " @ response.status_code);
+print("Status: " @ to_string(result.unwrap().status_code));
 ```
 
+`JSON.stringify` gives a `Result`, so unwrap it before passing it as the body.
+
 ## Network Servers
+
+Read, write and close go through the module functions `net.read`, `net.write`
+and `net.close`. A connection is plain data (`{ fd, ip, port }`) and has no
+methods. `net.write(conn, data)` takes two arguments and returns a handle.
 
 ### TCP Server
 
 ```nari
 func on_connection(conn) {
-    conn.read(conn, func(err, data) {
-        if (err) {
-            print("Read error: " @ err);
-            conn.close(conn);
+    net.read(conn, func(err, data) {
+        if (err != null) {
+            print("Read error: " @ to_string(err));
+            net.close(conn);
             return;
         }
-        
+
         print("Received: " @ data);
-        
-        conn.write(conn, "Hello from server!", func(writeErr) {
-            if (writeErr) {
-                print("Write error: " @ writeErr);
-            }
-            conn.close(conn);
-        });
+
+        net.write(conn, "Hello from server!").await;
+        net.close(conn);
     });
 }
 
 net.create_server(8080, on_connection);
 print("Server listening on port 8080");
-
-// Keep event loop running
-set_interval(func() {}, 1000);
 ```
 
 ### HTTP Server Example
 
 ```nari
 func handleRequest(conn) {
-    conn.read(conn, func(err, request) {
-        if (err) {
-            conn.close(conn);
+    net.read(conn, func(err, request) {
+        if (err != null) {
+            net.close(conn);
             return;
         }
-        
+
         let response = "HTTP/1.1 200 OK\r\n";
         response = response @ "Content-Type: text/html\r\n";
         response = response @ "Connection: close\r\n\r\n";
         response = response @ "<h1>Hello from Nari!</h1>";
-        
-        conn.write(conn, response, func(writeErr) {
-            conn.close(conn);
-        });
+
+        net.write(conn, response).await;
+        net.close(conn);
     });
 }
 
 net.create_server(8080, handleRequest);
 print("HTTP server running on port 8080");
-set_interval(func() {}, 1000);
 ```
+
+`net.create_server` runs its own accept loop, so you do not need a keep-alive
+timer to hold the event loop open.
 
 ## Async Patterns
 
@@ -316,13 +342,13 @@ set_interval(func() {}, 1000);
 ```nari
 func fetchData(url) {
     return spawn {
-        return http.fetch(url);
+        return http.fetch(url).await;
     };
 }
 
 let dataHandle = fetchData("https://api.example.com/data");
-let result = dataHandle.value;
-print("Got data: " @ result.body);
+let result = dataHandle.await;          // the Result from http.fetch
+print("Got data: " @ result.unwrap().body);
 ```
 
 ### Parallel Processing
@@ -347,15 +373,15 @@ func processItem(item) {
 
 ```nari
 let handle = spawn {
-    let response = http.fetch("https://invalid-url.com");  // returns Result
-    if (response.is_err()) {
-        print("Request failed: " @ response.unwrap_err());
+    let result = http.fetch("https://invalid-url.com").await;   // a Result
+    if (result.is_err()) {
+        print("Request failed: " @ to_string(result.unwrap_err()));
         return null;
     }
-    return response.unwrap();
+    return result.unwrap();
 };
 
-let result = handle.value;
+let response = handle.await;
 ```
 
 ### Timeout Pattern
@@ -368,13 +394,13 @@ func withTimeout(handle, timeout_ms) {
     };
     
     let result = Spawn.race([handle, timeoutHandle]);
-    
+
     if (result.index == 1) {
         print("Operation timed out!");
         return null;
     }
-    
-    return result.value;
+
+    return result.value;   // race result field, holds the resolved value
 }
 ```
 
@@ -402,13 +428,16 @@ spawn {
 ### 2. Handle Errors in Async Operations
 
 ```nari
+func riskyOperation() { return Err("something broke"); }
+func handleResult(v) { print("got " @ to_string(v)); }
+
 spawn {
     let result = riskyOperation();   // returns Result
     if (result.is_err()) {
         print("Error: " @ result.unwrap_err());
         return;
     }
-    process(result.unwrap());
+    handleResult(result.unwrap());
 };
 ```
 

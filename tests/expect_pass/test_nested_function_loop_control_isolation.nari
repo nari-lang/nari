@@ -1,0 +1,19 @@
+let iterations = 0;
+
+while (iterations < 2) {
+    let invalid_break = func() {
+        break;
+    };
+    let invalid_continue = func() {
+        continue;
+    };
+    invalid_break();
+    invalid_continue();
+    iterations = iterations + 1;
+}
+
+if (iterations != 2) {
+    panic("nested function control flow corrupted the outer loop");
+}
+
+print("nested function loop control isolation passed");

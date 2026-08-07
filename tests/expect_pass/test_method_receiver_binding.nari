@@ -1,0 +1,46 @@
+let assert = func(condition, message) {
+    if (!condition) {
+        panic("method receiver assertion failed: " @ message);
+    }
+};
+
+let read_value = func() {
+    return this.value;
+};
+
+let left = { value: 10, read: read_value };
+let right = { value: 32, read: read_value };
+
+assert(left.read() == 10, "direct object method");
+assert(right.read() == 32, "receiver changes between calls");
+
+let detached = left.read;
+right.detached = detached;
+assert(right.detached() == 32, "detached function binds its new receiver");
+
+left.other = right;
+left.read_other = func() {
+    return this.other.read();
+};
+assert(left.read_other() == 32, "nested method uses the inner receiver");
+assert(left.read() == 10, "nested call restores the outer receiver");
+
+let callable = func() { return null; };
+callable.value = 7;
+callable.read = read_value;
+assert(callable.read() == 7, "callable object property method");
+
+let gc_method = func() {
+    __gc_collect();
+    return this.value;
+};
+let gc_receiver = { value: 99, read: gc_method };
+assert(gc_receiver.read() == 99, "receiver survives collection during call");
+
+let total = 0;
+for (let i = 0; i < 80; i++) {
+    total = total + left.read();
+}
+assert(total == 800, "receiver is preserved after JIT compilation");
+
+print("All method receiver binding tests passed!");
