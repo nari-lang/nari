@@ -108,8 +108,15 @@ Value ScriptRuntime::builtin_concat(const Value *argvals, size_t argc, const nar
 
 // Object builtins
 Value ScriptRuntime::builtin_keys(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if (argc > 0 && (argvals[0].is_object() || argvals[0].is_function())) {
-        const ObjectObj *oobj = argvals[0].is_object() ? argvals[0].get_obj_ptr() : argvals[0].get_function().properties.get();
+    if (argc > 0 && argvals[0].is_function()) {
+        std::vector<Value> result;
+        for (const auto &name : argvals[0].get_function().property_keys()) {
+            result.push_back(Value::make_string(name));
+        }
+        return Value::make_array(std::move(result));
+    }
+    if (argc > 0 && argvals[0].is_object()) {
+        const ObjectObj *oobj = argvals[0].get_obj_ptr();
 
         std::vector<Value> result;
         if (oobj) {
@@ -123,8 +130,18 @@ Value ScriptRuntime::builtin_keys(const Value *argvals, size_t argc, const nari:
 }
 
 Value ScriptRuntime::builtin_values(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if (argc > 0 && (argvals[0].is_object() || argvals[0].is_function())) {
-        const ObjectObj *oobj = argvals[0].is_object() ? argvals[0].get_obj_ptr() : argvals[0].get_function().properties.get();
+    if (argc > 0 && argvals[0].is_function()) {
+        const FunctionData &fn = argvals[0].get_function();
+        std::vector<Value> result;
+        for (const auto &name : fn.property_keys()) {
+            if (const Value *v = fn.get_property(name)) {
+                result.push_back(*v);
+            }
+        }
+        return Value::make_array(std::move(result));
+    }
+    if (argc > 0 && argvals[0].is_object()) {
+        const ObjectObj *oobj = argvals[0].get_obj_ptr();
 
         std::vector<Value> result;
         if (oobj) {
@@ -144,8 +161,11 @@ Value ScriptRuntime::builtin_hasKey(const Value *argvals, size_t argc, const nar
         auto *array = static_cast<ArrayObj *>(argvals[0].heap_ptr());
         return Value::make_bool(array->has_property(argvals[1].to_string()));
     }
-    if (argc >= 2 && (argvals[0].is_object() || argvals[0].is_function())) {
-        const ObjectObj *oobj = argvals[0].is_object() ? argvals[0].get_obj_ptr() : argvals[0].get_function().properties.get();
+    if (argc >= 2 && argvals[0].is_function()) {
+        return Value::make_bool(argvals[0].get_function().has_property(argvals[1].to_string()));
+    }
+    if (argc >= 2 && argvals[0].is_object()) {
+        const ObjectObj *oobj = argvals[0].get_obj_ptr();
 
         if (!oobj) {
             return Value::make_bool(false);
@@ -169,8 +189,23 @@ Value ScriptRuntime::builtin_hasKey(const Value *argvals, size_t argc, const nar
 }
 
 Value ScriptRuntime::builtin_entries(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if (argc > 0 && (argvals[0].is_object() || argvals[0].is_function())) {
-        const ObjectObj *oobj = argvals[0].is_object() ? argvals[0].get_obj_ptr() : argvals[0].get_function().properties.get();
+    if (argc > 0 && argvals[0].is_function()) {
+        const FunctionData &fn = argvals[0].get_function();
+        std::vector<Value> result;
+        for (const auto &name : fn.property_keys()) {
+            const Value *val = fn.get_property(name);
+            if (!val) {
+                continue;
+            }
+            std::vector<Value> pair;
+            pair.push_back(Value::make_string(name));
+            pair.push_back(*val);
+            result.push_back(Value::make_array(std::move(pair)));
+        }
+        return Value::make_array(std::move(result));
+    }
+    if (argc > 0 && argvals[0].is_object()) {
+        const ObjectObj *oobj = argvals[0].get_obj_ptr();
         std::vector<Value> result;
         if (oobj) {
             for (const auto &name : oobj->get_keys()) {
@@ -195,12 +230,18 @@ Value ScriptRuntime::builtin_assign(const Value *argvals, size_t argc, const nar
             if (!argvals[i].is_object() && !argvals[i].is_function()) {
                 continue;
             }
-            const ObjectObj *src = argvals[i].is_object() ? argvals[i].get_obj_ptr() : argvals[i].get_function().properties.get();
-            if (!src) {
+            const ObjectObj *src = argvals[i].is_object() ? argvals[i].get_obj_ptr() : nullptr;
+            std::vector<std::string> names;
+            if (argvals[i].is_function()) {
+                names = argvals[i].get_function().property_keys();
+            } else if (src) {
+                names = src->get_keys();
+            } else {
                 continue;
             }
-            for (const auto &name : src->get_keys()) {
-                if (const Value *val = src->get_field(name)) {
+            for (const auto &name : names) {
+                const Value *val = src ? src->get_field(name) : argvals[i].get_function().get_property(name);
+                if (val) {
                     if (argvals[0].is_object()) {
                         const_cast<Value &>(argvals[0]).get_obj_ptr()->set_field(name, *val);
                     } else {

@@ -1101,9 +1101,16 @@ void Compiler::compile_expr(const Expr *expr) {
                         return;
                     }
                 }
+                // only the bit and shift helpers lower to an operand-free opcode that consumes exactly its arguments.
+                const bool operand_free = helper->second == OpCode::OP_JS_BIT_AND || helper->second == OpCode::OP_JS_BIT_OR ||
+                                          helper->second == OpCode::OP_JS_BIT_XOR || helper->second == OpCode::OP_JS_BIT_NOT ||
+                                          helper->second == OpCode::OP_JS_SHL || helper->second == OpCode::OP_JS_SHR ||
+                                          helper->second == OpCode::OP_JS_USHR;
                 const size_t arity = helper->second == OpCode::OP_JS_BIT_NOT ? 1 : 2;
-                if (call->args.size() == arity) {
-                    for (const auto &arg : call->args) compile_expr(arg.get());
+                if (operand_free && call->args.size() == arity) {
+                    for (const auto &arg : call->args) {
+                        compile_expr(arg.get());
+                    }
                     ctx->emit_op(helper->second);
                     return;
                 }

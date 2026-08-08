@@ -873,6 +873,12 @@ struct FunctionData : HeapHeader, PooledHeapObject<FunctionData> {
         return name.size() == 6 && name == "length";
     }
     Value int_length = Value::none();
+
+    // use this instead of reading `properties` directly, because a set `length` lives in int_length and is absent there.
+    bool has_property(const std::string &name) const noexcept {
+        return get_property(name) != nullptr;
+    }
+    std::vector<std::string> property_keys() const;
 };
 
 struct ClassLayout {

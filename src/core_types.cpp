@@ -493,3 +493,11 @@ void FunctionData::set_property_by_id(uint32_t fid, Value val) {
     }
     ensure_properties()->set_field_by_id(fid, std::move(val));
 }
+
+std::vector<std::string> FunctionData::property_keys() const {
+    std::vector<std::string> keys = properties ? properties->get_keys() : std::vector<std::string>{};
+    if (!int_length.is_none()) {
+        keys.emplace_back("length");
+    }
+    return keys;
+}
