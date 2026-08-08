@@ -93,6 +93,7 @@ static std::vector<nari::FunctionPtr> generate_enum_constructors(const nari::Enu
         auto fn = std::make_unique<nari::Function>(variant.name);
         fn->line = decl.line;
         fn->col = decl.col;
+        fn->is_enum_ctor = true;
 
         // build the return object: { __variant: "VariantName", __enum: "EnumName", ... }
         auto obj = std::make_unique<nari::ObjectLiteralExpr>();
@@ -4602,20 +4603,23 @@ static void ri_expr(nari::Expr *e, std::vector<ParseError> *errors) {
                 std::string previous_filename = current_filename;
                 set_source_filename(sie->filename);
                 FuncList funcs;
+                // TODO: kinda ugly way of doing interp slots 
+                // but this doesn't technically break anything, it's never exposed to the user, and it's free speed wise
+                const std::string wrapped = "let __nari_interp_slot__ = (" + src + ");";
                 if (errors) {
-                    auto result = parse_program_recovering(src);
+                    auto result = parse_program_recovering(wrapped);
                     for (auto &error : result.errors) {
                         errors->push_back(std::move(error));
                     }
                     funcs = std::move(result.functions);
                 } else {
-                    funcs = parse_program_from_source(src);
+                    funcs = parse_program_from_source(wrapped);
                 }
                 set_source_filename(previous_filename);
                 nari::ExprPtr parsed;
                 if (funcs.size() >= 2 && funcs[1] && funcs[1]->body && !funcs[1]->body->stmts.empty()) {
-                    if (auto *es = dynamic_cast<nari::ExprStmt *>(funcs[1]->body->stmts[0].get())) {
-                        parsed = std::move(es->expr);
+                    if (auto *var_decl = dynamic_cast<nari::VarDeclStmt *>(funcs[1]->body->stmts[0].get())) {
+                        parsed = std::move(var_decl->initializerExpr);
                     }
                 }
                 sie->exprs.push_back(std::move(parsed));

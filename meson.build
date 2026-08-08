@@ -110,7 +110,6 @@ if target_mcu
     cpp_args += [
         '-DNARI_MCU',
         '-DNO_THREADS',
-        '-DDISABLE_PARSER',
         '-ffunction-sections',
         '-fdata-sections',
         '-flto',

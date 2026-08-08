@@ -378,6 +378,30 @@ func __stdlib_init__() {
             }
 
             return result;
+        },
+        // JS-compatible statics!
+        // this only exists to make JSRT easier, and you should use obj.keys, etc instead.
+        // eventually i'll remove this and make JSRT emit it standalone instead of relying on the prelude.
+        keys: func(obj) {
+            return obj.keys();
+        },
+        values: func(obj) {
+            return obj.values();
+        },
+        entries: func(obj) {
+            return obj.entries();
+        },
+        assign: func(target, ...sources) {
+            for (src in sources) {
+                target.assign(src);
+            }
+            return target;
+        },
+        freeze: func(obj) {
+            return obj.freeze();
+        },
+        is_frozen: func(obj) {
+            return obj.is_frozen();
         }
     }
 

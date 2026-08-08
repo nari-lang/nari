@@ -1,0 +1,57 @@
+// basic test for if the same method called on different types operate correctly
+import { assert } from "../lib/assert.nari";
+
+// array.at()
+let a = [10, 20, 30];
+assert(a.at(0) == 10, "array at(0) did not return the first element");
+assert(a.at(2) == 30, "array at(2) did not return the last element");
+assert(a.at(-1) == 30, "array at(-1) did not count back from the end");
+assert(a.at(-3) == 10, "array at(-3) did not count back from the end");
+
+// string.at()
+assert("hello".at(0) == "h", "string at(0) regressed");
+assert("hello".at(-1) == "o", "string at(-1) regressed");
+
+// array.last_index_of()
+let b = [1, 2, 3, 2, 1];
+assert(b.last_index_of(2) == 3, "array last_index_of did not find the last match");
+assert(b.last_index_of(1) == 4, "array last_index_of did not find the last match");
+assert(b.last_index_of(3) == 2, "array last_index_of wrong index");
+assert(b.last_index_of(9) == -1, "array last_index_of should report -1 when absent");
+assert(b.last_index_of(2, 2) == 1, "array last_index_of ignored the from index");
+assert([1, 2, 3].last_index_of(2) == 1, "array last_index_of searched the debug string");
+
+// string.last_index_of()
+assert("abcabc".last_index_of("b") == 4, "string last_index_of regressed");
+assert("abcabc".last_index_of("b", 2) == 1, "string last_index_of from index regressed");
+assert("abcabc".last_index_of("z") == -1, "string last_index_of absent regressed");
+
+// Object statics
+// TODO: these only exist for JSRT, they work fine but will absolutely be removed soon.
+let o = { x: 1, y: 2 };
+let ks = Object.keys(o);
+assert(ks.length() == 2, "Object.keys ignored its argument");
+assert(ks[0] == "x" && ks[1] == "y", "Object.keys returned the wrong keys");
+
+let vs = Object.values(o);
+assert(vs.length() == 2 && vs[0] == 1 && vs[1] == 2, "Object.values ignored its argument");
+
+let es = Object.entries(o);
+assert(es.length() == 2, "Object.entries ignored its argument");
+assert(es[0][0] == "x" && es[0][1] == 1, "Object.entries returned the wrong pairs");
+
+let target = { a: 1 };
+let merged = Object.assign(target, { b: 2 }, { c: 3 });
+assert(merged.has_key("a") && merged.has_key("b") && merged.has_key("c"), "Object.assign dropped sources");
+assert(target.has_key("b"), "Object.assign did not mutate the target");
+
+let frozen = { q: 1 };
+Object.freeze(frozen);
+assert(Object.is_frozen(frozen), "Object.freeze did not freeze its argument");
+assert(!Object.is_frozen({ q: 1 }), "Object.is_frozen reported a fresh object as frozen");
+
+Object.probe_field = 7;
+assert(Object.probe_field == 7, "Object.freeze froze the stdlib Object module");
+assert(Object.has_key("deep_clone"), "Object module lost its own members");
+
+print("type dispatch regressions ok");

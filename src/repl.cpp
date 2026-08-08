@@ -311,7 +311,6 @@ static bool supports_ansi_output() {
 
   returns true on clean execution, false on parse / compile / runtime error.
 */
-#ifndef DISABLE_PARSER
 static bool compile_and_run(const std::string &stdlib_src, const std::string &accumulated, const std::string &new_code, bool auto_print,
                             bool use_color, int argc, char **argv) {
     // build source that will be compiled in
@@ -407,7 +406,6 @@ static bool compile_and_run(const std::string &stdlib_src, const std::string &ac
     delete chunk;
     return ok;
 }
-#endif // DISABLE_PARSER
 
 // Syntax highlighter
 #ifndef DISABLE_REPL
@@ -540,7 +538,7 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
 }
 #endif // DISABLE_REPL
 
-#if defined(_WIN32) && !defined(DISABLE_PARSER)
+#ifdef _WIN32
 // plain repl in cases where there's issues
 static void run_repl_plain(const std::string &stdlib_src, bool tty, bool use_color, int argc, char **argv) {
     std::string accumulated;
@@ -598,13 +596,9 @@ static void run_repl_plain(const std::string &stdlib_src, bool tty, bool use_col
         }
     }
 }
-#endif // _WIN32 && !DISABLE_PARSER
+#endif // _WIN32
 
 void run_repl(int argc, char **argv) {
-#ifdef DISABLE_PARSER
-    // no parser, which means no repl :(
-    fprintf(stderr, "Error: REPL is not available when the parser is disabled.\n");
-#else
     const std::string stdlib_src = nari_std_prelude_source();
     // declarative inputs from previous iterations
     std::string accumulated;
@@ -747,5 +741,4 @@ void run_repl(int argc, char **argv) {
         replxx.history_save(history_file);
     }
 #endif
-#endif // DISABLE_PARSER
 }

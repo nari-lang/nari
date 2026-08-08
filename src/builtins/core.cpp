@@ -7,10 +7,6 @@ namespace chrono = std::chrono;
 // eval(source): parse and execute Nari source at runtime, returning the value
 // of the expression (or of an explicit return) in the source.
 Value ScriptRuntime::builtin_eval(const Value *argvals, size_t argc, const nari::CallExpr *call) {
-#ifdef DISABLE_PARSER
-    runtime_fatal("eval is unavailable in this build (parser disabled)", call);
-    return Value::none();
-#else
     if (argc != 1 || !argvals[0].is_string()) {
         runtime_fatal("eval expects a single string argument", call);
         return Value::none();
@@ -88,7 +84,6 @@ Value ScriptRuntime::builtin_eval(const Value *argvals, size_t argc, const nari:
         }
     }
     return result;
-#endif
 }
 
 Value ScriptRuntime::builtin_print(const Value *argvals, size_t argc, const nari::CallExpr *) {

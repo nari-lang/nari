@@ -14,11 +14,9 @@
 #include "bytecode.h"
 #include "bytecode_serializer.h"
 #include "dap/dap_server.h"
-#ifndef DISABLE_PARSER
 #include "parser_api.h"
 
 #include "fmt/fmt_cli.h"
-#endif
 #include "repl.h"
 #include "runtime.h"
 #ifndef DISABLE_JIT
@@ -36,13 +34,9 @@ enum ReturnCode {
     ERROR_BYTECODE_EXECUTION = 8
 };
 
-#ifndef DISABLE_PARSER
 extern std::string nari_std_prelude_source();
-#endif
 
 namespace Runtime {
-#ifndef DISABLE_PARSER
-#endif
 extern std::atomic<bool> g_shutdown_requested;
 extern std::atomic<bool> g_runtime_error_occurred;
 void reset_shutdown_flag();
@@ -76,7 +70,6 @@ static std::string read_file_to_string(const std::string &path) {
 }
 
 // merge a pre-compiled naric module chunk into the destination chunk, requires the parser for obvious reasons :)
-#ifndef DISABLE_PARSER
 static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::Chunk *src, const std::string &module_main_name) {
     using namespace nari::bytecode;
 
@@ -353,7 +346,6 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
     }
     return true;
 }
-#endif // DISABLE_PARSER
 
 int main(int argc, char **argv) {
     // `nari fmt ...`: code formatter subcommand. Handled before everything else
@@ -514,19 +506,6 @@ int main(int argc, char **argv) {
     int runtime_argc = (int)runtime_argv.size();
     char **runtime_argv_ptr = runtime_argv.empty() ? nullptr : runtime_argv.data();
 
-#ifdef DISABLE_PARSER
-    // bytecode-only build: source files cannot be parsed at runtime.
-    // Scripts must be pre-compiled to .naric on a host using the naric tool.
-    if (!is_naric) {
-        fprintf(stderr,
-                "Error: This is a bytecode-only build.\n"
-                "  Source file '%s' cannot be parsed at runtime!\n"
-                "  Pre-compile it using the naric tool:\n"
-                "  naric %s -o output.naric\n",
-                path.c_str(), path.c_str());
-        return ERROR_PARSING;
-    }
-#else
     FuncList funcs;
 
     if (!is_naric) {
@@ -547,8 +526,6 @@ int main(int argc, char **argv) {
         }
     }
 
-#endif // DISABLE_PARSER
-
     try {
         Runtime::reset_runtime_error_flag();
 
@@ -565,7 +542,6 @@ int main(int argc, char **argv) {
                 // restore type declarations from the bytecode file into the parser's
                 // type registry so that __ffi_membersof() and other runtime type
                 // introspection works without needing the original source
-#ifndef DISABLE_PARSER
                 for (const auto &ti : chunk->types) {
                     if (Parser::is_registered_type(ti.name)) {
                         continue;
@@ -582,9 +558,7 @@ int main(int argc, char **argv) {
                     }
                     Parser::register_type(std::move(type_decl));
                 }
-#endif
             }
-#ifndef DISABLE_PARSER
             else {
                 // parse stdlib and combine with user functions
                 Parser::set_source_filename("<embedded_stdlib>");
@@ -656,7 +630,6 @@ int main(int argc, char **argv) {
                 }
                 Parser::clear_pending_naric_imports();
             }
-#endif // !DISABLE_PARSER
 
             bytecode::VM vm(runtime_argc, runtime_argv_ptr);
             if (!vm.run(chunk)) {

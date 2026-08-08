@@ -2290,7 +2290,12 @@ bool VM::execute_instruction() {
                                 auto elapsed = chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
                                 VM::push(Value::make_int(elapsed.count()));
                             }
+                        } else if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
+                            // compiler-internal speculative probes stay silent, as for objects below.
+                            VM::push(Value::none());
                         } else {
+                            bytecode_runtime_fatal(
+                                "Unknown handle member '" + name + "' (valid: await, ready, failed, error, status_code, duration)", name);
                             VM::push(Value::none());
                         }
                     } else if (obj.is_string()) {

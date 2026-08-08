@@ -1,5 +1,6 @@
 #include "ast.h"
 #include "bytecode.h"
+#include "bytecode_verify.h"
 #include "parser_api.h"
 #include <algorithm>
 #include <cstdio>
@@ -2634,6 +2635,38 @@ Chunk *Compiler::compile(const FuncList &functions) {
         }
     }
 
+    {
+        std::set<std::string> global_names;
+        for (const auto &func : functions) {
+            if (!func || !func->body) {
+                continue;
+            }
+            for (const auto &stmt : func->body->stmts) {
+                const auto *decl = dynamic_cast<const VarDeclStmt *>(stmt.get());
+                if (decl && decl->is_global) {
+                    global_names.insert(decl->name);
+                }
+            }
+        }
+        for (const auto &func : functions) {
+            // a lambda assigned straight to a global (`global Ok = func(...)`) is named after that global on purpose,
+            // and an enum variant ctor is synthesized rather than user-written to avoid collision
+            if (!func || func->function_expr != nullptr || func->is_enum_ctor) {
+                continue;
+            }
+            const std::string &fname = func->name;
+            if (fname.empty() || fname[0] == '<' || fname.find('.') != std::string::npos || fname.compare(0, 2, "__") == 0) {
+                continue; // <main>/<lambda_N>, class methods, and compiler internals
+            }
+            if (global_names.count(fname)) {
+                fprintf(stderr,
+                        "warning: top-level func '%s' is shadowed by a global of the same name and will never be "
+                        "called; rename it\n",
+                        fname.c_str());
+            }
+        }
+    }
+
     std::vector<const Function *> top_level_bodies;
     for (size_t i = 0; i < functions.size(); i++) {
         const Function *func = functions[i].get();
@@ -2722,7 +2755,15 @@ Chunk *Compiler::compile(const FuncList &functions) {
 
 Chunk *compile_bytecode(const FuncList &functions) {
     Compiler compiler;
-    return compiler.compile(functions);
+    Chunk *chunk = compiler.compile(functions);
+    // TODO: this should be removed!
+    if (chunk != nullptr && getenv("NARI_NO_VERIFY") == nullptr) {
+        if (!BytecodeVerifier::verify(*chunk)) {
+            delete chunk;
+            return nullptr;
+        }
+    }
+    return chunk;
 }
 
 AppendedCode Compiler::compile_append(Chunk *existing, const FuncList &functions, const std::string &entry_name) {

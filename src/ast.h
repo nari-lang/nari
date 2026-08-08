@@ -743,7 +743,8 @@ struct Function : ASTNode {
     void (*closure_owner_deleter)(void *) = nullptr;
     void *closure_const_env_ptr = nullptr; // pointer to captured const names
     void (*closure_const_deleter)(void *) = nullptr;
-    bool strict_mode = false; // "use strict"
+    bool strict_mode = false;  // "use strict"
+    bool is_enum_ctor = false; // synthesized from an enum variant, not written by the user
 
     Function() = default;
 

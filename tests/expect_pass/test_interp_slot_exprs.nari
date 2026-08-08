@@ -1,0 +1,33 @@
+import { assert } from "../lib/assert.nari";
+
+func start() {
+    let x = 7;
+    let delta = 4;
+
+    // slots that begin with a numeric literal
+    assert(`{42}` == "42", "integer literal slot");
+    assert(`{3.5}` == "3.5", "float literal slot");
+    assert(`{1+2}` == "3", "slot starting with a number");
+    assert(`{2 * x}` == "14", "leading number in a binary expression");
+    assert(`{42+x}` == "49", "leading number with addition");
+    assert(`{ 42 }` == "42", "padded numeric slot");
+
+    // slots that begin with unary minus
+    assert(`{-1}` == "-1", "negative literal slot");
+    assert(`{-x}` == "-7", "negated identifier slot");
+    assert(`{-delta + x}` == "3", "leading negation in a binary expression");
+
+    // forms that already worked must keep working
+    assert(`{x}` == "7", "identifier slot");
+    assert(`{x * 2}` == "14", "trailing number");
+    assert(`{"s"}` == "s", "string literal slot");
+    assert(`{true}` == "true", "boolean slot");
+    assert(`v={x}!` == "v=7!", "slot surrounded by literal text");
+    assert(`{x > 1 ? "big" : "small"}` == "big", "ternary slot keeps its colon");
+    assert(`{x > 100 ? 1 : 2}` == "2", "ternary with numeric branches");
+    assert(`{x:.3f}` == "7.000", "precision format spec still applies");
+    assert(`{{a: 1}.a}` == "1", "object literal inside a slot");
+    assert(`outer={`inner={x}`}` == "outer=inner=7", "nested interpolation");
+
+    print("interp slot exprs ok");
+}

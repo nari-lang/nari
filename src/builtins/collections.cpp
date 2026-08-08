@@ -370,6 +370,28 @@ Value ScriptRuntime::builtin_indexOf(const Value *argvals, size_t argc, const na
 
 Value ScriptRuntime::builtin_lastIndexOf(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 2) {
+        // array.last_index_of(val, from_index)
+        if (argvals[0].is_array()) {
+            const auto &arr = argvals[0].get_array();
+            size_t scan_end = arr.size(); // exclusive upper bound
+            if (argc > 2 && (argvals[2].is_int() || argvals[2].is_float())) {
+                int64_t fi = (argvals[2].is_int()) ? argvals[2].get_int() : static_cast<int64_t>(argvals[2].get_float());
+                if (fi < 0) {
+                    return Value::make_int(-1);
+                }
+                if (static_cast<uint64_t>(fi) + 1 < scan_end) {
+                    scan_end = static_cast<size_t>(fi) + 1;
+                }
+            }
+            for (size_t i = scan_end; i-- > 0;) {
+                if (Value::values_equal(arr[i], argvals[1])) {
+                    return Value::make_int(static_cast<int64_t>(i));
+                }
+            }
+            return Value::make_int(-1);
+        }
+
+        // string.last_index_of(val, from_index)
         std::string str = argvals[0].to_string();
         std::string search = argvals[1].to_string();
 
@@ -532,6 +554,23 @@ Value ScriptRuntime::builtin_trimEnd(const Value *argvals, size_t argc, const na
 
 Value ScriptRuntime::builtin_string_at(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 2) {
+        // array.at(i)
+        if (argvals[0].is_array()) {
+            if (!argvals[1].is_int()) {
+                return Value::none();
+            }
+            const auto &arr = argvals[0].get_array();
+            int64_t index = argvals[1].get_int();
+            const int64_t len = static_cast<int64_t>(arr.size());
+            if (index < 0) {
+                index += len;
+            }
+            if (index >= 0 && index < len) {
+                return arr[static_cast<size_t>(index)];
+            }
+            return Value::none();
+        }
+        // string.at(i)
         std::string str = argvals[0].to_string();
         if (!argvals[1].is_int()) {
             return Value::make_string("");

@@ -52,9 +52,9 @@ using json = nlohmann::json;
 #include <vector>
 
 #if defined(_WIN32)
+#include <combaseapi.h>
 #include <fcntl.h>
 #include <io.h>
-#include <combaseapi.h>
 #include <shlobj.h> // SHGetKnownFolderPath
 #endif
 
@@ -104,7 +104,7 @@ static std::string read_lsp_message() {
 static std::mutex g_stdout_mutex;
 
 static void write_lsp_message(const std::string &body) {
-    std::lock_guard<std::mutex> lk(g_stdout_mutex);
+    std::lock_guard<std::mutex> lock(g_stdout_mutex);
     std::printf("Content-Length: %zu\r\n\r\n%s", body.size(), body.c_str());
     std::fflush(stdout);
 }
@@ -334,8 +334,7 @@ static void collect_stmt_reads(const nari::Stmt *s, std::unordered_set<std::stri
     }
 }
 
-static void collect_stmts_reads(const std::vector<nari::StmtPtr> &stmts,
-                                std::unordered_set<std::string> &reads) {
+static void collect_stmts_reads(const std::vector<nari::StmtPtr> &stmts, std::unordered_set<std::string> &reads) {
     for (const auto &sp : stmts) {
         collect_stmt_reads(sp.get(), reads);
     }
@@ -348,8 +347,7 @@ struct LocalDecl {
 };
 
 static void collect_local_decls_stmt(const nari::Stmt *, std::vector<LocalDecl> &);
-static void collect_local_decls_stmts(const std::vector<nari::StmtPtr> &stmts,
-                                      std::vector<LocalDecl> &out) {
+static void collect_local_decls_stmts(const std::vector<nari::StmtPtr> &stmts, std::vector<LocalDecl> &out) {
     for (const auto &sp : stmts) {
         collect_local_decls_stmt(sp.get(), out);
     }
@@ -429,13 +427,9 @@ static void collect_local_decls_stmt(const nari::Stmt *s, std::vector<LocalDecl>
 // Strict-mode type diagnostics: under "use strict", warn (severity=Info) on
 // untyped params and missing return-type annotations so the runtime check
 // can be emitted.
-static void emit_strict_type_warnings(
-    const FuncList &funcs,
-    const std::string &doc_filename,
-    const std::vector<std::string> &source_lines,
-    json &diagnostics) {
-    auto find_word_col = [](const std::string &src_line, const std::string &word,
-                            size_t search_from = 0) -> int {
+static void emit_strict_type_warnings(const FuncList &funcs, const std::string &doc_filename, const std::vector<std::string> &source_lines,
+                                      json &diagnostics) {
+    auto find_word_col = [](const std::string &src_line, const std::string &word, size_t search_from = 0) -> int {
         size_t pos = search_from;
         while ((pos = src_line.find(word, pos)) != std::string::npos) {
             bool left_ok = (pos == 0) || (!std::isalnum((unsigned char)src_line[pos - 1]) && src_line[pos - 1] != '_');
@@ -512,8 +506,7 @@ static void emit_strict_type_warnings(
             json diag;
             diag["range"] = make_range(param_line, param_col, (int)p.name.size());
             diag["severity"] = int64_t(1); // Error
-            diag["message"] = "Strict mode: parameter '" + p.name +
-                              "' has no type annotation. Add ': <type>' for runtime type checking.";
+            diag["message"] = "Strict mode: parameter '" + p.name + "' has no type annotation. Add ': <type>' for runtime type checking.";
             diag["source"] = "nari";
             diagnostics.push_back(std::move(diag));
         }
@@ -536,8 +529,7 @@ static void emit_strict_type_warnings(
             json diag;
             diag["range"] = make_range(fn_line, fn_col, (int)label.size());
             diag["severity"] = int64_t(1); // Error
-            diag["message"] = "Strict mode: '" + label +
-                              "' has no return type annotation. Add '-> <type>' for return-value checking.";
+            diag["message"] = "Strict mode: '" + label + "' has no return type annotation. Add '-> <type>' for return-value checking.";
             diag["source"] = "nari";
             diagnostics.push_back(std::move(diag));
         }
@@ -545,11 +537,8 @@ static void emit_strict_type_warnings(
 }
 
 // Emit unused-local hints for every function defined in doc_filename.
-static void emit_unused_warnings(
-    const FuncList &funcs,
-    const std::string &doc_filename,
-    const std::vector<std::string> &source_lines,
-    json &diagnostics) {
+static void emit_unused_warnings(const FuncList &funcs, const std::string &doc_filename, const std::vector<std::string> &source_lines,
+                                 json &diagnostics) {
     for (const auto &fn : funcs) {
         if (!fn || !fn->body) {
             continue;
@@ -749,12 +738,8 @@ static int find_identifier_col_in_line(const std::string &src_line, const std::s
     return -1;
 }
 
-static int resolve_identifier_col(
-    const std::vector<std::string> &source_lines,
-    const std::string &name,
-    int ast_line,
-    int ast_col,
-    size_t search_from = 0) {
+static int resolve_identifier_col(const std::vector<std::string> &source_lines, const std::string &name, int ast_line, int ast_col,
+                                  size_t search_from = 0) {
     if (ast_line >= 1 && ast_line <= (int)source_lines.size()) {
         int found = find_identifier_col_in_line(source_lines[ast_line - 1], name, search_from);
         if (found > 0) {
@@ -841,11 +826,7 @@ static bool is_scope_owner_kind(int kind) {
     return kind == CK_Function || kind == CK_Method;
 }
 
-static int find_enclosing_scope_line(
-    const std::vector<SymInfo> &symbols,
-    const std::string &source_file,
-    int cursor_line_1
-) {
+static int find_enclosing_scope_line(const std::vector<SymInfo> &symbols, const std::string &source_file, int cursor_line_1) {
     int enclosing_scope_line = 0;
     for (const auto &sym : symbols) {
         if (!is_scope_owner_kind(sym.kind)) {
@@ -861,12 +842,8 @@ static int find_enclosing_scope_line(
     return enclosing_scope_line;
 }
 
-static const SymInfo *find_symbol_in_scope(
-    const std::vector<SymInfo> &symbols,
-    const std::string &name,
-    const std::string &source_file,
-    int cursor_line_1
-) {
+static const SymInfo *find_symbol_in_scope(const std::vector<SymInfo> &symbols, const std::string &name, const std::string &source_file,
+                                           int cursor_line_1) {
     int enclosing_scope_line = find_enclosing_scope_line(symbols, source_file, cursor_line_1);
     const SymInfo *fallback = nullptr;
     for (const auto &sym : symbols) {
@@ -895,13 +872,8 @@ static const ClassInfo *find_class_info(const std::vector<ClassInfo> &classes, c
     return nullptr;
 }
 
-static const MemberInfo *find_class_member(
-    const std::vector<ClassInfo> &classes,
-    const std::string &class_name,
-    const std::string &member_name,
-    bool static_only,
-    std::unordered_set<std::string> &visited
-) {
+static const MemberInfo *find_class_member(const std::vector<ClassInfo> &classes, const std::string &class_name,
+                                           const std::string &member_name, bool static_only, std::unordered_set<std::string> &visited) {
     if (!visited.insert(class_name).second) {
         return nullptr;
     }
@@ -923,12 +895,8 @@ static const MemberInfo *find_class_member(
     return nullptr;
 }
 
-static const MemberInfo *find_class_member(
-    const std::vector<ClassInfo> &classes,
-    const std::string &class_name,
-    const std::string &member_name,
-    bool static_only = false
-) {
+static const MemberInfo *find_class_member(const std::vector<ClassInfo> &classes, const std::string &class_name,
+                                           const std::string &member_name, bool static_only = false) {
     std::unordered_set<std::string> visited;
     return find_class_member(classes, class_name, member_name, static_only, visited);
 }
@@ -954,8 +922,7 @@ static std::filesystem::path find_package_declarations(const std::string &specif
     }
 
     for (std::filesystem::path dir = source_dir; !dir.empty();) {
-        std::filesystem::path candidate = dir / "nari_modules" /
-            std::filesystem::path(specifier + ".d.nari");
+        std::filesystem::path candidate = dir / "nari_modules" / std::filesystem::path(specifier + ".d.nari");
         if (std::filesystem::is_regular_file(candidate)) {
             return candidate;
         }
@@ -968,16 +935,13 @@ static std::filesystem::path find_package_declarations(const std::string &specif
     return {};
 }
 
-static bool load_package_declarations(const std::filesystem::path &path,
-                                      const std::string &binding_name,
-                                      SymInfo &binding,
+static bool load_package_declarations(const std::filesystem::path &path, const std::string &binding_name, SymInfo &binding,
                                       std::vector<ClassInfo> &classes) {
     std::ifstream input(path);
     if (!input) {
         return false;
     }
-    std::string content((std::istreambuf_iterator<char>(input)),
-                        std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     std::string default_name;
     std::vector<std::string> source_lines;
     std::istringstream lines(content);
@@ -1031,7 +995,9 @@ static bool load_package_declarations(const std::filesystem::path &path,
             member.line = field.line;
             member.col = field.col;
             member.return_type = field.type ? field.type->to_string() : "";
-            if (!member.return_type.empty()) member.detail += ": " + member.return_type;
+            if (!member.return_type.empty()) {
+                member.detail += ": " + member.return_type;
+            }
             member.doc_comment = extract_doc_comment(source_lines, field.line);
             cls.members.push_back(std::move(member));
         }
@@ -1056,19 +1022,15 @@ static bool load_package_declarations(const std::filesystem::path &path,
     return binding.kind == CK_Function;
 }
 
-static std::string infer_expr_type(const nari::Expr *e,
-                                   const std::vector<SymInfo> &symbols,
-                                   const std::vector<ClassInfo> &classes,
-                                   const std::string &source_file,
-                                   int line) {
+static std::string infer_expr_type(const nari::Expr *e, const std::vector<SymInfo> &symbols, const std::vector<ClassInfo> &classes,
+                                   const std::string &source_file, int line) {
     std::string simple = infer_expr_type(e);
     if (!simple.empty() || !e) {
         return simple;
     }
     if (e->kind == nari::ExprKind::Member) {
         const auto *member = static_cast<const nari::MemberExpr *>(e);
-        std::string receiver_type = infer_expr_type(
-            member->object.get(), symbols, classes, source_file, line);
+        std::string receiver_type = infer_expr_type(member->object.get(), symbols, classes, source_file, line);
         if (const MemberInfo *info = find_class_member(classes, receiver_type, member->member)) {
             return info->return_type;
         }
@@ -1091,8 +1053,7 @@ static std::string infer_expr_type(const nari::Expr *e,
     }
     if (call->callee && call->callee->kind == nari::ExprKind::Member) {
         const auto *member = static_cast<const nari::MemberExpr *>(call->callee.get());
-        std::string receiver_type = infer_expr_type(
-            member->object.get(), symbols, classes, source_file, line);
+        std::string receiver_type = infer_expr_type(member->object.get(), symbols, classes, source_file, line);
         if (const MemberInfo *info = find_class_member(classes, receiver_type, member->member)) {
             return info->return_type;
         }
@@ -1100,11 +1061,8 @@ static std::string infer_expr_type(const nari::Expr *e,
     return "";
 }
 
-static std::string resolve_receiver_class_name(const std::vector<SymInfo> &symbols,
-                                               const std::vector<ClassInfo> &classes,
-                                               const std::string &receiver,
-                                               const std::string &source_file,
-                                               int cursor_line_1) {
+static std::string resolve_receiver_class_name(const std::vector<SymInfo> &symbols, const std::vector<ClassInfo> &classes,
+                                               const std::string &receiver, const std::string &source_file, int cursor_line_1) {
     if (receiver == "this") {
         int enclosing_scope_line = find_enclosing_scope_line(symbols, source_file, cursor_line_1);
         for (const auto &sym : symbols) {
@@ -1178,9 +1136,7 @@ static std::vector<SymInfo> collect_object_literal_members(const nari::ObjectLit
         } else {
             member.kind = CK_Property;
             std::string value_type = infer_expr_type(value.get());
-            member.detail = value_type.empty()
-                                ? "property " + key
-                                : "property " + key + ": " + value_type;
+            member.detail = value_type.empty() ? "property " + key : "property " + key + ": " + value_type;
         }
 
         members.push_back(std::move(member));
@@ -1189,11 +1145,8 @@ static std::vector<SymInfo> collect_object_literal_members(const nari::ObjectLit
     return members;
 }
 
-static const ObjectLiteralInfo *find_object_literal_info(const std::vector<ObjectLiteralInfo> &infos,
-                                                         const std::vector<SymInfo> &symbols,
-                                                         const std::string &receiver,
-                                                         const std::string &source_file,
-                                                         int cursor_line_1) {
+static const ObjectLiteralInfo *find_object_literal_info(const std::vector<ObjectLiteralInfo> &infos, const std::vector<SymInfo> &symbols,
+                                                         const std::string &receiver, const std::string &source_file, int cursor_line_1) {
     const SymInfo *receiver_sym = find_symbol_in_scope(symbols, receiver, source_file, cursor_line_1);
     if (receiver_sym) {
         for (const auto &info : infos) {
@@ -1231,13 +1184,9 @@ static const ObjectLiteralInfo *find_object_literal_info(const std::vector<Objec
 // Recursively walk a statement list to collect variable/foreach declarations.
 // ns_to_path maps "__module_namespace_N__" -> original file path (for import detection).
 // scope_fn_line: 1-based start line of the enclosing function (0 = top-level).
-static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
-                       std::vector<SymInfo> &out,
-                       const StringMap &ns_to_path,
-                       const std::vector<std::string> &source_lines,
-                       int scope_fn_line = 0,
-                       std::vector<ObjectLiteralInfo> *object_literals = nullptr,
-                       std::vector<ClassInfo> *classes = nullptr,
+static void walk_stmts(const std::vector<nari::StmtPtr> &stmts, std::vector<SymInfo> &out, const StringMap &ns_to_path,
+                       const std::vector<std::string> &source_lines, int scope_fn_line = 0,
+                       std::vector<ObjectLiteralInfo> *object_literals = nullptr, std::vector<ClassInfo> *classes = nullptr,
                        const std::string &source_file = "") {
     for (const auto &sptr : stmts) {
         if (!sptr) {
@@ -1252,8 +1201,7 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                 const MemberInfo *called_member = nullptr;
                 if (call->callee && call->callee->kind == nari::ExprKind::Member) {
                     const auto *member = static_cast<const nari::MemberExpr *>(call->callee.get());
-                    std::string receiver_type = infer_expr_type(
-                        member->object.get(), out, *classes, source_file, s->line);
+                    std::string receiver_type = infer_expr_type(member->object.get(), out, *classes, source_file, s->line);
                     called_member = find_class_member(*classes, receiver_type, member->member);
                 }
                 if (called_member && !called_member->parameter_types.empty()) {
@@ -1277,7 +1225,7 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                         }
 
                         const auto *fn = static_cast<const nari::FunctionExpr *>(arg);
-                        SymInfo scope_owner{"", "callback", CK_Function, fn->line, fn->col, source_file};
+                        SymInfo scope_owner{ "", "callback", CK_Function, fn->line, fn->col, source_file };
                         out.push_back(std::move(scope_owner));
                         for (size_t p = 0; p < fn->params.size(); ++p) {
                             const auto &param = fn->params[p];
@@ -1296,8 +1244,7 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                             out.push_back(std::move(param_info));
                         }
                         if (fn->body) {
-                            walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, fn->line,
-                                       object_literals, classes, source_file);
+                            walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, fn->line, object_literals, classes, source_file);
                         }
                     }
                 }
@@ -1310,8 +1257,7 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                     bool is_import = false;
                     std::string import_detail;
                     std::string import_source_path;
-                    if (vd->initializerExpr &&
-                        vd->initializerExpr->kind == nari::ExprKind::Ident) {
+                    if (vd->initializerExpr && vd->initializerExpr->kind == nari::ExprKind::Ident) {
                         const auto *ie = static_cast<const nari::IdentExpr *>(vd->initializerExpr.get());
                         if (ie->name.rfind("__module_namespace_", 0) == 0) {
                             auto it = ns_to_path.find(ie->name);
@@ -1328,17 +1274,15 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                             }
                         }
                     }
-                    
-                    int decl_col = resolve_identifier_col(
-                        source_lines, vd->name, s->line, s->col,
-                        (s->col > 1) ? (size_t)(s->col - 1) : 0u);
-                    
+
+                    int decl_col =
+                        resolve_identifier_col(source_lines, vd->name, s->line, s->col, (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+
                     if (is_import) {
                         out.push_back({ vd->name, import_detail, CK_Module, s->line, decl_col, import_source_path });
                     } else {
-                        std::string itype = classes
-                            ? infer_expr_type(vd->initializerExpr.get(), out, *classes, source_file, s->line)
-                            : infer_expr_type(vd->initializerExpr.get());
+                        std::string itype = classes ? infer_expr_type(vd->initializerExpr.get(), out, *classes, source_file, s->line)
+                                                    : infer_expr_type(vd->initializerExpr.get());
                         std::string det;
                         if (!itype.empty()) {
                             det = (vd->is_global ? "global " : "") + itype + " " + vd->name;
@@ -1348,13 +1292,11 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                         SymInfo si{ vd->name, det, CK_Variable, s->line, decl_col };
                         si.scope_fn_line = scope_fn_line;
                         si.inferred_type = itype;
-                        if (classes && vd->initializerExpr &&
-                            vd->initializerExpr->kind == nari::ExprKind::Call) {
+                        if (classes && vd->initializerExpr && vd->initializerExpr->kind == nari::ExprKind::Call) {
                             const auto *call = static_cast<const nari::CallExpr *>(vd->initializerExpr.get());
                             if (call->callee && call->callee->kind == nari::ExprKind::Ident &&
-                                static_cast<const nari::IdentExpr *>(call->callee.get())->name == "require" &&
-                                !call->args.empty() && call->args[0] &&
-                                call->args[0]->kind == nari::ExprKind::String) {
+                                static_cast<const nari::IdentExpr *>(call->callee.get())->name == "require" && !call->args.empty() &&
+                                call->args[0] && call->args[0]->kind == nari::ExprKind::String) {
                                 const auto *arg = static_cast<const nari::StringExpr *>(call->args[0].get());
                                 std::filesystem::path declarations = find_package_declarations(arg->value, source_file);
                                 if (!declarations.empty()) {
@@ -1369,8 +1311,8 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                             info.name = vd->name;
                             info.decl_line = s->line;
                             info.scope_fn_line = scope_fn_line;
-                            info.members = collect_object_literal_members(
-                                static_cast<const nari::ObjectLiteralExpr *>(vd->initializerExpr.get()));
+                            info.members =
+                                collect_object_literal_members(static_cast<const nari::ObjectLiteralExpr *>(vd->initializerExpr.get()));
                             object_literals->push_back(std::move(info));
                         }
                     }
@@ -1378,10 +1320,8 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
             } else if (vd->destructure_kind == nari::DestructureKind::Array) {
                 for (const auto &nm : vd->array_names) {
                     if (!nm.empty()) {
-                        int decl_col = resolve_identifier_col(
-                            source_lines, nm, s->line, s->col,
-                            (s->col > 1) ? (size_t)(s->col - 1) : 0u);
-                        
+                        int decl_col = resolve_identifier_col(source_lines, nm, s->line, s->col, (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+
                         SymInfo si{ nm, "variable", CK_Variable, s->line, decl_col };
                         si.scope_fn_line = scope_fn_line;
                         out.push_back(std::move(si));
@@ -1391,10 +1331,9 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
                 for (const auto &[key, local] : vd->object_bindings) {
                     (void)key;
                     if (!local.empty()) {
-                        int decl_col = resolve_identifier_col(
-                            source_lines, local, s->line, s->col,
-                            (s->col > 1) ? (size_t)(s->col - 1) : 0u);
-                        
+                        int decl_col =
+                            resolve_identifier_col(source_lines, local, s->line, s->col, (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+
                         SymInfo si{ local, "variable", CK_Variable, s->line, decl_col };
                         si.scope_fn_line = scope_fn_line;
                         out.push_back(std::move(si));
@@ -1405,53 +1344,50 @@ static void walk_stmts(const std::vector<nari::StmtPtr> &stmts,
         } else if (s->stmt_kind == nari::StmtKind::ForEach) {
             const auto *fe = static_cast<const nari::ForEachStmt *>(s);
             if (!fe->var.empty()) {
-                int decl_col = resolve_identifier_col(
-                    source_lines, fe->var, s->line, s->col,
-                    (s->col > 1) ? (size_t)(s->col - 1) : 0u);
-                
+                int decl_col = resolve_identifier_col(source_lines, fe->var, s->line, s->col, (s->col > 1) ? (size_t)(s->col - 1) : 0u);
+
                 SymInfo si{ fe->var, "variable", CK_Variable, s->line, decl_col };
                 si.scope_fn_line = scope_fn_line;
                 out.push_back(std::move(si));
             }
             if (fe->body && fe->body->stmt_kind == nari::StmtKind::Block) {
-                walk_stmts(static_cast<const nari::BlockStmt *>(fe->body.get())->stmts, out, ns_to_path,
-                           source_lines, scope_fn_line, object_literals, classes, source_file);
+                walk_stmts(static_cast<const nari::BlockStmt *>(fe->body.get())->stmts, out, ns_to_path, source_lines, scope_fn_line,
+                           object_literals, classes, source_file);
             }
 
         } else if (s->stmt_kind == nari::StmtKind::Block) {
-            walk_stmts(static_cast<const nari::BlockStmt *>(s)->stmts, out, ns_to_path,
-                       source_lines, scope_fn_line, object_literals, classes, source_file);
+            walk_stmts(static_cast<const nari::BlockStmt *>(s)->stmts, out, ns_to_path, source_lines, scope_fn_line, object_literals,
+                       classes, source_file);
 
         } else if (s->stmt_kind == nari::StmtKind::If) {
             const auto *is = static_cast<const nari::IfStmt *>(s);
             if (is->then_branch && is->then_branch->stmt_kind == nari::StmtKind::Block) {
-                walk_stmts(static_cast<const nari::BlockStmt *>(is->then_branch.get())->stmts, out, ns_to_path,
-                           source_lines, scope_fn_line, object_literals, classes, source_file);
+                walk_stmts(static_cast<const nari::BlockStmt *>(is->then_branch.get())->stmts, out, ns_to_path, source_lines, scope_fn_line,
+                           object_literals, classes, source_file);
             }
             if (is->else_branch && is->else_branch->stmt_kind == nari::StmtKind::Block) {
-                walk_stmts(static_cast<const nari::BlockStmt *>(is->else_branch.get())->stmts, out, ns_to_path,
-                           source_lines, scope_fn_line, object_literals, classes, source_file);
+                walk_stmts(static_cast<const nari::BlockStmt *>(is->else_branch.get())->stmts, out, ns_to_path, source_lines, scope_fn_line,
+                           object_literals, classes, source_file);
             }
 
         } else if (s->stmt_kind == nari::StmtKind::While) {
             const auto *ws = static_cast<const nari::WhileStmt *>(s);
             if (ws->body && ws->body->stmt_kind == nari::StmtKind::Block) {
-                walk_stmts(static_cast<const nari::BlockStmt *>(ws->body.get())->stmts, out, ns_to_path,
-                           source_lines, scope_fn_line, object_literals, classes, source_file);
+                walk_stmts(static_cast<const nari::BlockStmt *>(ws->body.get())->stmts, out, ns_to_path, source_lines, scope_fn_line,
+                           object_literals, classes, source_file);
             }
 
         } else if (s->stmt_kind == nari::StmtKind::For) {
             const auto *fs = static_cast<const nari::ForStmt *>(s);
             if (fs->body && fs->body->stmt_kind == nari::StmtKind::Block) {
-                walk_stmts(static_cast<const nari::BlockStmt *>(fs->body.get())->stmts, out, ns_to_path,
-                           source_lines, scope_fn_line, object_literals, classes, source_file);
+                walk_stmts(static_cast<const nari::BlockStmt *>(fs->body.get())->stmts, out, ns_to_path, source_lines, scope_fn_line,
+                           object_literals, classes, source_file);
             }
         }
     }
 }
 
-static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
-                                            const std::string &doc_filename,
+static std::vector<SymInfo> collect_symbols(const FuncList &funcs, const std::string &doc_filename,
                                             const std::vector<std::string> &source_lines,
                                             std::vector<ObjectLiteralInfo> *object_literals = nullptr,
                                             std::vector<ClassInfo> *classes = nullptr) {
@@ -1475,8 +1411,7 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
             // their source file so goto-def can navigate to them.
             if (fn->body) {
                 size_t before = out.size();
-                walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, 0,
-                           object_literals, classes, fn->filename);
+                walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, 0, object_literals, classes, fn->filename);
                 for (size_t j = before; j < out.size(); ++j) {
                     if (out[j].source_file.empty()) {
                         out[j].source_file = fn->filename;
@@ -1506,10 +1441,10 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
             }
         }
 
-        int fn_col = resolve_identifier_col(source_lines, display_name, fn->line, fn->col,
-                                            (fn->col > 1) ? (size_t)(fn->col - 1) : 0u);
+        int fn_col = resolve_identifier_col(source_lines, display_name, fn->line, fn->col, (fn->col > 1) ? (size_t)(fn->col - 1) : 0u);
         out.push_back({ display_name, build_func_sig(*fn, display_name), CK_Function, fn->line, fn_col, fn->filename });
-        // Walk body for locals, always for non-mangled functions, and also for de-mangled (exported) functions defined in the current document.
+        // Walk body for locals, always for non-mangled functions, and also for de-mangled (exported) functions defined in the current
+        // document.
         const bool is_local_def = (display_name == fn->name) || (!doc_filename.empty() && fn->filename == doc_filename);
         if (is_local_def) {
             size_t fn_param_search_from = 0;
@@ -1536,16 +1471,14 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
                 paramInfo.detail = param_detail;
                 paramInfo.kind = CK_Variable;
                 paramInfo.line = fn->line;
-                paramInfo.col = resolve_identifier_col(source_lines, param.name, fn->line, fn_col,
-                                                       fn_param_search_from);
+                paramInfo.col = resolve_identifier_col(source_lines, param.name, fn->line, fn_col, fn_param_search_from);
                 paramInfo.source_file = fn->filename;
                 paramInfo.scope_fn_line = fn->line;
                 paramInfo.inferred_type = infer_annotation_type(param.type.get());
                 out.push_back(std::move(paramInfo));
             }
             if (fn->body) {
-                walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, fn->line,
-                           object_literals, classes, fn->filename);
+                walk_stmts(fn->body->stmts, out, ns_to_path, source_lines, fn->line, object_literals, classes, fn->filename);
             }
         }
     }
@@ -1556,15 +1489,13 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
         }
 
         for (const auto &method : cd->methods) {
-            SymInfo method_info{
-                method.name,
-                build_method_sig(method, cd->name),
-                CK_Method,
-                method.line,
-                resolve_identifier_col(source_lines, method.name, method.line, method.col,
-                                       (method.col > 1) ? (size_t)(method.col - 1) : 0u),
-                method.filename.empty() ? cd->filename : method.filename
-            };
+            SymInfo method_info{ method.name,
+                                 build_method_sig(method, cd->name),
+                                 CK_Method,
+                                 method.line,
+                                 resolve_identifier_col(source_lines, method.name, method.line, method.col,
+                                                        (method.col > 1) ? (size_t)(method.col - 1) : 0u),
+                                 method.filename.empty() ? cd->filename : method.filename };
             method_info.owner_class = cd->name;
             out.push_back(std::move(method_info));
 
@@ -1581,30 +1512,27 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
                     param_detail += ": " + param.type->to_string();
                 }
 
-                SymInfo param_info{
-                    param.name,
-                    param_detail,
-                    CK_Variable,
-                    method.line,
-                    resolve_identifier_col(source_lines, param.name, method.line, method.col,
-                                           [&source_lines, &method]() -> size_t {
-                                               if (method.line < 1 || method.line > (int)source_lines.size()) {
-                                                   return 0u;
-                                               }
-                                               const std::string &sig = source_lines[method.line - 1];
-                                               size_t paren = sig.find('(');
-                                               return paren == std::string::npos ? 0u : paren;
-                                           }()),
-                    method.filename.empty() ? cd->filename : method.filename
-                };
+                SymInfo param_info{ param.name,
+                                    param_detail,
+                                    CK_Variable,
+                                    method.line,
+                                    resolve_identifier_col(source_lines, param.name, method.line, method.col,
+                                                           [&source_lines, &method]() -> size_t {
+                                                               if (method.line < 1 || method.line > (int)source_lines.size()) {
+                                                                   return 0u;
+                                                               }
+                                                               const std::string &sig = source_lines[method.line - 1];
+                                                               size_t paren = sig.find('(');
+                                                               return paren == std::string::npos ? 0u : paren;
+                                                           }()),
+                                    method.filename.empty() ? cd->filename : method.filename };
                 param_info.scope_fn_line = method.line;
                 param_info.inferred_type = infer_annotation_type(param.type.get());
                 out.push_back(std::move(param_info));
             }
 
             if (method.body) {
-                walk_stmts(method.body->stmts, out, ns_to_path, source_lines, method.line,
-                           object_literals, classes,
+                walk_stmts(method.body->stmts, out, ns_to_path, source_lines, method.line, object_literals, classes,
                            method.filename.empty() ? cd->filename : method.filename);
             }
         }
@@ -1618,8 +1546,7 @@ static std::vector<SymInfo> collect_symbols(const FuncList &funcs,
         if (Parser::is_registered_enum(name)) {
             out.push_back({ name, "enum " + name, CK_Enum, tdecl->line, tdecl->col });
         } else if (tdecl->is_alias()) {
-            out.push_back({ name, "type " + name + " = " + tdecl->alias_target->to_string(),
-                            CK_Struct, tdecl->line, tdecl->col });
+            out.push_back({ name, "type " + name + " = " + tdecl->alias_target->to_string(), CK_Struct, tdecl->line, tdecl->col });
         } else {
             std::string detail = "type " + name;
             if (!tdecl->generic_params.empty()) {
@@ -1704,8 +1631,7 @@ static std::vector<std::string> lsp_split_lines(const std::string &text) {
 
 // Find 1-based column of `word` as a whole identifier in `src_line`,
 // starting at 0-based byte offset `from`.  Returns -1 if not found.
-static int lsp_find_word_col(const std::string &src_line, const std::string &word,
-                             size_t from = 0) {
+static int lsp_find_word_col(const std::string &src_line, const std::string &word, size_t from = 0) {
     auto is_id = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
     size_t pos = from;
     while ((pos = src_line.find(word, pos)) != std::string::npos) {
@@ -1735,8 +1661,7 @@ static constexpr int SM_DECLARATION = (1 << 0);
 
 // Extracts the identifier token that overlaps with 0-based (line0, col0).
 // Returns {token, start_col}.
-static std::pair<std::string, int>
-word_at(const std::string &text, int line0, int col0) {
+static std::pair<std::string, int> word_at(const std::string &text, int line0, int col0) {
     std::istringstream ss(text);
     std::string ln;
     int cur = 0;
@@ -1800,7 +1725,9 @@ static std::string extract_doc_comment(const std::vector<std::string> &lines, in
     std::reverse(comment_lines.begin(), comment_lines.end());
     std::string result;
     for (size_t i = 0; i < comment_lines.size(); ++i) {
-        if (i) result += '\n';
+        if (i) {
+            result += '\n';
+        }
         result += comment_lines[i];
     }
     return result;
@@ -1960,41 +1887,35 @@ static std::string import_string_at(const std::string &text, int line0, int col0
     return {};
 }
 
-static const char *kNariKeywords[] = {
-    "let", "global", "func", "return", "if", "else", "while", "for",
-    "foreach", "in", "break", "continue", "class", "new", "this",
-    "type", "enum", "match", "spawn", "await",
-    "import", "export", "public", "private", "null",
-    "true", "false", nullptr
-};
+static const char *kNariKeywords[] = { "let",    "global",   "func",   "return",  "if",   "else", "while", "for",   "foreach", "in",
+                                       "break",  "continue", "class",  "new",     "this", "type", "enum",  "match", "spawn",   "await",
+                                       "import", "export",   "public", "private", "null", "true", "false", nullptr };
 
 static const struct {
     const char *name;
     const char *detail;
-} kNariBuiltins[] = {
-    { "print", "func print(...)" },
-    { "panic", "func panic(value) -> never" },
-    { "to_string", "func to_string(value) -> string" },
-    { "to_number", "func to_number(value) -> number" },
-    { "to_bool", "func to_bool(value) -> bool" },
-    { "typeof", "func typeof(value) -> string" },
-    { "is_number", "func is_number(value) -> bool" },
-    { "is_string", "func is_string(value) -> bool" },
-    { "is_bool", "func is_bool(value) -> bool" },
-    { "is_array", "func is_array(value) -> bool" },
-    { "is_object", "func is_object(value) -> bool" },
-    { "is_function", "func is_function(value) -> bool" },
-    { "parse_int", "func parse_int(str, radix?) -> number" },
-    { "parse_float", "func parse_float(str) -> number" },
-    { "random", "func random() -> number" },
-    { "time", "func time() -> number" },
-    { "range", "func range(start, end, step?) -> number[]" },
-    { "set_timeout", "func set_timeout(fn, delay)" },
-    { "set_interval", "func set_interval(fn, interval) -> number" },
-    { "clear_interval", "func clear_interval(id)" },
-    { "read_line", "func read_line() -> string" },
-    { nullptr, nullptr }
-};
+} kNariBuiltins[] = { { "print", "func print(...)" },
+                      { "panic", "func panic(value) -> never" },
+                      { "to_string", "func to_string(value) -> string" },
+                      { "to_number", "func to_number(value) -> number" },
+                      { "to_bool", "func to_bool(value) -> bool" },
+                      { "typeof", "func typeof(value) -> string" },
+                      { "is_number", "func is_number(value) -> bool" },
+                      { "is_string", "func is_string(value) -> bool" },
+                      { "is_bool", "func is_bool(value) -> bool" },
+                      { "is_array", "func is_array(value) -> bool" },
+                      { "is_object", "func is_object(value) -> bool" },
+                      { "is_function", "func is_function(value) -> bool" },
+                      { "parse_int", "func parse_int(str, radix?) -> number" },
+                      { "parse_float", "func parse_float(str) -> number" },
+                      { "random", "func random() -> number" },
+                      { "time", "func time() -> number" },
+                      { "range", "func range(start, end, step?) -> number[]" },
+                      { "set_timeout", "func set_timeout(fn, delay)" },
+                      { "set_interval", "func set_interval(fn, interval) -> number" },
+                      { "clear_interval", "func clear_interval(id)" },
+                      { "read_line", "func read_line() -> string" },
+                      { nullptr, nullptr } };
 
 struct DocState {
     std::string content;
@@ -2052,7 +1973,7 @@ class NariLspServer {
     ~NariLspServer() {
         // Signal and join the background parse thread cleanly.
         {
-            std::lock_guard<std::mutex> lk(parse_queue_mutex_);
+            std::lock_guard<std::mutex> lock(parse_queue_mutex_);
             parse_thread_stop_ = true;
         }
         parse_queue_cv_.notify_all();
@@ -2091,10 +2012,10 @@ class NariLspServer {
   private:
     bool shutdown = false;
     bool exit = false;
-    std::unordered_map<std::string, DocState> docs_;
-    // Protects docs_: request handlers take shared_lock; parse thread takes
+    std::unordered_map<std::string, DocState> docs;
+    // Protects docs: request handlers take shared_lock; parse thread takes
     // unique_lock only for the brief commit step after parsing completes.
-    std::shared_timed_mutex docs_mutex_;
+    std::shared_timed_mutex docs_mutex;
     std::mutex builtins_mutex_;
     std::atomic<bool> builtins_ready_{ false };
     std::thread builtins_thread;
@@ -2135,8 +2056,7 @@ class NariLspServer {
             bool needs_write = true;
             if (std::filesystem::exists(file)) {
                 std::ifstream ifs(file);
-                std::string existing((std::istreambuf_iterator<char>(ifs)),
-                                     std::istreambuf_iterator<char>());
+                std::string existing((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
                 needs_write = (existing != content);
             }
             if (needs_write) {
@@ -2184,9 +2104,7 @@ class NariLspServer {
                     }
 
                     // Type-group marker inside dot-methods: // <type>
-                    if (in_methods && lv.size() >= 6 &&
-                        lv[0] == '/' && lv[1] == '/' &&
-                        lv.find("-- ") != std::string_view::npos) {
+                    if (in_methods && lv.size() >= 6 && lv[0] == '/' && lv[1] == '/' && lv.find("-- ") != std::string_view::npos) {
                         // Extract the word between "-- " and " --" (or end)
                         size_t dash_start = lv.find("-- ") + 3;
                         size_t dash_end = lv.find(" --", dash_start);
@@ -2285,12 +2203,12 @@ class NariLspServer {
                 }
 
                 auto add_shared_method = [&](const std::string &method, std::initializer_list<const char *> types) {
-                    auto mit = new_method_syms.find(method);
-                    if (mit == new_method_syms.end()) {
+                    auto it = new_method_syms.find(method);
+                    if (it == new_method_syms.end()) {
                         return;
                     }
                     for (const char *type : types) {
-                        new_method_type_syms[type][method] = mit->second;
+                        new_method_type_syms[type][method] = it->second;
                     }
                 };
                 add_shared_method("length", { "array", "string", "object" });
@@ -2309,15 +2227,29 @@ class NariLspServer {
                 std::filesystem::path stdlib_file = dir / "stdlib.nari";
                 {
                     bool needs = true;
-                    if (std::filesystem::exists(stdlib_file)) {
-                        std::ifstream ifs(stdlib_file);
-                        std::string ex((std::istreambuf_iterator<char>(ifs)),
-                                       std::istreambuf_iterator<char>());
-                        needs = (ex != stdlib_text);
+
+                    FILE *f = fopen(stdlib_file.string().c_str(), "rb");
+                    if (f) {
+                        fseek(f, 0, SEEK_END);
+                        long size = ftell(f);
+                        rewind(f);
+
+                        if (size >= 0 && static_cast<size_t>(size) == stdlib_text.size()) {
+                            std::string ex(static_cast<size_t>(size), '\0');
+                            if (fread(ex.data(), 1, ex.size(), f) == ex.size()) {
+                                needs = (ex != stdlib_text);
+                            }
+                        }
+
+                        fclose(f);
                     }
+
                     if (needs) {
-                        std::ofstream ofs(stdlib_file, std::ios::binary | std::ios::trunc);
-                        ofs << stdlib_text;
+                        FILE *f = fopen(stdlib_file.string().c_str(), "wb");
+                        if (f) {
+                            fwrite(stdlib_text.data(), 1, stdlib_text.size(), f);
+                            fclose(f);
+                        }
                     }
                 }
                 std::string stdlib_fs_path = stdlib_file.string();
@@ -2362,8 +2294,7 @@ class NariLspServer {
                                         cur_obj = obj_name;
                                         cur_depth = 1;
                                         // Register the object as a module-level symbol
-                                        new_syms[obj_name] = { obj_name, obj_name, CK_Module,
-                                                               stdlib_no, 1 };
+                                        new_syms[obj_name] = { obj_name, obj_name, CK_Module, stdlib_no, 1 };
                                         continue; // opening { already accounted for by depth=1
                                     }
                                 }
@@ -2425,7 +2356,7 @@ class NariLspServer {
                     }
                 }
 
-                std::lock_guard<std::mutex> lk(builtins_mutex_);
+                std::lock_guard<std::mutex> lock(builtins_mutex_);
                 builtin_syms_ = std::move(new_syms);
                 builtin_decls_uri_ = std::move(decls_uri);
                 stdlib_member_syms_ = std::move(new_member_syms);
@@ -2544,10 +2475,10 @@ class NariLspServer {
     }
 
     bool resolve_symbol_at(const std::string &uri, int line, int col, ResolvedSymbol &out) {
-        if (!docs_.count(uri)) {
+        if (!docs.count(uri)) {
             return false;
         }
-        const DocState &doc = docs_[uri];
+        const DocState &doc = docs[uri];
 
         int str_start = 0, str_end = 0;
         std::string spec = import_string_at(doc.content, line, col, str_start, str_end);
@@ -2607,14 +2538,8 @@ class NariLspServer {
                 if (!receiver_class.empty()) {
                     bool static_only = (receiver == receiver_class);
                     if (const MemberInfo *member = find_class_member(doc.classes, receiver_class, word, static_only)) {
-                        resolved_sym = {
-                            member->name,
-                            member->detail,
-                            member->is_method ? CK_Method : CK_Field,
-                            member->line,
-                            member->col,
-                            member->source_file
-                        };
+                        resolved_sym = { member->name, member->detail, member->is_method ? CK_Method : CK_Field,
+                                         member->line, member->col,    member->source_file };
                         resolved_sym.owner_class = receiver_class;
                         found = &resolved_sym;
                     }
@@ -2628,7 +2553,7 @@ class NariLspServer {
 
         SymInfo stdlib_mem_sym;
         if (!found && !receiver.empty() && builtins_ready_.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> lk(builtins_mutex_);
+            std::lock_guard<std::mutex> lock(builtins_mutex_);
             auto it = stdlib_member_syms_.find(receiver);
             if (it != stdlib_member_syms_.end()) {
                 for (const auto &mem : it->second) {
@@ -2662,7 +2587,7 @@ class NariLspServer {
 
         SymInfo builtin_sym;
         if (!found && builtins_ready_.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> lk(builtins_mutex_);
+            std::lock_guard<std::mutex> lock(builtins_mutex_);
             if (!builtin_decls_uri_.empty()) {
                 auto it = builtin_syms_.find(word);
                 if (it != builtin_syms_.end()) {
@@ -2689,8 +2614,7 @@ class NariLspServer {
         return true;
     }
 
-    template <typename Fn>
-    static void for_each_identifier_occurrence(const std::string &content, Fn &&fn) {
+    template <typename Fn> static void for_each_identifier_occurrence(const std::string &content, Fn &&fn) {
         const auto is_ident = [](char c) { return std::isalnum((unsigned char)c) || c == '_'; };
         std::istringstream ss(content);
         std::string line;
@@ -2753,14 +2677,12 @@ class NariLspServer {
         // Semantic tokens (full document)
         {
             json legend;
-            legend["tokenTypes"] = json::array({ "namespace", "type", "class", "enum", "interface", "struct",
-                                                 "typeParameter", "parameter", "variable", "property",
-                                                 "enumMember", "event", "function", "method", "macro",
-                                                 "keyword", "modifier", "comment", "string", "number",
-                                                 "regexp", "operator" });
-            legend["tokenModifiers"] = json::array({ "declaration", "definition", "readonly", "static",
-                                                     "deprecated", "abstract", "async", "modification",
-                                                     "documentation", "defaultLibrary" });
+            legend["tokenTypes"] =
+                json::array({ "namespace", "type",     "class",      "enum",   "interface", "struct",  "typeParameter", "parameter",
+                              "variable",  "property", "enumMember", "event",  "function",  "method",  "macro",         "keyword",
+                              "modifier",  "comment",  "string",     "number", "regexp",    "operator" });
+            legend["tokenModifiers"] = json::array({ "declaration", "definition", "readonly", "static", "deprecated", "abstract", "async",
+                                                     "modification", "documentation", "defaultLibrary" });
             result["capabilities"]["semanticTokensProvider"]["legend"] = std::move(legend);
             result["capabilities"]["semanticTokensProvider"]["full"] = true;
         }
@@ -2785,8 +2707,8 @@ class NariLspServer {
 
         const std::size_t h = std::hash<std::string>{}(content);
         {
-            std::unique_lock<std::shared_timed_mutex> lk(docs_mutex_);
-            DocState &doc = docs_[uri];
+            std::unique_lock<std::shared_timed_mutex> lock(docs_mutex);
+            DocState &doc = docs[uri];
             doc.content = content;
             doc.content_hash = h;
             doc.parsed_hash = 0;
@@ -2811,8 +2733,8 @@ class NariLspServer {
         // Skip the expensive re-parse if content is identical to what we already have.
         std::size_t h = std::hash<std::string>{}(content);
         {
-            std::unique_lock<std::shared_timed_mutex> lk(docs_mutex_);
-            DocState &doc = docs_[uri];
+            std::unique_lock<std::shared_timed_mutex> lock(docs_mutex);
+            DocState &doc = docs[uri];
             if (doc.content_hash == h) {
                 lsp_log("didChange: unchanged " + uri);
                 return;
@@ -2831,8 +2753,8 @@ class NariLspServer {
             return;
         }
         {
-            std::unique_lock<std::shared_timed_mutex> lk(docs_mutex_);
-            docs_.erase(uri);
+            std::unique_lock<std::shared_timed_mutex> lock(docs_mutex);
+            docs.erase(uri);
         }
         json p;
         p["uri"] = uri;
@@ -2847,16 +2769,17 @@ class NariLspServer {
         std::string uri = _td3.value("uri", std::string{});
         int line = _pos3.value("line", 0);
         int col = _pos3.value("character", 0);
-        // Hold a shared lock while reading docs_ (parse thread may be committing).
-        std::shared_lock<std::shared_timed_mutex> docs_lk(docs_mutex_);
+        // Hold a shared lock while reading docs (parse thread may be committing).
+        std::shared_lock<std::shared_timed_mutex> docs_lock(docs_mutex);
 
-        lsp_log("completion request: uri=" + uri + " line=" + std::to_string(line) + " col=" + std::to_string(col) + " doc_known=" + (docs_.count(uri) ? "yes" : "no") + " symbols=" + (docs_.count(uri) ? std::to_string(docs_[uri].symbols.size()) : "n/a"));
+        lsp_log("completion request: uri=" + uri + " line=" + std::to_string(line) + " col=" + std::to_string(col) + " doc_known=" +
+                (docs.count(uri) ? "yes" : "no") + " symbols=" + (docs.count(uri) ? std::to_string(docs[uri].symbols.size()) : "n/a"));
 
         // Determine prefix at cursor position
         std::string prefix;
         int word_start_col = col;
-        if (docs_.count(uri)) {
-            auto wp = word_at(docs_[uri].content, line, col);
+        if (docs.count(uri)) {
+            auto wp = word_at(docs[uri].content, line, col);
             prefix = wp.first;
             word_start_col = wp.second;
         }
@@ -2868,8 +2791,8 @@ class NariLspServer {
         // dot-completion: detect "receiver.prefix"
         // get the source line so we can inspect the character before the word.
         std::string src_line;
-        if (docs_.count(uri)) {
-            std::istringstream _ss(docs_[uri].content);
+        if (docs.count(uri)) {
+            std::istringstream _ss(docs[uri].content);
             std::string _ln;
             int _cur = 0;
             while (std::getline(_ss, _ln)) {
@@ -2895,14 +2818,14 @@ class NariLspServer {
             }
         }
         if (!receiver.empty()) {
-            if (docs_.count(uri)) {
+            if (docs.count(uri)) {
                 std::string doc_fs_path = uri;
                 if (doc_fs_path.rfind("file://", 0) == 0) {
                     doc_fs_path = doc_fs_path.substr(7);
                 }
                 const int cursor_line_1 = line + 1;
-                if (const ObjectLiteralInfo *info = find_object_literal_info(
-                        docs_[uri].object_literals, docs_[uri].symbols, receiver, doc_fs_path, cursor_line_1)) {
+                if (const ObjectLiteralInfo *info =
+                        find_object_literal_info(docs[uri].object_literals, docs[uri].symbols, receiver, doc_fs_path, cursor_line_1)) {
                     for (const auto &mem : info->members) {
                         if (!prefix.empty() && (mem.name.size() < prefix.size() || mem.name.substr(0, prefix.size()) != prefix)) {
                             continue;
@@ -2920,11 +2843,11 @@ class NariLspServer {
                     return;
                 }
 
-                std::string receiver_class = resolve_receiver_class_name(
-                    docs_[uri].symbols, docs_[uri].classes, receiver, doc_fs_path, cursor_line_1);
+                std::string receiver_class =
+                    resolve_receiver_class_name(docs[uri].symbols, docs[uri].classes, receiver, doc_fs_path, cursor_line_1);
                 if (!receiver_class.empty()) {
                     bool static_only = (receiver == receiver_class);
-                    for (const auto &ci : docs_[uri].classes) {
+                    for (const auto &ci : docs[uri].classes) {
                         if (ci.name != receiver_class) {
                             continue;
                         }
@@ -2961,7 +2884,7 @@ class NariLspServer {
                 return;
             }
 
-            std::lock_guard<std::mutex> lk(builtins_mutex_);
+            std::lock_guard<std::mutex> lock(builtins_mutex_);
             auto it = stdlib_member_syms_.find(receiver);
             if (it != stdlib_member_syms_.end()) {
                 for (const auto &mem : it->second) {
@@ -2978,8 +2901,8 @@ class NariLspServer {
                 // Try to resolve the receiver to a typed local variable so we
                 // can offer type-specific methods instead of every dot-method.
                 std::string resolved_type;
-                if (docs_.count(uri)) {
-                    for (const auto &sym : docs_[uri].symbols) {
+                if (docs.count(uri)) {
+                    for (const auto &sym : docs[uri].symbols) {
                         if (sym.name == receiver && !sym.inferred_type.empty()) {
                             resolved_type = sym.inferred_type;
                             break;
@@ -3053,7 +2976,7 @@ class NariLspServer {
 
         // built-ins: prefer parsed declarations; fall back to static table
         if (builtins_ready_.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> lk(builtins_mutex_);
+            std::lock_guard<std::mutex> lock(builtins_mutex_);
             for (const auto &[name, sym] : builtin_syms_) {
                 if (!prefix_matches(name)) {
                     continue;
@@ -3079,8 +3002,8 @@ class NariLspServer {
         }
 
         // Document symbols
-        if (docs_.count(uri)) {
-            for (const auto &sym : docs_[uri].symbols) {
+        if (docs.count(uri)) {
+            for (const auto &sym : docs[uri].symbols) {
                 if (!prefix_matches(sym.name)) {
                     continue;
                 }
@@ -3090,7 +3013,7 @@ class NariLspServer {
                 item["kind"] = sym.kind;
                 items.push_back(std::move(item));
             }
-            for (const auto &ci : docs_[uri].classes) {
+            for (const auto &ci : docs[uri].classes) {
                 if (!prefix_matches(ci.name)) {
                     continue;
                 }
@@ -3114,10 +3037,10 @@ class NariLspServer {
         std::string uri = _td3.value("uri", std::string{});
         int line = _pos3.value("line", 0);
         int col = _pos3.value("character", 0);
-        // Hold a shared lock while reading docs_ (parse thread may be committing).
-        std::shared_lock<std::shared_timed_mutex> docs_lk(docs_mutex_);
+        // Hold a shared lock while reading docs (parse thread may be committing).
+        std::shared_lock<std::shared_timed_mutex> docs_lock(docs_mutex);
 
-        if (!docs_.count(uri)) {
+        if (!docs.count(uri)) {
             send_response(id, nullptr);
             return;
         }
@@ -3125,7 +3048,7 @@ class NariLspServer {
         // Check if cursor is on a string literal in an import statement
         {
             int str_start = 0, str_end = 0;
-            std::string spec = import_string_at(docs_[uri].content, line, col, str_start, str_end);
+            std::string spec = import_string_at(docs[uri].content, line, col, str_start, str_end);
             if (!spec.empty()) {
                 // Derive filesystem basefile from URI
                 std::string basefile = uri;
@@ -3137,9 +3060,7 @@ class NariLspServer {
 #else
                 std::string resolved;
 #endif
-                std::string hover_text = resolved.empty()
-                                             ? "Cannot resolve \"" + spec + "\""
-                                             : resolved;
+                std::string hover_text = resolved.empty() ? "Cannot resolve \"" + spec + "\"" : resolved;
 
                 json sp, ep;
                 sp["line"] = int64_t(line);
@@ -3160,7 +3081,7 @@ class NariLspServer {
             }
         }
 
-        auto wp = word_at(docs_[uri].content, line, col);
+        auto wp = word_at(docs[uri].content, line, col);
         const std::string &word = wp.first;
         int word_start = wp.second;
         if (word.empty()) {
@@ -3176,7 +3097,7 @@ class NariLspServer {
 
         // Dot-access receiver: check for "receiver.word" pattern (e.g. math.add)
         {
-            std::string receiver = receiver_at(docs_[uri].content, line, word_start);
+            std::string receiver = receiver_at(docs[uri].content, line, word_start);
             if (!receiver.empty()) {
                 std::string doc_fs_path_h = uri;
                 if (doc_fs_path_h.rfind("file://", 0) == 0) {
@@ -3184,14 +3105,14 @@ class NariLspServer {
                 }
                 int cursor_line_1h = line + 1;
                 std::string module_source;
-                for (const auto &sym : docs_[uri].symbols) {
+                for (const auto &sym : docs[uri].symbols) {
                     if (sym.name == receiver && sym.kind == CK_Module) {
                         module_source = sym.source_file;
                         break;
                     }
                 }
                 if (!module_source.empty()) {
-                    for (const auto &sym : docs_[uri].symbols) {
+                    for (const auto &sym : docs[uri].symbols) {
                         if (sym.name == word && sym.source_file == module_source && sym.kind != CK_Variable) {
                             found_sym = &sym;
                             break;
@@ -3199,11 +3120,11 @@ class NariLspServer {
                     }
                 }
                 if (!found_sym) {
-                    std::string receiver_class = resolve_receiver_class_name(
-                        docs_[uri].symbols, docs_[uri].classes, receiver, doc_fs_path_h, cursor_line_1h);
+                    std::string receiver_class =
+                        resolve_receiver_class_name(docs[uri].symbols, docs[uri].classes, receiver, doc_fs_path_h, cursor_line_1h);
                     if (!receiver_class.empty()) {
                         bool static_only = (receiver == receiver_class);
-                        if (const MemberInfo *member = find_class_member(docs_[uri].classes, receiver_class, word, static_only)) {
+                        if (const MemberInfo *member = find_class_member(docs[uri].classes, receiver_class, word, static_only)) {
                             detail = member->detail;
                             comment = member->doc_comment;
                         }
@@ -3211,7 +3132,7 @@ class NariLspServer {
                 }
                 // unknown receiver (local var, array, string), check stdlib object members then dot-methods
                 if (!found_sym && detail.empty() && builtins_ready_.load(std::memory_order_acquire)) {
-                    std::lock_guard<std::mutex> lk(builtins_mutex_);
+                    std::lock_guard<std::mutex> lock(builtins_mutex_);
                     auto sit = stdlib_member_syms_.find(receiver);
                     if (sit != stdlib_member_syms_.end()) {
                         for (const auto &mem : sit->second) {
@@ -3240,20 +3161,20 @@ class NariLspServer {
                 doc_fs_path_h = doc_fs_path_h.substr(7);
             }
             int cursor_line_1h = line + 1;
-            found_sym = find_symbol_in_scope(docs_[uri].symbols, word, doc_fs_path_h, cursor_line_1h);
+            found_sym = find_symbol_in_scope(docs[uri].symbols, word, doc_fs_path_h, cursor_line_1h);
         }
         if (found_sym) {
             detail = found_sym->detail;
             comment = found_sym->doc_comment;
             // If no pre-stored comment, scan backward in the document text
             if (comment.empty() && found_sym->line > 0) {
-                comment = extract_doc_comment(docs_[uri].content, found_sym->line);
+                comment = extract_doc_comment(docs[uri].content, found_sym->line);
             }
         }
 
         // Search in class names / members
         if (detail.empty()) {
-            for (const auto &ci : docs_[uri].classes) {
+            for (const auto &ci : docs[uri].classes) {
                 if (ci.name == word) {
                     detail = "class " + ci.name;
                     break;
@@ -3273,7 +3194,7 @@ class NariLspServer {
         // Search built-ins (parsed declarations take precedence over the static table)
         if (detail.empty()) {
             if (builtins_ready_.load(std::memory_order_acquire)) {
-                std::lock_guard<std::mutex> lk(builtins_mutex_);
+                std::lock_guard<std::mutex> lock(builtins_mutex_);
                 auto it = builtin_syms_.find(word);
                 if (it != builtin_syms_.end()) {
                     detail = it->second.detail;
@@ -3329,9 +3250,9 @@ class NariLspServer {
         std::string uri = td.value("uri", std::string{});
         int line = pos.value("line", 0);
         int col = pos.value("character", 0);
-        std::shared_lock<std::shared_timed_mutex> docs_lk(docs_mutex_);
-        auto doc_it = docs_.find(uri);
-        if (doc_it == docs_.end()) {
+        std::shared_lock<std::shared_timed_mutex> docs_lock(docs_mutex);
+        auto doc_it = docs.find(uri);
+        if (doc_it == docs.end()) {
             send_response(id, nullptr);
             return;
         }
@@ -3363,8 +3284,7 @@ class NariLspServer {
 
         int end = open;
         int start = end;
-        while (start > 0 && (std::isalnum((unsigned char)before[start - 1]) ||
-                             before[start - 1] == '_' || before[start - 1] == '.')) {
+        while (start > 0 && (std::isalnum((unsigned char)before[start - 1]) || before[start - 1] == '_' || before[start - 1] == '.')) {
             --start;
         }
         std::string callee = before.substr(start, end - start);
@@ -3385,8 +3305,7 @@ class NariLspServer {
                 documentation = sym->doc_comment;
             }
         } else {
-            std::string receiver_type = resolve_receiver_class_name(
-                doc.symbols, doc.classes, receiver, filename, line + 1);
+            std::string receiver_type = resolve_receiver_class_name(doc.symbols, doc.classes, receiver, filename, line + 1);
             if (const MemberInfo *member = find_class_member(doc.classes, receiver_type, name)) {
                 detail = member->detail;
                 documentation = member->doc_comment;
@@ -3429,9 +3348,9 @@ class NariLspServer {
         int line = _pos3.value("line", 0);
         int col = _pos3.value("character", 0);
         // Hold a shared lock while reading docs_ (parse thread may be committing).
-        std::shared_lock<std::shared_timed_mutex> docs_lk(docs_mutex_);
+        std::shared_lock<std::shared_timed_mutex> docs_lock(docs_mutex);
 
-        if (!docs_.count(uri)) {
+        if (!docs.count(uri)) {
             send_response(id, nullptr);
             return;
         }
@@ -3439,7 +3358,7 @@ class NariLspServer {
         // Ctrl+click on a string literal in an import -> open the file directly
         {
             int str_start = 0, str_end = 0;
-            std::string spec = import_string_at(docs_[uri].content, line, col, str_start, str_end);
+            std::string spec = import_string_at(docs[uri].content, line, col, str_start, str_end);
             if (!spec.empty()) {
                 std::string basefile = uri;
                 if (basefile.rfind("file://", 0) == 0) {
@@ -3481,7 +3400,7 @@ class NariLspServer {
         int lsp_line = std::max(0, resolved.sym.line - 1);
         int lsp_col = std::max(0, resolved.sym.col - 1);
 
-        std::string word = word_at(docs_[uri].content, line, col).first;
+        std::string word = word_at(docs[uri].content, line, col).first;
         if (word.empty()) {
             word = resolved.sym.name;
         }
@@ -3512,8 +3431,8 @@ class NariLspServer {
         int col = pos.value("character", 0);
         const bool include_decl = ctx.value("includeDeclaration", true);
 
-        std::shared_lock<std::shared_timed_mutex> docs_lk(docs_mutex_);
-        if (!docs_.count(uri)) {
+        std::shared_lock<std::shared_timed_mutex> docs_lock(docs_mutex);
+        if (!docs.count(uri)) {
             send_response(id, json::array());
             return;
         }
@@ -3527,7 +3446,7 @@ class NariLspServer {
         json locations = json::array();
         std::set<std::tuple<std::string, int, int>> seen;
 
-        for (const auto &entry : docs_) {
+        for (const auto &entry : docs) {
             const std::string &doc_uri = entry.first;
             const auto &doc = entry.second;
             for_each_identifier_occurrence(doc.content, [&](int occ_line, int occ_col, std::string_view ident) {
@@ -3543,9 +3462,7 @@ class NariLspServer {
                     return;
                 }
 
-                if (!include_decl &&
-                    candidate.def_uri == doc_uri &&
-                    occ_line == std::max(0, candidate.sym.line - 1) &&
+                if (!include_decl && candidate.def_uri == doc_uri && occ_line == std::max(0, candidate.sym.line - 1) &&
                     occ_col == std::max(0, candidate.sym.col - 1)) {
                     return;
                 }
@@ -3577,12 +3494,12 @@ class NariLspServer {
         const auto &context = params.contains("context") ? params["context"] : json{};
         std::string uri = td.value("uri", std::string{});
 
-        std::shared_lock<std::shared_timed_mutex> docs_lk(docs_mutex_);
-        if (!docs_.count(uri)) {
+        std::shared_lock<std::shared_timed_mutex> docs_lock(docs_mutex);
+        if (!docs.count(uri)) {
             send_response(id, json::array());
             return;
         }
-        const std::string content = docs_[uri].content; // copy for use below the lock (lock released at scope end)
+        const std::string content = docs[uri].content; // copy for use below the lock (lock released at scope end)
 
         json actions = json::array();
 
@@ -3681,12 +3598,12 @@ class NariLspServer {
         const auto &rng = params.contains("range") ? params["range"] : json{};
         std::string uri = td.value("uri", std::string{});
 
-        std::shared_lock<std::shared_timed_mutex> docs_lk(docs_mutex_);
-        if (!docs_.count(uri)) {
+        std::shared_lock<std::shared_timed_mutex> docs_lock(docs_mutex);
+        if (!docs.count(uri)) {
             send_response(id, json::array());
             return;
         }
-        const DocState &doc = docs_[uri];
+        const DocState &doc = docs[uri];
 
         const int range_start = rng.contains("start") ? rng["start"].value("line", 0) : 0;
         const int range_end = rng.contains("end") ? rng["end"].value("line", 0x7fffffff) : 0x7fffffff;
@@ -3741,14 +3658,14 @@ class NariLspServer {
         const auto &td = params.contains("textDocument") ? params["textDocument"] : json{};
         std::string uri = td.value("uri", std::string{});
 
-        std::shared_lock<std::shared_timed_mutex> docs_lk(docs_mutex_);
-        if (!docs_.count(uri)) {
+        std::shared_lock<std::shared_timed_mutex> docs_lock(docs_mutex);
+        if (!docs.count(uri)) {
             json r;
             r["data"] = json::array();
             send_response(id, std::move(r));
             return;
         }
-        const DocState &doc = docs_[uri];
+        const DocState &doc = docs[uri];
         const std::vector<std::string> lines = lsp_split_lines(doc.content);
 
         // build name -> entry map
@@ -3812,7 +3729,7 @@ class NariLspServer {
 
         // Also include known builtin function names (not already in name_map)
         if (builtins_ready_.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> lk(builtins_mutex_);
+            std::lock_guard<std::mutex> lock(builtins_mutex_);
             for (const auto &[bname, bsym] : builtin_syms_) {
                 if (bsym.kind == CK_Function) {
                     name_map.emplace(bname, NameEntry{ ST_FUNCTION, 6, true, {} });
@@ -3891,20 +3808,16 @@ class NariLspServer {
                     continue; // only decl positions for variables/params
                 }
 
-                tokens.push_back({ ln, (int)id_start, (int)(id_end - id_start),
-                                   entry.token_type,
-                                   is_decl ? SM_DECLARATION : 0 });
+                tokens.push_back({ ln, (int)id_start, (int)(id_end - id_start), entry.token_type, is_decl ? SM_DECLARATION : 0 });
             }
         }
 
         // Sort and deduplicate (keep first occurrence at each position)
-        std::stable_sort(tokens.begin(), tokens.end(), [](const Token &a, const Token &b) {
-            return a.line != b.line ? a.line < b.line : a.col < b.col;
-        });
-        tokens.erase(std::unique(tokens.begin(), tokens.end(), [](const Token &a, const Token &b) {
-                         return a.line == b.line && a.col == b.col;
-                     }),
-                     tokens.end());
+        std::stable_sort(tokens.begin(), tokens.end(),
+                         [](const Token &a, const Token &b) { return a.line != b.line ? a.line < b.line : a.col < b.col; });
+        tokens.erase(
+            std::unique(tokens.begin(), tokens.end(), [](const Token &a, const Token &b) { return a.line == b.line && a.col == b.col; }),
+            tokens.end());
 
         // Encode as LSP delta-encoded semantic tokens array
         json data = json::array();
@@ -3938,12 +3851,12 @@ class NariLspServer {
         const int line = pos.value("line", 0);
         const int col = pos.value("character", 0);
 
-        std::shared_lock<std::shared_timed_mutex> docs_lk(docs_mutex_);
-        if (!docs_.count(uri)) {
+        std::shared_lock<std::shared_timed_mutex> docs_lock(docs_mutex);
+        if (!docs.count(uri)) {
             send_response(id, nullptr);
             return;
         }
-        const DocState &doc = docs_[uri];
+        const DocState &doc = docs[uri];
 
         auto wp = word_at(doc.content, line, col);
         const std::string &word = wp.first;
@@ -3954,9 +3867,8 @@ class NariLspServer {
         }
 
         // primitive types are not user-defined, so no type declaration to jump to
-        static const std::unordered_set<std::string> primitives = {
-            "string", "number", "bool", "null", "array", "object", "function", "regex"
-        };
+        static const std::unordered_set<std::string> primitives = { "string", "number", "bool",     "null",
+                                                                    "array",  "object", "function", "regex" };
 
         // if the word is a variable, look at its inferred_type for a class name
         std::string class_name;
@@ -4049,7 +3961,7 @@ class NariLspServer {
 
         // check builtins
         if (builtins_ready_.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> lk(builtins_mutex_);
+            std::lock_guard<std::mutex> lock(builtins_mutex_);
             auto bit = builtin_syms_.find(class_name);
             if (bit != builtin_syms_.end() && !builtin_decls_uri_.empty()) {
                 const int lsp_ln = std::max(0, bit->second.line - 1);
@@ -4077,7 +3989,7 @@ class NariLspServer {
         if (hash == 0) {
             hash = std::hash<std::string>{}(content);
         }
-        std::lock_guard<std::mutex> lk(parse_queue_mutex_);
+        std::lock_guard<std::mutex> lock(parse_queue_mutex_);
         for (auto &req : parse_queue_) {
             if (req.uri == uri) {
                 req.content = content;
@@ -4094,10 +4006,8 @@ class NariLspServer {
         while (true) {
             ParseRequest req;
             {
-                std::unique_lock<std::mutex> lk(parse_queue_mutex_);
-                parse_queue_cv_.wait(lk, [this] {
-                    return !parse_queue_.empty() || parse_thread_stop_;
-                });
+                std::unique_lock<std::mutex> lock(parse_queue_mutex_);
+                parse_queue_cv_.wait(lock, [this] { return !parse_queue_.empty() || parse_thread_stop_; });
                 if (parse_thread_stop_ && parse_queue_.empty()) {
                     break;
                 }
@@ -4119,9 +4029,9 @@ class NariLspServer {
         // Skip re-parse if this version is already analyzed, or if a newer
         // document version has already replaced it in the live doc store.
         {
-            std::shared_lock<std::shared_timed_mutex> lk(docs_mutex_);
-            auto it = docs_.find(uri);
-            if (it != docs_.end()) {
+            std::shared_lock<std::shared_timed_mutex> lock(docs_mutex);
+            auto it = docs.find(uri);
+            if (it != docs.end()) {
                 if (it->second.parsed_hash == content_hash) {
                     return;
                 }
@@ -4131,7 +4041,7 @@ class NariLspServer {
             }
         }
 
-        // all results are accumulated into locals; docs_ is not touched yet
+        // all results are accumulated into locals; docs is not touched yet
         std::vector<SymInfo> new_symbols;
         std::vector<ClassInfo> new_classes;
         std::vector<ObjectLiteralInfo> new_object_literals;
@@ -4152,7 +4062,8 @@ class NariLspServer {
         // create_aggregator=false: we only need declarations, not a runnable chunk
         auto result = Parser::parse_program_recovering(content, /*create_aggregator=*/false);
 
-        lsp_log("parse_document: " + std::to_string(result.functions.size()) + " funcs, " + std::to_string(result.errors.size()) + " errors");
+        lsp_log("parse_document: " + std::to_string(result.functions.size()) + " funcs, " + std::to_string(result.errors.size()) +
+                " errors");
 
         // Errors -> LSP diagnostics
         for (const auto &err : result.errors) {
@@ -4189,8 +4100,7 @@ class NariLspServer {
         emit_unused_warnings(result.functions, filename, source_lines, diagnostics);
         emit_strict_type_warnings(result.functions, filename, source_lines, diagnostics);
         new_classes = collect_classes();
-        new_symbols = collect_symbols(result.functions, filename, source_lines,
-                                      &new_object_literals, &new_classes);
+        new_symbols = collect_symbols(result.functions, filename, source_lines, &new_object_literals, &new_classes);
         result.functions.clear(); // free all AST unique_ptrs now
         result.functions.shrink_to_fit();
 
@@ -4199,7 +4109,7 @@ class NariLspServer {
         // Then scan source lines for "name.method(" patterns to detect
         // calls where the method doesn't exist for the inferred type.
         if (builtins_ready_.load(std::memory_order_acquire)) {
-            std::lock_guard<std::mutex> lk(builtins_mutex_);
+            std::lock_guard<std::mutex> lock(builtins_mutex_);
             if (!method_type_syms_.empty()) {
                 // Build a lookup: variable name -> inferred type (for this doc)
                 std::unordered_map<std::string, std::string> var_types;
@@ -4226,8 +4136,8 @@ class NariLspServer {
                         }
                         std::string var_name = sl.substr(i, id_end - i);
 
-                        if (var_name == "return" || var_name == "if" || var_name == "while" ||
-                            var_name == "for" || var_name == "let" || var_name == "func") {
+                        if (var_name == "return" || var_name == "if" || var_name == "while" || var_name == "for" || var_name == "let" ||
+                            var_name == "func") {
                             i = id_end - 1;
                             continue;
                         }
@@ -4305,15 +4215,14 @@ class NariLspServer {
 
         lsp_log("parse_document: " + std::to_string(new_symbols.size()) + " symbols, " + std::to_string(new_classes.size()) + " classes");
 
-        // Add class names as symbols too (for hover / goto-def)
+        // add class names as symbols too (for hover / goto-def)
         for (const auto &ci : new_classes) {
-            new_symbols.push_back({ ci.name, "class " + ci.name, CK_Class,
-                                    ci.line, ci.col, ci.source_file });
+            new_symbols.push_back({ ci.name, "class " + ci.name, CK_Class, ci.line, ci.col, ci.source_file });
         }
 
         {
-            std::unique_lock<std::shared_timed_mutex> lk(docs_mutex_);
-            DocState &doc = docs_[uri];
+            std::unique_lock<std::shared_timed_mutex> lock(docs_mutex);
+            DocState &doc = docs[uri];
             if (doc.content_hash != content_hash) {
                 lsp_log("parse_document: dropping stale results for " + uri);
                 return;

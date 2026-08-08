@@ -88,7 +88,7 @@ Find first occurrence of substring.
 
 **Returns:** Index of first match, or -1 if not found
 
-### last_index_of(searchString, [fromIndex])
+### last_index_of(searchString, from_index)
 
 Find last occurrence of substring, optionally searching backward from
 `fromIndex`.

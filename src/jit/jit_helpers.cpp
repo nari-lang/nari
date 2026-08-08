@@ -2167,7 +2167,13 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
                 auto elapsed = chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
                 vm->push(Value::make_int(elapsed.count()));
             }
+        } else if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
+            // compiler-internal speculative probes stay silent
+            vm->push(Value::none());
         } else {
+            // a handle is not it's result
+            fprintf(stderr, "RuntimeError: unknown handle member '%s' (valid: await, ready, failed, error, status_code, duration)\n", name.c_str());
+            vm->has_error = true;
             vm->push(Value::none());
         }
     } else if (obj.is_string()) {

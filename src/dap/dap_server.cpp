@@ -212,7 +212,6 @@ SourceLineIndex g_line_index;
 
 // TODO: deduplicate this
 // Load script -> Chunk, same as the interpreter's load path but with logs to stderr stuff removed
-#ifndef DISABLE_PARSER
 static bytecode::Chunk *compile_source_for_debug(const std::string &path) {
     std::ifstream f(path);
     if (!f) {
@@ -238,7 +237,6 @@ static bytecode::Chunk *compile_source_for_debug(const std::string &path) {
         return nullptr;
     }
 }
-#endif
 
 static bytecode::Chunk *load_naric(const std::string &path) {
     std::ifstream f(path, std::ios::binary);
@@ -256,14 +254,9 @@ static bytecode::Chunk *load_program(const std::string &path) {
     if (is_naric) {
         return load_naric(path);
     }
-#ifndef DISABLE_PARSER
     return compile_source_for_debug(path);
-#else
-    return nullptr;
-#endif
 }
 
-#ifndef DISABLE_PARSER
 static void prime_parser_state_for_vm_thread(const std::string &path) {
     bool is_naric = path.size() >= 6 && path.compare(path.size() - 6, 6, ".naric") == 0;
     if (is_naric) {
@@ -283,14 +276,11 @@ static void prime_parser_state_for_vm_thread(const std::string &path) {
     Parser::set_source_filename(path);
     (void)Parser::parse_program_from_source(source);
 }
-#endif
 
 static int run_vm(bytecode::Chunk *chunk, const std::vector<std::string> &argv) {
-#ifndef DISABLE_PARSER
     if (!argv.empty()) {
         prime_parser_state_for_vm_thread(argv.front());
     }
-#endif
 
     // Convert argv into the VM's (int, char**) form. Pointers are owned by `arg_storage`.
     std::vector<std::string> arg_storage = argv;
