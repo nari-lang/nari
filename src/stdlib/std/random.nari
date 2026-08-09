@@ -1,7 +1,8 @@
-// -- Random ------------------------------------------------------------------
-// Seedable PRNG (xorshift32). Deterministic given the same seed; entirely
-// pure-Nari so it does NOT share state with math.rand (which uses a global
-// mt19937). NOT cryptographically secure.
+// Random
+//  Seedable PRNG (xorshift32). Deterministic given the same seed, entirely
+//  pure-Nari so it does NOT share state with math.rand (which uses a global mt19937).
+//
+//  NOT cryptographically secure!!
 //
 //  import { Random } from "std/random";
 

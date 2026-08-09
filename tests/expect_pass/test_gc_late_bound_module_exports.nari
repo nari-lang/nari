@@ -1,0 +1,25 @@
+func make_writer() {
+    let exports = {};
+    let open_file = func(path, flags) { return path; };
+    exports.openSync = open_file;
+
+    let module_exports = null;
+    let write_file = func(path) {
+        return module_exports["openSync"](path, "w");
+    };
+    module_exports = exports;
+    return write_file;
+}
+
+let write_file = make_writer();
+__gc_set_threshold(10);
+for (let i = 0; i < 1000; i++) {
+    let garbage = { index: i, values: [i, i + 1, i + 2] };
+}
+__gc_collect();
+
+if (write_file("output.js") != "output.js") {
+    panic("GC corrupted late-bound module exports");
+}
+
+print("GC late-bound module exports passed");

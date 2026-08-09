@@ -1,7 +1,7 @@
-// -- Archive -----------------------------------------------------------------
-// Archive read/write backed by libarchive (tar, tar.gz, zip).
-// Extraction performs safety checks against zip-slip / absolute paths /
-// symlinks / size limits - see src/builtins/archive.cpp for details.
+// Archive
+//  Archive read/write backed by libarchive (tar, tar.gz, zip).
+//  Extraction performs safety checks against zip-slip / absolute paths /
+//  symlinks / size limits - see src/builtins/archive.cpp for details.
 //
 //  import Archive from "std/archive";
 

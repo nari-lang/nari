@@ -8,6 +8,8 @@
 
 #include "lexer.h"
 
+#include "../util.h"
+
 #include <ctype.h>
 #include <stdio.h>
 #include <string>
@@ -17,16 +19,14 @@
 
 namespace Parser {
 
-static std::string trim_ascii(std::string_view s) {
-    size_t begin = 0;
-    while (begin < s.size() && std::isspace(static_cast<unsigned char>(s[begin]))) {
-        ++begin;
-    }
-    size_t end = s.size();
-    while (end > begin && std::isspace(static_cast<unsigned char>(s[end - 1]))) {
-        --end;
-    }
-    return std::string(s.substr(begin, end - begin));
+static bool is_identifier_start(char c) {
+    unsigned char byte = static_cast<unsigned char>(c);
+    return std::isalpha(byte) || c == '_' || byte >= 0x80;
+}
+
+static bool is_identifier_continue(char c) {
+    unsigned char byte = static_cast<unsigned char>(c);
+    return std::isalnum(byte) || c == '_' || byte >= 0x80;
 }
 
 static size_t find_top_level_format_colon(const std::string &expr) {
@@ -220,6 +220,12 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
             advance(2);
             continue;
         }
+        // :(
+        if (c == '=' && peek() == '=' && peek(2) == '=') {
+            push_tok(TokenKind::TK_STRICT_EQ, "===", line, col);
+            advance(3);
+            continue;
+        }
         if (c == '=' && peek() == '=') {
             push_tok(TokenKind::TK_EQEQ, "==", line, col);
             advance(2);
@@ -228,6 +234,12 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
         if (c == '=' && peek() == '>') {
             push_tok(TokenKind::TK_FATARROW, "=>", line, col);
             advance(2);
+            continue;
+        }
+        // :(
+        if (c == '!' && peek() == '=' && peek(2) == '=') {
+            push_tok(TokenKind::TK_STRICT_NEQ, "!==", line, col);
+            advance(3);
             continue;
         }
         if (c == '!' && peek() == '=') {
@@ -418,15 +430,14 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
             static const std::unordered_set<std::string> kPrefixKeywords = {
                 "return", "typeof", "new", "delete", "await", "yield", "void", "not", "case", "in",
             };
-            bool prev_can_end_expr =
-                !tokens_out.empty() &&
-                (tokens_out.back().kind == TokenKind::TK_NUMBER || tokens_out.back().kind == TokenKind::TK_STRING ||
-                 tokens_out.back().kind == TokenKind::TK_RPAREN || tokens_out.back().kind == TokenKind::TK_RBRACKET ||
-                 tokens_out.back().kind == TokenKind::TK_RBRACE || tokens_out.back().kind == TokenKind::TK_PLUSPLUS ||
-                 tokens_out.back().kind == TokenKind::TK_MINUSMINUS ||
-                 // TK_REGEX itself can end an expression (/pattern/.test(x) / 2)
-                 tokens_out.back().kind == TokenKind::TK_REGEX ||
-                 (tokens_out.back().kind == TokenKind::TK_IDENT && !kPrefixKeywords.count(tokens_out.back().text)));
+            bool prev_can_end_expr = !tokens_out.empty() &&
+                                     (tokens_out.back().kind == TokenKind::TK_NUMBER || tokens_out.back().kind == TokenKind::TK_STRING ||
+                                      tokens_out.back().kind == TokenKind::TK_RPAREN || tokens_out.back().kind == TokenKind::TK_RBRACKET ||
+                                      tokens_out.back().kind == TokenKind::TK_RBRACE || tokens_out.back().kind == TokenKind::TK_PLUSPLUS ||
+                                      tokens_out.back().kind == TokenKind::TK_MINUSMINUS ||
+                                      // TK_REGEX itself can end an expression (/pattern/.test(x) / 2)
+                                      tokens_out.back().kind == TokenKind::TK_REGEX ||
+                                      (tokens_out.back().kind == TokenKind::TK_IDENT && !kPrefixKeywords.count(tokens_out.back().text)));
             if (prev_can_end_expr) {
                 push_tok(TokenKind::TK_SLASH, "/", line, col);
                 advance();
@@ -478,8 +489,7 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
             }
             // Read optional flags (g i m s u v y)
             std::string regex_flags;
-            while (cur() == 'g' || cur() == 'i' || cur() == 'm' || cur() == 's' || cur() == 'u' || cur() == 'v' ||
-                   cur() == 'y') {
+            while (cur() == 'g' || cur() == 'i' || cur() == 'm' || cur() == 's' || cur() == 'u' || cur() == 'v' || cur() == 'y') {
                 regex_flags += cur();
                 advance();
             }
@@ -698,8 +708,7 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
                     tok.line = start_line;
                     tok.col = start_col;
                     if (errors) {
-                        errors->push_back({ filename, start_line, start_col,
-                                            "Invalid hex literal: expected at least one hex digit after 0x" });
+                        errors->push_back({ filename, start_line, start_col, "Invalid hex literal: expected at least one hex digit after 0x" });
                         push_tok(TokenKind::TK_EOF, "", line, col);
                         return tokens_out;
                     }
@@ -725,13 +734,13 @@ std::vector<Token> tokenize(const std::string &src, const std::string &filename,
             continue;
         }
 
-        // letters, digits, underscore
-        if (isalpha(c) || c == '_') {
+        // ASCII and UTF-8 identifiers. Non-ASCII bytes remain intact in the token.
+        if (is_identifier_start(c)) {
             int start_line = line;
             int start_col = col;
             size_t st = pos;
             advance();
-            while (cur() && (isalnum(cur()) || cur() == '_')) {
+            while (cur() && is_identifier_continue(cur())) {
                 advance();
             }
             std::string id = src.substr(st, pos - st);

@@ -1,5 +1,5 @@
-// -- Path --------------------------------------------------------------------
-// POSIX-style path utilities (forward-slash separator)
+// Path
+//  POSIX-style path utilities (forward-slash separator)
 //
 //  import { Path } from "std/path";
 

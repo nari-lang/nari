@@ -19,6 +19,29 @@ let empty = []
 let f = [...empty, 1]
 print("Empty spread:", f)
 
+func spread_many(values) {
+  let out = []
+  let i = 0
+  while (i < 100) {
+    out = [...out, ...values]
+    i = i + 1
+  }
+  return out.length()
+}
+print("JIT array spread:", spread_many([1, 2, 3]))
+
+func push_many(values) {
+  let total = 0
+  let i = 0
+  while (i < 100) {
+    let out = [...values, i]
+    total = total + out.length()
+    i = i + 1
+  }
+  return total
+}
+print("JIT array push:", push_many([1, 2, 3]))
+
 // === Object spread ===
 let obj1 = {x: 1, y: 2}
 let obj2 = {...obj1, z: 3}
@@ -41,6 +64,11 @@ func sum(a, b, c) {
 let args = [10, 20, 30]
 let result = sum(...args)
 print("Call spread:", result)
+
+func forward(f, values) {
+  return f(...values)
+}
+print("Forwarded call spread:", forward(sum, args))
 
 // Mixed args with spread
 func add4(a, b, c, d) {

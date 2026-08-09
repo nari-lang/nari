@@ -65,25 +65,25 @@ echo "[pass] baseline .naric runs"
 PASS=$((PASS+1))
 
 # Case 1: wrong magic bytes.
-printf 'XXXX\x06\x00\x00\x00' > "$TMP/bad_magic.naric"
+printf 'XXXX\x0A\x00\x00\x00' > "$TMP/bad_magic.naric"
 check "bad magic bytes" "$TMP/bad_magic.naric"
 
 # Case 2: truncated header (less than 8 bytes).
-printf 'NARI\x06\x00' > "$TMP/short_header.naric"
+printf 'NARI\x0A\x00' > "$TMP/short_header.naric"
 check "truncated header" "$TMP/short_header.naric"
 
 # Case 3: valid header but truncated string-table count.
-printf 'NARI\x06\x00\x00\x00' > "$TMP/short_strings.naric"
+printf 'NARI\x0A\x00\x00\x00' > "$TMP/short_strings.naric"
 check "header-only, missing strings section" "$TMP/short_strings.naric"
 
 # Case 4: huge string count (would require billions of bytes).
-#   header + strings_count = 0xFFFFFFFF
-printf 'NARI\x06\x00\x00\x00\xFF\xFF\xFF\xFF' > "$TMP/huge_count.naric"
+#   header + strings_count = 2^21
+printf 'NARI\x0A\x00\x00\x00\x80\x80\x80\x01' > "$TMP/huge_count.naric"
 check "absurd string count" "$TMP/huge_count.naric"
 
 # Case 5: valid count(1) but truncated string payload.
-#   header + strings_count(1) + string len(1000) + no payload bytes
-printf 'NARI\x06\x00\x00\x00\x01\x00\x00\x00\xE8\x03\x00\x00' > "$TMP/short_string.naric"
+#   header + strings_count(1) + string len(1000 as ULEB128) + no payload bytes
+printf 'NARI\x0A\x00\x00\x00\x01\xE8\x07' > "$TMP/short_string.naric"
 check "string length exceeds remaining buffer" "$TMP/short_string.naric"
 
 # Case 6: valid file with one trailing byte chopped off.
@@ -101,6 +101,13 @@ else
   echo "[pass] truncated end: handled cleanly (exit $rc)"
   PASS=$((PASS+1))
 fi
+
+# Case 7: compact u16 opcode alias without its required operand byte.
+python3 "$(dirname "$0")/verifier_mutate.py" "$TMP/ok.naric" "$TMP/short_compact.naric" short_compact || {
+  echo "ERROR: could not create truncated compact alias fixture" >&2
+  exit 2
+}
+check "compact opcode alias missing operand" "$TMP/short_compact.naric"
 
 check_verifier() {
   local name="$1"

@@ -13,6 +13,7 @@ thirdparty/openssl/
 thirdparty/libffi-3.5.2/
 thirdparty/asmjit/
 test.nari
+*.naric
 workspace/
 
 __pycache__

@@ -63,7 +63,7 @@ enum {
 // All jitdump structs are packed, so the in-memory layout matches
 // the on-disk format with no compiler padding
 struct FileHeader {
-    uint32_t magic;      // "JiTD" (0x4A695444)
+    uint32_t magic;      // JITHEADER_MAGIC (0x4A695444)
     uint32_t version;    // 1
     uint32_t total_size; // size of this header
     uint32_t elf_mach;   // ELF e_machine
@@ -146,7 +146,7 @@ void ensure_init_locked() {
     }
 
     FileHeader hdr{};
-    hdr.magic = 'J' | ('i' << 8) | ('T' << 16) | ('D' << 24);
+    hdr.magic = 0x4A695444;
     hdr.version = 1;
     hdr.total_size = sizeof(FileHeader);
     hdr.elf_mach = kElfMach;
@@ -183,7 +183,8 @@ void ensure_init_locked() {
 } // namespace
 
 void perf_jitdump_register(const std::string &name, const void *code_addr, size_t code_size) {
-    if (code_addr == nullptr || code_size == 0) {
+    static const bool enabled = getenv("NARI_JIT_PERF_DUMP") != nullptr && kElfMach != 0;
+    if (!enabled || code_addr == nullptr || code_size == 0) {
         return;
     }
     std::lock_guard<std::mutex> lock(g_mutex);

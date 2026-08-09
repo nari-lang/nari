@@ -93,6 +93,7 @@ static std::vector<nari::FunctionPtr> generate_enum_constructors(const nari::Enu
         auto fn = std::make_unique<nari::Function>(variant.name);
         fn->line = decl.line;
         fn->col = decl.col;
+        fn->is_enum_ctor = true;
 
         // build the return object: { __variant: "VariantName", __enum: "EnumName", ... }
         auto obj = std::make_unique<nari::ObjectLiteralExpr>();
@@ -270,7 +271,7 @@ static std::string resolve_include_path(const std::string &inc, const std::strin
 
     fs::Path incp(inc);
     if (incp.is_absolute()) {
-        return incp.lexically_normal().string();
+        return resolve_package_directory_path(incp.lexically_normal().string(), g_last_import_resolution_error);
     }
 
     if (is_package_import_spec(inc)) {
@@ -295,7 +296,7 @@ static std::string resolve_include_path(const std::string &inc, const std::strin
     }
 
     fs::Path combined = basepath / incp;
-    return combined.lexically_normal().string();
+    return resolve_package_directory_path(combined.lexically_normal().string(), g_last_import_resolution_error);
 }
 
 /*
@@ -494,8 +495,7 @@ class Parser {
                     continue;
                 }
 
-                std::string internal_name =
-                    "__module_export_" + std::to_string(g_module_export_counter++) + "__" + local_name;
+                std::string internal_name = "__module_export_" + std::to_string(g_module_export_counter++) + "__" + local_name;
                 aliases[local_name] = internal_name;
                 (*it)->name = internal_name;
                 return;
@@ -504,8 +504,7 @@ class Parser {
 
         auto append_named_import_binding = [&](const std::string &local_name, const std::string &namespace_global_name,
                                                const std::string &export_name, const Token &src_tok) {
-            auto member_expr = std::make_unique<nari::MemberExpr>(
-                std::make_unique<nari::IdentExpr>(namespace_global_name), export_name);
+            auto member_expr = std::make_unique<nari::MemberExpr>(std::make_unique<nari::IdentExpr>(namespace_global_name), export_name);
             member_expr->line = src_tok.line;
             member_expr->col = src_tok.col;
             member_expr->filename = src_tok.filename.empty() ? current_filename : src_tok.filename;
@@ -516,8 +515,8 @@ class Parser {
             top_block->stmts.push_back(std::move(var_decl));
         };
 
-        auto append_namespace_import_binding = [&](const std::string &local_name,
-                                                   const std::string &namespace_global_name, const Token &src_tok) {
+        auto append_namespace_import_binding = [&](const std::string &local_name, const std::string &namespace_global_name,
+                                                   const Token &src_tok) {
             auto ident_expr = std::make_unique<nari::IdentExpr>(namespace_global_name);
             ident_expr->line = src_tok.line;
             ident_expr->col = src_tok.col;
@@ -534,6 +533,10 @@ class Parser {
             std::string inc_path = resolve_include_path(inc_name, base_for_resolve);
             if (inc_path.empty() && !g_last_import_resolution_error.empty()) {
                 error_and_exit(g_last_import_resolution_error);
+            }
+
+            if (!is_std_virtual_path(inc_path) && !nari::fs::is_regular_file(nari::fs::Path(inc_path))) {
+                error_and_exit("Import path is not a regular file: " + inc_path);
             }
 
             bool is_naric_file = (inc_name.size() >= 6 && inc_name.substr(inc_name.size() - 6) == ".naric");
@@ -571,13 +574,19 @@ class Parser {
                         error_and_exit(err);
                     }
 
-                    fseek(fp, 0, SEEK_END);
+                    if (fseek(fp, 0, SEEK_END) != 0) {
+                        fclose(fp);
+                        error_and_exit("Failed to seek import file " + inc_path);
+                    }
                     long file_size = ftell(fp);
-                    fseek(fp, 0, SEEK_SET);
+                    if (file_size < 0 || fseek(fp, 0, SEEK_SET) != 0) {
+                        fclose(fp);
+                        error_and_exit("Failed to determine import file size " + inc_path);
+                    }
 
                     if (file_size > 0) {
-                        included_src.resize(file_size);
-                        size_t bytes_read = fread(&included_src[0], 1, file_size, fp);
+                        included_src.resize(static_cast<size_t>(file_size));
+                        size_t bytes_read = fread(&included_src[0], 1, static_cast<size_t>(file_size), fp);
                         included_src.resize(bytes_read);
                     }
                     fclose(fp);
@@ -696,8 +705,7 @@ class Parser {
                     return true;
                 }
 
-                if (peek().kind == TokenKind::TK_IDENT &&
-                    (peek().text == "let" || peek().text == "global" || peek().text == "const")) {
+                if (peek().kind == TokenKind::TK_IDENT && (peek().text == "let" || peek().text == "global" || peek().text == "const")) {
                     auto stmt = parse_stmt();
                     auto *var_decl = dynamic_cast<nari::VarDeclStmt *>(stmt.get());
                     if (!var_decl) {
@@ -836,12 +844,10 @@ class Parser {
                     }
 
                     // transform into `let var_name = __ffi_load_library("path");`
-                    auto load_call =
-                        std::make_unique<nari::CallExpr>(std::make_unique<nari::IdentExpr>("__ffi_load_library"));
+                    auto load_call = std::make_unique<nari::CallExpr>(std::make_unique<nari::IdentExpr>("__ffi_load_library"));
                     load_call->args.push_back(std::make_unique<nari::StringExpr>(lib_path));
 
-                    auto var_decl =
-                        std::make_unique<nari::VarDeclStmt>(var_name, std::move(load_call), VarDeclCtrl::LOCAL);
+                    auto var_decl = std::make_unique<nari::VarDeclStmt>(var_name, std::move(load_call), VarDeclCtrl::LOCAL);
 
                     top_block->stmts.push_back(std::move(var_decl));
 
@@ -916,14 +922,12 @@ class Parser {
 
             for (const auto &binding : exports) {
                 std::string internal_name = get_module_function_internal_name(module_name, binding.local_name);
-                auto value_expr =
-                    std::make_unique<nari::IdentExpr>(internal_name.empty() ? binding.local_name : internal_name);
+                auto value_expr = std::make_unique<nari::IdentExpr>(internal_name.empty() ? binding.local_name : internal_name);
                 value_expr->filename = module_name;
                 obj_expr->entries.push_back({ binding.export_name, std::move(value_expr) });
             }
 
-            auto namespace_decl =
-                std::make_unique<nari::VarDeclStmt>(namespace_global, std::move(obj_expr), VarDeclCtrl::GLOBAL);
+            auto namespace_decl = std::make_unique<nari::VarDeclStmt>(namespace_global, std::move(obj_expr), VarDeclCtrl::GLOBAL);
             namespace_decl->filename = module_name;
             top_block->stmts.push_back(std::move(namespace_decl));
         }
@@ -1021,10 +1025,9 @@ class Parser {
     // advance past tokens until a likely statement boundary so that the
     // top-level loop can attempt to parse the next construct cleanly.
     void synchronize() {
-        static const std::unordered_set<std::string> boundaryKeywords = { "func",     "let",   "const",   "if",
-                                                                          "while",    "for",   "foreach", "return",
-                                                                          "continue", "break", "import",  "export",
-                                                                          "type",     "enum",  "class",   "match" };
+        static const std::unordered_set<std::string> boundaryKeywords = { "func",    "let",    "const",    "if",    "while",  "for",
+                                                                          "foreach", "return", "continue", "break", "import", "export",
+                                                                          "type",    "enum",   "class",    "match" };
         while (!is_eof()) {
             TokenKind kind = peek().kind;
 
@@ -1204,8 +1207,8 @@ class Parser {
             if (next_idx < toks.size() && toks[next_idx].kind == TokenKind::TK_IDENT) {
                 next_idx++; // skip type name
                 // check for array syntax: type[]
-                if (next_idx < toks.size() && toks[next_idx].kind == TokenKind::TK_LBRACKET &&
-                    next_idx + 1 < toks.size() && toks[next_idx + 1].kind == TokenKind::TK_RBRACKET) {
+                if (next_idx < toks.size() && toks[next_idx].kind == TokenKind::TK_LBRACKET && next_idx + 1 < toks.size() &&
+                    toks[next_idx + 1].kind == TokenKind::TK_RBRACKET) {
                     next_idx += 2; // skip '[]'
                 }
             }
@@ -1241,8 +1244,8 @@ class Parser {
             return true;
         }
         // two-var: for ( [let] IDENT , IDENT in|of ... )
-        if (peek(v + 1).kind == TokenKind::TK_COMMA && peek(v + 2).kind == TokenKind::TK_IDENT &&
-            peek(v + 3).kind == TokenKind::TK_IDENT && (peek(v + 3).text == "in" || peek(v + 3).text == "of")) {
+        if (peek(v + 1).kind == TokenKind::TK_COMMA && peek(v + 2).kind == TokenKind::TK_IDENT && peek(v + 3).kind == TokenKind::TK_IDENT &&
+            (peek(v + 3).text == "in" || peek(v + 3).text == "of")) {
             return true;
         }
         return false;
@@ -1257,8 +1260,7 @@ class Parser {
             return false;
         }
         // Could be type Name { or type Name<T> { or type Alias BaseType
-        if (peek(2).kind == TokenKind::TK_LBRACE || peek(2).kind == TokenKind::TK_LT ||
-            peek(2).kind == TokenKind::TK_IDENT) {
+        if (peek(2).kind == TokenKind::TK_LBRACE || peek(2).kind == TokenKind::TK_LT || peek(2).kind == TokenKind::TK_IDENT) {
             return true;
         }
         return false;
@@ -1324,8 +1326,7 @@ class Parser {
         if (nameTok.kind != TokenKind::TK_IDENT) {
             error_and_exit(is_union ? "Expected union name after 'union'" : "Expected type name after 'type'");
         }
-        auto type_decl = std::make_unique<nari::TypeDecl>(nameTok.text, is_union ? nari::TypeDeclKind::Union
-                                                                                 : nari::TypeDeclKind::Struct);
+        auto type_decl = std::make_unique<nari::TypeDecl>(nameTok.text, is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
         type_decl->line = nameTok.line;
         type_decl->col = nameTok.col;
         type_decl->filename = nameTok.filename.empty() ? current_filename : nameTok.filename;
@@ -1542,6 +1543,11 @@ class Parser {
                 expect(TokenKind::TK_LPAREN, "'(' for constructor parameters");
                 if (peek().kind != TokenKind::TK_RPAREN) {
                     while (true) {
+                        bool is_rest = false;
+                        if (peek().kind == TokenKind::TK_ELLIPSIS) {
+                            is_rest = true;
+                            next();
+                        }
                         if (peek().kind != TokenKind::TK_IDENT) {
                             error_and_exit("Expected parameter name");
                         }
@@ -1553,9 +1559,16 @@ class Parser {
                             param_type = parse_type_annotation();
                         }
 
-                        method.params.emplace_back(param_name, nullptr, false, std::move(param_type));
+                        ExprPtr default_value = nullptr;
+                        if (!is_rest && peek().kind == TokenKind::TK_EQUAL) {
+                            next();
+                            default_value = parse_expression();
+                        }
+                        method.params.emplace_back(param_name, std::move(default_value), is_rest, std::move(param_type));
 
-                        if (peek().kind == TokenKind::TK_COMMA) {
+                        if (is_rest && peek().kind == TokenKind::TK_COMMA) {
+                            error_and_exit("Rest parameter must be last");
+                        } else if (peek().kind == TokenKind::TK_COMMA) {
                             next();
                         } else if (peek().kind == TokenKind::TK_RPAREN) {
                             break;
@@ -1587,6 +1600,11 @@ class Parser {
                 expect(TokenKind::TK_LPAREN, "'(' for method parameters");
                 if (peek().kind != TokenKind::TK_RPAREN) {
                     while (true) {
+                        bool is_rest = false;
+                        if (peek().kind == TokenKind::TK_ELLIPSIS) {
+                            is_rest = true;
+                            next();
+                        }
                         if (peek().kind != TokenKind::TK_IDENT) {
                             error_and_exit("Expected parameter name");
                         }
@@ -1598,9 +1616,16 @@ class Parser {
                             param_type = parse_type_annotation();
                         }
 
-                        method.params.emplace_back(param_name, nullptr, false, std::move(param_type));
+                        ExprPtr default_value = nullptr;
+                        if (!is_rest && peek().kind == TokenKind::TK_EQUAL) {
+                            next();
+                            default_value = parse_expression();
+                        }
+                        method.params.emplace_back(param_name, std::move(default_value), is_rest, std::move(param_type));
 
-                        if (peek().kind == TokenKind::TK_COMMA) {
+                        if (is_rest && peek().kind == TokenKind::TK_COMMA) {
+                            error_and_exit("Rest parameter must be last");
+                        } else if (peek().kind == TokenKind::TK_COMMA) {
                             next();
                         } else if (peek().kind == TokenKind::TK_RPAREN) {
                             break;
@@ -1693,18 +1718,7 @@ class Parser {
                 nari::TypeAnnotationPtr param_type = nullptr;
                 if (peek().kind == TokenKind::TK_COLON) {
                     next(); // consume ':'
-                    if (peek().kind != TokenKind::TK_IDENT) {
-                        error_and_exit("Expected type name after ':'");
-                    }
-                    std::string type_name = next().text;
-                    bool is_array = false;
-                    // Check for array syntax: type[]
-                    if (peek().kind == TokenKind::TK_LBRACKET && peek(1).kind == TokenKind::TK_RBRACKET) {
-                        next(); // consume '['
-                        next(); // consume ']'
-                        is_array = true;
-                    }
-                    param_type = std::make_unique<nari::TypeAnnotation>(type_name, is_array);
+                    param_type = parse_type_annotation();
                 }
 
                 ExprPtr default_value = nullptr;
@@ -1736,18 +1750,7 @@ class Parser {
         // parse optional return type: -> type or -> type[]
         if (peek().kind == TokenKind::TK_ARROW) {
             next(); // consume '->'
-            if (peek().kind != TokenKind::TK_IDENT) {
-                error_and_exit("Expected return type after '->'");
-            }
-            std::string return_type_name = next().text;
-            bool is_array = false;
-            // Check for array syntax: type[]
-            if (peek().kind == TokenKind::TK_LBRACKET && peek(1).kind == TokenKind::TK_RBRACKET) {
-                next(); // consume '['
-                next(); // consume ']'
-                is_array = true;
-            }
-            fn->return_type = std::make_unique<nari::TypeAnnotation>(return_type_name, is_array);
+            fn->return_type = parse_type_annotation();
         }
 
         fn->body = parse_block();
@@ -1819,11 +1822,14 @@ class Parser {
 
     static ExprPtr clone_literal(const nari::Expr *src, const nari::Expr *loc) {
         ExprPtr out;
-        if (const auto *ne = dynamic_cast<const nari::NumberExpr *>(src)) {
+        if (src && src->kind == nari::ExprKind::Number) {
+            const auto *ne = static_cast<const nari::NumberExpr *>(src);
             out = ne->is_float ? std::make_unique<nari::NumberExpr>(ne->f) : std::make_unique<nari::NumberExpr>(ne->i);
-        } else if (const auto *be = dynamic_cast<const nari::BoolExpr *>(src)) {
+        } else if (src && src->kind == nari::ExprKind::Bool) {
+            const auto *be = static_cast<const nari::BoolExpr *>(src);
             out = std::make_unique<nari::BoolExpr>(be->value);
-        } else if (const auto *se = dynamic_cast<const nari::StringExpr *>(src)) {
+        } else if (src && src->kind == nari::ExprKind::String) {
+            const auto *se = static_cast<const nari::StringExpr *>(src);
             out = std::make_unique<nari::StringExpr>(se->value);
         }
         if (out && loc) {
@@ -1832,166 +1838,187 @@ class Parser {
         return out;
     }
 
-    // collect_mutated_expr / collect_mutated_stmt: find every variable that is ever *assigned to* or *re-declared in a
-    // nested scope* within a subtree.
-    static void collect_mutated_stmt(const nari::Stmt *s, NameSet &out) {
-        if (!s) {
+    // Remove candidates that are assigned to or re-declared in a nested scope.
+    static void eliminate_mutated_stmt(const nari::Stmt *s, NameSet &candidates) {
+        if (!s || candidates.empty()) {
             return;
         }
-        if (const auto *as = dynamic_cast<const nari::AssignStmt *>(s)) {
-            out.insert(as->target);
-            collect_mutated_expr(as->value.get(), out);
-            return;
-        }
-        if (const auto *es = dynamic_cast<const nari::ExprStmt *>(s)) {
-            collect_mutated_expr(es->expr.get(), out);
-            return;
-        }
-        if (const auto *vd = dynamic_cast<const nari::VarDeclStmt *>(s)) {
-            collect_mutated_expr(vd->initializerExpr.get(), out);
-            return;
-        }
-        if (const auto *ia = dynamic_cast<const nari::IndexAssignStmt *>(s)) {
-            collect_mutated_expr(ia->target.get(), out);
-            collect_mutated_expr(ia->value.get(), out);
-            return;
-        }
-        if (const auto *rs = dynamic_cast<const nari::ReturnStmt *>(s)) {
-            collect_mutated_expr(rs->value.get(), out);
-            return;
-        }
-        if (const auto *blk = dynamic_cast<const nari::BlockStmt *>(s)) {
-            for (const auto &st : blk->stmts) {
-                // Any VarDeclStmt inside a nested block potentially shadows an outer name.
-                if (const auto *vd2 = dynamic_cast<const nari::VarDeclStmt *>(st.get())) {
-                    out.insert(vd2->name);
+        switch (s->stmt_kind) {
+            case nari::StmtKind::Assign: {
+                const auto *as = static_cast<const nari::AssignStmt *>(s);
+                candidates.erase(as->target);
+                eliminate_mutated_expr(as->value.get(), candidates);
+                return;
+            }
+            case nari::StmtKind::Expr:
+                eliminate_mutated_expr(static_cast<const nari::ExprStmt *>(s)->expr.get(), candidates);
+                return;
+            case nari::StmtKind::VarDecl:
+                eliminate_mutated_expr(static_cast<const nari::VarDeclStmt *>(s)->initializerExpr.get(), candidates);
+                return;
+            case nari::StmtKind::IndexAssign: {
+                const auto *ia = static_cast<const nari::IndexAssignStmt *>(s);
+                eliminate_mutated_expr(ia->target.get(), candidates);
+                eliminate_mutated_expr(ia->value.get(), candidates);
+                return;
+            }
+            case nari::StmtKind::Return:
+                eliminate_mutated_expr(static_cast<const nari::ReturnStmt *>(s)->value.get(), candidates);
+                return;
+            case nari::StmtKind::Block: {
+                const auto *blk = static_cast<const nari::BlockStmt *>(s);
+                for (const auto &st : blk->stmts) {
+                    // Any VarDeclStmt inside a nested block potentially shadows an outer name.
+                    if (st && st->stmt_kind == nari::StmtKind::VarDecl) {
+                        candidates.erase(static_cast<const nari::VarDeclStmt *>(st.get())->name);
+                    }
+                    eliminate_mutated_stmt(st.get(), candidates);
                 }
-                collect_mutated_stmt(st.get(), out);
+                return;
             }
-            return;
-        }
-        if (const auto *is = dynamic_cast<const nari::IfStmt *>(s)) {
-            collect_mutated_expr(is->cond.get(), out);
-            collect_mutated_stmt(is->then_branch.get(), out);
-            collect_mutated_stmt(is->else_branch.get(), out);
-            return;
-        }
-        if (const auto *ws = dynamic_cast<const nari::WhileStmt *>(s)) {
-            collect_mutated_expr(ws->cond.get(), out);
-            collect_mutated_stmt(ws->body.get(), out);
-            return;
-        }
-        if (const auto *fs = dynamic_cast<const nari::ForStmt *>(s)) {
-            // for-loop init may introduce a new binding (like `for (let i = 0; ...)`)
-            if (const auto *vd = dynamic_cast<const nari::VarDeclStmt *>(fs->init.get())) {
-                out.insert(vd->name);
-            } else {
-                collect_mutated_stmt(fs->init.get(), out);
+            case nari::StmtKind::If: {
+                const auto *is = static_cast<const nari::IfStmt *>(s);
+                eliminate_mutated_expr(is->cond.get(), candidates);
+                eliminate_mutated_stmt(is->then_branch.get(), candidates);
+                eliminate_mutated_stmt(is->else_branch.get(), candidates);
+                return;
             }
-            collect_mutated_expr(fs->cond.get(), out);
-            collect_mutated_stmt(fs->post.get(), out);
-            collect_mutated_stmt(fs->body.get(), out);
-            return;
-        }
-        if (const auto *fes = dynamic_cast<const nari::ForEachStmt *>(s)) {
-            out.insert(fes->var); // loop variable is a new binding
-            collect_mutated_expr(fes->iterable.get(), out);
-            collect_mutated_stmt(fes->body.get(), out);
-            return;
-        }
-        if (const auto *ss = dynamic_cast<const nari::SwitchStmt *>(s)) {
-            collect_mutated_expr(ss->value.get(), out);
-            for (const auto &c : ss->cases) {
-                collect_mutated_expr(c.match.get(), out);
-                if (c.body) {
-                    for (const auto &st : c.body->stmts) {
-                        collect_mutated_stmt(st.get(), out);
+            case nari::StmtKind::While: {
+                const auto *ws = static_cast<const nari::WhileStmt *>(s);
+                eliminate_mutated_expr(ws->cond.get(), candidates);
+                eliminate_mutated_stmt(ws->body.get(), candidates);
+                return;
+            }
+            case nari::StmtKind::For: {
+                const auto *fs = static_cast<const nari::ForStmt *>(s);
+                // for-loop init may introduce a new binding (like `for (let i = 0; ...)`)
+                if (fs->init && fs->init->stmt_kind == nari::StmtKind::VarDecl) {
+                    candidates.erase(static_cast<const nari::VarDeclStmt *>(fs->init.get())->name);
+                } else {
+                    eliminate_mutated_stmt(fs->init.get(), candidates);
+                }
+                eliminate_mutated_expr(fs->cond.get(), candidates);
+                eliminate_mutated_stmt(fs->post.get(), candidates);
+                eliminate_mutated_stmt(fs->body.get(), candidates);
+                return;
+            }
+            case nari::StmtKind::ForEach: {
+                const auto *fes = static_cast<const nari::ForEachStmt *>(s);
+                candidates.erase(fes->var); // loop variable is a new binding
+                eliminate_mutated_expr(fes->iterable.get(), candidates);
+                eliminate_mutated_stmt(fes->body.get(), candidates);
+                return;
+            }
+            case nari::StmtKind::Switch: {
+                const auto *ss = static_cast<const nari::SwitchStmt *>(s);
+                eliminate_mutated_expr(ss->value.get(), candidates);
+                for (const auto &c : ss->cases) {
+                    eliminate_mutated_expr(c.match.get(), candidates);
+                    if (c.body) {
+                        for (const auto &st : c.body->stmts) {
+                            eliminate_mutated_stmt(st.get(), candidates);
+                        }
                     }
                 }
-            }
-            if (ss->default_body) {
-                for (const auto &st : ss->default_body->stmts) {
-                    collect_mutated_stmt(st.get(), out);
+                if (ss->default_body) {
+                    for (const auto &st : ss->default_body->stmts) {
+                        eliminate_mutated_stmt(st.get(), candidates);
+                    }
                 }
+                return;
             }
-            return;
+            default:
+                return;
         }
     }
 
-    static void collect_mutated_expr(const nari::Expr *e, NameSet &out) {
-        if (!e) {
+    static void eliminate_mutated_expr(const nari::Expr *e, NameSet &candidates) {
+        if (!e || candidates.empty()) {
             return;
         }
-        if (const auto *ue = dynamic_cast<const nari::UnaryExpr *>(e)) {
-            if (ue->op == "++" || ue->op == "--" || ue->op == "post++" || ue->op == "post--") {
-                if (const auto *id = dynamic_cast<const nari::IdentExpr *>(ue->operand.get())) {
-                    out.insert(id->name);
+        switch (e->kind) {
+            case nari::ExprKind::Unary: {
+                const auto *ue = static_cast<const nari::UnaryExpr *>(e);
+                if (ue->op == "++" || ue->op == "--" || ue->op == "post++" || ue->op == "post--") {
+                    if (ue->operand && ue->operand->kind == nari::ExprKind::Ident) {
+                        candidates.erase(static_cast<const nari::IdentExpr *>(ue->operand.get())->name);
+                    }
                 }
+                eliminate_mutated_expr(ue->operand.get(), candidates);
+                return;
             }
-            collect_mutated_expr(ue->operand.get(), out);
-            return;
-        }
-        if (const auto *be = dynamic_cast<const nari::BinaryExpr *>(e)) {
-            collect_mutated_expr(be->left.get(), out);
-            collect_mutated_expr(be->right.get(), out);
-            return;
-        }
-        if (const auto *ce = dynamic_cast<const nari::CallExpr *>(e)) {
-            collect_mutated_expr(ce->callee.get(), out);
-            for (const auto &a : ce->args) {
-                collect_mutated_expr(a.get(), out);
+            case nari::ExprKind::Binary: {
+                const auto *be = static_cast<const nari::BinaryExpr *>(e);
+                eliminate_mutated_expr(be->left.get(), candidates);
+                eliminate_mutated_expr(be->right.get(), candidates);
+                return;
             }
-            return;
-        }
-        if (const auto *ae = dynamic_cast<const nari::ArrayLiteralExpr *>(e)) {
-            for (const auto &el : ae->elements) {
-                collect_mutated_expr(el.get(), out);
-            }
-            return;
-        }
-        if (const auto *oe = dynamic_cast<const nari::ObjectLiteralExpr *>(e)) {
-            for (const auto &kv : oe->entries) {
-                collect_mutated_expr(kv.second.get(), out);
-            }
-            return;
-        }
-        if (const auto *ie = dynamic_cast<const nari::IndexExpr *>(e)) {
-            collect_mutated_expr(ie->object.get(), out);
-            collect_mutated_expr(ie->index.get(), out);
-            return;
-        }
-        if (const auto *me = dynamic_cast<const nari::MemberExpr *>(e)) {
-            collect_mutated_expr(me->object.get(), out);
-            return;
-        }
-        if (const auto *ne = dynamic_cast<const nari::NewExpr *>(e)) {
-            for (const auto &a : ne->args) {
-                collect_mutated_expr(a.get(), out);
-            }
-            return;
-        }
-        if (const auto *te = dynamic_cast<const nari::TernaryExpr *>(e)) {
-            collect_mutated_expr(te->condition.get(), out);
-            collect_mutated_expr(te->true_expr.get(), out);
-            collect_mutated_expr(te->false_expr.get(), out);
-            return;
-        }
-        // Scan closures and spawn blocks for assignments to outer variables.
-        if (const auto *fe = dynamic_cast<const nari::FunctionExpr *>(e)) {
-            if (fe->body) {
-                for (const auto &st : fe->body->stmts) {
-                    collect_mutated_stmt(st.get(), out);
+            case nari::ExprKind::Call: {
+                const auto *ce = static_cast<const nari::CallExpr *>(e);
+                eliminate_mutated_expr(ce->callee.get(), candidates);
+                for (const auto &a : ce->args) {
+                    eliminate_mutated_expr(a.get(), candidates);
                 }
+                return;
             }
-            return;
-        }
-        if (const auto *se = dynamic_cast<const nari::SpawnExpr *>(e)) {
-            if (se->body) {
-                for (const auto &st : se->body->stmts) {
-                    collect_mutated_stmt(st.get(), out);
+            case nari::ExprKind::ArrayLiteral: {
+                const auto *ae = static_cast<const nari::ArrayLiteralExpr *>(e);
+                for (const auto &el : ae->elements) {
+                    eliminate_mutated_expr(el.get(), candidates);
                 }
+                return;
             }
-            return;
+            case nari::ExprKind::ObjectLiteral: {
+                const auto *oe = static_cast<const nari::ObjectLiteralExpr *>(e);
+                for (const auto &kv : oe->entries) {
+                    eliminate_mutated_expr(kv.second.get(), candidates);
+                }
+                return;
+            }
+            case nari::ExprKind::Index: {
+                const auto *ie = static_cast<const nari::IndexExpr *>(e);
+                eliminate_mutated_expr(ie->object.get(), candidates);
+                eliminate_mutated_expr(ie->index.get(), candidates);
+                return;
+            }
+            case nari::ExprKind::Member:
+                eliminate_mutated_expr(static_cast<const nari::MemberExpr *>(e)->object.get(), candidates);
+                return;
+            case nari::ExprKind::New: {
+                const auto *ne = static_cast<const nari::NewExpr *>(e);
+                for (const auto &a : ne->args) {
+                    eliminate_mutated_expr(a.get(), candidates);
+                }
+                return;
+            }
+            case nari::ExprKind::Ternary: {
+                const auto *te = static_cast<const nari::TernaryExpr *>(e);
+                eliminate_mutated_expr(te->condition.get(), candidates);
+                eliminate_mutated_expr(te->true_expr.get(), candidates);
+                eliminate_mutated_expr(te->false_expr.get(), candidates);
+                return;
+            }
+            // Scan closures and spawn blocks for assignments to outer variables.
+            case nari::ExprKind::Function: {
+                const auto *fe = static_cast<const nari::FunctionExpr *>(e);
+                if (fe->body) {
+                    for (const auto &st : fe->body->stmts) {
+                        eliminate_mutated_stmt(st.get(), candidates);
+                    }
+                }
+                return;
+            }
+            case nari::ExprKind::Spawn: {
+                const auto *se = static_cast<const nari::SpawnExpr *>(e);
+                if (se->body) {
+                    for (const auto &st : se->body->stmts) {
+                        eliminate_mutated_stmt(st.get(), candidates);
+                    }
+                }
+                return;
+            }
+            default:
+                return;
         }
     }
 
@@ -2139,17 +2166,26 @@ class Parser {
         if (!blk) {
             return;
         }
-        // pass 1: collect every name that is mutated or re-declared anywhere.
-        NameSet mutated;
+        NameSet candidates;
         for (const auto &s : blk->stmts) {
-            collect_mutated_stmt(s.get(), mutated);
+            if (const auto *vd = dynamic_cast<const nari::VarDeclStmt *>(s.get())) {
+                if (vd->destructure_kind == nari::DestructureKind::None && !vd->name.empty() && !vd->is_global && vd->initializerExpr &&
+                    literal_any(vd->initializerExpr.get())) {
+                    candidates.insert(vd->name);
+                }
+            }
         }
-        // pass 2: identify constant candidates (simple `let x = <literal>`).
+        if (candidates.empty()) {
+            return;
+        }
+        for (const auto &s : blk->stmts) {
+            eliminate_mutated_stmt(s.get(), candidates);
+        }
         ConstMap consts;
         for (const auto &s : blk->stmts) {
             if (const auto *vd = dynamic_cast<const nari::VarDeclStmt *>(s.get())) {
-                if (vd->destructure_kind == nari::DestructureKind::None && !vd->name.empty() && !vd->is_global &&
-                    vd->initializerExpr && literal_any(vd->initializerExpr.get()) && !mutated.count(vd->name)) {
+                if (vd->destructure_kind == nari::DestructureKind::None && !vd->name.empty() && !vd->is_global && vd->initializerExpr &&
+                    literal_any(vd->initializerExpr.get()) && candidates.count(vd->name)) {
                     consts[vd->name] = vd->initializerExpr.get();
                 }
             }
@@ -2424,7 +2460,8 @@ class Parser {
     }
 
     static bool literal_int(const nari::Expr *e, int64_t &out) {
-        if (const auto *ne = dynamic_cast<const nari::NumberExpr *>(e)) {
+        if (e && e->kind == nari::ExprKind::Number) {
+            const auto *ne = static_cast<const nari::NumberExpr *>(e);
             if (!ne->is_float) {
                 out = ne->i;
                 return true;
@@ -2434,7 +2471,8 @@ class Parser {
     }
 
     static bool literal_float(const nari::Expr *e, double &out) {
-        if (const auto *ne = dynamic_cast<const nari::NumberExpr *>(e)) {
+        if (e && e->kind == nari::ExprKind::Number) {
+            const auto *ne = static_cast<const nari::NumberExpr *>(e);
             if (ne->is_float) {
                 out = ne->f;
                 return true;
@@ -2454,7 +2492,8 @@ class Parser {
     }
 
     static bool literal_bool(const nari::Expr *e, bool &out) {
-        if (const auto *be = dynamic_cast<const nari::BoolExpr *>(e)) {
+        if (e && e->kind == nari::ExprKind::Bool) {
+            const auto *be = static_cast<const nari::BoolExpr *>(e);
             out = be->value;
             return true;
         }
@@ -2462,7 +2501,8 @@ class Parser {
     }
 
     static bool literal_string(const nari::Expr *e, std::string &out) {
-        if (const auto *se = dynamic_cast<const nari::StringExpr *>(e)) {
+        if (e && e->kind == nari::ExprKind::String) {
+            const auto *se = static_cast<const nari::StringExpr *>(e);
             out = se->value;
             return true;
         }
@@ -2470,18 +2510,23 @@ class Parser {
     }
 
     static bool literal_any(const nari::Expr *e) {
-        return dynamic_cast<const nari::NumberExpr *>(e) || dynamic_cast<const nari::StringExpr *>(e) ||
-               dynamic_cast<const nari::BoolExpr *>(e);
+        return e && (e->kind == nari::ExprKind::Number || e->kind == nari::ExprKind::String || e->kind == nari::ExprKind::Bool);
     }
 
     static std::string literal_to_string(const nari::Expr *e) {
-        if (const auto *se = dynamic_cast<const nari::StringExpr *>(e)) {
+        if (!e) {
+            return "";
+        }
+        if (e->kind == nari::ExprKind::String) {
+            const auto *se = static_cast<const nari::StringExpr *>(e);
             return se->value;
         }
-        if (const auto *be = dynamic_cast<const nari::BoolExpr *>(e)) {
+        if (e->kind == nari::ExprKind::Bool) {
+            const auto *be = static_cast<const nari::BoolExpr *>(e);
             return be->value ? "true" : "false";
         }
-        if (const auto *ne = dynamic_cast<const nari::NumberExpr *>(e)) {
+        if (e->kind == nari::ExprKind::Number) {
+            const auto *ne = static_cast<const nari::NumberExpr *>(e);
             if (ne->is_float) {
                 return std::to_string(ne->f);
             } else {
@@ -2505,7 +2550,8 @@ class Parser {
             return expr;
         }
 
-        if (auto *ue = dynamic_cast<nari::UnaryExpr *>(expr.get())) {
+        if (expr->kind == nari::ExprKind::Unary) {
+            auto *ue = static_cast<nari::UnaryExpr *>(expr.get());
             ue->operand = fold_expr(std::move(ue->operand));
             if (!ue->operand) {
                 return expr;
@@ -2517,6 +2563,18 @@ class Parser {
                 auto result = std::make_unique<nari::NumberExpr>(-ni);
                 copy_loc(result.get(), ue);
                 return result;
+            }
+            // int48 min is only writable as -(2^47), and 2^47 on its own is out of int48
+            // range so the literal was promoted to float. Negate the retained exact
+            // integer instead of the double: the constructor narrows it back to an int
+            // when the negated value fits, so -140737488355328 stays an int.
+            if (ue->op == "neg" && ue->operand->kind == nari::ExprKind::Number) {
+                const auto *ne = static_cast<const nari::NumberExpr *>(ue->operand.get());
+                if (ne->promoted_from_int) {
+                    auto result = std::make_unique<nari::NumberExpr>(-ne->i);
+                    copy_loc(result.get(), ue);
+                    return result;
+                }
             }
             if (ue->op == "+" && literal_int(ue->operand.get(), ni)) {
                 auto result = std::make_unique<nari::NumberExpr>(ni);
@@ -2536,7 +2594,8 @@ class Parser {
             return expr;
         }
 
-        if (auto *binaryExpr = dynamic_cast<nari::BinaryExpr *>(expr.get())) {
+        if (expr->kind == nari::ExprKind::Binary) {
+            auto *binaryExpr = static_cast<nari::BinaryExpr *>(expr.get());
             binaryExpr->left = fold_expr(std::move(binaryExpr->left));
             binaryExpr->right = fold_expr(std::move(binaryExpr->right));
             if (!binaryExpr->left || !binaryExpr->right) {
@@ -2641,13 +2700,9 @@ class Parser {
 
             if ((lfloat || rfloat) && (lint || lfloat) && (rint || rfloat)) {
                 double l =
-                    lfloat ? lf
-                           : (lint ? (double)li
-                                   : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
+                    lfloat ? lf : (lint ? (double)li : number_to_double(static_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
                 double r =
-                    rfloat ? rf
-                           : (rint ? (double)ri
-                                   : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
+                    rfloat ? rf : (rint ? (double)ri : number_to_double(static_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
                 if (op == "+") {
                     auto result = std::make_unique<nari::NumberExpr>(l + r);
                     copy_loc(result.get(), binaryExpr);
@@ -2677,33 +2732,36 @@ class Parser {
                 }
             }
 
-            if (op == "@" && literal_any(binaryExpr->left.get()) && literal_any(binaryExpr->right.get()) &&
+            // Never fold a concat with a float operand: literal_to_string() formats floats
+            // with std::to_string (printf "%f", 6 fixed decimals) while the runtime uses a
+            // shortest-round-trip formatter, so folding changed the program's output
+            // ("x" @ 0.5 folded to "x0.500000" but produced "x0.5" at runtime). Leaving the
+            // float to the runtime keeps one formatter instead of two that must agree.
+            if (op == "@" && !lfloat && !rfloat && literal_any(binaryExpr->left.get()) && literal_any(binaryExpr->right.get()) &&
                 (lstr || rstr)) {
-                std::string out =
-                    literal_to_string(binaryExpr->left.get()) + literal_to_string(binaryExpr->right.get());
+                std::string out = literal_to_string(binaryExpr->left.get()) + literal_to_string(binaryExpr->right.get());
                 auto result = std::make_unique<nari::StringExpr>(out);
                 copy_loc(result.get(), binaryExpr);
                 return result;
             }
 
+            // Only fold pairs of the same type class. Value::values_equal() reports a
+            // string and a number as not equal, so folding a mixed pair through
+            // literal_to_string() made `1 == "1"` true here but false at run time.
             if (op == "==" || op == "!=") {
                 bool eq = false;
                 if (lint && rint) {
                     eq = (li == ri);
                 } else if ((lfloat || rfloat) && (lint || lfloat) && (rint || rfloat)) {
                     double l =
-                        lfloat
-                            ? lf
-                            : (lint ? (double)li
-                                    : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
-                    double r = rfloat ? rf
-                                      : (rint ? (double)ri
-                                              : number_to_double(
-                                                    dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
+                        lfloat ? lf : (lint ? (double)li : number_to_double(static_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
+                    double r = rfloat
+                                   ? rf
+                                   : (rint ? (double)ri : number_to_double(static_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
                     eq = std::fabs(l - r) < 1e-12;
                 } else if (lbool && rbool) {
                     eq = (lb == rb);
-                } else if ((lstr || lbool || lint || lfloat) && (rstr || rbool || rint || rfloat)) {
+                } else if (lstr && rstr) {
                     eq = (literal_to_string(binaryExpr->left.get()) == literal_to_string(binaryExpr->right.get()));
                 } else {
                     return expr;
@@ -2738,30 +2796,29 @@ class Parser {
 
             if ((lfloat || rfloat) && (lint || lfloat) && (rint || rfloat)) {
                 double l =
-                    lfloat ? lf
-                           : (lint ? (double)li
-                                   : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
+                    lfloat ? lf : (lint ? (double)li : number_to_double(static_cast<const nari::NumberExpr *>(binaryExpr->left.get())));
                 double r =
-                    rfloat ? rf
-                           : (rint ? (double)ri
-                                   : number_to_double(dynamic_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
+                    rfloat ? rf : (rint ? (double)ri : number_to_double(static_cast<const nari::NumberExpr *>(binaryExpr->right.get())));
+                // Same 1e-12 tolerance as Value::compare_ordered(), so a folded
+                // float comparison agrees with the same comparison at run time.
+                const bool feq = std::fabs(l - r) < 1e-12;
                 if (op == "<") {
-                    auto result = std::make_unique<nari::BoolExpr>(l < r);
+                    auto result = std::make_unique<nari::BoolExpr>(!feq && l < r);
                     copy_loc(result.get(), binaryExpr);
                     return result;
                 }
                 if (op == ">") {
-                    auto result = std::make_unique<nari::BoolExpr>(l > r);
+                    auto result = std::make_unique<nari::BoolExpr>(!feq && l > r);
                     copy_loc(result.get(), binaryExpr);
                     return result;
                 }
                 if (op == "<=") {
-                    auto result = std::make_unique<nari::BoolExpr>(l <= r);
+                    auto result = std::make_unique<nari::BoolExpr>(feq || l < r);
                     copy_loc(result.get(), binaryExpr);
                     return result;
                 }
                 if (op == ">=") {
-                    auto result = std::make_unique<nari::BoolExpr>(l >= r);
+                    auto result = std::make_unique<nari::BoolExpr>(feq || l > r);
                     copy_loc(result.get(), binaryExpr);
                     return result;
                 }
@@ -2783,7 +2840,8 @@ class Parser {
             return expr;
         }
 
-        if (auto *te = dynamic_cast<nari::TernaryExpr *>(expr.get())) {
+        if (expr->kind == nari::ExprKind::Ternary) {
+            auto *te = static_cast<nari::TernaryExpr *>(expr.get());
             te->condition = fold_expr(std::move(te->condition));
             te->true_expr = fold_expr(std::move(te->true_expr));
             te->false_expr = fold_expr(std::move(te->false_expr));
@@ -2794,7 +2852,8 @@ class Parser {
             return expr;
         }
 
-        if (auto *ce = dynamic_cast<nari::CallExpr *>(expr.get())) {
+        if (expr->kind == nari::ExprKind::Call) {
+            auto *ce = static_cast<nari::CallExpr *>(expr.get());
             ce->callee = fold_expr(std::move(ce->callee));
             for (auto &arg : ce->args) {
                 arg = fold_expr(std::move(arg));
@@ -2802,27 +2861,31 @@ class Parser {
             return expr;
         }
 
-        if (auto *ae = dynamic_cast<nari::ArrayLiteralExpr *>(expr.get())) {
+        if (expr->kind == nari::ExprKind::ArrayLiteral) {
+            auto *ae = static_cast<nari::ArrayLiteralExpr *>(expr.get());
             for (auto &el : ae->elements) {
                 el = fold_expr(std::move(el));
             }
             return expr;
         }
 
-        if (auto *oe = dynamic_cast<nari::ObjectLiteralExpr *>(expr.get())) {
+        if (expr->kind == nari::ExprKind::ObjectLiteral) {
+            auto *oe = static_cast<nari::ObjectLiteralExpr *>(expr.get());
             for (auto &entry : oe->entries) {
                 entry.second = fold_expr(std::move(entry.second));
             }
             return expr;
         }
 
-        if (auto *ie = dynamic_cast<nari::IndexExpr *>(expr.get())) {
+        if (expr->kind == nari::ExprKind::Index) {
+            auto *ie = static_cast<nari::IndexExpr *>(expr.get());
             ie->object = fold_expr(std::move(ie->object));
             ie->index = fold_expr(std::move(ie->index));
             return expr;
         }
 
-        if (auto *me = dynamic_cast<nari::MemberExpr *>(expr.get())) {
+        if (expr->kind == nari::ExprKind::Member) {
+            auto *me = static_cast<nari::MemberExpr *>(expr.get());
             me->object = fold_expr(std::move(me->object));
             return expr;
         }
@@ -3115,8 +3178,7 @@ class Parser {
                         error_and_exit("Expected statement or block after else");
                     }
                 }
-                auto ifs =
-                    std::make_unique<nari::IfStmt>(std::move(cond), std::move(then_branch), std::move(else_branch));
+                auto ifs = std::make_unique<nari::IfStmt>(std::move(cond), std::move(then_branch), std::move(else_branch));
                 ifs->line = tok.line;
                 ifs->col = tok.col;
                 ifs->filename = tok.filename.empty() ? current_filename : tok.filename;
@@ -3166,8 +3228,7 @@ class Parser {
                     if (val_var.empty()) {
                         fs = std::make_unique<nari::ForEachStmt>(varTok.text, std::move(iterable), std::move(body));
                     } else {
-                        fs = std::make_unique<nari::ForEachStmt>(varTok.text, val_var, std::move(iterable),
-                                                                 std::move(body));
+                        fs = std::make_unique<nari::ForEachStmt>(varTok.text, val_var, std::move(iterable), std::move(body));
                     }
                     fs->line = kw.line;
                     fs->col = kw.col;
@@ -3181,8 +3242,7 @@ class Parser {
                 // either a declaration or an expression statement (or empty)
                 StmtPtr init = nullptr;
                 if (peek().kind != TokenKind::TK_SEMICOLON) {
-                    if (peek().kind == TokenKind::TK_IDENT &&
-                        (peek().text == "let" || peek().text == "global" || peek().text == "const")) {
+                    if (peek().kind == TokenKind::TK_IDENT && (peek().text == "let" || peek().text == "global" || peek().text == "const")) {
                         init = parse_stmt();
                     } else {
                         // Handle assignment (i = 0) or expression
@@ -3233,8 +3293,7 @@ class Parser {
                 }
                 expect(TokenKind::TK_RPAREN, "for )");
                 StmtPtr body = parse_block();
-                auto fs =
-                    std::make_unique<nari::ForStmt>(std::move(init), std::move(cond), std::move(post), std::move(body));
+                auto fs = std::make_unique<nari::ForStmt>(std::move(init), std::move(cond), std::move(post), std::move(body));
                 fs->line = kw.line;
                 fs->col = kw.col;
                 fs->filename = kw.filename.empty() ? current_filename : kw.filename;
@@ -3273,8 +3332,7 @@ class Parser {
                 next();
                 ExprPtr val = nullptr;
                 // optional return value
-                if (peek().kind != TokenKind::TK_SEMICOLON && peek().kind != TokenKind::TK_RBRACE &&
-                    peek().kind != TokenKind::TK_EOF) {
+                if (peek().kind != TokenKind::TK_SEMICOLON && peek().kind != TokenKind::TK_RBRACE && peek().kind != TokenKind::TK_EOF) {
                     val = parse_expression();
                 }
                 if (peek().kind == TokenKind::TK_SEMICOLON) {
@@ -3307,16 +3365,14 @@ class Parser {
                     std::string lib_path = next().text;
 
                     // create `let var_name = __ffi_load_library("path");`
-                    auto load_call =
-                        std::make_unique<nari::CallExpr>(std::make_unique<nari::IdentExpr>("__ffi_load_library"));
+                    auto load_call = std::make_unique<nari::CallExpr>(std::make_unique<nari::IdentExpr>("__ffi_load_library"));
                     load_call->args.push_back(std::make_unique<nari::StringExpr>(lib_path));
 
                     if (peek().kind == TokenKind::TK_SEMICOLON) {
                         next();
                     }
 
-                    auto var_decl =
-                        std::make_unique<nari::VarDeclStmt>(var_name, std::move(load_call), VarDeclCtrl::LOCAL);
+                    auto var_decl = std::make_unique<nari::VarDeclStmt>(var_name, std::move(load_call), VarDeclCtrl::LOCAL);
                     var_decl->line = importTok.line;
                     var_decl->col = importTok.col;
                     var_decl->filename = importTok.filename.empty() ? current_filename : importTok.filename;
@@ -3474,11 +3530,10 @@ class Parser {
 
             // compound assignment: +=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=
             TokenKind next_kind = peek(1).kind;
-            if (next_kind == TokenKind::TK_PLUSEQ || next_kind == TokenKind::TK_MINUSEQ ||
-                next_kind == TokenKind::TK_STAREQ || next_kind == TokenKind::TK_SLASHEQ ||
-                next_kind == TokenKind::TK_PERCENTEQ || next_kind == TokenKind::TK_AMPEQ ||
-                next_kind == TokenKind::TK_PIPEEQ || next_kind == TokenKind::TK_CARETEQ ||
-                next_kind == TokenKind::TK_LSHIFTEQ || next_kind == TokenKind::TK_RSHIFTEQ) {
+            if (next_kind == TokenKind::TK_PLUSEQ || next_kind == TokenKind::TK_MINUSEQ || next_kind == TokenKind::TK_STAREQ ||
+                next_kind == TokenKind::TK_SLASHEQ || next_kind == TokenKind::TK_PERCENTEQ || next_kind == TokenKind::TK_AMPEQ ||
+                next_kind == TokenKind::TK_PIPEEQ || next_kind == TokenKind::TK_CARETEQ || next_kind == TokenKind::TK_LSHIFTEQ ||
+                next_kind == TokenKind::TK_RSHIFTEQ) {
                 std::string name = next().text;
                 Token opTok = next(); // consume compound operator
 
@@ -3720,7 +3775,7 @@ class Parser {
         PREC_BITWISE_OR = 5,    // |
         PREC_BITWISE_XOR = 6,   // ^
         PREC_BITWISE_AND = 7,   // &
-        PREC_EQUALITY = 8,      // == !=
+        PREC_EQUALITY = 8,      // == != === !==
         PREC_COMPARISON = 9,    // < > <= >=
         PREC_SHIFT = 10,        // << >>
         PREC_TERM = 11,         // + - @
@@ -3748,6 +3803,8 @@ class Parser {
                 return PREC_BITWISE_AND;
             case TokenKind::TK_EQEQ:
             case TokenKind::TK_NEQ:
+            case TokenKind::TK_STRICT_EQ:
+            case TokenKind::TK_STRICT_NEQ:
                 return PREC_EQUALITY;
             case TokenKind::TK_LT:
             case TokenKind::TK_GT:
@@ -3821,8 +3878,7 @@ class Parser {
                 if (!false_expr) {
                     error_and_exit("Expected expression after ':'");
                 }
-                auto te =
-                    std::make_unique<nari::TernaryExpr>(std::move(lhs), std::move(true_expr), std::move(false_expr));
+                auto te = std::make_unique<nari::TernaryExpr>(std::move(lhs), std::move(true_expr), std::move(false_expr));
                 te->line = qmark.line;
                 te->col = qmark.col;
                 te->filename = qmark.filename.empty() ? current_filename : qmark.filename;
@@ -3868,6 +3924,12 @@ class Parser {
                     break;
                 case TokenKind::TK_NEQ:
                     opname = "!=";
+                    break;
+                case TokenKind::TK_STRICT_EQ:
+                    opname = "===";
+                    break;
+                case TokenKind::TK_STRICT_NEQ:
+                    opname = "!==";
                     break;
                 case TokenKind::TK_LT:
                     opname = "<";
@@ -3925,8 +3987,9 @@ class Parser {
     // parse unary operators and primaries
     ExprPtr parse_unary() {
         const Token &t = peek();
-        // `await expr` desugars to `expr.value`, handles block on .value access,
-        // so this is just sugar for the existing handle-fetch pattern.
+        // `await expr` is sugar for `expr.await`. The member name must stay "await",
+        // because that is the name the handle member lookup blocks on. A handle has
+        // no "value" member, so any other name gives none and hides the wait.
         if (t.kind == TokenKind::TK_IDENT && t.text == "await") {
             Token op = t;
             next();
@@ -3934,7 +3997,7 @@ class Parser {
             if (!operand) {
                 error_and_exit("Expected expression after 'await'");
             }
-            auto me = std::make_unique<nari::MemberExpr>(std::move(operand), "value");
+            auto me = std::make_unique<nari::MemberExpr>(std::move(operand), "await");
             me->line = op.line;
             me->col = op.col;
             me->filename = op.filename.empty() ? current_filename : op.filename;
@@ -4359,9 +4422,8 @@ class Parser {
             // exponent markers. e.g. 0xDEAD must NOT be treated as float even though
             // it contains 'E'.
             bool is_hex_prefix = s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X');
-            bool is_float =
-                !is_hex_prefix && ((s.find('.') != std::string::npos) || (s.find('e') != std::string::npos) ||
-                                   (s.find('E') != std::string::npos));
+            bool is_float = !is_hex_prefix && ((s.find('.') != std::string::npos) || (s.find('e') != std::string::npos) ||
+                                               (s.find('E') != std::string::npos));
             std::unique_ptr<nari::NumberExpr> num_expr;
             if (is_float) {
                 double v = 0.0;
@@ -4541,20 +4603,23 @@ static void ri_expr(nari::Expr *e, std::vector<ParseError> *errors) {
                 std::string previous_filename = current_filename;
                 set_source_filename(sie->filename);
                 FuncList funcs;
+                // TODO: kinda ugly way of doing interp slots 
+                // but this doesn't technically break anything, it's never exposed to the user, and it's free speed wise
+                const std::string wrapped = "let __nari_interp_slot__ = (" + src + ");";
                 if (errors) {
-                    auto result = parse_program_recovering(src);
+                    auto result = parse_program_recovering(wrapped);
                     for (auto &error : result.errors) {
                         errors->push_back(std::move(error));
                     }
                     funcs = std::move(result.functions);
                 } else {
-                    funcs = parse_program_from_source(src);
+                    funcs = parse_program_from_source(wrapped);
                 }
                 set_source_filename(previous_filename);
                 nari::ExprPtr parsed;
                 if (funcs.size() >= 2 && funcs[1] && funcs[1]->body && !funcs[1]->body->stmts.empty()) {
-                    if (auto *es = dynamic_cast<nari::ExprStmt *>(funcs[1]->body->stmts[0].get())) {
-                        parsed = std::move(es->expr);
+                    if (auto *var_decl = dynamic_cast<nari::VarDeclStmt *>(funcs[1]->body->stmts[0].get())) {
+                        parsed = std::move(var_decl->initializerExpr);
                     }
                 }
                 sie->exprs.push_back(std::move(parsed));

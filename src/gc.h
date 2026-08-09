@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 struct Value;
@@ -14,11 +15,18 @@ struct HeapHeader;
 class GarbageCollector {
   public:
     static GarbageCollector &instance() {
-        static GarbageCollector gc;
-        return gc;
+        return singleton;
     }
 
-    enum class TrackedType { Array, Object, Handle, ClassInstance, Function, String, Unknown };
+    enum class TrackedType {
+        Array,
+        Object,
+        Handle,
+        ClassInstance,
+        Function,
+        String,
+        Unknown
+    };
 
     // Track a heap object so the mark-sweep collector can reclaim it.
     // noexcept since on OOM the entry is silently dropped
@@ -68,6 +76,7 @@ class GarbageCollector {
 
     void set_collection_threshold(size_t t) {
         collection_threshold = t;
+        collection_target = tracked_count + t;
     }
     size_t get_collection_threshold() const {
         return collection_threshold;
@@ -82,6 +91,7 @@ class GarbageCollector {
 
     void set_memory_limit(size_t limit) {
         memory_limit = limit;
+        memory_target = limit;
     }
     size_t get_memory_limit() const {
         return memory_limit;
@@ -103,18 +113,20 @@ class GarbageCollector {
     Stats get_stats() const;
 
   private:
+    static GarbageCollector singleton;
     GarbageCollector() = default;
     ~GarbageCollector() = default;
     GarbageCollector(const GarbageCollector &) = delete;
     GarbageCollector &operator=(const GarbageCollector &) = delete;
 
-    // intrusive doubly-linked list of all tracked heap objects
-    HeapHeader *gc_list_head = nullptr;
+    // Compact registry of all tracked heap objects. Sequential full-heap scans
+    // are substantially cheaper than chasing intrusive-list pointers.
+    std::vector<HeapHeader *> tracked_objects;
     size_t tracked_count = 0;
 
     size_t allocation_count = 0;
-    // allocations between collections, this gives roughly the best performance I saw, but ymmv?
-    size_t collection_threshold = 4000;
+    size_t collection_threshold = 1000000;
+    size_t collection_target = 1000000;
     bool trigger_collection = false;
     bool enabled = true;
 
@@ -124,8 +136,11 @@ class GarbageCollector {
     size_t peak_tracked = 0;
 
     size_t memory_limit = 0;
+    // trigger point for the memory-based collection heuristic
+    size_t memory_target = 0;
     size_t estimated_memory_usage = 0;
 
     // mark-phase worklist
     std::vector<uint64_t> mark_stack;
+    std::unordered_set<const void *> marked_closure_environments;
 };

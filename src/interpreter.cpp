@@ -5,7 +5,6 @@
 #include <vector>
 #ifndef _WIN32
 #include <signal.h>
-#include <unistd.h>
 #endif
 #include <atomic>
 #include <stdexcept>
@@ -15,11 +14,9 @@
 #include "bytecode.h"
 #include "bytecode_serializer.h"
 #include "dap/dap_server.h"
-#ifndef DISABLE_PARSER
 #include "parser_api.h"
 
 #include "fmt/fmt_cli.h"
-#endif
 #include "repl.h"
 #include "runtime.h"
 #ifndef DISABLE_JIT
@@ -32,20 +29,14 @@ enum ReturnCode {
     ERROR_GENERIC = 1,
     ERROR_READING_FILE = 2,
     ERROR_PARSING = 3,
-    ERROR_WRITING_AST_DUMP = 5,
     ERROR_RUNTIME = 6,
     ERROR_BYTECODE_COMPILATION = 7,
     ERROR_BYTECODE_EXECUTION = 8
 };
 
-#ifndef DISABLE_PARSER
 extern std::string nari_std_prelude_source();
-#endif
 
 namespace Runtime {
-#ifndef DISABLE_PARSER
-void run_program_with_runtime(FuncList &funcs);
-#endif
 extern std::atomic<bool> g_shutdown_requested;
 extern std::atomic<bool> g_runtime_error_occurred;
 void reset_shutdown_flag();
@@ -79,9 +70,7 @@ static std::string read_file_to_string(const std::string &path) {
 }
 
 // merge a pre-compiled naric module chunk into the destination chunk, requires the parser for obvious reasons :)
-#ifndef DISABLE_PARSER
-static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::Chunk *src,
-                                   const std::string &module_main_name) {
+static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::Chunk *src, const std::string &module_main_name) {
     using namespace nari::bytecode;
 
     std::vector<uint32_t> str_remap(src->strings.size());
@@ -163,8 +152,18 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                 case OpCode::OP_LSHIFT:
                 case OpCode::OP_RSHIFT:
                 case OpCode::OP_NOT:
+                case OpCode::OP_JS_TRUTHY:
+                case OpCode::OP_JS_BIT_AND:
+                case OpCode::OP_JS_BIT_OR:
+                case OpCode::OP_JS_BIT_XOR:
+                case OpCode::OP_JS_BIT_NOT:
+                case OpCode::OP_JS_SHL:
+                case OpCode::OP_JS_SHR:
+                case OpCode::OP_JS_USHR:
                 case OpCode::OP_EQ:
                 case OpCode::OP_NE:
+                case OpCode::OP_STRICT_EQ:
+                case OpCode::OP_STRICT_NE:
                 case OpCode::OP_LT:
                 case OpCode::OP_LE:
                 case OpCode::OP_GT:
@@ -202,6 +201,7 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                 case OpCode::OP_JUMP_IF_TRUE:
                 case OpCode::OP_JUMP_IF_NONE:
                 case OpCode::OP_STR_APPEND_VAR:
+                case OpCode::OP_CLOSE_UPVALUES:
                     if (!need(pc, 2)) {
                         fprintf(stderr, "merge_naric_into_chunk: truncated operand at pc=%zu\n", op_pc);
                         return false;
@@ -242,7 +242,10 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                 case OpCode::OP_LOAD_GLOBAL:
                 case OpCode::OP_STORE_GLOBAL:
                 case OpCode::OP_GET_PROPERTY:
+                case OpCode::OP_JS_GET_PROP_STATIC:
                 case OpCode::OP_SET_PROPERTY:
+                case OpCode::OP_JS_SET_PROP_STATIC:
+                case OpCode::OP_JS_POSTINC:
                 case OpCode::OP_OBJECT_SET:
                 case OpCode::OP_STR_APPEND_GLOBAL:
                     if (!remap_string_operand(pc, "name")) {
@@ -251,9 +254,9 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                     pc += 2;
                     break;
 
-                // 2-byte func_idx, 1-byte count, then count * (1-byte source + 2-byte index)
+                // 2-byte func_idx, 2-byte count, then count * (1-byte source + 2-byte index)
                 case OpCode::OP_MAKE_CLOSURE: {
-                    if (!need(pc, 3)) {
+                    if (!need(pc, 4)) {
                         fprintf(stderr, "merge_naric_into_chunk: truncated closure header at pc=%zu\n", op_pc);
                         return false;
                     }
@@ -264,12 +267,13 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                     }
                     wr16(pc, (uint16_t)func_remap[fidx]);
                     pc += 2;
-                    uint8_t cap_count = code[pc++];
+                    uint16_t cap_count = rd16(pc);
+                    pc += 2;
                     if (!need(pc, (size_t)(cap_count) * 3)) {
                         fprintf(stderr, "merge_naric_into_chunk: truncated closure captures at pc=%zu\n", op_pc);
                         return false;
                     }
-                    for (uint8_t c = 0; c < cap_count; c++) {
+                    for (uint16_t c = 0; c < cap_count; c++) {
                         uint8_t source = code[pc++]; // 0=local, 1=capture, 2=global
                         if (source == 2) {
                             if (!remap_string_operand(pc, "closure global capture")) {
@@ -342,7 +346,6 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
     }
     return true;
 }
-#endif // DISABLE_PARSER
 
 int main(int argc, char **argv) {
     // `nari fmt ...`: code formatter subcommand. Handled before everything else
@@ -351,8 +354,8 @@ int main(int argc, char **argv) {
         return nari::fmt::run_fmt(argc - 1, argv + 1);
     }
 
-    const char *usage = { "Usage: nari [--repl] [--dap] [--dump-ast=<file>] "
-                          "[--trace-level=<none|error|info|debug>] [--tree-walk] "
+    const char *usage = { "Usage: nari [--repl] [--dap] "
+                          "[--trace-level=<none|error|info|debug>] "
                           "<script.nari | compiled.naric> [script args...]\n"
                           "       nari fmt [options] <files...>  (format source code; see 'nari fmt --help')\n" };
 
@@ -397,19 +400,12 @@ int main(int argc, char **argv) {
     std::string path;
     std::vector<std::string> script_args;
     std::string trace_level_str;
-#ifndef DISABLE_PARSER
-    std::string dump_ast_path;
-    bool use_bytecode = true;
-#endif
 #ifndef DISABLE_REPL
     bool force_repl = false;
 #endif
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
-#ifndef DISABLE_PARSER
-        const std::string dump_opt = "--dump-ast=";
-#endif
         const std::string tl_opt = "--trace-level=";
 
         if (a.rfind("--help", 0) == 0 || a.rfind("-h", 0) == 0) {
@@ -422,19 +418,9 @@ int main(int argc, char **argv) {
             force_repl = true;
         } else
 #endif
-#ifndef DISABLE_PARSER
-            if (a.rfind(dump_opt, 0) == 0) {
-            dump_ast_path = a.substr(dump_opt.size());
-        } else if (a.rfind(tl_opt, 0) == 0) {
-            trace_level_str = a.substr(tl_opt.size());
-        } else if (a == "--tree-walk") {
-            use_bytecode = false;
-        } else
-#else
-        if (a.rfind(tl_opt, 0) == 0) {
+            if (a.rfind(tl_opt, 0) == 0) {
             trace_level_str = a.substr(tl_opt.size());
         } else
-#endif
             if (!a.empty() && a[0] == '-') {
             fprintf(stderr, "Unknown option: %s\n%s", a.c_str(), usage);
             return ERROR_GENERIC;
@@ -520,19 +506,6 @@ int main(int argc, char **argv) {
     int runtime_argc = (int)runtime_argv.size();
     char **runtime_argv_ptr = runtime_argv.empty() ? nullptr : runtime_argv.data();
 
-#ifdef DISABLE_PARSER
-    // bytecode-only build: source files cannot be parsed at runtime.
-    // Scripts must be pre-compiled to .naric on a host using the naric tool.
-    if (!is_naric) {
-        fprintf(stderr,
-                "Error: This is a bytecode-only build.\n"
-                "  Source file '%s' cannot be parsed at runtime!\n"
-                "  Pre-compile it using the naric tool:\n"
-                "  naric %s -o output.naric\n",
-                path.c_str(), path.c_str());
-        return ERROR_PARSING;
-    }
-#else
     FuncList funcs;
 
     if (!is_naric) {
@@ -541,8 +514,7 @@ int main(int argc, char **argv) {
         Parser::ParseResult parse_result = Parser::parse_program_recovering(src);
         if (!parse_result.ok()) {
             for (const auto &err : parse_result.errors) {
-                fprintf(stderr, "Parse error at %s:%d:%d: %s\n", err.filename.c_str(), err.line, err.col,
-                        err.message.c_str());
+                fprintf(stderr, "Parse error at %s:%d:%d: %s\n", err.filename.c_str(), err.line, err.col, err.message.c_str());
             }
             return ERROR_PARSING;
         }
@@ -554,44 +526,10 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (!dump_ast_path.empty()) {
-        FILE *fp = fopen(dump_ast_path.c_str(), "wb");
-        if (!fp) {
-            fprintf(stderr, "Failed to open AST dump file for writing: %s\n", dump_ast_path.c_str());
-            return ERROR_WRITING_AST_DUMP;
-        }
-#ifndef _WIN32
-        int stdout_fd = dup(STDOUT_FILENO);
-        int file_fd = fileno(fp);
-        dup2(file_fd, STDOUT_FILENO);
-#endif
-
-        printf("AST Dump for script: %s\n", path.c_str());
-        for (const auto &fptr : funcs) {
-            if (fptr) {
-                fptr->pretty_print(0);
-            }
-        }
-        fflush(stdout);
-
-#ifndef _WIN32
-        dup2(stdout_fd, STDOUT_FILENO);
-        close(stdout_fd);
-#endif
-        fclose(fp);
-        printf("Wrote AST dump to: %s\n", dump_ast_path.c_str());
-    }
-#endif // DISABLE_PARSER
-
     try {
         Runtime::reset_runtime_error_flag();
 
-#ifdef DISABLE_PARSER
-        // Bytecode-only build: is_naric is always true (enforced above).
         {
-#else
-        if (is_naric || use_bytecode) {
-#endif
             bytecode::Chunk *chunk = nullptr;
 
             if (is_naric) {
@@ -604,13 +542,12 @@ int main(int argc, char **argv) {
                 // restore type declarations from the bytecode file into the parser's
                 // type registry so that __ffi_membersof() and other runtime type
                 // introspection works without needing the original source
-#ifndef DISABLE_PARSER
                 for (const auto &ti : chunk->types) {
                     if (Parser::is_registered_type(ti.name)) {
                         continue;
                     }
-                    auto type_decl = std::make_unique<nari::TypeDecl>(
-                        ti.name, ti.is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
+                    auto type_decl =
+                        std::make_unique<nari::TypeDecl>(ti.name, ti.is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
                     if (!ti.alias_target.empty()) {
                         type_decl->alias_target = std::make_unique<nari::TypeAnnotation>(ti.alias_target);
                     }
@@ -621,9 +558,7 @@ int main(int argc, char **argv) {
                     }
                     Parser::register_type(std::move(type_decl));
                 }
-#endif
             }
-#ifndef DISABLE_PARSER
             else {
                 // parse stdlib and combine with user functions
                 Parser::set_source_filename("<embedded_stdlib>");
@@ -647,11 +582,13 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "Bytecode compilation failed!\n");
                     return ERROR_BYTECODE_COMPILATION;
                 }
+                if (getenv("NARI_DUMP_CHUNK")) {
+                    bytecode::dump_chunk(*chunk);
+                }
             }
 
             // merge any pre-compiled .naric modules that were imported from source.
-            // each module's top-level function is renamed to the unique init-function name the parser emitted a
-            // CallExpr for
+            // each module's top-level function is renamed to the unique init-function name the parser emitted a CallExpr for
             if (!is_naric) {
                 const auto &naric_imports = Parser::get_pending_naric_imports();
                 for (const auto &[init_name, module_path] : naric_imports) {
@@ -670,8 +607,8 @@ int main(int argc, char **argv) {
                         if (Parser::is_registered_type(ti.name)) {
                             continue;
                         }
-                        auto type_decl = std::make_unique<nari::TypeDecl>(
-                            ti.name, ti.is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
+                        auto type_decl =
+                            std::make_unique<nari::TypeDecl>(ti.name, ti.is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
                         if (!ti.alias_target.empty()) {
                             type_decl->alias_target = std::make_unique<nari::TypeAnnotation>(ti.alias_target);
                         }
@@ -693,7 +630,6 @@ int main(int argc, char **argv) {
                 }
                 Parser::clear_pending_naric_imports();
             }
-#endif // !DISABLE_PARSER
 
             bytecode::VM vm(runtime_argc, runtime_argv_ptr);
             if (!vm.run(chunk)) {
@@ -703,15 +639,9 @@ int main(int argc, char **argv) {
             }
 
             delete chunk;
-#ifdef DISABLE_PARSER
-        } // end bytecode-only block
-#else
-        } else {
-            // use traditional AST interpreter
-            Runtime::run_program_with_runtime(funcs, runtime_argc, runtime_argv_ptr);
         }
-#endif
     } catch (const std::runtime_error &e) {
+        fprintf(stderr, "Runtime error: %s\n", e.what());
         fprintf(stderr, "\n=== Execution stopped due to runtime error ===\n");
 #ifndef DISABLE_JIT
         nari::jit::shutdown_trace_jit();
@@ -726,3 +656,4 @@ int main(int argc, char **argv) {
 #endif
     return SUCCESS;
 }
+

@@ -1,0 +1,35 @@
+import { assert } from "../lib/assert.nari";
+
+func __js_bitand(a, b) { return __js_to_int32(a) & __js_to_int32(b); }
+func __js_bitor(a, b) { return __js_to_int32(a) | __js_to_int32(b); }
+
+func local_shadow() {
+    let __js_bitand = func(a, b) { return a + b; };
+    return __js_bitand(20, 22);
+}
+
+func lambda_shadow() {
+    let invoke = func(__js_bitor) { return __js_bitor(6, 7); };
+    return invoke(func(a, b) { return a * b; });
+}
+
+func captured_shadow() {
+    let __js_bitand = func(a, b) { return a + b; };
+    let invoke = func() { return __js_bitand(20, 22); };
+    return invoke();
+}
+
+func spawn_shadow() {
+    let __js_bitor = func(a, b) { return a * b; };
+    let handle = spawn { return __js_bitor(6, 7); };
+    return handle.await;
+}
+
+func start() {
+    assert(local_shadow() == 42, "local helper shadow was lowered");
+    assert(lambda_shadow() == 42, "lambda parameter shadow was lowered");
+    assert(captured_shadow() == 42, "captured helper shadow was lowered");
+    assert(spawn_shadow() == 42, "spawn helper shadow was lowered");
+    assert(__js_bitand(7, 3) == 3, "canonical helper failed");
+    print("extended jsrt shadowing ok");
+}

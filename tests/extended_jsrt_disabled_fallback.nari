@@ -1,0 +1,14 @@
+let conversion_calls = 0;
+
+func __js_to_int32(value) {
+    conversion_calls += 1;
+    return value;
+}
+
+func __js_bitand(a, b) { return __js_to_int32(a) & __js_to_int32(b); }
+
+func start() {
+    if (__js_bitand(7, 3) != 3) { panic("disabled extended JSRT fallback returned the wrong value"); }
+    if (conversion_calls != 2) { panic("disabled extended JSRT compiler bypassed the canonical helper"); }
+    print("extended jsrt disabled fallback ok");
+}

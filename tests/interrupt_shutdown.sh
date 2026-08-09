@@ -34,7 +34,6 @@ run_interrupt_test() {
     echo "[pass] $name"
 }
 
-run_interrupt_test "tree-walk" "$INTERP" --tree-walk tests/interrupt/tight_loop.nari
 run_interrupt_test "bytecode VM" env NARI_DISABLE_JIT=1 "$INTERP" tests/interrupt/tight_loop.nari
 run_interrupt_test "trace JIT" "$INTERP" tests/interrupt/trace_jit_loop.nari
 run_interrupt_test "method JIT" "$INTERP" tests/interrupt/method_jit_loop.nari

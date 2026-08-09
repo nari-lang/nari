@@ -201,10 +201,10 @@ let last = arr.pop();  // 3
 Get the length of an array, string, or object.
 
 ```nari
-[1, 2, 3].length();      // 3
+print([1, 2, 3].length());      // 3
 "hello".length();        // 5
-[].length();             // 0
-{a: 1, b: 2}.length();  // 2
+print([].length());             // 0
+print({a: 1, b: 2}.length());   // 2
 ```
 
 **Parameters:** None  
@@ -248,7 +248,7 @@ Join array elements into a string.
 let arr = ["a", "b", "c"];
 arr.join(", ");      // "a, b, c"
 arr.join("-");       // "a-b-c"
-[1, 2, 3].join("");  // "123"
+print([1, 2, 3].join(""));  // "123"
 ```
 
 **Parameters:** `separator` - String to insert between elements

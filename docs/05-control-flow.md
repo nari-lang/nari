@@ -383,14 +383,17 @@ func validate(user) {
 ### 2. Use for-in for arrays
 
 ```nari
+let items = [1, 2, 3];
+func handleItem(x) { print(x); }
+
 // Good
 for (item in items) {
-    process(item);
+    handleItem(item);
 }
 
 // More verbose
 for (let i = 0; i < items.length(); i++) {
-    process(items[i]);
+    handleItem(items[i]);
 }
 ```
 
@@ -398,7 +401,7 @@ for (let i = 0; i < items.length(); i++) {
 
 ```nari
 // Good
-func process(data) {
+func handleData(data) {
     if (!isValid(data)) return;
     
     let result = transform(data);
@@ -408,7 +411,7 @@ func process(data) {
 }
 
 // Deep nesting (avoid)
-func process(data) {
+func handleData(data) {
     if (isValid(data)) {
         let result = transform(data);
         if (result) {

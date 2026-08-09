@@ -1,0 +1,9 @@
+import { assert } from "../lib/assert.nari";
+
+func __js_bitnot(a) { return ~__js_to_int32(a); }
+func __js_bitnot(a) { return a + 1; }
+
+func start() {
+    assert(__js_bitnot(41) == 42, "competing helper definition was lowered");
+    print("extended jsrt competing definition ok");
+}

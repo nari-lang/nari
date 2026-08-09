@@ -1,0 +1,56 @@
+// __nari_catch is an internal recovery boundary for transpilers. Ordinary
+// panic() behavior remains fatal outside this builtin.
+
+import { assert } from "../lib/assert.nari";
+
+func panic_from_callee(value) {
+    panic(value);
+}
+
+func maybe_panic(value) {
+    if (value == 75) { panic("hot panic"); }
+    return value + 1;
+}
+
+func start() {
+    let ok = __nari_catch(func() { return 42; });
+    assert(ok.is_ok(), "successful callback did not produce Ok");
+    assert(ok.unwrap() == 42, "successful callback lost its value");
+
+    let composite = __nari_catch(func() { return { values: [1, 2, 3] }; });
+    assert(composite.is_ok(), "successful composite callback did not produce Ok");
+    assert(composite.unwrap().values[2] == 3, "successful callback lost its composite value");
+
+    let marker = { code: 7 };
+    let failed = __nari_catch(func() {
+        panic_from_callee(marker);
+        return 99;
+    });
+    assert(failed.is_err(), "panic did not produce Err");
+    assert(failed.unwrap_err().code == 7, "panic value was not preserved");
+
+    let nested = __nari_catch(func() {
+        let inner = __nari_catch(func() { panic("inner"); });
+        if (!inner.is_err() || inner.unwrap_err() != "inner") {
+            return -1;
+        }
+        return 8;
+    });
+    assert(nested.is_ok() && nested.unwrap() == 8, "nested catch boundary failed");
+
+    // Cross the JIT hot-call threshold before throwing to exercise native
+    // callback unwinding as well as the bytecode path.
+    let caught_hot = 0;
+    let hot_value = 0;
+    for (let i = 0; i < 100; i++) {
+        hot_value = i;
+        let result = __nari_catch(func() { return maybe_panic(hot_value); });
+        if (result.is_err()) {
+            assert(result.unwrap_err() == "hot panic", "JIT panic value was not preserved");
+            caught_hot++;
+        }
+    }
+    assert(caught_hot == 1, "JIT panic was not caught exactly once");
+
+    print("nari catch ok");
+}

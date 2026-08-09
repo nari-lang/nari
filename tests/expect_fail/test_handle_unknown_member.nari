@@ -1,0 +1,9 @@
+// A handle is not its result. `h.value` used to return null silently, 
+// so a program that meant `h.await` quietly computed with null instead of the value.
+func start() {
+    let h = spawn {
+        return 7;
+    };
+    print("before: " @ h.value);
+    print("unknown handle member did not stop execution");
+}

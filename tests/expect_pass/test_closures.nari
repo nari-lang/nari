@@ -1,6 +1,4 @@
-func assert(cond, msg) {
-    if (!cond) { panic(msg); }
-}
+import { assert } from "../lib/assert.nari";
 
 // closure writes captured variable; outer scope must see the update
 func test_closure_writes_outer_reads() {
@@ -20,6 +18,16 @@ func test_outer_mutates_closure_reads() {
     assert(r == 42, "closure should see outer mutation, got " @ r);
 }
 test_outer_mutates_closure_reads();
+
+// capture-only getters preserve the current cell value and ignore extra args
+func test_capture_getter() {
+    let value = "first";
+    let get = func() { return value; };
+    assert(get(1, 2) == "first", "capture getter should ignore arguments");
+    value = "second";
+    assert(get() == "second", "capture getter should read the current cell");
+}
+test_capture_getter();
 
 // two closures sharing the same captured variable stay in sync
 func test_two_closures_shared_var() {

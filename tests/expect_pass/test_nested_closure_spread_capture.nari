@@ -1,0 +1,15 @@
+func make_spreader() {
+    let values = [1, 2, 3];
+    return func() {
+        return func() {
+            return [...values];
+        };
+    };
+}
+
+let make_inner = make_spreader();
+let spread_values = make_inner()();
+if (spread_values[0] != 1 || spread_values[1] != 2 || spread_values[2] != 3) {
+    panic("nested closure did not capture spread operand");
+}
+print("nested closure spread capture passed");

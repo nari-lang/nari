@@ -1,5 +1,12 @@
 #include "common.h"
 #include "compat.h" // nari::compat::endian for the no-__BYTE_ORDER path (MSVC)
+#include <iostream>
+#ifndef _WIN32
+#include <unistd.h> // _exit
+#endif
+#ifndef DISABLE_JIT
+#include "jit/asmjit_jit.h" // perf_jitdump_close
+#endif
 
 Value ScriptRuntime::builtin_platform_arch(const Value *, size_t, const nari::CallExpr *) {
 #if defined(__EMSCRIPTEN__)
@@ -81,6 +88,46 @@ Value ScriptRuntime::builtin_platform_getenv(const Value *argvals, size_t argc, 
     return Value::make_string("");
 }
 
+#if defined(_WIN32)
+extern "C" char **_environ;
+#define NARI_ENVIRON _environ
+#else
+extern "C" char **environ;
+#define NARI_ENVIRON environ
+#endif
+
+Value ScriptRuntime::builtin_platform_environ(const Value *, size_t, const nari::CallExpr *) {
+    // Snapshot the whole environment as a name -> value object so shims can
+    // expose a faithful process.env instead of per-name lookups.
+    Value env = Value::make_object();
+    ObjectObj *oobj = env.get_obj_ptr();
+    for (char **cur = NARI_ENVIRON; cur != nullptr && *cur != nullptr; ++cur) {
+        std::string entry(*cur);
+        size_t eq = entry.find('=');
+        if (eq == std::string::npos || eq == 0) {
+            continue;
+        }
+        oobj->set_field(entry.substr(0, eq), Value::make_string(entry.substr(eq + 1)));
+    }
+    return env;
+}
+
+Value ScriptRuntime::builtin_platform_cwd(const Value *, size_t, const nari::CallExpr *) {
+    return Value::make_string(nari::fs::current_path().string());
+}
+
+Value ScriptRuntime::builtin_platform_isatty(const Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc < 1 || !argvals[0].is_int()) {
+        return Value::make_bool(false);
+    }
+    int fd = static_cast<int>(argvals[0].get_int());
+#ifdef _WIN32
+    return Value::make_bool(_isatty(fd) != 0);
+#else
+    return Value::make_bool(isatty(fd) != 0);
+#endif
+}
+
 Value ScriptRuntime::builtin_process_argc(const Value *, size_t, const nari::CallExpr *) {
     return Value::make_int(static_cast<int64_t>(this->process_argc));
 }
@@ -99,7 +146,16 @@ Value ScriptRuntime::builtin_process_exit(const Value *argvals, size_t argc, con
     if (argc >= 1 && argvals[0].is_int()) {
         exit_code = static_cast<int>(argvals[0].get_int());
     }
-    std::exit(exit_code);
+    if (external_before_exit) {
+        external_before_exit();
+    }
+#ifndef DISABLE_JIT
+    nari::jit::perf_jitdump_close();
+#endif
+    std::cout.flush();
+    std::cerr.flush();
+    fflush(nullptr);
+    _exit(exit_code);
 }
 
 Value ScriptRuntime::builtin_process_exec(const Value *argvals, size_t argc, const nari::CallExpr *) {

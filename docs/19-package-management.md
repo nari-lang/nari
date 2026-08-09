@@ -1,5 +1,17 @@
 # Package Management Prototype
 
+> **Status: proposal, not implemented.** The global store, the manifest, the
+> lockfile and the `nari pkg` command described here do not exist yet. The
+> `import` forms shown (`import x from "..."`, `import { a } from "..."`,
+> `import { a as b } from "..."`, `import "...";`) *are* implemented and work
+> today against local files. Everything involving package resolution is design
+> only, so the examples below cannot run.
+>
+> `acme/json` is a fictional example package used throughout. It is not a real
+> module. Do not confuse it with the real importable modules under `std/`,
+> which are: `archive`, `collections`, `date`, `encoding`, `hash`, `logger`,
+> `path`, `prelude`, `random`, `regex`, `url`, `uuid`. There is no `std/json`.
+
 This document proposes a package-management design for Nari that avoids two common failure modes:
 
 1. **Node-style duplication** where the same dependency is copied into many projects.
@@ -130,7 +142,7 @@ entry = "src/main.nari"
 registries = ["https://packages.nari-lang.org/index.toml"]
 
 [dependencies]
-"std/json" = { version = ^1.4.0 }
+"acme/json" = { version = ^1.4.0 }
 "acme/http" = { version = ~0.2.0 }
 "local/util" = { path = "../util" }
 ```
@@ -172,7 +184,7 @@ For the MVP, package names should follow this shape:
 Examples:
 
 ```text
-std/json
+acme/json
 acme/http
 wearr/termui
 ```
@@ -215,7 +227,7 @@ Allowed shapes:
 
 ```toml
 [dependencies]
-"std/json" = { version = ^1.4.0 }
+"acme/json" = { version = ^1.4.0 }
 "acme/http" = { version = ~0.2.0 }
 "local/util" = { path = "../util" }
 ```
@@ -245,7 +257,7 @@ entry = "src/main.nari"
 registries = ["https://packages.nari-lang.org/index.toml"]
 
 [dependencies]
-"std/json" = { version = ^1.4.0 }
+"acme/json" = { version = ^1.4.0 }
 "acme/http" = { version = ~0.2.0 }
 "local/util" = { path = "../util" }
 ```
@@ -258,7 +270,7 @@ Example:
 
 ```toml
 packageFormat = 1
-name = "std/json"
+name = "acme/json"
 version = "1.4.0"
 
 [exports]
@@ -305,9 +317,9 @@ decode = "src/decode.nari"
 
 Resolution rules:
 
-- `import "std/json";` resolves through `exports["."]`
-- `import "std/json/encode";` resolves through `exports["encode"]`
-- `import "std/json/decode";` resolves through `exports["decode"]`
+- `import "acme/json";` resolves through `exports["."]`
+- `import "acme/json/encode";` resolves through `exports["encode"]`
+- `import "acme/json/decode";` resolves through `exports["decode"]`
 
 Validation rules:
 
@@ -332,12 +344,12 @@ Example:
 lockfileVersion = 1
 root = "acme/my-app@0.1.0"
 
-[packages."std/json"]
+[packages."acme/json"]
 version = "1.4.0"
 integrity = "sha256-..."
 storePath = "~/.nari/store/pkg/std-json@1.4.0-a1b2c3d4"
 
-[packages."std/json".dependencies]
+[packages."acme/json".dependencies]
 "std/strings" = "1.0.2"
 
 [packages."std/strings"]
@@ -383,7 +395,7 @@ Optional fields:
 Dependency pins are stored under a nested table:
 
 ```toml
-[packages."std/json".dependencies]
+[packages."acme/json".dependencies]
 "std/strings" = "1.0.2"
 ```
 
@@ -400,13 +412,13 @@ Validation rules:
 lockfileVersion = 1
 root = "acme/my-app@0.1.0"
 
-[packages."std/json"]
+[packages."acme/json"]
 version = "1.4.0"
 integrity = "sha256-abc123..."
 storePath = "~/.nari/store/pkg/std-json@1.4.0-a1b2c3d4"
 source = "registry"
 
-[packages."std/json".dependencies]
+[packages."acme/json".dependencies]
 "std/strings" = "1.0.2"
 
 [packages."std/strings"]
@@ -433,7 +445,7 @@ The package system should pair with a real import/export model.
 This should import the module namespace as a single value:
 
 ```nari
-import json from "std/json";
+import json from "acme/json";
 
 let value = json.decode("{\"ok\":true}");
 ```
@@ -441,7 +453,7 @@ let value = json.decode("{\"ok\":true}");
 Semantics:
 
 - `json` is a module namespace object
-- the object exposes all exported bindings from `std/json`
+- the object exposes all exported bindings from `acme/json`
 - the namespace object should be read-only from user code
 
 This fits well with the existing FFI-style `import name from "..."` syntax.
@@ -451,7 +463,7 @@ This fits well with the existing FFI-style `import name from "..."` syntax.
 This should import selected symbols directly:
 
 ```nari
-import { json_decode } from "std/json";
+import { json_decode } from "acme/json";
 
 let value = json_decode("{\"ok\":true}");
 ```
@@ -459,7 +471,7 @@ let value = json_decode("{\"ok\":true}");
 Aliasing should also be supported:
 
 ```nari
-import { json_decode as decode, json_encode as encode } from "std/json";
+import { json_decode as decode, json_encode as encode } from "acme/json";
 ```
 
 ### Side-Effect Imports
@@ -477,9 +489,9 @@ For the MVP, these forms give a complete and coherent model:
 
 ```nari
 import "./side_effect_only.nari";
-import json from "std/json";
-import { json_decode } from "std/json";
-import { json_decode as decode } from "std/json";
+import json from "acme/json";
+import { json_decode } from "acme/json";
+import { json_decode as decode } from "acme/json";
 ```
 
 ## Proposed Export Syntax
@@ -529,12 +541,12 @@ export { json_decode as decode };
 When a module is imported with:
 
 ```nari
-import json from "std/json";
+import json from "acme/json";
 ```
 
 the runtime should produce a namespace object roughly equivalent to:
 
-```nari
+```text
 {
   json_decode: <function>,
   json_encode: <function>,
@@ -547,7 +559,7 @@ except treated as an immutable module namespace rather than a normal mutable obj
 ### Example Module
 
 ```nari
-// std/json/src/json.nari
+// acme/json/src/json.nari
 export func json_decode(text) {
   // ...
 }
@@ -562,14 +574,14 @@ export let JSON_VERSION = "1.0";
 Consumers could then write either:
 
 ```nari
-import json from "std/json";
+import json from "acme/json";
 print(json.JSON_VERSION);
 ```
 
 or:
 
 ```nari
-import { json_decode } from "std/json";
+import { json_decode } from "acme/json";
 let value = json_decode("{}");
 ```
 
@@ -578,8 +590,8 @@ let value = json_decode("{}");
 Suggested package specifiers:
 
 ```nari
-import "std/json";
-import "std/json/encode";
+import "acme/json";
+import "acme/json/encode";
 ```
 
 Local imports stay as they are:
@@ -588,7 +600,7 @@ Local imports stay as they are:
 import "./helpers.nari";
 import "../shared/config.nari";
 import "/usr/local/share/nari/site/init.nari";
-import "std/json";
+import "acme/json";
 ```
 
 That means the parser can continue treating imports as strings while the resolver adds package-aware behavior.
@@ -596,8 +608,8 @@ That means the parser can continue treating imports as strings while the resolve
 In practice, once real module syntax exists, the preferred forms should become:
 
 ```nari
-import json from "std/json";
-import { json_decode } from "std/json";
+import json from "acme/json";
+import { json_decode } from "acme/json";
 ```
 
 ## Resolution Rules
@@ -664,7 +676,7 @@ Example:
 ```toml
 registryVersion = 1
 
-[packages."std/json"."1.4.0"]
+[packages."acme/json"."1.4.0"]
 url = "https://packages.nari-lang.org/archives/std-json-1.4.0.tar.gz"
 integrity = "sha256-a1b2c3d4"
 signatureUrl = "https://packages.nari-lang.org/archives/std-json-1.4.0.tar.gz.sig"
@@ -719,13 +731,13 @@ Archive layout rules for the current prototype:
 ```toml
 registryVersion = 1
 
-[packages."std/json"."1.4.0"]
+[packages."acme/json"."1.4.0"]
 url = "https://packages.nari-lang.org/archives/std-json-1.4.0.tar.gz"
 integrity = "sha256-abc12345"
 signatureUrl = "https://packages.nari-lang.org/archives/std-json-1.4.0.tar.gz.sig"
 publicKeyUrl = "https://packages.nari-lang.org/keys/std-json-signing.pem"
 
-[packages."std/json"."1.4.1"]
+[packages."acme/json"."1.4.1"]
 url = "https://packages.nari-lang.org/archives/std-json-1.4.1.tar.gz"
 integrity = "sha256-def45678"
 signatureUrl = "https://packages.nari-lang.org/archives/std-json-1.4.1.tar.gz.sig"
@@ -752,7 +764,7 @@ Suggested commands:
 
 ```text
 nari pkg init
-nari pkg add std/json
+nari pkg add acme/json
 nari pkg install
 nari pkg update
 nari pkg clean
@@ -798,7 +810,7 @@ If Nari implements package management soon, the simplest good prototype is:
 
 - `nari.toml` for the manifest
 - `nari.lock.toml` for exact resolution
-- bare package imports like `import "std/json";`
+- bare package imports like `import "acme/json";`
 - one global immutable package store
 - one ABI-scoped compiled cache
 - flat dependency graph with one version per package name

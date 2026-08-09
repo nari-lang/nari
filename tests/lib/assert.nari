@@ -1,0 +1,7 @@
+// simple assertion test helper
+
+export func assert(cond, msg) {
+    if (!cond) {
+        panic(msg);
+    }
+}

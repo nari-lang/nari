@@ -13,6 +13,7 @@ is_darwin = host_machine.system() == 'darwin'
 disable_ffi = get_option('disable_ffi')
 disable_http = get_option('disable_http')
 disable_jit = get_option('disable_jit')
+extended_jsrt = get_option('extended_jsrt')
 disable_repl = get_option('disable_repl') or is_emscripten
 disable_lsp = get_option('disable_lsp')
 target_mcu = get_option('target_mcu')
@@ -109,7 +110,6 @@ if target_mcu
     cpp_args += [
         '-DNARI_MCU',
         '-DNO_THREADS',
-        '-DDISABLE_PARSER',
         '-ffunction-sections',
         '-fdata-sections',
         '-flto',
@@ -131,6 +131,9 @@ else
     if buildtype == 'debug' or buildtype == 'debugoptimized'
         cpp_args += ['-DNARI_ENABLE_GDB_JIT']
     endif
+endif
+if extended_jsrt
+    cpp_args += ['-DNARI_EXTENDED_JSRT']
 endif
 if disable_repl
     cpp_args += ['-DDISABLE_REPL']
@@ -233,6 +236,7 @@ sources = [
 if not target_mcu
     sources += [
         'src/bytecode/bytecode_compiler.cpp',
+        'src/bytecode/bytecode_dump.cpp',
         embed_target,
     ]
 endif
@@ -508,6 +512,7 @@ if not is_emscripten and not target_mcu
         'src/core_types.cpp',
         'src/gc.cpp',
         'src/bytecode/bytecode_compiler.cpp',
+        'src/bytecode/bytecode_dump.cpp',
         embed_target,
     ]
 

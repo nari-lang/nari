@@ -1,0 +1,37 @@
+import { assert } from "../lib/assert.nari";
+
+global __js_undefined = {};
+
+func __js_to_number(value) {
+    if (value === true) return 1;
+    if (value === false) return 0;
+    if (value == "1") return 1;
+    return 0;
+}
+
+func __js_loose_eq(a, b) {
+    if ((a === __js_undefined && b == null) || (a == null && b === __js_undefined)) return true;
+    if (a == null && b == null) return true;
+    if (a === __js_undefined || b === __js_undefined) return a === b;
+    if (a == null || b == null) return false;
+    let ta = typeof(a);
+    let tb = typeof(b);
+    if (ta == tb) return a == b;
+    if (ta == "bool") return __js_loose_eq(__js_to_number(a), b);
+    if (tb == "bool") return __js_loose_eq(a, __js_to_number(b));
+    if ((ta == "int" || ta == "float") && tb == "string") return a == __js_to_number(b);
+    if (ta == "string" && (tb == "int" || tb == "float")) return __js_to_number(a) == b;
+    return false;
+}
+
+for (let i = 0; i < 200; i++) {
+    assert(__js_loose_eq(null, null), "null must equal null");
+    assert(__js_loose_eq(null, __js_undefined), "null must equal undefined");
+    assert(__js_loose_eq(__js_undefined, null), "undefined must equal null");
+    assert(!__js_loose_eq(null, 0), "null must not equal zero");
+    assert(!__js_loose_eq(__js_undefined, false), "undefined must not equal false");
+    assert(__js_loose_eq(true, 1), "bool coercion must use scripted fallback");
+    assert(__js_loose_eq(1, "1"), "string coercion must use scripted fallback");
+}
+
+print("JIT JavaScript loose equality ok");

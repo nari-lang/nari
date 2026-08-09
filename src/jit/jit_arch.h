@@ -310,10 +310,7 @@ inline void cset(Compiler &cc, const Gp &dst, CC::Cond cond) {
 // Set a NaN-correct boolean (0/1) into dst from the flags of a PRIOR float_cmp.
 //  isEq == true  : dst = (a == b)  -> ordered AND equal  (NaN operands => 0)
 //  isEq == false : dst = (a != b)  -> unordered OR differ (NaN operands => 1)
-// x86 ucomisd sets PF=1 when operands are unordered (NaN), so a single setcc
-// cannot express IEEE eq/ne; we must combine ZF (sete/setne) with the parity
-// flag (setnp/setp). ARM64 fcmp already yields IEEE-correct EQ/NE flags (Z=0
-// for unordered), so a single cset suffices.
+// x86 ucomisd sets PF=1 when operands are unordered (NaN), so a single setcc cannot express IEEE eq/ne
 inline void float_to_bool_eq(Compiler &cc, const Gp &dst, bool isEq) {
 #if NARI_JIT_ARM64
     cc.cset(dst.w(), isEq ? CC::kEQ : CC::kNE);
@@ -357,8 +354,7 @@ inline Mem ptr32(const Gp &base, int32_t offset = 0) {
 
 // Signed integer division:
 // x86: mov quot, a; cqo; idiv b  (result in quot, remainder in rdx-equiv)
-// ARM64: sdiv quot, a, b  (no remainder register; for mod, compute: rem = a -
-// (quot * b))
+// ARM64: sdiv quot, a, b  (no remainder register. for mod, compute: rem = a - (quot * b))
 inline void signed_div(Compiler &cc, const Gp &quot, const Gp &rem, const Gp &a, const Gp &b) {
 #if NARI_JIT_ARM64
     cc.sdiv(quot, a, b);
@@ -441,15 +437,13 @@ inline void store_f64(Compiler &cc, const Mem &mem, const Vec &src) {
 #endif
 }
 
-// Move between GP and Vec (for NaN-boxing doubles, which are stored as raw bits
-// in GP)
+// Move between GP and Vec (for NaN-boxing doubles, which are stored as raw bits in GP)
 inline void gp_to_vec(Compiler &cc, const Vec &dst, const Gp &src) {
 #if NARI_JIT_ARM64
     cc.fmov(dst, src);
 #else
-    // x86-64: direct GP->XMM register move (movq xmm, r64). Zeroes bits
-    // [127:64], bit-identical to the old spill+movsd (movsd from memory also
-    // zeroes the high lane) but with no memory round-trip.
+    // x86-64: direct GP->XMM register move (movq xmm, r64).
+    // Zeroes bits [127:64], bit-identical to the old spill+movsd but with no memory round-trip.
     cc.movq(dst, src);
 #endif
 }
@@ -512,10 +506,9 @@ inline void vec_copy(Compiler &cc, const Vec &dst, const Vec &src) {
 #endif
 }
 
-// Zero a vector register (low f64 lane = +0.0). Used only to give a Float
-// slot's fixed vreg a defining write for the register allocator (mirrors the
-// `mov Imm(0)` slot_reg init); a correctly Float-typed slot is always stored
-// before any meaningful read, so the value itself is never observed.
+// Zero a vector register (low f64 lane = +0.0).
+// Used only to give a Float slot's fixed vreg a defining write for the register allocator.
+// A correctly typed Float slot is always stored before any meaningful read, so the value itself is never observed.
 inline void vec_zero(Compiler &cc, const Vec &dst) {
 #if NARI_JIT_ARM64
     cc.movi(dst.b16(), 0);
@@ -669,8 +662,7 @@ inline void add3(Compiler &cc, const Gp &dst, const Gp &a, const Gp &b) {
     } else if (dst.id() == b.id()) {
         cc.add(dst, a);
     } else {
-        cc.mov(dst, a);
-        cc.add(dst, b);
+        cc.lea(dst, asmjit::x86::qword_ptr(a, b));
     }
 #endif
 }

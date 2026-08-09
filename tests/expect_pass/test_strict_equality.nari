@@ -1,0 +1,25 @@
+func main() {
+    assert(1 === 1);
+    assert(1 === 1.0);
+    assert(1 !== 1.0000000000005);
+    assert("value" === "value");
+    assert(true === true);
+    assert(true !== 1);
+    assert(null === null);
+    assert(null !== false);
+
+    let nan = 0.0 / 0.0;
+    assert(nan !== nan);
+
+    let array = [];
+    assert(array === array);
+    assert(array !== []);
+
+    let object = {};
+    assert(object === object);
+    assert(object !== {});
+
+    let fn = func() {};
+    assert(fn === fn);
+    assert(fn !== func() {});
+}

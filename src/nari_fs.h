@@ -43,6 +43,8 @@ bool exists(const Path &path);
 bool exists(const Path &path, std::error_code &ec);
 bool is_directory(const Path &path);
 bool is_directory(const Path &path, std::error_code &ec);
+bool is_regular_file(const Path &path);
+bool is_regular_file(const Path &path, std::error_code &ec);
 bool remove(const Path &path, std::error_code &ec);
 bool create_directories(const Path &path, std::error_code &ec);
 std::vector<Path> list_directory(const Path &path, std::error_code &ec);

@@ -1,0 +1,18 @@
+import { assert } from "../lib/assert.nari";
+
+func coalesce(value, fallback) {
+    return value ?? fallback;
+}
+
+let object = { value: 42 };
+
+for (let i = 0; i < 200; i++) {
+    assert(coalesce(null, 7) == 7, "none must select the fallback");
+    assert(coalesce(false, true) == false, "false must not select the fallback");
+    assert(coalesce(0, 7) == 0, "integer zero must not select the fallback");
+    assert(coalesce(0.0, 7) == 0.0, "float zero must not select the fallback");
+    assert(coalesce("", "fallback") == "", "empty string must not select the fallback");
+    assert(coalesce(object, null).value == 42, "objects must not select the fallback");
+}
+
+print("JIT jump-if-none ok");

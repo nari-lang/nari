@@ -81,7 +81,7 @@ print(format("Items:", "apple", "banana", "cherry"));
 ### Type Annotated Parameters
 
 ```nari
-func process(data: string[], count: number = 10) -> number {
+func handleData(data: string[], count: number = 10) -> number {
     return data.length() + count;
 }
 
@@ -543,8 +543,9 @@ func formatCurrency(amount) {
 }
 
 // Usage
+let items = [{ price: 10 }, { price: 32 }];
 let total = calculateTotal(items);
-print(formatCurrency(total));
+print(formatCurrency(total));    // "$42"
 ```
 
 ### 2. Descriptive Names

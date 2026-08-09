@@ -40,11 +40,10 @@ ASMJIT_NOINLINE double nari_fast_sin(double x) noexcept {
     double x2 = x * x;
     // sin Horner: x * (1 + x^2 * (a3 + x^2 * (a5 + x^2 * (a7 + x^2 * a9))))
     double s =
-        x * (1.0 + x2 * (-1.6666666666666666e-1 +
-                         x2 * (8.3333333333333332e-3 + x2 * (-1.9841269841269841e-4 + x2 * 2.7557319223985888e-6))));
+        x *
+        (1.0 + x2 * (-1.6666666666666666e-1 + x2 * (8.3333333333333332e-3 + x2 * (-1.9841269841269841e-4 + x2 * 2.7557319223985888e-6))));
     // cos Horner: 1 + x^2 * (b2 + x^2 * (b4 + x^2 * (b6 + x^2 * b8)))
-    double c = 1.0 + x2 * (-5.0e-1 +
-                           x2 * (4.1666666666666664e-2 + x2 * (-1.3888888888888889e-3 + x2 * 2.4801587301587302e-5)));
+    double c = 1.0 + x2 * (-5.0e-1 + x2 * (4.1666666666666664e-2 + x2 * (-1.3888888888888889e-3 + x2 * 2.4801587301587302e-5)));
     if (q == 0) {
         return s;
     }
@@ -69,10 +68,9 @@ ASMJIT_NOINLINE double nari_fast_cos(double x) noexcept {
     int q = (int)(ki & 3);
     double x2 = x * x;
     double s =
-        x * (1.0 + x2 * (-1.6666666666666666e-1 +
-                         x2 * (8.3333333333333332e-3 + x2 * (-1.9841269841269841e-4 + x2 * 2.7557319223985888e-6))));
-    double c = 1.0 + x2 * (-5.0e-1 +
-                           x2 * (4.1666666666666664e-2 + x2 * (-1.3888888888888889e-3 + x2 * 2.4801587301587302e-5)));
+        x *
+        (1.0 + x2 * (-1.6666666666666666e-1 + x2 * (8.3333333333333332e-3 + x2 * (-1.9841269841269841e-4 + x2 * 2.7557319223985888e-6))));
+    double c = 1.0 + x2 * (-5.0e-1 + x2 * (4.1666666666666664e-2 + x2 * (-1.3888888888888889e-3 + x2 * 2.4801587301587302e-5)));
     if (q == 0) {
         return c;
     }
@@ -135,8 +133,7 @@ static const int64_t FrameSize = sizeof(nari::bytecode::CallFrame);
 static const int64_t SlotBaseOff = field_offset(&nari::bytecode::CallFrame::slot_base);
 static const int64_t kIpOff = field_offset(&nari::bytecode::CallFrame::ip);
 
-static const int64_t FramesFinishOff =
-    jit::field_offset(&nari::bytecode::VM::frames) + offsetof(nari::bytecode::FrameArray, storage_end);
+static const int64_t FramesFinishOff = jit::field_offset(&nari::bytecode::VM::frames) + offsetof(nari::bytecode::FrameArray, storage_end);
 
 // VM::trace_last_iters, a compiled trace writes its loop iteration count here before returning.
 static const int64_t kVmTraceItersOff = jit::field_offset(&nari::bytecode::VM::trace_last_iters);
@@ -196,8 +193,7 @@ struct AsmLiveVar {
 static std::vector<AsmLiveVar> asm_collect_live_vars(const std::vector<TraceStep> &steps) {
     std::unordered_map<uint16_t, TraceType> seen;
     for (const auto &s : steps) {
-        if ((s.kind == TraceStep::Kind::LoadIntVar || s.kind == TraceStep::Kind::StoreIntVar) &&
-            seen.find(s.slot) == seen.end()) {
+        if ((s.kind == TraceStep::Kind::LoadIntVar || s.kind == TraceStep::Kind::StoreIntVar) && seen.find(s.slot) == seen.end()) {
             seen[s.slot] = TraceType::Int;
         } else if ((s.kind == TraceStep::Kind::LoadFloatVar || s.kind == TraceStep::Kind::StoreFloatVar) &&
                    seen.find(s.slot) == seen.end()) {
@@ -228,15 +224,14 @@ static std::vector<TraceStep> optimize_object_update_traces(const std::vector<Tr
 
     for (size_t i = 0; i < steps.size();) {
         // obj.f = obj.f + const; POP
-        if (i + 7 <= steps.size() && steps[i + 0].kind == TraceStep::Kind::LoadObjVar &&
-            steps[i + 1].kind == TraceStep::Kind::LoadObjVar && steps[i + 2].kind == TraceStep::Kind::ObjGetProp &&
-            (steps[i + 3].kind == TraceStep::Kind::LoadOneConst ||
-             steps[i + 3].kind == TraceStep::Kind::LoadZeroConst ||
+        if (i + 7 <= steps.size() && steps[i + 0].kind == TraceStep::Kind::LoadObjVar && steps[i + 1].kind == TraceStep::Kind::LoadObjVar &&
+            steps[i + 2].kind == TraceStep::Kind::ObjGetProp &&
+            (steps[i + 3].kind == TraceStep::Kind::LoadOneConst || steps[i + 3].kind == TraceStep::Kind::LoadZeroConst ||
              steps[i + 3].kind == TraceStep::Kind::LoadIntConst) &&
             steps[i + 4].kind == TraceStep::Kind::IntAdd && steps[i + 5].kind == TraceStep::Kind::ObjSetProp &&
             steps[i + 6].kind == TraceStep::Kind::Pop && steps[i + 0].slot == steps[i + 1].slot &&
-            steps[i + 2].prop_slot_index == steps[i + 5].prop_slot_index &&
-            steps[i + 2].prop_val_type == TraceType::Int && steps[i + 5].prop_val_type == TraceType::Int) {
+            steps[i + 2].prop_slot_index == steps[i + 5].prop_slot_index && steps[i + 2].prop_val_type == TraceType::Int &&
+            steps[i + 5].prop_val_type == TraceType::Int) {
             TraceStep fused{ TraceStep::Kind::ObjAddConstInPlace };
             fused.slot = steps[i + 0].slot;
             fused.prop_slot_index = steps[i + 2].prop_slot_index;
@@ -254,14 +249,13 @@ static std::vector<TraceStep> optimize_object_update_traces(const std::vector<Tr
         }
 
         // obj.f = obj.f + obj.g; POP
-        if (i + 8 <= steps.size() && steps[i + 0].kind == TraceStep::Kind::LoadObjVar &&
-            steps[i + 1].kind == TraceStep::Kind::LoadObjVar && steps[i + 2].kind == TraceStep::Kind::ObjGetProp &&
-            steps[i + 3].kind == TraceStep::Kind::LoadObjVar && steps[i + 4].kind == TraceStep::Kind::ObjGetProp &&
-            steps[i + 5].kind == TraceStep::Kind::IntAdd && steps[i + 6].kind == TraceStep::Kind::ObjSetProp &&
-            steps[i + 7].kind == TraceStep::Kind::Pop && steps[i + 0].slot == steps[i + 1].slot &&
-            steps[i + 0].slot == steps[i + 3].slot && steps[i + 2].prop_slot_index == steps[i + 6].prop_slot_index &&
-            steps[i + 2].prop_val_type == TraceType::Int && steps[i + 4].prop_val_type == TraceType::Int &&
-            steps[i + 6].prop_val_type == TraceType::Int) {
+        if (i + 8 <= steps.size() && steps[i + 0].kind == TraceStep::Kind::LoadObjVar && steps[i + 1].kind == TraceStep::Kind::LoadObjVar &&
+            steps[i + 2].kind == TraceStep::Kind::ObjGetProp && steps[i + 3].kind == TraceStep::Kind::LoadObjVar &&
+            steps[i + 4].kind == TraceStep::Kind::ObjGetProp && steps[i + 5].kind == TraceStep::Kind::IntAdd &&
+            steps[i + 6].kind == TraceStep::Kind::ObjSetProp && steps[i + 7].kind == TraceStep::Kind::Pop &&
+            steps[i + 0].slot == steps[i + 1].slot && steps[i + 0].slot == steps[i + 3].slot &&
+            steps[i + 2].prop_slot_index == steps[i + 6].prop_slot_index && steps[i + 2].prop_val_type == TraceType::Int &&
+            steps[i + 4].prop_val_type == TraceType::Int && steps[i + 6].prop_val_type == TraceType::Int) {
             TraceStep fused{ TraceStep::Kind::ObjAddPropInPlace };
             fused.slot = steps[i + 0].slot;
             fused.prop_slot_index = steps[i + 2].prop_slot_index;
@@ -308,20 +302,16 @@ struct AsmVEntry {
     int32_t imm_rhs_val = 0;    // immediate value for RHS comparison
 
     AsmVEntry()
-        : gp(), aux_gp(), xmm(), type(TraceType::Unknown), has_aux_gp(false), is_lazy_cmp(false), is_float_cmp(false),
-          is_const_one(false) {
+        : gp(), aux_gp(), xmm(), type(TraceType::Unknown), has_aux_gp(false), is_lazy_cmp(false), is_float_cmp(false), is_const_one(false) {
     }
     AsmVEntry(arch::Gp r, TraceType t)
-        : gp(r), aux_gp(), xmm(), type(t), has_aux_gp(false), is_lazy_cmp(false), is_float_cmp(false),
-          is_const_one(false) {
+        : gp(r), aux_gp(), xmm(), type(t), has_aux_gp(false), is_lazy_cmp(false), is_float_cmp(false), is_const_one(false) {
     }
     AsmVEntry(arch::Gp r, arch::Gp aux, TraceType t)
-        : gp(r), aux_gp(aux), xmm(), type(t), has_aux_gp(true), is_lazy_cmp(false), is_float_cmp(false),
-          is_const_one(false) {
+        : gp(r), aux_gp(aux), xmm(), type(t), has_aux_gp(true), is_lazy_cmp(false), is_float_cmp(false), is_const_one(false) {
     }
     AsmVEntry(arch::Vec r, TraceType t)
-        : gp(), aux_gp(), xmm(r), type(t), has_aux_gp(false), is_lazy_cmp(false), is_float_cmp(false),
-          is_const_one(false) {
+        : gp(), aux_gp(), xmm(r), type(t), has_aux_gp(false), is_lazy_cmp(false), is_float_cmp(false), is_const_one(false) {
     }
 
     // lazy integer comparison
@@ -366,8 +356,7 @@ struct AsmVEntry {
 };
 
 // Main compile function, chunk *must* be validated by BytecodeVerifier!
-CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const nari::bytecode::Chunk &chunk,
-                                              uint32_t func_idx) {
+CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const nari::bytecode::Chunk &chunk, uint32_t func_idx) {
     CompiledTrace result;
 
     if (!rec.valid || rec.steps.empty() || rec.exit_pc == 0) {
@@ -872,8 +861,8 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
     std::vector<SideExit> side_exits;
 
 #if NARI_JIT_X86
-    if (chunk.functions[func_idx].name == "bench_objects" && var_ireg.find(0) != var_ireg.end() &&
-        var_ireg.find(1) != var_ireg.end() && obj_fields_start_reg.find(0) != obj_fields_start_reg.end()) {
+    if (chunk.functions[func_idx].name == "bench_objects" && var_ireg.find(0) != var_ireg.end() && var_ireg.find(1) != var_ireg.end() &&
+        obj_fields_start_reg.find(0) != obj_fields_start_reg.end()) {
         arch::Gp obj_fields = obj_fields_start_reg.at(0);
         arch::Gp ireg = var_ireg.at(1);
         arch::Gp xreg = cc.new_gp64("bo_x");
@@ -1068,7 +1057,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                     compilation_ok = false;
                     goto done;
                 }
-                AsmVEntry v = vstack.back(); // peek, don't pop (STORE_VAR semantics)
+                AsmVEntry v = vstack.back(); // peek, don't pop (STORE_VAR)
                 auto it = var_ireg.find(step.slot);
                 if (it == var_ireg.end()) {
                     compilation_ok = false;
@@ -1894,10 +1883,10 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 
                 arch::Gp inline_kind = cc.new_gp64("cic_ik");
                 arch::load32_zx_mem(cc, inline_kind, arch::ptr(fn_ptr, (int)FDInlineKindOff));
-                arch::cmp_imm_jcc(cc, inline_kind,
-                                  (int32_t)(step.kind == Kind::ClosureAddConst ? JitInlineKind::ClosureAddConst
-                                                                               : JitInlineKind::ClosureInc),
-                                  arch::CC::kNE, lbl_done);
+                arch::cmp_imm_jcc(
+                    cc, inline_kind,
+                    (int32_t)(step.kind == Kind::ClosureAddConst ? JitInlineKind::ClosureAddConst : JitInlineKind::ClosureInc),
+                    arch::CC::kNE, lbl_done);
 
                 if (step.kind == Kind::ClosureAddConst) {
                     arch::Gp imm = cc.new_gp64("cic_imm");

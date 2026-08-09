@@ -1,0 +1,25 @@
+// Internal JavaScript-compatible numeric conversion used by npm-to-nari.
+
+import { assert } from "../lib/assert.nari";
+
+func start() {
+    assert(__js_to_number("42") == 42, "decimal integer conversion failed");
+    assert(__js_to_number("  2.5  ") == 2.5, "trimmed float conversion failed");
+    assert(__js_to_number("0x10") == 16, "hex conversion failed");
+    assert(__js_to_number("") == 0, "empty string must convert to zero");
+    assert(__js_to_number(true) == 1, "true must convert to one");
+    assert(__js_to_number(null) == 0, "null must convert to zero");
+    assert(__js_to_number([]) == 0, "empty array must convert to zero");
+    assert(__js_to_number([7]) == 7, "single-value array conversion failed");
+
+    let invalid = __js_to_number("not a number");
+    let partial = __js_to_number("1a");
+    let malformed_hex = __js_to_number("0x");
+    assert(invalid != invalid, "invalid string must convert to NaN");
+    assert(partial != partial, "partially numeric string must convert to NaN");
+    assert(malformed_hex != malformed_hex, "malformed hex string must convert to NaN");
+    let many = __js_to_number([1, 2]);
+    assert(many != many, "multi-value array must convert to NaN");
+
+    print("js to number ok");
+}

@@ -32,9 +32,9 @@ enum class Ty : uint8_t {
     Bottom = 0, // inference-internal: "no value computed yet"
     // infer_types() never leaves this in a value's type (-> Unknown).
     Unknown, // not yet known / dynamically typed Value
-    Int48,   // integer in [INT48_MIN, INT48_MAX] (unboxed raw int64)
-    Float,   // IEEE-754 double (unboxed in xmm)
-    Number,  // int-or-float (e.g. an int op whose overflow may promote to float)
+    Int48, // integer in [INT48_MIN, INT48_MAX] (unboxed raw int64)
+    Float, // IEEE-754 double (unboxed in xmm)
+    Number, // int-or-float (e.g. an int op whose overflow may promote to float)
     Bool,
     Heap, // heap pointer (string/array/object/function) - boxed Value
     None,
@@ -42,10 +42,10 @@ enum class Ty : uint8_t {
 
 enum class Op : uint16_t {
     // constants
-    IConst,    // imm_int -> Int48
-    FConst,    // imm_float -> Float
-    BConst,    // imm_int (0/1) -> Bool
-    NConst,    // constant None
+    IConst, // imm_int -> Int48
+    FConst, // imm_float -> Float
+    BConst, // imm_int (0/1) -> Bool
+    NConst, // constant None
     LoadConst, // imm_u32 = constant pool index -> Value (strings/functions/etc.)
 
     // integer arithmetic (Int48 in, result may overflow: see Ty/guards)
@@ -60,6 +60,8 @@ enum class Op : uint16_t {
     INot,
     IShl,
     IShr, // bitwise
+    JsBitBinary, // imm_u32 = OP_JS_BIT_AND..OP_JS_USHR; JavaScript ToUint32 semantics
+    JsBitNot,
 
     // float arithmetic
     FAdd,
@@ -78,6 +80,7 @@ enum class Op : uint16_t {
     DynMul,
     DynMod,
     DynDiv,
+    Pow,
 
     // comparisons -> Bool
     ICmpLt,
@@ -98,16 +101,20 @@ enum class Op : uint16_t {
     DynCmpGe,
     DynCmpEq,
     DynCmpNe,
+    DynStrictCmpEq,
+    DynStrictCmpNe,
 
     // generic boolean op on dynamic Values
-    Not, // !operand -> Bool
+    Not,      // !operand using Nari truthiness -> Bool
+    JsTruthy, // JavaScript truthiness conversion -> Bool
+    IsNone,   // exact None test -> Bool
 
-    // boxing / unboxing / guards (made explicit; lowered at codegen)
+    // boxing / unboxing / guards (made explicit and lowered at codegen)
     Box,        // unboxed Int48/Float -> boxed Value
     Unbox,      // boxed Value -> unboxed (type per Ty)
     GuardInt48, // assert operand fits int48; side-exit/box-as-float otherwise
 
-    // locals (pre-SSA; replaced by SSA values + Phi after construction)
+    // locals (replaced by SSA values + Phi after construction)
     LoadSlot,     // imm_int = slot index -> Value
     StoreSlot,    // operand[0] -> slot imm_int (no result)
     LoadGlobal,   // imm_int = string/name index -> Value
@@ -126,8 +133,12 @@ enum class Op : uint16_t {
 
     // aggregate / string helpers (stack-helper lowered for coverage)
     MakeArray,   // imm_u32 elements -> Value
+    ArrayPush,   // target/value -> mutated target Value
+    ArraySpread, // target/iterable -> mutated target Value
     MakeObject,  // imm_u32 pairs -> Value
+    MakeClosure, // imm_u32 function index; capture descriptors remain at bytecode_pc
     StrConcat,   // lhs/rhs -> string-ish Value
+    StrAppendSlot, // operand[0] appended to local imm_u32; updated slot -> Value
     FormatValue, // operand[0], imm_u32 format spec -> string Value
     IterArray,   // operand[0] iterable -> normalized array Value (for-in helper)
 
@@ -135,16 +146,22 @@ enum class Op : uint16_t {
     LoadIndex,     // arr=operand[0], idx=operand[1] -> Value
     StoreIndex,    // arr=operand[0], idx=operand[1], val=operand[2]
     LoadProperty,  // obj=operand[0], imm_u32=name index -> Value
+    JsGetPropStatic, // obj=operand[0], imm_u32=literal key index -> Value
     StoreProperty, // obj=operand[0], val=operand[1], imm_u32=name index
+    JsSetPropStatic, // obj=operand[0], val=operand[1], imm_u32=literal key index
+    JsPostinc,       // obj=operand[0], imm_u32=literal key index -> old numeric value
+    CloseUpvalues,   // imm_u32 = first local slot to close; no operands, no result
 
     // calls
     Call, // callee/args via operands + imm
+    CallSpread, // callee/args-array -> Value; imm_u32 = callee label index
     CallMethod,
 
     // SSA / control flow
     Phi,    // merges predecessor values (operands parallel block preds)
     Jump,   // -> target block (Block::succ[0])
     Branch, // operand[0] cond; succ[0]=true, succ[1]=false
+    SelfTailCall, // operands = new arguments; loops to the function entry
     Return, // operand[0] = return value (or none)
 };
 
@@ -181,16 +198,17 @@ struct Func {
     BlockId entry = InvalidBlock;
     uint32_t num_slots = 0; // local variable slots
     uint32_t num_params = 0;
+    std::vector<uint8_t> captured_local_slots; // locals aliased by closures created in this function
     const bytecode::FunctionMeta *meta = nullptr;
 
     ValueId add_inst(Inst in) {
         ValueId id = (ValueId)insts.size();
-        in.result =
-            (in.op == Op::StoreSlot || in.op == Op::Jump || in.op == Op::Branch || in.op == Op::Return ||
-             in.op == Op::StoreGlobal || in.op == Op::StoreCapture || in.op == Op::Pop || in.op == Op::StoreImmSlot ||
-             in.op == Op::StoreBImmSlot || in.op == Op::StoreNSlot || in.op == Op::StoreCSlot || in.op == Op::CopySlot)
-                ? InvalidValue
-                : id;
+        in.result = (in.op == Op::StoreSlot || in.op == Op::Jump || in.op == Op::Branch || in.op == Op::SelfTailCall || in.op == Op::Return ||
+                     in.op == Op::StoreGlobal || in.op == Op::StoreCapture || in.op == Op::Pop || in.op == Op::StoreImmSlot ||
+                     in.op == Op::CloseUpvalues ||
+                     in.op == Op::StoreBImmSlot || in.op == Op::StoreNSlot || in.op == Op::StoreCSlot || in.op == Op::CopySlot)
+                        ? InvalidValue
+                        : id;
         insts.push_back(std::move(in));
         return id;
     }

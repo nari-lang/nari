@@ -11,6 +11,7 @@
 #include "trace_jit.h"
 #endif
 #include <cassert>
+#include <algorithm>
 #include <chrono>
 #include <climits>
 #include <cmath>
@@ -31,56 +32,28 @@ static inline int64_t value_as_int_safe(const Value &v) noexcept {
     return v.is_int() ? v.get_int() : safe_double_to_i64(v.as_number());
 }
 
-struct ScopedSyntheticDebugFrame {
-    dbg::DebugController *controller = nullptr;
-
-    ScopedSyntheticDebugFrame(const std::string &name, const std::string &source_file, int line,
-                              size_t runtime_call_stack_index = -1, Value this_value = Value::none()) {
-        auto &dc = dbg::DebugController::instance();
-        if (dc.enabled()) {
-            controller = &dc;
-            controller->push_synthetic_frame(name, source_file, line, runtime_call_stack_index, std::move(this_value));
-        }
-    }
-
-    ~ScopedSyntheticDebugFrame() {
-        if (controller) {
-            controller->pop_synthetic_frame();
-        }
-    }
-};
-
-void maybe_stop_in_ast_body(VM &vm, const Stmt *stmt) {
-    if (!stmt) {
-        return;
-    }
-
-    auto &dc = dbg::DebugController::instance();
-    if (!dc.enabled()) {
-        return;
-    }
-
-    const int line = stmt->line;
-    const std::string file = dbg::canonicalise_path(stmt->filename);
-    const bool pending_entry_stop = dc.pending_entry_stop();
-    dc.update_synthetic_frame_line(line);
-    const size_t depth = vm.frames.size() + dc.synthetic_frame_depth();
-
-    if (!dc.should_stop(vm, 0, depth, line, file)) {
-        return;
-    }
-
-    dbg::StopReason reason;
-    if (!dc.has_fired_first_stop() && pending_entry_stop) {
-        reason = dbg::StopReason::Entry;
-    } else if (dc.has_breakpoint(file, line)) {
-        reason = dbg::StopReason::Breakpoint;
-    } else {
-        reason = dbg::StopReason::Step;
-    }
-    dc.mark_first_stop_fired();
-    dc.publish_stop_and_wait(dc.snapshot_frames(vm, reason));
+#ifdef NARI_EXTENDED_JSRT
+static inline int64_t js_signed32(uint32_t value) noexcept {
+    return value >= 0x80000000U ? static_cast<int64_t>(value) - 0x100000000LL : static_cast<int64_t>(value);
 }
+
+static bool js_to_uint32(VM &vm, const Value &value, uint32_t &result) {
+    ScriptRuntime::BuiltinFn to_number = vm.runtime->lookup_builtin_member("__js_to_number");
+    Value number = vm.call_builtin_member(to_number, &value, 1);
+    if (vm.has_error) return false;
+    const double numeric = number.as_number();
+    if (numeric == 0.0 || !std::isfinite(numeric)) {
+        result = 0;
+        return true;
+    }
+    double reduced = std::fmod(std::trunc(numeric), 4294967296.0);
+    if (reduced < 0.0) reduced += 4294967296.0;
+    result = static_cast<uint32_t>(reduced);
+    return true;
+}
+#endif
+
+;
 
 } // namespace
 
@@ -112,9 +85,7 @@ VM::VM(int argc, char **argv) : chunk(nullptr) {
     frames.reserve(128);
 #endif
 
-    FuncList empty_funcs;
-    runtime = std::make_unique<ScriptRuntime>(empty_funcs, argc, argv);
-    runtime->debug_stmt_hook = [this](const Stmt *stmt) { maybe_stop_in_ast_body(*this, stmt); };
+    runtime = std::make_unique<ScriptRuntime>(argc, argv);
 
     // register GC roots
     runtime->external_gc_roots_provider = [&](std::vector<const Value *> &roots) {
@@ -123,6 +94,11 @@ VM::VM(int argc, char **argv) : chunk(nullptr) {
         }
         for (const auto &val : stack) {
             roots.push_back(&val);
+        }
+        for (const auto &boundary : native_catch_stack) {
+            if (boundary.caught) {
+                roots.push_back(&boundary.error);
+            }
         }
         for (const auto &[key, val] : builtins) {
             roots.push_back(&val);
@@ -140,14 +116,26 @@ VM::VM(int argc, char **argv) : chunk(nullptr) {
                 roots.push_back(&global_cache[i]);
             }
         }
-        // root captures and open upvalues in all active call frames
+        if (!js_undefined_value.is_none()) {
+            roots.push_back(&js_undefined_value);
+        }
+        // root captures, receivers, and open upvalues in all active call frames
         for (const auto &frame : frames) {
+            if (!frame.closure_root.is_none()) {
+                roots.push_back(&frame.closure_root);
+            }
+            if (!frame.receiver.is_none()) {
+                roots.push_back(&frame.receiver);
+            }
             if (frame.captures) {
                 for (const auto &cell : *frame.captures) {
                     if (cell) {
                         roots.push_back(cell.get());
                     }
                 }
+            }
+            if (frame.inline_upvalue) {
+                roots.push_back(frame.inline_upvalue.get());
             }
             if (frame.open_upvalues) {
                 for (const auto &[idx, cell] : *frame.open_upvalues) {
@@ -172,6 +160,7 @@ VM::VM(int argc, char **argv) : chunk(nullptr) {
     // execution or memory grows unbounded. On by default; NARI_GC_NO_SAFEPOINT
     // can disable for debugging.
     gc_safepoints = (getenv("NARI_GC_NO_SAFEPOINT") == nullptr);
+    profile_interpreter = (getenv("NARI_INTERPRETER_PROFILE") != nullptr);
 
 #ifdef NARI_MCU
     // collect more aggressively to keep heap pressure low
@@ -195,25 +184,55 @@ void VM::jit_safepoint() {
 
 // cached object-property read used by the method-JIT LoadProperty helper.
 // Mirrors the OP_GET_PROPERTY inline cache
+uint32_t VM::field_id_for_name(uint16_t name_idx) {
+    uint32_t &field_id = property_field_ids[name_idx];
+    if (field_id == UINT32_MAX) {
+        field_id = intern_field(chunk->strings[name_idx]);
+    }
+    return field_id;
+}
+
+uint32_t VM::getter_field_id_for_name(uint16_t name_idx) {
+    uint32_t &field_id = getter_property_field_ids[name_idx];
+    if (field_id == UINT32_MAX) {
+        field_id = intern_field("__js_getter__" + chunk->strings[name_idx]);
+    }
+    return field_id;
+}
+
+uint32_t VM::setter_field_id_for_name(uint16_t name_idx) {
+    uint32_t &field_id = setter_property_field_ids[name_idx];
+    if (field_id == UINT32_MAX) {
+        field_id = intern_field("__js_setter__" + chunk->strings[name_idx]);
+    }
+    return field_id;
+}
+
 Value VM::jit_lookup_object_property(ObjectObj *oobj, uint16_t name_idx) {
     auto &ic = prop_ic[((unsigned)name_idx) & PROP_IC_MASK];
     if (!oobj->dict_mode && ic.shape == oobj->shape && ic.name_idx == name_idx && ic.slot < oobj->fields.size()) {
         return *oobj->materialize_lazy_field(ic.slot); // IC hit means no name/fid hashing
     }
-    const std::string &name = chunk->strings[name_idx];
-    Value *val = oobj->get_field(name);
-    if (val) {
-        if (!oobj->dict_mode) {
-            auto sit = oobj->shape->index.find(intern_field(name));
-            if (sit != oobj->shape->index.end()) {
-                ic.shape = oobj->shape;
-                ic.name_idx = name_idx;
-                ic.slot = sit->second;
-            }
+    if (!oobj->dict_mode) {
+        const uint32_t sit = oobj->shape->slot_of(field_id_for_name(name_idx));
+        if (sit != ObjectShape::kNoSlot) {
+            ic.shape = oobj->shape;
+            ic.name_idx = name_idx;
+            ic.slot = sit;
+            return *oobj->materialize_lazy_field(sit);
         }
-        return *val;
+        return Value::none();
     }
-    return Value::none();
+    Value *value = oobj->get_field_by_id(field_id_for_name(name_idx));
+    return value ? *value : Value::none();
+}
+
+void VM::run_timer_loop() {
+    while (runtime->has_pending_timers() && !has_error && !Runtime::g_shutdown_requested.load() && !Runtime::g_runtime_error_occurred.load()) {
+        runtime->process_completed_io(); // set_timeout completions
+        runtime->fire_due_intervals();   // set_interval deadlines
+        NARI_SLEEP_MILLIS(1);
+    }
 }
 
 void VM::process_completed_io_for_jit() {
@@ -247,11 +266,11 @@ Value VM::make_object_cached(const uint8_t *site, uint32_t size) {
     auto cit = make_object_shape_cache.find(site);
     if (cit != make_object_shape_cache.end()) {
         const ObjectShape *cached = cit->second;
-        if (cached->names.size() == size) {
+        if (cached->field_ids.size() == size) {
             bool match = true;
             for (uint32_t i = 0; i < size; i++) {
                 const Value &key = stack[pairs_base + i * 2];
-                if (!key.is_string() || key.get_string() != cached->names[i]) {
+                if (!key.is_string() || key.get_string() != cached->name_at(i)) {
                     match = false;
                     break;
                 }
@@ -287,13 +306,14 @@ Value VM::make_object_cached(const uint8_t *site, uint32_t size) {
     for (auto &[k, v] : pairs) {
         oobj->set_field(k, std::move(v));
     }
-    if (!oobj->dict_mode && oobj->shape->names.size() == size) {
+    if (!oobj->dict_mode && oobj->shape->field_ids.size() == size) {
         make_object_shape_cache[site] = oobj->shape;
     }
     return obj_val;
 }
 
 VM::~VM() {
+    report_interpreter_profile();
     // drop every VM-owned reference first so any still tracked
     // heap object is unreachable by roots then force a final sweep
     stack.clear();
@@ -303,11 +323,57 @@ VM::~VM() {
     try_stack.clear();
     global_cache.clear();
     global_cache_valid.clear();
+    js_undefined_value = Value::none();
     GarbageCollector::instance().force_collect({});
+}
+
+void VM::report_interpreter_profile() {
+    if (!profile_interpreter || interpreter_profile_reported || !chunk || interpreted_instruction_counts.empty()) {
+        return;
+    }
+    interpreter_profile_reported = true;
+
+    std::vector<size_t> ranked(interpreted_instruction_counts.size());
+    for (size_t i = 0; i < ranked.size(); i++) {
+        ranked[i] = i;
+    }
+    std::sort(ranked.begin(), ranked.end(), [&](size_t a, size_t b) {
+        return interpreted_instruction_counts[a] > interpreted_instruction_counts[b];
+    });
+
+    uint64_t total = 0;
+    for (uint64_t count : interpreted_instruction_counts) {
+        total += count;
+    }
+    fprintf(stderr, "[INTERPRETER PROFILE] total=%llu\n", static_cast<unsigned long long>(total));
+    for (size_t idx : ranked) {
+        const uint64_t count = interpreted_instruction_counts[idx];
+        if (count == 0) {
+            break;
+        }
+        const FunctionMeta &fn = chunk->functions[idx];
+        fprintf(stderr, "%12llu  %6zu  %s  %s\n", static_cast<unsigned long long>(count), idx,
+                fn.name.empty() ? "<anonymous>" : fn.name.c_str(), fn.source_file.c_str());
+    }
 }
 
 void VM::set_global(const std::string &name, const Value &val) {
     globals[name] = val;
+    if (name == "__js_undefined") {
+        js_undefined_value = val;
+    }
+}
+
+const Value &VM::js_this_cell() {
+    if (NARI_LIKELY(js_this_cell_cached != nullptr)) {
+        return *js_this_cell_cached;
+    }
+    auto it = globals.find("__js_this_cell");
+    if (it == globals.end()) {
+        return get_global("__js_this_cell");
+    }
+    js_this_cell_cached = &it->second;
+    return *js_this_cell_cached;
 }
 
 const Value &VM::get_global(const std::string &name) {
@@ -338,8 +404,17 @@ void VM::rebuild_global_cache() {
     const size_t n = chunk->strings.size();
     global_cache.assign(n, Value{});
     global_cache_valid.assign(n, 0);
+    js_get_prop_static_ic.assign(n, JsGetPropStaticIC{});
     method_ic_fn.assign(n, nullptr);
     method_ic_state.assign(n, 0);
+    property_field_ids.assign(n, UINT32_MAX);
+    getter_property_field_ids.assign(n, UINT32_MAX);
+    setter_property_field_ids.assign(n, UINT32_MAX);
+    method_field_ids.assign(n, UINT32_MAX);
+    method_ic_shapes.assign(n, nullptr);
+    method_ic_slots.assign(n, UINT32_MAX);
+    method_ic_shapes2.assign(n, nullptr);
+    method_ic_slots2.assign(n, UINT32_MAX);
     for (size_t i = 0; i < n; i++) {
         const std::string &name = chunk->strings[i];
         auto it = globals.find(name);
@@ -364,12 +439,7 @@ void VM::register_builtin(const std::string &name) {
         ScriptRuntime::BuiltinFn func = runtime->lookup_builtin_member(name);
         if (func) {
             auto &data = builtins[name].get_function();
-            // member-fn pointers are 16 bytes on Itanium ABI but 8 on MSVC x64.
-            // reader (jit_call_value) memcpys the same sizeof back out.
-            static_assert(sizeof(func) <= sizeof(data.jit_builtin_fn),
-                          "pointer-to-member too large for jit_builtin_fn");
-            std::memcpy(data.jit_builtin_fn, &func, sizeof(func));
-            data.jit_builtin_fn_valid = true;
+            data.jit_builtin_id = ScriptRuntime::intern_jit_builtin(func);
         }
     }
 }
@@ -381,16 +451,20 @@ void VM::ensure_static_fields_inited(const std::string &class_name, const nari::
     }
     inited.insert(class_name);
     auto &fields = Parser::get_static_fields();
+    // seed every static field first: the compiled initializer only assigns the defaulted ones,
+    // and a default expression may read another static field of the same class.
     for (const auto &field : class_decl->fields) {
-        if (!field.is_static) {
-            continue;
+        if (field.is_static) {
+            fields[class_name + "." + field.name] = Value::none();
         }
-        std::string key = class_name + "." + field.name;
-        if (field.default_value) {
-            fields[key] = runtime->eval_expr(field.default_value.get());
-        } else {
-            fields[key] = Value::none();
-        }
+    }
+
+    auto it = chunk->class_static_init_idx.find(class_decl);
+    if (it != chunk->class_static_init_idx.end()) {
+        std::string saved_class = current_class_name;
+        current_class_name = class_name;
+        call_class_function_sync(it->second, nullptr, 0, nullptr);
+        current_class_name = saved_class;
     }
 }
 
@@ -425,57 +499,25 @@ Value VM::instantiate_class(const std::string &class_name, std::vector<Value> ar
     }
     instance->layout = &layout_reg.at(class_name);
 
-    // initialize fields in flat vector (indexed by ClassLayout slot)
-    instance->field_values.resize(all_fields.size());
-    for (size_t i = 0; i < all_fields.size(); i++) {
-        if (all_fields[i]->default_value) {
-            instance->field_values[i] = runtime->eval_expr(all_fields[i]->default_value.get());
-        } else {
-            instance->field_values[i] = Value::none();
-        }
+    // fields start empty; the compiled initializer assigns each declared default in MRO order
+    instance->field_values.assign(all_fields.size(), Value::none());
+
+    // arity warning parity with the previous AST constructor path
+    const nari::ClassMethod *ctor = bc_find_method(class_decl, "init");
+    if (ctor && ctor->is_constructor && args.size() != ctor->params.size()) {
+        fprintf(stderr, "constructor '%s' expects %zu args but got %zu\n", class_name.c_str(), ctor->params.size(), args.size());
     }
 
-    // find and call constructor if it exists
-    const nari::ClassMethod *ctor = bc_find_method(class_decl, "init");
-    if (ctor && ctor->is_constructor) {
-        if (args.size() != ctor->params.size()) {
-            fprintf(stderr, "constructor '%s' expects %zu args but got %zu\n", class_name.c_str(), ctor->params.size(),
-                    args.size());
-        }
-
+    // run <Class>.__init__: field defaults, then a forward to the (possibly inherited) constructor
+    auto init_it = chunk->class_init_idx.find(class_decl);
+    if (init_it != chunk->class_init_idx.end()) {
+        Value recv = Value::from_class_instance(instance);
         ClassInstancePtr saved_instance = current_instance;
         std::string saved_class = current_class_name;
+        // keeps the half-built instance GC-rooted and lets defaults/ctor touch private fields
         current_instance = instance;
         current_class_name = class_name;
-
-        if (ctor->body) {
-            runtime->current_instance = instance;
-            runtime->current_class_name = class_name;
-
-            runtime->call_stack.emplace_back();
-            for (size_t i = 0; i < ctor->params.size() && i < args.size(); i++) {
-                runtime->call_stack.back()[ctor->params[i].name] = args[i];
-            }
-
-            ScopedSyntheticDebugFrame debug_frame(
-                class_name + ".init", ctor->filename.empty() ? class_decl->filename : ctor->filename, ctor->line,
-                runtime->call_stack.size() - 1, Value::from_class_instance(instance));
-
-            for (const auto &stmt : ctor->body->stmts) {
-                runtime->exec_stmt(stmt.get());
-                if (runtime->flags.any_flag()) {
-                    break;
-                }
-            }
-
-            runtime->call_stack.pop_back();
-            if (runtime->flags.return_flag) {
-                runtime->flags.return_flag = false;
-            }
-            runtime->current_instance = saved_instance;
-            runtime->current_class_name = saved_class;
-        }
-
+        call_class_function_sync(init_it->second, args.data(), args.size(), &recv);
         current_instance = saved_instance;
         current_class_name = saved_class;
     }
@@ -496,46 +538,25 @@ Value VM::call_class_method(ClassInstance *instance, const std::string &method_n
 
     if (method->visibility == nari::Visibility::Private) {
         if (current_class_name != instance->class_name) {
-            bytecode_runtime_fatal(
-                "Cannot call private method '" + method_name + "' of " + "'" + instance->class_name + "'!", "");
+            bytecode_runtime_fatal("Cannot call private method '" + method_name + "' of " + "'" + instance->class_name + "'!", "");
         }
     }
 
+    // bc_find_method may resolve to a parent's method; method_func_idx is keyed by the
+    // ClassMethod pointer, so inherited dispatch lands on the parent's compiled function.
+    auto it = chunk->method_func_idx.find(method);
+    if (it == chunk->method_func_idx.end()) {
+        return Value::none();
+    }
+
+    Value recv = Value::from_class_instance(instance);
     ClassInstancePtr saved_instance = current_instance;
     std::string saved_class = current_class_name;
     current_instance = instance;
     current_class_name = instance->class_name;
 
-    runtime->current_instance = instance;
-    runtime->current_class_name = instance->class_name;
+    Value return_value = call_class_function_sync(it->second, args.data(), args.size(), &recv);
 
-    runtime->call_stack.emplace_back();
-    for (size_t i = 0; i < method->params.size() && i < args.size(); i++) {
-        runtime->call_stack.back()[method->params[i].name] = args[i];
-    }
-
-    Value return_value = Value::none();
-    if (method->body) {
-        ScopedSyntheticDebugFrame debug_frame(instance->class_name + "." + method_name,
-                                              method->filename.empty() ? class_decl->filename : method->filename,
-                                              method->line, runtime->call_stack.size() - 1,
-                                              Value::from_class_instance(instance));
-        for (const auto &stmt : method->body->stmts) {
-            runtime->exec_stmt(stmt.get());
-            if (runtime->flags.return_flag) {
-                return_value = runtime->flags.return_value;
-                runtime->flags.return_flag = false;
-                break;
-            }
-            if (runtime->flags.break_flag || runtime->flags.continue_flag || runtime->flags.throw_flag) {
-                break;
-            }
-        }
-    }
-
-    runtime->call_stack.pop_back();
-    runtime->current_instance = saved_instance;
-    runtime->current_class_name = saved_class;
     current_instance = saved_instance;
     current_class_name = saved_class;
 
@@ -595,6 +616,12 @@ bool VM::push_builtin_result(Value result) {
         Value err = runtime->flags.throw_value;
         runtime->flags.throw_flag = false;
         runtime->flags.throw_value = Value::none();
+        if (capture_native_throw(err)) {
+            if (overflow_jmp) {
+                std::longjmp(*overflow_jmp, 4);
+            }
+            return false;
+        }
         return dispatch_throw(err);
     }
     VM::push(std::move(result));
@@ -622,15 +649,21 @@ bool VM::has_profitable_trace(uint32_t func_idx) const {
 void VM::note_jit_callee(uint32_t func_idx) {
 #ifndef DISABLE_JIT
     // Once compiled, stop touching the call_counts hash map on every call, saves a map lookup
-    if (jit::g_jit_compiler && !jit::g_jit_compiler->is_compiled(func_idx) &&
-        ++call_counts[func_idx] == JIT_THRESHOLD && !has_profitable_trace(func_idx)) {
+    if (jit::g_jit_compiler && !jit::g_jit_compiler->is_compiled(func_idx) && ++call_counts[func_idx] == JIT_THRESHOLD &&
+        !has_profitable_trace(func_idx)) {
+        // jit_captures_raw currently points at func_idx's own closure captures
+        // (see jit_call_value_impl), letting the compiler resolve LoadCapture callees.
+        jit::g_compile_vm = this;
+        jit::g_compile_captures_ok = true;
         jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
+        jit::g_compile_captures_ok = false;
+        jit::g_compile_vm = nullptr;
     }
 #endif
 }
 
 void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures,
-                            const CapturesList &cell_captures) {
+                            const CapturesList &cell_captures, const Value *receiver) {
     if (frames.size() >= MAX_CALL_DEPTH) {
         fprintf(stderr, "Stack Overflow: maximum call-depth exceeded!\n");
         has_error = true;
@@ -644,9 +677,16 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
 
 #ifndef DISABLE_JIT
     // track call count for JIT compilation
-    if (jit::g_jit_compiler && !jit::g_jit_compiler->is_compiled(func_idx) &&
-        ++call_counts[func_idx] == JIT_THRESHOLD && !has_profitable_trace(func_idx)) {
+    if (jit::g_jit_compiler && !jit::g_jit_compiler->is_compiled(func_idx) && ++call_counts[func_idx] == JIT_THRESHOLD &&
+        !has_profitable_trace(func_idx)) {
+        jit::g_compile_vm = this;
+        auto *saved_caps = jit_captures_raw;
+        jit_captures_raw = cell_captures.get();
+        jit::g_compile_captures_ok = true;
         jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
+        jit::g_compile_captures_ok = false;
+        jit_captures_raw = saved_caps;
+        jit::g_compile_vm = nullptr;
     }
 #endif
 
@@ -656,13 +696,14 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
     // handle rest parameters: pack extra args into array at rest_param_index
     size_t param_count = func->param_count;
     size_t locals_needed = func->var_names.size();
+    const Value missing_arg = func->js_undefined_params ? js_undefined_value : Value::none();
 
     // common case is that there are no rest params
     if (NARI_UNLIKELY(func->rest_param_index >= 0)) {
         size_t rest_idx = func->rest_param_index;
         for (size_t i = 0; i < locals_needed; i++) {
             if (i < rest_idx) {
-                stack.push_back(i < args.size() ? args[i] : Value::none());
+                stack.push_back(i < args.size() ? args[i] : missing_arg);
             } else if (i == rest_idx) {
                 std::vector<Value> rest_arr;
                 for (size_t j = rest_idx; j < args.size(); j++) {
@@ -676,7 +717,7 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
     } else {
         // push args then fill remaining locals with none
         for (size_t i = 0; i < locals_needed; i++) {
-            stack.push_back(i < args.size() ? args[i] : Value::none());
+            stack.push_back(i < args.size() ? args[i] : (i < param_count ? missing_arg : Value::none()));
         }
     }
 
@@ -686,16 +727,17 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
     frame.function = func;
     frame.ip = func->code.data();
     frame.slot_base = slot_base;
+    frame.receiver = receiver ? *receiver : Value::none();
     // store captures reference on frame for OP_LOAD_CAPTURE/OP_STORE_CAPTURE
     if (cell_captures) {
         // pre-converted cell captures (from closure value), use directly
         frame.captures = cell_captures;
     } else if (captures && !captures->empty()) {
         // convert raw Value vector to cell vector
-        auto cells = std::make_shared<std::vector<std::shared_ptr<Value>>>();
+        auto cells = std::make_shared<std::vector<CellRef>>();
         cells->reserve(captures->size());
         for (const auto &v : *captures) {
-            cells->push_back(std::make_shared<Value>(v));
+            cells->push_back(CellRef::make(v));
         }
         frame.captures = cells;
     }
@@ -713,10 +755,10 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
             // runs.
             CapturesList compiled_captures = std::move(frame.captures);
             auto *prev_captures = jit_captures_raw;
-            jit_captures_raw = compiled_captures.get();
+            set_jit_captures_raw(compiled_captures.get());
             // JIT function executes the body and handles OP_RETURN
             compiled(this);
-            jit_captures_raw = prev_captures;
+            set_jit_captures_raw(prev_captures);
             return;
         }
     }
@@ -726,7 +768,8 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
 
 // Allocation-free variant: stack[args_base..args_base+argc] are the args on entry.
 // Pops args + func (at args_base-1), then sets up the new call frame.
-void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t argc, const CapturesList &cell_captures) {
+void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t argc, const CapturesList &cell_captures,
+                                  const Value *receiver) {
     if (frames.size() >= MAX_CALL_DEPTH) {
         fprintf(stderr, "Stack Overflow: maximum call-depth exceeded!\n");
         has_error = true;
@@ -739,39 +782,51 @@ void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t ar
     FunctionMeta *func = &chunk->functions[func_idx];
 
 #ifndef DISABLE_JIT
-    if (jit::g_jit_compiler && !jit::g_jit_compiler->is_compiled(func_idx) &&
-        ++call_counts[func_idx] == JIT_THRESHOLD && !has_profitable_trace(func_idx)) {
-        jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
+    auto *jit_compiler = jit::g_jit_compiler;
+    auto compiled = jit_compiler ? jit_compiler->compiled_at(func_idx) : nullptr;
+    if (jit_compiler && !compiled && ++call_counts[func_idx] == JIT_THRESHOLD && !has_profitable_trace(func_idx)) {
+        jit::g_compile_vm = this;
+        auto *saved_caps = jit_captures_raw;
+        jit_captures_raw = cell_captures.get();
+        jit::g_compile_captures_ok = true;
+        jit_compiler->compile_chunk(*chunk, func_idx);
+        jit::g_compile_captures_ok = false;
+        jit_captures_raw = saved_caps;
+        jit::g_compile_vm = nullptr;
+        compiled = jit_compiler->compiled_at(func_idx);
     }
 #endif
 
     size_t locals_needed = func->var_names.size();
-
-    // copy args out of the stack into a small fixed buffer (attempt to avoid slow heap for common small calls)
-    Value arg_buf[16];
-    std::vector<Value> arg_vec;
-    const Value *args_ptr;
-    if (argc <= 16) {
-        for (size_t i = 0; i < argc; i++) {
-            arg_buf[i] = std::move(stack[args_base + i]);
-        }
-        args_ptr = arg_buf;
-    } else {
-        arg_vec.assign(std::make_move_iterator(stack.begin() + args_base),
-                       std::make_move_iterator(stack.begin() + args_base + argc));
-        args_ptr = arg_vec.data();
-    }
+    const size_t param_count = func->param_count;
+    const Value missing_arg = func->js_undefined_params ? js_undefined_value : Value::none();
 
     // slot_base: new frame's locals start right after the current stack top.
     // func_val is at args_base-1; args were args_base..args_base+argc-1
     size_t slot_base = args_base - 1;
-    stack.resize(slot_base);
 
     if (func->rest_param_index >= 0) {
+        // Rest packing still needs the original arguments after the caller's
+        // stack is trimmed, so preserve them outside stack storage.
+        Value arg_buf[16];
+        std::vector<Value> arg_vec;
+        const Value *args_ptr;
+        if (argc <= 16) {
+            for (size_t i = 0; i < argc; i++) {
+                arg_buf[i] = std::move(stack[args_base + i]);
+            }
+            args_ptr = arg_buf;
+        } else {
+            arg_vec.assign(std::make_move_iterator(stack.begin() + args_base),
+                           std::make_move_iterator(stack.begin() + args_base + argc));
+            args_ptr = arg_vec.data();
+        }
+        stack.resize(slot_base);
+
         size_t rest_idx = func->rest_param_index;
         for (size_t i = 0; i < locals_needed; i++) {
             if (i < rest_idx) {
-                stack.push_back(i < argc ? args_ptr[i] : Value::none());
+                stack.push_back(i < argc ? args_ptr[i] : missing_arg);
             } else if (i == rest_idx) {
                 std::vector<Value> rest_arr;
                 for (size_t j = rest_idx; j < argc; j++) {
@@ -783,8 +838,20 @@ void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t ar
             }
         }
     } else {
-        for (size_t i = 0; i < locals_needed; i++) {
-            stack.push_back(i < argc ? args_ptr[i] : Value::none());
+        // Shift arguments over the function slot in place. The destination
+        // precedes the source, so the one-slot overlap is safe going forward.
+        const size_t arg_fill = std::min(argc, locals_needed);
+        for (size_t i = 0; i < arg_fill; i++) {
+            stack[slot_base + i] = std::move(stack[args_base + i]);
+        }
+        stack.resize(slot_base + locals_needed);
+        // resize() initializes newly grown slots. Only the old top slot after
+        // the shifted arguments can still contain a stale argument value.
+        if (arg_fill < locals_needed) {
+            stack[slot_base + arg_fill] = arg_fill < param_count ? missing_arg : Value::none();
+            for (size_t i = arg_fill + 1; i < std::min(param_count, locals_needed); i++) {
+                stack[slot_base + i] = missing_arg;
+            }
         }
     }
 
@@ -793,28 +860,26 @@ void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t ar
     frame.function = func;
     frame.ip = func->code.data();
     frame.slot_base = slot_base;
+    frame.receiver = receiver ? *receiver : Value::none();
     if (cell_captures) {
         frame.captures = cell_captures;
     }
 
 #ifndef DISABLE_JIT
-    bool jit_safe2 = ::ffi_reentry_depth() == 0;
-    if (jit_safe2 && jit::g_jit_compiler && jit::g_jit_compiler->is_compiled(func_idx)) {
-        auto compiled = jit::g_jit_compiler->get_compiled(func_idx);
-        if (compiled) {
-            CapturesList compiled_captures = std::move(frame.captures);
-            auto *prev_captures = jit_captures_raw;
-            jit_captures_raw = compiled_captures.get();
-            compiled(this);
-            jit_captures_raw = prev_captures;
-            return;
-        }
+    if (compiled && ::ffi_reentry_depth() == 0) {
+        CapturesList compiled_captures = std::move(frame.captures);
+        auto *prev_captures = jit_captures_raw;
+        set_jit_captures_raw(compiled_captures.get());
+        compiled(this);
+        set_jit_captures_raw(prev_captures);
+        return;
     }
 #endif
 }
 
 // Span variant of call_user_function for runtime re-entry, this avoids creating a Vector<Value>.
-void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t argc, const CapturesList &cell_captures) {
+void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t argc, const CapturesList &cell_captures,
+                                 const Value *receiver) {
     if (frames.size() >= MAX_CALL_DEPTH) {
         fprintf(stderr, "Stack Overflow: maximum call-depth exceeded!\n");
         has_error = true;
@@ -828,16 +893,24 @@ void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t ar
 
 #ifndef DISABLE_JIT
     // single virtual lookup instead of the is_compiled + get_compiled pair
-    auto compiled = jit::g_jit_compiler ? jit::g_jit_compiler->get_compiled_fast(func_idx) : nullptr;
-    if (jit::g_jit_compiler && !compiled && ++call_counts[func_idx] == JIT_THRESHOLD &&
-        !has_profitable_trace(func_idx)) {
+    auto compiled = jit::g_jit_compiler ? jit::g_jit_compiler->compiled_at(func_idx) : nullptr;
+    if (jit::g_jit_compiler && !compiled && ++call_counts[func_idx] == JIT_THRESHOLD && !has_profitable_trace(func_idx)) {
+        jit::g_compile_vm = this;
+        auto *saved_caps = jit_captures_raw;
+        jit_captures_raw = cell_captures.get();
+        jit::g_compile_captures_ok = true;
         jit::g_jit_compiler->compile_chunk(*chunk, func_idx);
-        compiled = jit::g_jit_compiler->get_compiled_fast(func_idx);
+        jit::g_compile_captures_ok = false;
+        jit_captures_raw = saved_caps;
+        jit::g_compile_vm = nullptr;
+        compiled = jit::g_jit_compiler->compiled_at(func_idx);
     }
 #endif
 
     size_t slot_base = stack.size();
     size_t locals_needed = func->var_names.size();
+    const size_t param_count = func->param_count;
+    const Value missing_arg = func->js_undefined_params ? js_undefined_value : Value::none();
 
     if (NARI_UNLIKELY(func->rest_param_index >= 0)) {
         // pack extra args into the rest array (same as call_user_function)
@@ -845,7 +918,7 @@ void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t ar
         std::vector<Value> argv(args, args + argc);
         for (size_t i = 0; i < locals_needed; i++) {
             if (i < rest_idx) {
-                stack.push_back(i < argv.size() ? argv[i] : Value::none());
+                stack.push_back(i < argv.size() ? argv[i] : missing_arg);
             } else if (i == rest_idx) {
                 std::vector<Value> rest_arr;
                 for (size_t j = rest_idx; j < argv.size(); j++) {
@@ -880,7 +953,7 @@ void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t ar
             dst[i] = args[i];
         }
         for (size_t i = arg_fill; i < locals_needed; i++) {
-            dst[i] = Value::none();
+            dst[i] = i < param_count ? missing_arg : Value::none();
         }
         stack.storage_end = dst + locals_needed;
     }
@@ -890,6 +963,7 @@ void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t ar
     frame.function = func;
     frame.ip = func->code.data();
     frame.slot_base = slot_base;
+    frame.receiver = receiver ? *receiver : Value::none();
     if (cell_captures && !cell_captures->empty()) {
         frame.captures = cell_captures;
     }
@@ -898,9 +972,9 @@ void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t ar
     if (compiled && ::ffi_reentry_depth() == 0) {
         CapturesList compiled_captures = std::move(frame.captures);
         auto *prev_captures = jit_captures_raw;
-        jit_captures_raw = compiled_captures.get();
+        set_jit_captures_raw(compiled_captures.get());
         compiled(this);
-        jit_captures_raw = prev_captures;
+        set_jit_captures_raw(prev_captures);
         return;
     }
 #endif
@@ -919,6 +993,10 @@ bool VM::execute_instruction() {
             // collect only when the GC has flagged that enough has been allocated.
             // at an instruction boundary the operand stack is at a clean height
             gc_collect_roots();
+        }
+        if (NARI_UNLIKELY(profile_interpreter)) {
+            const size_t func_idx = static_cast<size_t>(current_function()->self_idx);
+            interpreted_instruction_counts[func_idx]++;
         }
 #ifndef DISABLE_JIT
         // save pointer to start of instruction (before any reads) and its PC offset.
@@ -994,13 +1072,9 @@ bool VM::execute_instruction() {
             case OpCode::OP_LOAD_VAR: {
                 uint16_t idx = read_short();
                 // Check for open upvalue cell first (closure-shared variable)
-                auto &upvals = current_frame().open_upvalues;
-                if (upvals) {
-                    auto it = upvals->find(idx);
-                    if (it != upvals->end()) {
-                        VM::push(*it->second);
-                        break;
-                    }
+                if (Value *cell = current_frame().find_open_upvalue(idx)) {
+                    VM::push(*cell);
+                    break;
                 }
                 VM::push(stack[current_frame().slot_base + idx]);
                 break;
@@ -1011,12 +1085,8 @@ bool VM::execute_instruction() {
                 Value val = peek();
                 stack[current_frame().slot_base + idx] = val;
                 // Also update any open upvalue cell so closures see the change
-                auto &upvals = current_frame().open_upvalues;
-                if (upvals) {
-                    auto it = upvals->find(idx);
-                    if (it != upvals->end()) {
-                        *it->second = val;
-                    }
+                if (Value *cell = current_frame().find_open_upvalue(idx)) {
+                    *cell = val;
                 }
                 break;
             }
@@ -1086,93 +1156,25 @@ bool VM::execute_instruction() {
                 VM::push(Value::make_int(1));
                 break;
 
-            case OpCode::OP_ADD: {
-                Value &b = peek(0);
-                Value &a = peek(1);
-                if (a.is_int() && b.is_int()) {
-                    a.inplace_int_checked(a.get_int() + b.get_int());
-                } else if (a.is_string() || b.is_string()) {
-                    a = Value::make_string(a.to_string() + b.to_string());
-                } else {
-                    a.set_float(a.as_number() + b.as_number());
-                }
-                stack.pop_back();
+            case OpCode::OP_ADD:
+                jit_add(this); // shared body in jit_helpers.h
                 break;
-            }
 
-            case OpCode::OP_SUB: {
-                Value &b = peek(0);
-                Value &a = peek(1);
-                if (a.is_int() && b.is_int()) {
-                    a.inplace_int_checked(a.get_int() - b.get_int());
-                } else {
-                    a.set_float(a.as_number() - b.as_number());
-                }
-                stack.pop_back();
+            case OpCode::OP_SUB:
+                jit_sub(this); // shared body in jit_helpers.h
                 break;
-            }
 
-            case OpCode::OP_MUL: {
-                Value &b = peek(0);
-                Value &a = peek(1);
-                if (a.is_int() && b.is_int()) {
-                    // any product outside int48 promotes to float in one branch
-                    int64_t product;
-                    if (NARI_UNLIKELY(mul_overflow_i48(a.get_int(), b.get_int(), &product))) {
-                        a.set_float(a.as_number() * b.as_number());
-                    } else {
-                        a.inplace_int(product);
-                    }
-                } else {
-                    a.set_float(a.as_number() * b.as_number());
-                }
-                stack.pop_back();
+            case OpCode::OP_MUL:
+                jit_mul(this); // shared body in jit_helpers.h
                 break;
-            }
 
-            case OpCode::OP_DIV: {
-                Value &b = peek(0);
-                Value &a = peek(1);
-                double bn = b.as_number();
-                if (bn == 0.0) {
-                    a.set_float(std::nan(""));
-                } else if (a.is_int() && b.is_int()) {
-                    int64_t av = a.get_int(), bv = b.get_int();
-                    if (av == INT64_MIN && bv == -1) {
-                        a.set_float(-(double)INT64_MIN);
-                    } else if (av % bv == 0) {
-                        a.inplace_int(av / bv);
-                    } else {
-                        a.set_float(a.as_number() / bn);
-                    }
-                } else {
-                    a.set_float(a.as_number() / bn);
-                }
-                stack.pop_back();
+            case OpCode::OP_DIV:
+                jit_div(this); // shared body in jit_helpers.h
                 break;
-            }
 
-            case OpCode::OP_MOD: {
-                Value &b = peek(0);
-                Value &a = peek(1);
-                if (a.is_int() && b.is_int()) {
-                    int64_t bv = b.get_int();
-                    if (bv == 0) {
-                        a.set_float(std::nan(""));
-                    } else {
-                        int64_t av = a.get_int();
-                        if (av == INT64_MIN && bv == -1) {
-                            a.set_float(0.0);
-                        } else {
-                            a.inplace_int(av % bv);
-                        }
-                    }
-                } else {
-                    a.set_float(std::fmod(a.as_number(), b.as_number()));
-                }
-                stack.pop_back();
+            case OpCode::OP_MOD:
+                jit_mod(this); // shared body in jit_helpers.h
                 break;
-            }
 
             case OpCode::OP_POW: {
                 Value &b = peek(0);
@@ -1200,7 +1202,7 @@ bool VM::execute_instruction() {
                     if (overflowed) {
                         a.set_float(std::pow(a.as_number(), b.as_number()));
                     } else {
-                        a.inplace_int(result);
+                        a.set_int(result);
                     }
                 } else {
                     a.set_float(std::pow(a.as_number(), b.as_number()));
@@ -1209,18 +1211,9 @@ bool VM::execute_instruction() {
                 break;
             }
 
-            case OpCode::OP_NEG: {
-                Value &a = peek(0);
-                if (a.is_int()) {
-                    // -INT48_MIN = 2^47 doesn't fit in int48 (max is 2^47 - 1),
-                    // inplace_int would truncate and sign-extend back to INT48_MIN,
-                    // so we use inplace_int_checked to promote to float when the result overflows int48.
-                    a.inplace_int_checked(-a.get_int());
-                } else {
-                    a.set_float(-a.as_number());
-                }
+            case OpCode::OP_NEG:
+                jit_neg(this); // shared body in jit_helpers.h
                 break;
-            }
 
             case OpCode::OP_STR_CONCAT: {
                 Value &b = peek(0);
@@ -1235,13 +1228,8 @@ bool VM::execute_instruction() {
 
             case OpCode::OP_FORMAT_VALUE: {
                 uint16_t spec_idx = read_short();
-                Value value = pop();
-                if (spec_idx == 0xFFFF || spec_idx >= chunk->strings.size()) {
-                    VM::push(Value::make_string(value.to_string()));
-                } else {
-                    Value args[2] = { value, Value::make_string(chunk->strings[spec_idx]) };
-                    VM::push(call_builtin("__format_value", args, 2));
-                }
+                // shared with jit_format_value(); bool return is JIT-only
+                (void)jit_format_value_body(this, spec_idx);
                 break;
             }
 
@@ -1249,7 +1237,13 @@ bool VM::execute_instruction() {
             case OpCode::OP_STR_APPEND_VAR: {
                 uint16_t idx = read_short();
                 Value rhs = pop(); // pop the right-hand side off the stack
-                Value &slot = stack[current_frame().slot_base + idx];
+                auto &frame = current_frame();
+                Value *slot_ptr = &stack[frame.slot_base + idx];
+                Value *cell = frame.find_open_upvalue(idx);
+                if (cell) {
+                    slot_ptr = cell;
+                }
+                Value &slot = *slot_ptr;
                 if (slot.is_mutable_heap_string()) {
                     std::string &dst = slot.get_string();
                     if (rhs.is_sso()) {
@@ -1270,6 +1264,9 @@ bool VM::execute_instruction() {
                     }
                 } else {
                     slot = Value::make_string(slot.to_string() + rhs.to_string());
+                }
+                if (cell) {
+                    stack[frame.slot_base + idx] = *cell;
                 }
                 // keep slot value on top of stack, copy first since push_back may reallocate the stack vector and
                 // invalidate `slot`
@@ -1377,6 +1374,45 @@ bool VM::execute_instruction() {
                 break;
             }
 
+            case OpCode::OP_JS_TRUTHY: {
+                bool r = is_js_truthy(peek(0));
+                peek(0).set_bool(r);
+                break;
+            }
+
+#ifdef NARI_EXTENDED_JSRT
+            case OpCode::OP_JS_BIT_NOT: {
+                uint32_t value;
+                if (!js_to_uint32(*this, peek(0), value)) return false;
+                peek(0).set_int(js_signed32(~value));
+                break;
+            }
+
+            case OpCode::OP_JS_BIT_AND:
+            case OpCode::OP_JS_BIT_OR:
+            case OpCode::OP_JS_BIT_XOR:
+            case OpCode::OP_JS_SHL:
+            case OpCode::OP_JS_SHR:
+            case OpCode::OP_JS_USHR: {
+                uint32_t left;
+                uint32_t right;
+                if (!js_to_uint32(*this, peek(1), left) || !js_to_uint32(*this, peek(0), right)) return false;
+                stack.pop_back();
+                Value &result = peek(0);
+                if (op == OpCode::OP_JS_BIT_AND) result.set_int(js_signed32(left & right));
+                else if (op == OpCode::OP_JS_BIT_OR) result.set_int(js_signed32(left | right));
+                else if (op == OpCode::OP_JS_BIT_XOR) result.set_int(js_signed32(left ^ right));
+                else if (op == OpCode::OP_JS_SHL) result.set_int(js_signed32(left << (right & 31U)));
+                else if (op == OpCode::OP_JS_USHR) result.set_int(static_cast<int64_t>(left >> (right & 31U)));
+                else {
+                    const uint32_t shift = right & 31U;
+                    const uint32_t shifted = (left & 0x80000000U) && shift ? ~(~left >> shift) : left >> shift;
+                    result.set_int(js_signed32(shifted));
+                }
+                break;
+            }
+#endif
+
             case OpCode::OP_EQ: {
                 Value &b = peek(0);
                 Value &a = peek(1);
@@ -1395,10 +1431,20 @@ bool VM::execute_instruction() {
                 break;
             }
 
+            case OpCode::OP_STRICT_EQ:
+            case OpCode::OP_STRICT_NE: {
+                Value &b = peek(0);
+                Value &a = peek(1);
+                bool r = Value::values_strict_equal(a, b);
+                stack.pop_back();
+                a.set_bool(op == OpCode::OP_STRICT_EQ ? r : !r);
+                break;
+            }
+
             case OpCode::OP_LT: {
                 Value &b = peek(0);
                 Value &a = peek(1);
-                bool r = (a.is_int() && b.is_int()) ? (a.get_int() < b.get_int()) : (a.as_number() < b.as_number());
+                bool r = Value::values_lt(a, b);
                 stack.pop_back();
                 a.set_bool(r);
                 break;
@@ -1407,7 +1453,7 @@ bool VM::execute_instruction() {
             case OpCode::OP_LE: {
                 Value &b = peek(0);
                 Value &a = peek(1);
-                bool r = (a.is_int() && b.is_int()) ? (a.get_int() <= b.get_int()) : (a.as_number() <= b.as_number());
+                bool r = Value::values_le(a, b);
                 stack.pop_back();
                 a.set_bool(r);
                 break;
@@ -1416,7 +1462,7 @@ bool VM::execute_instruction() {
             case OpCode::OP_GT: {
                 Value &b = peek(0);
                 Value &a = peek(1);
-                bool r = (a.is_int() && b.is_int()) ? (a.get_int() > b.get_int()) : (a.as_number() > b.as_number());
+                bool r = Value::values_gt(a, b);
                 stack.pop_back();
                 a.set_bool(r);
                 break;
@@ -1425,7 +1471,7 @@ bool VM::execute_instruction() {
             case OpCode::OP_GE: {
                 Value &b = peek(0);
                 Value &a = peek(1);
-                bool r = (a.is_int() && b.is_int()) ? (a.get_int() >= b.get_int()) : (a.as_number() >= b.as_number());
+                bool r = Value::values_ge(a, b);
                 stack.pop_back();
                 a.set_bool(r);
                 break;
@@ -1435,7 +1481,7 @@ bool VM::execute_instruction() {
                 int16_t offset = read_signed_short();
 #ifndef DISABLE_JIT
                 if (offset < 0) { // backward jump: potential loop back-edge
-                    uint32_t func_idx = (uint32_t)(current_function() - chunk->functions.data());
+                    uint32_t func_idx = current_function()->self_idx;
                     size_t anchor_pc = insn_pc; // PC of this OP_JUMP
 
                     if (trace_was_recording && trace_recorder.anchor_pc == anchor_pc) {
@@ -1563,8 +1609,16 @@ bool VM::execute_instruction() {
                         VM::push(std::move(result));
                         break;
                     }
-                    runtime_panic(
-                        Value::make_string("called a non-function value: '" + chunk->strings[callee_label_idx] + "'"));
+                    const char *actual_type = func_ref.is_none()     ? "null"
+                                              : func_ref.is_string() ? "string"
+                                              : func_ref.is_int()    ? "int"
+                                              : func_ref.is_float()  ? "float"
+                                              : func_ref.is_bool()   ? "bool"
+                                              : func_ref.is_array()  ? "array"
+                                              : func_ref.is_object() ? "object"
+                                                                     : "other";
+                    runtime_panic(Value::make_string("called a non-function value: '" + chunk->strings[callee_label_idx] +
+                                                     "' (type " + actual_type + ", value " + func_ref.to_string() + ")"));
                     return false;
                 }
 
@@ -1615,23 +1669,20 @@ bool VM::execute_instruction() {
                 stack.resize(args_base - 1);
                 const auto &fn2 = func_copy.get_function();
 
-                auto bit = builtins.find(fn2.name);
-                if (bit != builtins.end()) {
-                    if (!push_builtin_result(call_builtin(fn2.name, args_ptr, argc))) {
+                ScriptRuntime::BuiltinFn builtin_fn = nullptr;
+                if (fn2.jit_builtin_id) {
+                    builtin_fn = ScriptRuntime::jit_builtin_table()[fn2.jit_builtin_id];
+                }
+                auto bit = builtin_fn ? builtins.end() : builtins.find(fn2.name);
+                if (builtin_fn || bit != builtins.end()) {
+                    Value result = builtin_fn ? call_builtin_member(builtin_fn, args_ptr, argc)
+                                              : call_builtin(fn2.name, args_ptr, argc);
+                    if (!push_builtin_result(std::move(result))) {
                         return false;
                     }
-                } else if (fn2.func_ptr) {
-                    std::vector<Value> args_v(args_ptr, args_ptr + argc);
-                    VM::push(runtime->call_user_function(fn2.func_ptr.get(), args_v));
                 } else {
-                    auto rit = runtime->functions.find(fn2.name);
-                    if (rit != runtime->functions.end()) {
-                        std::vector<Value> args_v(args_ptr, args_ptr + argc);
-                        VM::push(runtime->call_user_function(rit->second.get(), args_v));
-                    } else {
-                        fprintf(stderr, "bytecode: unknown function '%s'\n", fn2.name.c_str());
-                        VM::push(Value::none());
-                    }
+                    fprintf(stderr, "bytecode: unknown function '%s'\n", fn2.name.c_str());
+                    VM::push(Value::none());
                 }
                 break;
             }
@@ -1656,8 +1707,7 @@ bool VM::execute_instruction() {
                     }
                     new_args = arg_buf;
                 } else {
-                    vec_buf.assign(std::make_move_iterator(stack.begin() + args_start),
-                                   std::make_move_iterator(stack.end()));
+                    vec_buf.assign(std::make_move_iterator(stack.begin() + args_start), std::make_move_iterator(stack.end()));
                     new_args = vec_buf.data();
                 }
 
@@ -1706,14 +1756,14 @@ bool VM::execute_instruction() {
 
             case OpCode::OP_MAKE_CLOSURE: {
                 uint16_t func_idx = read_short();
-                uint8_t capture_count = read_byte();
+                uint16_t capture_count = read_short();
                 FunctionMeta *func = &chunk->functions[func_idx];
                 CapturesList captures;
-                std::shared_ptr<Value> single_cell;
-                for (int i = 0; i < capture_count; i++) {
+                CellRef single_cell;
+                for (uint16_t i = 0; i < capture_count; i++) {
                     uint8_t source = read_byte();
                     uint16_t idx = read_short();
-                    std::shared_ptr<Value> cell;
+                    CellRef cell;
                     if (source == 0) {
                         // parent local: get or create cell from parent frame
                         cell = current_frame().get_or_create_cell(idx, stack[current_frame().slot_base + idx]);
@@ -1725,18 +1775,18 @@ bool VM::execute_instruction() {
                         if (parent_caps && idx < parent_caps->size()) {
                             cell = (*parent_caps)[idx];
                         } else {
-                            cell = std::make_shared<Value>(Value::none());
+                            cell = CellRef::make(Value::none());
                         }
                     } else {
                         // global
                         const std::string &name = chunk->strings[idx];
-                        cell = std::make_shared<Value>(get_global(name));
+                        cell = CellRef::make(get_global(name));
                     }
                     if (capture_count == 1 && source != 2) {
                         single_cell = std::move(cell);
                     } else {
                         if (!captures) {
-                            captures = std::make_shared<std::vector<std::shared_ptr<Value>>>(capture_count);
+                            captures = std::make_shared<std::vector<CellRef>>(capture_count);
                         }
                         (*captures)[i] = std::move(cell);
                     }
@@ -1744,7 +1794,7 @@ bool VM::execute_instruction() {
                 if (capture_count == 1 && single_cell) {
                     captures = current_frame().single_capture_cache;
                     if (!captures || captures->size() != 1 || (*captures)[0] != single_cell) {
-                        captures = std::make_shared<std::vector<std::shared_ptr<Value>>>();
+                        captures = std::make_shared<std::vector<CellRef>>();
                         captures->push_back(std::move(single_cell));
                         current_frame().single_capture_cache = captures;
                     }
@@ -1752,16 +1802,19 @@ bool VM::execute_instruction() {
                 // create a function value with captures
                 Value closure = Value::make_function(func->name);
                 closure.get_function().captures = std::move(captures);
-                if (capture_count > 0) {
-                    closure.get_function().jit_capture0_raw = (*closure.get_function().captures)[0].get();
-                }
+                closure.get_function().cache_jit_captures();
                 GarbageCollector::instance().track(&closure.get_function(), GarbageCollector::TrackedType::Function);
                 closure.get_function().jit_func_idx = (int32_t)func_idx;
                 closure.get_function().jit_locals_count = (uint32_t)chunk->functions[func_idx].var_names.size();
                 closure.get_function().jit_meta = &chunk->functions[func_idx];
+                {
+                    const FunctionMeta &m_ = chunk->functions[func_idx];
+                    closure.get_function().jit_param_count = (uint8_t)m_.param_count;
+                    closure.get_function().jit_rest_param_index = (int8_t)m_.rest_param_index;
+                    closure.get_function().jit_js_undefined_params = m_.js_undefined_params;
+                }
                 closure.get_function().jit_inline_kind = func->jit_inline_kind;
                 closure.get_function().jit_inline_imm = func->jit_inline_imm;
-                func_indices[func->name] = func_idx;
                 VM::push(closure);
                 break;
             }
@@ -1951,23 +2004,20 @@ bool VM::execute_instruction() {
                 Value func_copy = std::move(stack[args_base - 1]);
                 stack.resize(args_base - 1);
                 const auto &fn2 = func_copy.get_function();
-                auto bit = builtins.find(fn2.name);
-                if (bit != builtins.end()) {
-                    if (!push_builtin_result(call_builtin(fn2.name, args_ptr, argc))) {
+                ScriptRuntime::BuiltinFn builtin_fn = nullptr;
+                if (fn2.jit_builtin_id) {
+                    builtin_fn = ScriptRuntime::jit_builtin_table()[fn2.jit_builtin_id];
+                }
+                auto bit = builtin_fn ? builtins.end() : builtins.find(fn2.name);
+                if (builtin_fn || bit != builtins.end()) {
+                    Value result = builtin_fn ? call_builtin_member(builtin_fn, args_ptr, argc)
+                                              : call_builtin(fn2.name, args_ptr, argc);
+                    if (!push_builtin_result(std::move(result))) {
                         return false;
                     }
-                } else if (fn2.func_ptr) {
-                    std::vector<Value> args_v(args_ptr, args_ptr + argc);
-                    VM::push(runtime->call_user_function(fn2.func_ptr.get(), args_v));
                 } else {
-                    auto rit = runtime->functions.find(fn2.name);
-                    if (rit != runtime->functions.end()) {
-                        std::vector<Value> args_v(args_ptr, args_ptr + argc);
-                        VM::push(runtime->call_user_function(rit->second.get(), args_v));
-                    } else {
-                        fprintf(stderr, "bytecode: unknown function '%s'\n", fn2.name.c_str());
-                        VM::push(Value::none());
-                    }
+                    fprintf(stderr, "bytecode: unknown function '%s'\n", fn2.name.c_str());
+                    VM::push(Value::none());
                 }
                 break;
             }
@@ -1996,7 +2046,8 @@ bool VM::execute_instruction() {
                     }
                 }
                 if (obj.is_array()) {
-                    auto &arr = obj.get_array();
+                    auto *array_obj = static_cast<ArrayObj *>(obj.heap_ptr());
+                    auto &arr = array_obj->v;
                     if (index.is_int()) {
                         int64_t idx = index.get_int();
                         if (idx >= 0 && idx < (int64_t)arr.size()) {
@@ -2014,11 +2065,24 @@ bool VM::execute_instruction() {
                             VM::push(Value::none());
                         }
                     } else {
-                        VM::push(Value::none());
+                        const Value *v = array_obj->get_property(index.to_string());
+                        VM::push(v ? *v : Value::none());
                     }
                 } else if (obj.is_object()) {
-                    const std::string key = index.to_string();
-                    const Value *v = obj.get_obj_ptr()->get_field(key);
+                    const Value *v;
+                    if (index.is_string()) {
+                        auto *key = static_cast<StringObj *>(index.heap_ptr());
+                        if (key->immutable && key->field_id == UINT32_MAX) {
+                            key->field_id = intern_field(key->s);
+                        }
+                        v = key->immutable ? obj.get_obj_ptr()->get_field_by_id(key->field_id)
+                                           : obj.get_obj_ptr()->get_field(key->s);
+                    } else {
+                        v = obj.get_obj_ptr()->get_field(index.to_string());
+                    }
+                    VM::push(v ? *v : Value::none());
+                } else if (obj.is_function()) {
+                    const Value *v = obj.get_function().get_property(index.to_string());
                     VM::push(v ? *v : Value::none());
                 } else if (obj.is_delegate()) {
                     // Delegate get trap. After the object fast path so prop-IC is untouched.
@@ -2058,7 +2122,8 @@ bool VM::execute_instruction() {
                     }
                 }
                 if (obj.is_array()) {
-                    auto &arr = obj.get_array();
+                    auto *array_obj = static_cast<ArrayObj *>(obj.heap_ptr());
+                    auto &arr = array_obj->v;
                     if (index.is_int()) {
                         int64_t idx = index.get_int();
                         int64_t orig_idx = idx;
@@ -2079,9 +2144,25 @@ bool VM::execute_instruction() {
                             arr.resize((size_t)idx + 1, Value::none());
                             arr[idx] = val;
                         }
+                    } else {
+                        array_obj->set_property(index.to_string(), val);
                     }
                 } else if (obj.is_object()) {
-                    obj.get_obj_ptr()->set_field(index.to_string(), val);
+                    if (index.is_string()) {
+                        auto *key = static_cast<StringObj *>(index.heap_ptr());
+                        if (key->immutable && key->field_id == UINT32_MAX) {
+                            key->field_id = intern_field(key->s);
+                        }
+                        if (key->immutable) {
+                            obj.get_obj_ptr()->set_field_by_id(key->field_id, val);
+                        } else {
+                            obj.get_obj_ptr()->set_field(key->s, val);
+                        }
+                    } else {
+                        obj.get_obj_ptr()->set_field(index.to_string(), val);
+                    }
+                } else if (obj.is_function()) {
+                    obj.get_function().set_property(index.to_string(), val);
                 } else if (obj.is_delegate()) {
                     // Delegate set trap. After the object fast path so prop-IC is untouched.
                     runtime->delegate_set(obj, index, val);
@@ -2103,27 +2184,25 @@ bool VM::execute_instruction() {
                     if (trace_was_recording) {
                         trace_prop_recordable = false;
                         if (!oobj->dict_mode) {
-                            auto sit = oobj->shape->index.find(intern_field(chunk->strings[name_idx]));
-                            if (sit != oobj->shape->index.end() && sit->second < oobj->fields.size()) {
-                                trace_prop_slot = (uint32_t)sit->second;
+                            const uint32_t sit = oobj->shape->slot_of(field_id_for_name(name_idx));
+                            if (sit != ObjectShape::kNoSlot && sit < oobj->fields.size()) {
+                                trace_prop_slot = (uint32_t)sit;
                                 trace_prop_recordable = true;
                             }
                         }
                     }
 #endif
-                    if (!oobj->dict_mode && ic.shape == oobj->shape && ic.name_idx == name_idx &&
-                        ic.slot < oobj->fields.size()) {
+                    if (!oobj->dict_mode && ic.shape == oobj->shape && ic.name_idx == name_idx && ic.slot < oobj->fields.size()) {
                         VM::push(*oobj->materialize_lazy_field(ic.slot)); // IC hit
                     } else {
-                        const std::string &name = chunk->strings[name_idx];
-                        Value *v = oobj->get_field(name);
+                        Value *v = oobj->get_field_by_id(field_id_for_name(name_idx));
                         if (v) {
                             if (!oobj->dict_mode) {
-                                auto sit = oobj->shape->index.find(intern_field(name));
-                                if (sit != oobj->shape->index.end()) {
+                                const uint32_t sit = oobj->shape->slot_of(field_id_for_name(name_idx));
+                                if (sit != ObjectShape::kNoSlot) {
                                     ic.shape = oobj->shape;
                                     ic.name_idx = name_idx;
-                                    ic.slot = sit->second;
+                                    ic.slot = sit;
                                 }
                             }
                             VM::push(*v);
@@ -2135,15 +2214,16 @@ bool VM::execute_instruction() {
                     const std::string &name = chunk->strings[name_idx];
                     const auto &instance = obj.get_class_instance();
                     // check private field access
-                    if (instance->layout && instance->layout->private_fields.count(name) &&
-                        current_class_name != instance->class_name) {
-                        bytecode_runtime_fatal(
-                            "Cannot access private field '" + name + "' of class '" + instance->class_name + "'!", "");
+                    if (instance->layout && instance->layout->private_fields.count(name) && current_class_name != instance->class_name) {
+                        bytecode_runtime_fatal("Cannot access private field '" + name + "' of class '" + instance->class_name + "'!", "");
                         has_error = true;
                         return false;
                     }
                     const Value *fv = instance->get_field(name);
                     VM::push(fv ? *fv : Value::none());
+                } else if (obj.is_function()) {
+                    const Value *v = obj.get_function().get_property(chunk->strings[name_idx]);
+                    VM::push(v ? *v : Value::none());
                 } else if (obj.is_delegate()) {
                     // Delegate get trap. After the object fast path so prop-IC is untouched.
                     VM::push(runtime->delegate_get(obj, Value::make_string(chunk->strings[name_idx])));
@@ -2199,9 +2279,7 @@ bool VM::execute_instruction() {
                             VM::push(handle->error);
                         } else if (name == "status_code") {
                             // For HTTP response handles
-                            const Value *sc = handle->result.is_object()
-                                                  ? handle->result.get_obj_ptr()->get_field("status_code")
-                                                  : nullptr;
+                            const Value *sc = handle->result.is_object() ? handle->result.get_obj_ptr()->get_field("status_code") : nullptr;
                             VM::push(sc ? *sc : Value::none());
                         } else if (name == "duration") {
                             if (handle->state == HandleData::Running) {
@@ -2209,11 +2287,15 @@ bool VM::execute_instruction() {
                                 auto elapsed = chrono::duration_cast<chrono::milliseconds>(now - handle->start_time);
                                 VM::push(Value::make_int(elapsed.count()));
                             } else {
-                                auto elapsed =
-                                    chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
+                                auto elapsed = chrono::duration_cast<chrono::milliseconds>(handle->end_time - handle->start_time);
                                 VM::push(Value::make_int(elapsed.count()));
                             }
+                        } else if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
+                            // compiler-internal speculative probes stay silent, as for objects below.
+                            VM::push(Value::none());
                         } else {
+                            bytecode_runtime_fatal(
+                                "Unknown handle member '" + name + "' (valid: await, ready, failed, error, status_code, duration)", name);
                             VM::push(Value::none());
                         }
                     } else if (obj.is_string()) {
@@ -2241,17 +2323,41 @@ bool VM::execute_instruction() {
                     } else {
                         // Compiler-internal properties (__variant, __data) are used as
                         // speculative probes in match/pattern expressions, silently return none for non-objects.
+                        // 
                         // For all other properties, this is a fatal user error.
                         if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
                             VM::push(Value::none());
                         } else {
-                            bytecode_runtime_fatal("Cannot access property '" + name + "' on " +
-                                                       (obj.is_none() ? "null" : "non-object") + " value",
-                                                   name);
+                            bytecode_runtime_fatal(
+                                "Cannot access property '" + name + "' on " + (obj.is_none() ? "null" : "non-object") + " value", name);
                             VM::push(Value::none());
                         }
                     }
                 }
+                break;
+            }
+
+            case OpCode::OP_JS_GET_PROP_STATIC: {
+                uint16_t name_idx = read_short();
+                jit_js_get_prop_static(this, name_idx);
+                break;
+            }
+
+            case OpCode::OP_JS_SET_PROP_STATIC: {
+                uint16_t name_idx = read_short();
+                jit_js_set_prop_static(this, name_idx);
+                break;
+            }
+
+            case OpCode::OP_JS_POSTINC: {
+                uint16_t name_idx = read_short();
+                jit_js_postinc(this, name_idx);
+                break;
+            }
+
+            case OpCode::OP_CLOSE_UPVALUES: {
+                uint16_t first_slot = read_short();
+                current_frame().close_upvalues_from(first_slot);
                 break;
             }
 
@@ -2268,9 +2374,9 @@ bool VM::execute_instruction() {
                     if (trace_was_recording) {
                         trace_prop_recordable = false;
                         if (!oobj->dict_mode && !oobj->frozen) {
-                            auto sit = oobj->shape->index.find(intern_field(chunk->strings[name_idx]));
-                            if (sit != oobj->shape->index.end() && sit->second < oobj->fields.size()) {
-                                trace_prop_slot = (uint32_t)sit->second;
+                            const uint32_t sit = oobj->shape->slot_of(field_id_for_name(name_idx));
+                            if (sit != ObjectShape::kNoSlot && sit < oobj->fields.size()) {
+                                trace_prop_slot = (uint32_t)sit;
                                 trace_prop_recordable = true;
                             }
                         }
@@ -2281,14 +2387,13 @@ bool VM::execute_instruction() {
                         oobj->clear_lazy_field(ic.slot);
                         oobj->fields[ic.slot] = val; // IC hit, direct write
                     } else {
-                        const std::string &name = chunk->strings[name_idx];
-                        oobj->set_field(name, val);
+                        oobj->set_field_by_id(field_id_for_name(name_idx), val);
                         if (!oobj->dict_mode) {
-                            auto sit = oobj->shape->index.find(intern_field(name));
-                            if (sit != oobj->shape->index.end()) {
+                            const uint32_t sit = oobj->shape->slot_of(field_id_for_name(name_idx));
+                            if (sit != ObjectShape::kNoSlot) {
                                 ic.shape = oobj->shape;
                                 ic.name_idx = name_idx;
-                                ic.slot = sit->second;
+                                ic.slot = sit;
                             }
                         }
                     }
@@ -2299,6 +2404,8 @@ bool VM::execute_instruction() {
                     if (fv) {
                         *fv = std::move(val);
                     }
+                } else if (obj.is_function()) {
+                    obj.get_function().set_property(chunk->strings[name_idx], val);
                 } else if (obj.is_string()) {
                     std::string cname = obj.get_string();
                     if (Parser::get_registered_class(cname)) {
@@ -2334,6 +2441,18 @@ bool VM::execute_instruction() {
                     VM::push(Value::make_int(0));
                 } else {
                     fprintf(stderr, "bytecode: for-each requires an array or object\n");
+                    if (std::getenv("NARI_TRACE_ITER_ERROR")) {
+                        const auto &active = current_frame();
+                        const size_t pc = static_cast<size_t>(active.ip - active.function->code.data());
+                        fprintf(stderr, "  function=%s line=%d value=%s type=%zu\n", active.function->name.c_str(),
+                                active.function->resolve_line(pc), iterable.to_string().c_str(),
+                                static_cast<size_t>(iterable.tag()));
+                        for (const auto &trace_frame : frames) {
+                            const size_t trace_pc = static_cast<size_t>(trace_frame.ip - trace_frame.function->code.data());
+                            fprintf(stderr, "    at %s:%d\n", trace_frame.function->name.c_str(),
+                                    trace_frame.function->resolve_line(trace_pc));
+                        }
+                    }
                     has_error = true;
                     VM::push(Value::make_array()); // dummy empty array
                     VM::push(Value::make_int(0));  // dummy index
@@ -2359,6 +2478,18 @@ bool VM::execute_instruction() {
                     VM::push(Value::make_array(std::move(keys)));
                 } else {
                     fprintf(stderr, "bytecode: for-each requires an array or object\n");
+                    if (std::getenv("NARI_TRACE_ITER_ERROR")) {
+                        const auto &active = current_frame();
+                        const size_t pc = static_cast<size_t>(active.ip - active.function->code.data());
+                        fprintf(stderr, "  function=%s line=%d value=%s type=%zu\n", active.function->name.c_str(),
+                                active.function->resolve_line(pc), iterable.to_string().c_str(),
+                                static_cast<size_t>(iterable.tag()));
+                        for (const auto &trace_frame : frames) {
+                            const size_t trace_pc = static_cast<size_t>(trace_frame.ip - trace_frame.function->code.data());
+                            fprintf(stderr, "    at %s:%d\n", trace_frame.function->name.c_str(),
+                                    trace_frame.function->resolve_line(trace_pc));
+                        }
+                    }
                     has_error = true;
                     VM::push(Value::make_array()); // dummy empty array
                 }
@@ -2448,6 +2579,13 @@ bool VM::execute_instruction() {
 
             case OpCode::OP_THROW: {
                 Value error = pop();
+                if (capture_native_throw(error)) {
+                    error = Value::none();
+                    if (overflow_jmp) {
+                        std::longjmp(*overflow_jmp, 4);
+                    }
+                    return false;
+                }
                 bool caught = dispatch_throw(error);
                 // Inside a JIT-compiled function call, returning normally from execute_instruction()
                 // would resume the JIT caller's baked native code
@@ -2539,8 +2677,8 @@ bool VM::execute_instruction() {
                     } else if (!fn_name.empty()) {
                         loc = " at '" + fn_name + "'";
                     }
-                    std::string msg = std::string("TypeError: expected ") + ctx_str + " of type '" + expected +
-                                      "', got '" + actual + "'" + loc;
+                    std::string msg =
+                        std::string("TypeError: expected ") + ctx_str + " of type '" + expected + "', got '" + actual + "'" + loc;
                     Value err = Value::make_string(msg);
                     if (!dispatch_throw(err)) {
                         return false;
@@ -2601,6 +2739,8 @@ bool VM::execute_instruction() {
             case OpCode::OP_LOAD_THIS: {
                 if (current_instance) {
                     VM::push(Value::from_class_instance(current_instance));
+                } else if (!current_frame().receiver.is_none()) {
+                    VM::push(current_frame().receiver);
                 } else {
                     VM::push(Value::none());
                 }
@@ -2647,42 +2787,19 @@ bool VM::execute_instruction() {
                         if (found && found->body) {
                             std::vector<Value> args(stack.begin() + args_base, stack.end());
                             stack.resize(obj_idx);
-                            // execute static method via AST interpreter (no 'this' binding)
-                            auto saved_instance = current_instance;
-                            auto saved_class = current_class_name;
-                            current_instance = nullptr;
-                            current_class_name = class_name;
-                            runtime->current_instance = nullptr;
-                            runtime->current_class_name = class_name;
-
-                            runtime->call_stack.emplace_back();
-                            for (size_t i = 0; i < found->params.size() && i < args.size(); i++) {
-                                runtime->call_stack.back()[found->params[i].name] = args[i];
-                            }
-
+                            // static methods have no 'this'; current_class_name still scopes
+                            // static-field and private-member resolution inside the body.
                             Value return_value = Value::none();
-                            ScopedSyntheticDebugFrame debug_frame(class_name + "." + method_name,
-                                                                  found->filename.empty() ? class_decl->filename
-                                                                                          : found->filename,
-                                                                  found->line, runtime->call_stack.size() - 1);
-                            for (const auto &stmt : found->body->stmts) {
-                                runtime->exec_stmt(stmt.get());
-                                if (runtime->flags.return_flag) {
-                                    return_value = runtime->flags.return_value;
-                                    runtime->flags.return_flag = false;
-                                    break;
-                                }
-                                if (runtime->flags.break_flag || runtime->flags.continue_flag ||
-                                    runtime->flags.throw_flag) {
-                                    break;
-                                }
+                            auto mit = chunk->method_func_idx.find(found);
+                            if (mit != chunk->method_func_idx.end()) {
+                                auto saved_instance = current_instance;
+                                auto saved_class = current_class_name;
+                                current_instance = nullptr;
+                                current_class_name = class_name;
+                                return_value = call_class_function_sync(mit->second, args.data(), args.size(), nullptr);
+                                current_instance = saved_instance;
+                                current_class_name = saved_class;
                             }
-
-                            runtime->call_stack.pop_back();
-                            runtime->current_instance = saved_instance;
-                            runtime->current_class_name = saved_class;
-                            current_instance = saved_instance;
-                            current_class_name = saved_class;
                             VM::push(std::move(return_value));
                             break;
                         }
@@ -2699,8 +2816,6 @@ bool VM::execute_instruction() {
                             auto fit = func_indices.find(fn.name);
                             if (fit != func_indices.end()) {
                                 call_user_function(fit->second, args);
-                            } else if (fn.func_ptr) {
-                                VM::push(runtime->call_user_function(fn.func_ptr.get(), args));
                             } else {
                                 VM::push(Value::none());
                             }
@@ -2726,20 +2841,25 @@ bool VM::execute_instruction() {
                     break;
                 }
 
-                if (obj_ref.is_object()) {
-                    ObjectObj *method_obj = obj_ref.get_obj_ptr();
-                    auto method_slot = method_obj->shape->index.find(intern_field(method_name));
-                    Value lazy_result;
-                    if (!method_obj->dict_mode && method_slot != method_obj->shape->index.end() &&
-                        method_obj->invoke_lazy_field(method_slot->second, stack.data() + args_base, argc,
-                                                      lazy_result)) {
-                        stack.resize(obj_idx);
-                        VM::push(std::move(lazy_result));
-                        break;
+                if (obj_ref.is_object() || obj_ref.is_function()) {
+                    const Value *it_v = nullptr;
+                    if (obj_ref.is_object()) {
+                        ObjectObj *method_obj = obj_ref.get_obj_ptr();
+                        const uint32_t method_slot = method_obj->shape->slot_of(intern_field(method_name));
+                        Value lazy_result;
+                        if (!method_obj->dict_mode && method_slot != ObjectShape::kNoSlot &&
+                            method_obj->invoke_lazy_field(method_slot, stack.data() + args_base, argc, lazy_result)) {
+                            stack.resize(obj_idx);
+                            VM::push(std::move(lazy_result));
+                            break;
+                        }
+                        it_v = method_obj->get_field(method_name);
+                    } else {
+                        it_v = obj_ref.get_function().get_property(method_name);
                     }
-                    const Value *it_v = method_obj->get_field(method_name);
                     if (it_v && it_v->is_function()) {
                         // Object property is a callable, dispatch it.
+                        Value obj = obj_ref;
                         Value func = *it_v;
                         std::vector<Value> args(stack.begin() + args_base, stack.end());
                         stack.resize(obj_idx);
@@ -2756,21 +2876,13 @@ bool VM::execute_instruction() {
                             if (fit != func_indices.end()) {
                                 const auto &captures = func.get_function().captures;
                                 if (captures && !captures->empty()) {
-                                    call_user_function(fit->second, args, nullptr, captures);
+                                    call_user_function(fit->second, args, nullptr, captures, &obj);
                                 } else {
-                                    call_user_function(fit->second, args);
+                                    call_user_function(fit->second, args, nullptr, {}, &obj);
                                 }
-                            } else if (func_ptr) {
-                                VM::push(runtime->call_user_function(func_ptr.get(), args));
                             } else {
-                                auto rit = runtime->functions.find(fname);
-                                if (rit != runtime->functions.end()) {
-                                    VM::push(runtime->call_user_function(rit->second.get(), args));
-                                } else {
-                                    bytecode_runtime_fatal(
-                                        "Method '" + method_name + "' is not callable or is otherwise unknown!", "");
-                                    VM::push(Value::none());
-                                }
+                                bytecode_runtime_fatal("Method '" + method_name + "' is not callable or is otherwise unknown!", "");
+                                VM::push(Value::none());
                             }
                         }
                         break;
@@ -2835,8 +2947,7 @@ bool VM::execute_instruction() {
                                                : ov.is_regex()  ? "regex"
                                                                 : "value";
                         if (runtime->is_builtin_name(method_name)) {
-                            bytecode_runtime_fatal(
-                                "Method '" + method_name + "' does not exist on type '" + type_str + "'!", "");
+                            bytecode_runtime_fatal("Method '" + method_name + "' does not exist on type '" + type_str + "'!", "");
                         } else {
                             bytecode_runtime_fatal("'" + method_name + "' is not a method!", "");
                         }
@@ -2951,8 +3062,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
             } else if (peek().is_function()) {
                 // deferred closure call, record the local slot, not the current capture cell
                 auto &fd = peek().get_function();
-                if ((fd.jit_inline_kind == JitInlineKind::ClosureInc ||
-                     fd.jit_inline_kind == JitInlineKind::ClosureAddConst) &&
+                if ((fd.jit_inline_kind == JitInlineKind::ClosureInc || fd.jit_inline_kind == JitInlineKind::ClosureAddConst) &&
                     fd.jit_capture0_raw) {
                     rec.pending_closure_capture0 = fd.jit_capture0_raw;
                     rec.pending_closure_slot = slot;
@@ -3073,8 +3183,7 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
                 uint8_t argc = insn_base[1];
                 if (argc == 0 && !rec.type_vstack.empty()) {
                     rec.type_vstack.pop_back(); // pop the function placeholder
-                    Kind kind = (rec.pending_closure_kind == JitInlineKind::ClosureAddConst) ? Kind::ClosureAddConst
-                                                                                             : Kind::ClosureInc;
+                    Kind kind = (rec.pending_closure_kind == JitInlineKind::ClosureAddConst) ? Kind::ClosureAddConst : Kind::ClosureInc;
                     jit::TraceStep s{ kind };
                     s.capture_ptr = rec.pending_closure_capture0;
                     s.closure_slot = rec.pending_closure_slot;
@@ -3144,9 +3253,8 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
                     };
                     // Match: LOAD_VAR(0), LOAD_VAR(1), <op>, [CHECK_TYPE] RETURN  (7+ bytes
                     // from body offset)
-                    if (bo + 7 <= fc.size() && (OpCode)fc[bo + 0] == OpCode::OP_LOAD_VAR && fc[bo + 1] == 0 &&
-                        fc[bo + 2] == 0 && (OpCode)fc[bo + 3] == OpCode::OP_LOAD_VAR && fc[bo + 4] == 0 &&
-                        fc[bo + 5] == 1 && is_rt_end(bo + 7)) {
+                    if (bo + 7 <= fc.size() && (OpCode)fc[bo + 0] == OpCode::OP_LOAD_VAR && fc[bo + 1] == 0 && fc[bo + 2] == 0 &&
+                        (OpCode)fc[bo + 3] == OpCode::OP_LOAD_VAR && fc[bo + 4] == 0 && fc[bo + 5] == 1 && is_rt_end(bo + 7)) {
                         auto op2 = (OpCode)fc[bo + 6];
                         Kind kind;
                         TraceType result_type = TraceType::Int;
@@ -3577,11 +3685,11 @@ void VM::trace_record_step(OpCode op, uint8_t *insn_base) {
 }
 #endif // !DISABLE_JIT
 
-Value VM::call_function_value_sync(const Value &func_val, const std::vector<Value> &args) {
-    return call_function_value_span(func_val, args.data(), args.size());
+Value VM::call_function_value_sync(const Value &func_val, const std::vector<Value> &args, const Value *receiver) {
+    return call_function_value_span(func_val, args.data(), args.size(), receiver);
 }
 
-Value VM::call_function_value_span(const Value &func_val, const Value *args, size_t argc) {
+Value VM::call_function_value_span(const Value &func_val, const Value *args, size_t argc, const Value *receiver) {
     if (!func_val.is_function()) {
         return Value::none();
     }
@@ -3605,7 +3713,7 @@ Value VM::call_function_value_span(const Value &func_val, const Value *args, siz
     size_t saved_stack_size = stack.size();
 
     // Pass the closure's captures so the frame owns them before the body runs.
-    call_user_function_span(func_idx, args, argc, fn.captures);
+    call_user_function_span(func_idx, args, argc, fn.captures, receiver);
 
     // Execute instructions until this function returns
     while (frames.size() > saved_frame_depth) {
@@ -3620,6 +3728,87 @@ Value VM::call_function_value_span(const Value &func_val, const Value *args, siz
     }
 
     return result;
+}
+
+Value VM::call_class_function_sync(uint32_t func_idx, const Value *args, size_t argc, const Value *receiver) {
+    size_t saved_frame_depth = frames.size();
+    size_t saved_stack_size = stack.size();
+
+    // NOTE: a JIT-compiled callee runs inline and never pushes a frame, so the drain loop
+    // below is naturally skipped in that case -- same contract as call_function_value_span.
+    call_user_function_span(func_idx, args, argc, {}, receiver);
+
+    while (frames.size() > saved_frame_depth) {
+        if (!execute_instruction()) {
+            break;
+        }
+    }
+
+    Value result = Value::none();
+    if (stack.size() > saved_stack_size) {
+        result = pop();
+    }
+
+    return result;
+}
+
+bool VM::capture_native_throw(Value error) {
+    if (native_catch_stack.empty()) {
+        return false;
+    }
+    NativeCatchBoundary &boundary = native_catch_stack.back();
+    boundary.caught = true;
+    boundary.error = std::move(error);
+    return true;
+}
+
+Value VM::call_function_value_catching(const Value &func_val) {
+    const size_t saved_frame_depth = frames.size();
+    const size_t saved_stack_size = stack.size();
+    const size_t saved_try_depth = try_stack.size();
+    std::jmp_buf *saved_overflow_jmp = overflow_jmp;
+
+    native_catch_stack.emplace_back();
+    std::jmp_buf catch_jmp;
+    overflow_jmp = &catch_jmp;
+    const int jump_value = setjmp(catch_jmp);
+
+    Value result = Value::none();
+    if (jump_value == 0) {
+        result = call_function_value_span(func_val, nullptr, 0);
+    }
+
+    overflow_jmp = saved_overflow_jmp;
+    while (frames.size() > saved_frame_depth) {
+        frames.pop_back();
+    }
+    if (stack.size() >= saved_stack_size) {
+        stack.resize(saved_stack_size);
+    }
+    if (try_stack.size() > saved_try_depth) {
+        try_stack.resize(saved_try_depth);
+    }
+
+    if (jump_value != 0 && jump_value != 4) {
+        native_catch_stack.pop_back();
+        if (saved_overflow_jmp) {
+            std::longjmp(*saved_overflow_jmp, jump_value);
+        }
+        has_error = true;
+        return Value::none();
+    }
+
+    NativeCatchBoundary boundary = std::move(native_catch_stack.back());
+    native_catch_stack.pop_back();
+    has_error = false;
+    if (boundary.caught) {
+        ScriptRuntime::GcTempRoot root(*runtime);
+        root.add(&boundary.error);
+        return runtime->make_err(boundary.error);
+    }
+    ScriptRuntime::GcTempRoot root(*runtime);
+    root.add(&result);
+    return runtime->make_ok(result);
 }
 
 bool VM::dispatch_throw(Value error) {
@@ -3656,8 +3845,7 @@ bool VM::dispatch_throw(Value error) {
 
         // basic check for a stale handler, we obviously can't target a frame that no longer exists
         if (handler.frame_depth > frames.size()) {
-            fprintf(stderr, "warning: discarding stale try handler (frame_depth=%zu, size=%zu)\n", handler.frame_depth,
-                    frames.size());
+            fprintf(stderr, "warning: discarding stale try handler (frame_depth=%zu, size=%zu)\n", handler.frame_depth, frames.size());
             continue;
         }
 
@@ -3678,8 +3866,7 @@ bool VM::dispatch_throw(Value error) {
 
         // stack_depth must not exceed the current unwound stack size, and we can't grow it here
         if (handler.stack_depth > stack.size()) {
-            fprintf(stderr, "warning: try handler stack_depth=%zu > stack.size()=%zu; clamping\n", handler.stack_depth,
-                    stack.size());
+            fprintf(stderr, "warning: try handler stack_depth=%zu > stack.size()=%zu; clamping\n", handler.stack_depth, stack.size());
             handler.stack_depth = stack.size();
         }
         stack.resize(handler.stack_depth);
@@ -3719,25 +3906,10 @@ void VM::poll_io() {
     runtime->process_completed_io();
 }
 
-bool VM::run(Chunk *compiled_chunk) {
-    if (!compiled_chunk || compiled_chunk->functions.empty()) {
-        return false;
-    }
-
-    chunk = compiled_chunk;
-
-#ifndef DISABLE_JIT
-    // The trace JIT has no chunk identity in its cache key (uses (func_idx, anchor_pc))
-    // cached traces also bake absolute bytecode IPs from chunk.functions[i].code.data().
-    // When reusing g_trace_jit across distinct chunks, invalidate everything before executing the new chunk.
-    if (jit::g_trace_jit) {
-        jit::g_trace_jit->reset();
-    }
-#endif
-
-    // register user-defined functions by name -> index
-    for (size_t i = 0; i < chunk->functions.size(); i++) {
+void VM::register_chunk_functions(size_t from) {
+    for (size_t i = from; i < chunk->functions.size(); i++) {
         FunctionMeta &fmeta = chunk->functions[i];
+        fmeta.self_idx = static_cast<uint32_t>(i);
         auto cls = jit_classify_inline(fmeta);
         fmeta.jit_inline_kind = cls.kind;
         fmeta.jit_inline_imm = cls.imm;
@@ -3751,9 +3923,27 @@ bool VM::run(Chunk *compiled_chunk) {
             fd.jit_func_idx = i;
             fd.jit_locals_count = fmeta.var_names.size();
             fd.jit_meta = &fmeta;
+            fd.jit_param_count = (uint8_t)fmeta.param_count;
+            fd.jit_rest_param_index = (int8_t)fmeta.rest_param_index;
+            fd.jit_js_undefined_params = fmeta.js_undefined_params;
 
             fd.jit_inline_kind = fmeta.jit_inline_kind;
             fd.jit_inline_imm = fmeta.jit_inline_imm;
+            if (name == "__js_lt") fd.jit_native_kind = 2;
+            else if (name == "__js_gt") fd.jit_native_kind = 3;
+            else if (name == "__js_le") fd.jit_native_kind = 4;
+            else if (name == "__js_ge") fd.jit_native_kind = 5;
+            else if (name == "__js_get_prop") fd.jit_native_kind = 6;
+            else if (name == "__js_set_prop") fd.jit_native_kind = 7;
+            else if (name == "__js_set_prop_static") fd.jit_native_kind = 8;
+            else if (name == "__js_length") fd.jit_native_kind = 9;
+            else if (name == "__js_str_char_code_at") fd.jit_native_kind = 10;
+            else if (name == "__js_invoke") fd.jit_native_kind = 11;
+            else if (name == "__js_loose_eq") fd.jit_native_kind = 12;
+            else if (name == "__js_postinc") fd.jit_native_kind = 13;
+            else if (name == "__js_str_code_point_at") fd.jit_native_kind = 15;
+            else if (name == "__js_add") fd.jit_native_kind = 16;
+            else if (name == "__js_to_string") fd.jit_native_kind = 14;
 
             std::string local_alias = Parser::get_exported_function_local_name(name);
             if (!local_alias.empty()) {
@@ -3761,17 +3951,68 @@ bool VM::run(Chunk *compiled_chunk) {
             }
         }
     }
+}
+
+// Backs the eval() builtin: compile into the live chunk, register the new names so
+// calls (and later evals) resolve them, run any eval'd module top-levels, then the entry.
+Value VM::eval_compile_run(const FuncList &funcs, const std::string &entry_name) {
+    if (!chunk) {
+        return Value::none();
+    }
+    const size_t first_new = chunk->functions.size();
+    AppendedCode added = compile_bytecode_append(chunk, funcs, entry_name);
+    register_chunk_functions(first_new);
+
+    for (uint32_t idx : added.toplevel_idxs) {
+        call_class_function_sync(idx, nullptr, 0, nullptr);
+    }
+    if (added.entry_idx == UINT32_MAX) {
+        return Value::none(); // declarations only
+    }
+    return call_class_function_sync(added.entry_idx, nullptr, 0, nullptr);
+}
+
+bool VM::run(Chunk *compiled_chunk) {
+    if (!compiled_chunk || compiled_chunk->functions.empty()) {
+        return false;
+    }
+
+    chunk = compiled_chunk;
+    if (profile_interpreter) {
+        interpreted_instruction_counts.assign(chunk->functions.size(), 0);
+    }
+#ifndef DISABLE_JIT
+    // The trace JIT has no chunk identity in its cache key (uses (func_idx, anchor_pc))
+    // cached traces also bake absolute bytecode IPs from chunk.functions[i].code.data().
+    // When reusing g_trace_jit across distinct chunks, invalidate everything before executing the new chunk.
+    if (jit::g_trace_jit) {
+        jit::g_trace_jit->reset();
+    }
+#endif
+
+    register_chunk_functions(0);
+
 
     // set up FFI callback dispatch so native callbacks can re-enter the VM
-    runtime->external_call_function_value = [&](const Value &func_val, const std::vector<Value> &args) -> Value {
-        return call_function_value_sync(func_val, args);
+    runtime->external_call_function_value = [&](const Value &func_val, const std::vector<Value> &args, const Value *receiver) -> Value {
+        return call_function_value_sync(func_val, args, receiver);
     };
     // span form used by the hot delegate-trap path (no vector<Value> creation)
-    runtime->external_call_function_value_span = [&](const Value &func_val, const Value *args, size_t argc) -> Value {
-        return call_function_value_span(func_val, args, argc);
+    runtime->external_call_function_value_span = [&](const Value &func_val, const Value *args, size_t argc,
+                                                     const Value *receiver) -> Value {
+        return call_function_value_span(func_val, args, argc, receiver);
     };
+    runtime->external_catch_function_value = [&](const Value &func_val) -> Value { return call_function_value_catching(func_val); };
 
     runtime->external_global_lookup = [&](const std::string &name) -> Value { return get_global(name); };
+    runtime->external_eval_source = [this](const FuncList &funcs, const std::string &entry_name) -> Value {
+        return eval_compile_run(funcs, entry_name);
+    };
+    runtime->external_before_exit = [&]() { report_interpreter_profile(); };
+
+    // Property and method opcodes can run during __stdlib_init__, so their
+    // per-string-table caches must exist before entering that function.
+    rebuild_global_cache();
 
     // call __stdlib_init__() if it exists to populate the system object
     auto stdlib_init_it = func_indices.find("__stdlib_init__");
@@ -3814,157 +4055,7 @@ bool VM::run(Chunk *compiled_chunk) {
     }
 
 #ifndef DISABLE_JIT
-    // attempt to eagerly compile user functions that contain backward jumps (loops) but no method calls AND at least
-    // one OP_CALL
     if (jit::g_jit_compiler) {
-        for (size_t i = 0; i < chunk->functions.size(); i++) {
-            const FunctionMeta &fm = chunk->functions[i];
-            if (fm.name.empty() || fm.name == "<main>") {
-                continue;
-            }
-
-            bool has_make_iterator = false;
-            int backward_jump_count = 0;
-            const auto &code = fm.code;
-            size_t pc = 0;
-            // track the last LOAD_GLOBAL seen (for LOAD_GLOBAL + args + CALL detection).
-            // reset on non-argument loading instructions.
-            bool pending_global = false;
-            uint16_t pending_global_name_idx = 0;
-            bool pending_load_var = false; // tracks LOAD_VAR preceding a CALL (potential closure)
-            // collect positions of non-inlineable calls, method calls, and backward jumps to determine which are inside
-            // loop bodies.
-            std::vector<size_t> non_inlineable_call_pcs;
-            std::vector<size_t> call_method_pcs;
-            std::vector<size_t> string_op_pcs; // string ops the trace JIT can't handle
-            struct BwJump {
-                size_t jump_pc;
-                size_t target_pc;
-            };
-            std::vector<BwJump> bw_jumps;
-            while (pc < code.size()) {
-                OpCode op2 = (OpCode)code[pc];
-                if (op2 == OpCode::OP_CALL) {
-                    uint8_t argc = (pc + 1 < code.size()) ? code[pc + 1] : 255;
-                    bool inlineable = false;
-                    if (pending_global) {
-                        const std::string &gname = chunk->strings[pending_global_name_idx];
-                        auto it = globals.find(gname);
-                        if (it != globals.end() && it->second.is_function()) {
-                            FunctionData &fd = it->second.get_function();
-                            if (fd.jit_meta != nullptr && fd.jit_inline_kind != JitInlineKind::None) {
-                                inlineable = true;
-                            }
-                        }
-                    }
-                    // LOAD_VAR + CALL 0: potential 0-arg closure call (ClosureInc etc)
-                    if (!inlineable && pending_load_var && argc == 0) {
-                        inlineable = true;
-                    }
-                    if (!inlineable) {
-                        non_inlineable_call_pcs.push_back(pc);
-                    }
-                    pending_global = false;
-                    pending_load_var = false;
-                } else if (op2 == OpCode::OP_CALL_METHOD) {
-                    call_method_pcs.push_back(pc);
-                    pending_global = false;
-                    pending_load_var = false;
-                } else if (op2 == OpCode::OP_LOAD_GLOBAL && pc + 2 < code.size()) {
-                    if (pending_global) {
-                        pending_global = false;
-                        non_inlineable_call_pcs.push_back(pc); // double LOAD_GLOBAL
-                    } else {
-                        pending_global = true;
-                        pending_global_name_idx = (uint16_t(code[pc + 1]) << 8) | uint16_t(code[pc + 2]);
-                    }
-                } else if (op2 != OpCode::OP_LOAD_VAR && op2 != OpCode::OP_LOAD_CONST && op2 != OpCode::OP_LOAD_ONE &&
-                           op2 != OpCode::OP_LOAD_ZERO && op2 != OpCode::OP_LOAD_NONE && op2 != OpCode::OP_LOAD_TRUE &&
-                           op2 != OpCode::OP_LOAD_FALSE && op2 != OpCode::OP_LOAD_CAPTURE) {
-                    pending_global = false;
-                    pending_load_var = false;
-                }
-                if (op2 == OpCode::OP_LOAD_VAR) {
-                    pending_load_var = true;
-                }
-                if (op2 == OpCode::OP_MAKE_ITERATOR || op2 == OpCode::OP_MAKE_ITERATOR_KV) {
-                    has_make_iterator = true;
-                }
-                if (op2 == OpCode::OP_STR_APPEND_VAR || op2 == OpCode::OP_STR_APPEND_GLOBAL ||
-                    op2 == OpCode::OP_STR_CONCAT) {
-                    string_op_pcs.push_back(pc);
-                }
-                if (op2 == OpCode::OP_JUMP && pc + 2 < code.size()) {
-                    int16_t off = (int16_t)(uint16_t(code[pc + 1]) << 8) | uint16_t(code[pc + 2]);
-                    if (off < 0) {
-                        backward_jump_count++;
-                        size_t target_pc = pc + 3 + off; // target of backwards jump
-                        bw_jumps.push_back({ pc, target_pc });
-                    }
-                }
-                size_t instruction_size = decoded_instruction_size(code, pc);
-                if (instruction_size == 0) {
-                    break;
-                }
-                pc += instruction_size;
-            }
-
-            // determine which calls are inside loop bodies
-            auto in_any_loop = [&](size_t cpc) -> bool {
-                for (const auto &bj : bw_jumps) {
-                    if (cpc >= bj.target_pc && cpc <= bj.jump_pc) {
-                        return true;
-                    }
-                }
-                return false;
-            };
-
-            bool has_non_inlineable_call_in_loop = false;
-            bool has_non_inlineable_call_outside_loop = false;
-            for (size_t cpc : non_inlineable_call_pcs) {
-                if (in_any_loop(cpc)) {
-                    has_non_inlineable_call_in_loop = true;
-                } else {
-                    has_non_inlineable_call_outside_loop = true;
-                }
-            }
-
-            bool has_call_method_in_loop = false;
-            for (size_t cpc : call_method_pcs) {
-                if (in_any_loop(cpc)) {
-                    has_call_method_in_loop = true;
-                    break;
-                }
-            }
-
-            bool has_string_op_in_loop = false;
-            for (size_t cpc : string_op_pcs) {
-                if (in_any_loop(cpc)) {
-                    has_string_op_in_loop = true;
-                    break;
-                }
-            }
-            /*
-                eager-compile when the trace JIT won't be sufficient:
-                    - >=2 backward jumps: nested loops need the method JIT
-                    - non-inlineable OP_CALL inside the loop: trace JIT will abort
-                    - same with OP_CALL outside loop + CALL_METHOD in loop, trace JIT aborts on CALL_METHOD
-                    - string operations in a loop: trace JIT aborts on string LOAD_CONST
-
-                    TODO: we exclude functions with OP_MAKE_ITERATOR because
-                          the method JIT has a known stack-layout bug when 'continue' is used
-                          inside a for-in body (multiple backward jumps to OP_ITER_NEXT).
-            */
-
-            const bool needs_eager =
-                !has_make_iterator &&
-                (backward_jump_count >= 2 ||
-                 (backward_jump_count >= 1 && (has_non_inlineable_call_in_loop || has_string_op_in_loop ||
-                                               (has_non_inlineable_call_outside_loop && has_call_method_in_loop))));
-            if (needs_eager) {
-                jit::g_jit_compiler->compile_chunk(*chunk, i);
-            }
-        }
 #ifdef NARI_ENABLE_GDB_JIT
         nari_jit_initial_load_complete();
 #endif
@@ -3982,6 +4073,7 @@ bool VM::run(Chunk *compiled_chunk) {
         }
         if (jmp_val == 1) {
             overflow_jmp = nullptr;
+            report_interpreter_profile();
             return false;
         }
         // jmp_val == 0 (first entry) or 2
@@ -4015,10 +4107,12 @@ bool VM::run(Chunk *compiled_chunk) {
             }
             if (start_jmp_val == 1) {
                 overflow_jmp = nullptr;
+                report_interpreter_profile();
                 return false;
             }
             if (start_jmp_val == 3) {
                 overflow_jmp = nullptr;
+                report_interpreter_profile();
                 return true;
             }
             // start_jmp_val == 0 (first entry) or 2 (caught; resume loop)
@@ -4040,7 +4134,185 @@ bool VM::run(Chunk *compiled_chunk) {
         }
     }
 
+    run_timer_loop();
+
+    report_interpreter_profile();
     return !has_error;
+}
+
+
+// Constant-key JS property ops (OP_JS_GET/SET_PROP_STATIC, OP_JS_POSTINC) and their shared shape->slot stub cache.
+namespace {
+// Global megamorphic property stub cache, keyed by (shape, field_id)
+//
+// A shape's field layout is fixed at construction and shapes belong to the process-global registry,
+// so (shape, field_id) -> slot is immutable.
+struct PropStubEntry {
+    const ObjectShape *shape = nullptr;
+    uint32_t fid = 0;
+    uint32_t slot = 0;
+};
+
+enum { kPropStubN = 4096 };
+PropStubEntry g_prop_stub[kPropStubN];
+inline size_t prop_stub_hash(const ObjectShape *s, uint32_t fid) {
+    uint64_t h = ((uint64_t)((uintptr_t)s >> 4)) * 0x9E3779B97F4A7C15ull ^ (uint64_t)fid * 0x100000001B3ull;
+    return (size_t)((h ^ (h >> 29)) & ((uint64_t)kPropStubN - 1));
+}
+} // namespace
+
+
+// Constant-key property store, mirrors OP_JS_GET_PROP_STATIC on the write side
+extern "C" void jit_js_set_prop_static(VM *vm, uint32_t name_idx) {
+    const size_t val_idx = vm->stack.size() - 1;
+    const size_t obj_idx = val_idx - 1;
+    Value &obj = vm->stack[obj_idx];
+
+    if (NARI_LIKELY(obj.is_object())) {
+        ObjectObj *object = obj.get_obj_ptr();
+        if (NARI_LIKELY(!object->dict_mode && !object->frozen)) {
+            static const uint32_t proto_id = intern_field("__proto__");
+            const uint32_t setter_id = vm->setter_field_id_for_name((uint16_t)name_idx);
+            const uint64_t guard_mask =
+                (uint64_t{1} << (setter_id & 63)) | (uint64_t{1} << (proto_id & 63));
+            if (NARI_LIKELY((object->shape->field_mask & guard_mask) == 0)) {
+                Value value = vm->stack[val_idx];
+                object->set_field_by_id(vm->field_id_for_name((uint16_t)name_idx), value);
+                vm->stack[obj_idx] = std::move(value);
+                vm->stack.resize(obj_idx + 1);
+                return;
+            }
+        }
+    }
+
+    Value args[] = { obj, vm->chunk->get_const_string(name_idx), vm->stack[val_idx] };
+    const Value &helper = vm->get_global("__js_set_prop_static");
+    Value result = vm->call_function_value_span(helper, args, 3);
+    vm->stack[obj_idx] = std::move(result);
+    vm->stack.resize(obj_idx + 1);
+}
+
+// Constant-key post-increment: `obj.k++`
+extern "C" void jit_js_postinc(VM *vm, uint32_t name_idx) {
+    const size_t obj_idx = vm->stack.size() - 1;
+    Value obj = vm->stack[obj_idx];
+
+    if (NARI_LIKELY(obj.is_object())) {
+        ObjectObj *object = obj.get_obj_ptr();
+        if (NARI_LIKELY(!object->dict_mode && !object->frozen)) {
+            static const uint32_t proto_id = intern_field("__proto__");
+            const uint32_t getter_id = vm->getter_field_id_for_name((uint16_t)name_idx);
+            const uint32_t setter_id = vm->setter_field_id_for_name((uint16_t)name_idx);
+            const uint64_t guard_mask = (uint64_t{1} << (getter_id & 63)) |
+                                        (uint64_t{1} << (setter_id & 63)) | (uint64_t{1} << (proto_id & 63));
+            if (NARI_LIKELY((object->shape->field_mask & guard_mask) == 0)) {
+                const uint32_t fid = vm->field_id_for_name((uint16_t)name_idx);
+                const PropStubEntry &e = g_prop_stub[prop_stub_hash(object->shape, fid)];
+                if (NARI_LIKELY(e.shape == object->shape && e.fid == fid)) {
+                    if (Value *field = object->materialize_lazy_field(e.slot)) {
+                        // Int48 is the only case worth inlining: `pos` is always a
+                        // small integer. Anything else (double, string, undefined)
+                        // needs full ToNumber and takes the helper.
+                        if (NARI_LIKELY(field->is_int())) {
+                            const int64_t old = field->get_int();
+                            if (NARI_LIKELY(old < Value::INT48_MAX)) {
+                                *field = Value::make_int(old + 1);
+                                vm->stack[obj_idx] = Value::make_int(old);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Value args[] = { obj, vm->chunk->get_const_string(name_idx) };
+    const Value &helper = vm->get_global("__js_postinc");
+    Value result = vm->call_function_value_span(helper, args, 2);
+    vm->stack[obj_idx] = std::move(result);
+}
+
+extern "C" void jit_js_get_prop_static(VM *vm, uint32_t name_idx) {
+    const size_t obj_idx = vm->stack.size() - 1;
+    Value obj = vm->stack[obj_idx];
+    static const bool disabled = std::getenv("NARI_DISABLE_JS_GET_PROP_STATIC") != nullptr;
+    if (!disabled && obj.is_object()) {
+        ObjectObj *object = obj.get_obj_ptr();
+        if (!object->dict_mode) {
+            const uint32_t cached_fid = vm->field_id_for_name((uint16_t)name_idx);
+            const PropStubEntry &e = g_prop_stub[prop_stub_hash(object->shape, cached_fid)];
+            if (e.shape == object->shape && e.fid == cached_fid) {
+                if (Value *field = object->materialize_lazy_field(e.slot)) {
+                    // Keep feeding the name-keyed IC that the *inline* JIT fast path
+                    // reads. Returning without refilling it starves that path and costs
+                    // far more than this cache saves (measured: +1.75B instructions).
+                    if (name_idx < vm->js_get_prop_static_ic.size()) {
+                        auto &ic = vm->js_get_prop_static_ic[name_idx];
+                        if (ic.shape != object->shape) {
+                            ic.shape2 = ic.shape;
+                            ic.slot2 = ic.slot;
+                            ic.lazy_mask2 = ic.lazy_mask;
+                            ic.shape = object->shape;
+                            ic.slot = e.slot;
+                            ic.lazy_mask = e.slot < 64 ? uint64_t{ 1 } << e.slot : uint64_t{ 0 };
+                        }
+                    }
+                    vm->stack[obj_idx] = *field;
+                    return;
+                }
+            }
+        }
+        const uint32_t getter_field_id = vm->getter_field_id_for_name((uint16_t)name_idx);
+        const uint64_t getter_mask = uint64_t{1} << (getter_field_id & 63);
+        if (object->dict_mode || (object->shape->field_mask & getter_mask)) {
+            const Value *getter = object->get_field_by_id(getter_field_id);
+            if (getter && getter->is_function()) {
+                Value args[] = { obj, vm->chunk->get_const_string(name_idx) };
+                const Value &helper = vm->get_global("__js_get_prop_static");
+                vm->stack[obj_idx] = vm->call_function_value_span(helper, args, 2);
+                return;
+            }
+        }
+
+        const uint32_t field_id = vm->field_id_for_name((uint16_t)name_idx);
+        const uint64_t field_mask = uint64_t{1} << (field_id & 63);
+        if (object->dict_mode || (object->shape->field_mask & field_mask)) {
+            if (!object->dict_mode) {
+                const uint32_t getter_slot = object->shape->slot_of(getter_field_id);
+                const uint32_t field_slot = object->shape->slot_of(field_id);
+                const bool plain_field = getter_slot == ObjectShape::kNoSlot && field_slot != ObjectShape::kNoSlot;
+                if (plain_field) {
+                    g_prop_stub[prop_stub_hash(object->shape, field_id)] =
+                        PropStubEntry{ object->shape, field_id, field_slot };
+                }
+                if (plain_field && name_idx < vm->js_get_prop_static_ic.size()) {
+                    const uint32_t slot = field_slot;
+                    auto &ic = vm->js_get_prop_static_ic[name_idx];
+                    ic.shape2 = ic.shape;
+                    ic.slot2 = ic.slot;
+                    ic.lazy_mask2 = ic.lazy_mask;
+                    ic.shape = object->shape;
+                    ic.slot = slot;
+                    ic.lazy_mask = slot < 64 ? uint64_t{1} << slot : uint64_t{0};
+                }
+            }
+            const Value *field = object->get_field_by_id(field_id);
+            if (field) {
+                vm->stack[obj_idx] = *field;
+                return;
+            }
+        }
+
+        Value args[] = { obj, vm->chunk->get_const_string(name_idx), Value::make_bool(true) };
+        const Value &helper = vm->get_global("__js_get_prop_static");
+        vm->stack[obj_idx] = vm->call_function_value_span(helper, args, 3);
+        return;
+    }
+
+    Value args[] = { obj, vm->chunk->get_const_string(name_idx) };
+    const Value &helper = vm->get_global("__js_get_prop_static");
+    vm->stack[obj_idx] = vm->call_function_value_span(helper, args, 2);
 }
 
 } // namespace bytecode

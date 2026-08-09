@@ -14,10 +14,14 @@ enum Result<T, E> { Ok(T), Err(E) }
 enum Option<T>    { Some(T), None }
 ```
 
+`Ok`, `Err`, `Some` and `None` are all constructor **functions**. Call `None()`
+with parentheses. A bare `None` is the function itself, not an empty `Option`.
+
 Fallible operations return a `Result`. You inspect it instead of catching an exception:
 
 ```nari
-let result = json.parse(text);
+let text = "{\"id\": 7}";
+let result = JSON.parse(text);
 if (result.is_ok()) {
     let data = result.unwrap();
     print(data);
@@ -70,7 +74,7 @@ func find(list, target) {
             return Some(item);
         }
     }
-    return None;
+    return None();
 }
 
 let found = find([1, 2, 3], 2);
@@ -107,11 +111,11 @@ Return the `Result` up the call stack and let the caller decide:
 
 ```nari
 func loadConfig(path) {
-    let raw = fs.read_file_sync(path);   // returns Result
+    let raw = fs.read_file(path).await;   // gives a Result
     if (raw.is_err()) {
         return raw;                       // propagate the Err
     }
-    return json.parse(raw.unwrap());      // also a Result
+    return JSON.parse(raw.unwrap());      // also a Result
 }
 
 let cfg = loadConfig("config.json");
@@ -124,8 +128,8 @@ if (cfg.is_err()) {
 
 ```nari
 func loadConfig(path) {
-    return fs.read_file_sync(path).and_then(func(raw) {
-        return json.parse(raw);
+    return fs.read_file(path).await.and_then(func(raw) {
+        return JSON.parse(raw);
     });
 }
 ```
@@ -134,8 +138,22 @@ func loadConfig(path) {
 
 ```nari
 func getConfigValue(config, key, fallback) {
-    let v = config.get(key);   // returns Option
-    return v.unwrap_or(fallback);
+    if (config.has_key(key)) {
+        return config[key];
+    }
+    return fallback;
+}
+```
+
+Objects have no `get` method and never give an `Option`. If you want the
+`Option` shape, build it yourself:
+
+```nari
+func lookup(config, key) {
+    if (config.has_key(key)) {
+        return Some(config[key]);
+    }
+    return None();
 }
 ```
 

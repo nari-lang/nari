@@ -1,0 +1,119 @@
+// Regression test for relational comparison (`<` `<=` `>` `>=`) on strings.
+
+import { assert } from "../lib/assert.nari";
+
+func sig(a, b) {
+    let s = "";
+    if (a < b) { s = s @ "1"; } else { s = s @ "0"; }
+    if (a <= b) { s = s @ "1"; } else { s = s @ "0"; }
+    if (a > b) { s = s @ "1"; } else { s = s @ "0"; }
+    if (a >= b) { s = s @ "1"; } else { s = s @ "0"; }
+    return s;
+}
+
+let LT = "1100";
+let EQ = "0101";
+let GT = "0011";
+// A number and a string have no order, so all four operators give false.
+let UN = "0000";
+
+// pair list: [left, right, expected signature, label]
+func cases() {
+    return [
+        ["a", "b", LT, "'a' < 'b'"],
+        ["b", "a", GT, "'b' > 'a'"],
+        ["a", "a", EQ, "'a' == 'a'"],
+        ["apple", "banana", LT, "'apple' < 'banana'"],
+        ["banana", "apple", GT, "'banana' > 'apple'"],
+        ["a", "ab", LT, "prefix shorter is less"],
+        ["ab", "a", GT, "prefix longer is greater"],
+        ["", "a", LT, "empty is less than non-empty"],
+        ["", "", EQ, "empty == empty"],
+        ["A", "a", LT, "'A'(65) < 'a'(97) byte order"],
+        ["Z", "a", LT, "'Z'(90) < 'a'(97) byte order"],
+        // two strings compare lexicographically, so "10" < "9" -- this matches
+        // JS/Python and is a deliberate change from the old numeric coercion.
+        ["10", "9", LT, "numeric strings compare lexicographically"],
+        // A string and a number have no order. The string is not sent through
+        // strtod any more, because that made `1 <= "1" && 1 >= "1"` true while
+        // `1 == "1"` was false, and made `1 > "abc"` true through a 0.0 fallback.
+        ["5", 10, UN, "'5' vs 10 has no order"],
+        [10, "5", UN, "10 vs '5' has no order"],
+        ["abc", 1, UN, "'abc' vs 1 has no order"],
+        [0, "abc", UN, "0 vs 'abc' has no order"],
+        // plain numbers unaffected
+        [5, 10, LT, "int 5 < 10"],
+        [10, 5, GT, "int 10 > 5"],
+        [7, 7, EQ, "int 7 == 7"],
+        [5.5, 6.5, LT, "float 5.5 < 6.5"],
+        [5.5, 5.5, EQ, "float 5.5 == 5.5"],
+    ];
+}
+
+// hot loop in its own function so the trace JIT records and compiles it
+func count_lt(a, b, n) {
+    let c = 0;
+    for (let i = 0; i < n; i++) {
+        if (a < b) { c = c + 1; }
+    }
+    return c;
+}
+
+func start() {
+    let cs = cases();
+
+    // first pass runs in the interpreter
+    for (c in cs) {
+        assert(sig(c[0], c[1]) == c[2], c[3] @ " (cold) got " @ sig(c[0], c[1]) @ " want " @ c[2]);
+    }
+
+    // 200 calls per pair pushes sig() past JIT_THRESHOLD (50) into the
+    //  function JIT, and the answer must not change
+    for (let k = 0; k < 200; k++) {
+        for (c in cs) {
+            assert(sig(c[0], c[1]) == c[2], c[3] @ " (warm, k=" @ k @ ")");
+        }
+    }
+
+    // traced: comparison inside a hot loop, exercising the trace JIT
+    for (c in cs) {
+        let want = 0;
+        if (c[2] == LT) { want = 5000; }
+        let got = count_lt(c[0], c[1], 5000);
+        assert(got == want, c[3] @ " (traced) got " @ got @ " want " @ want);
+    }
+
+    // antisymmetry sweep: for every ordered pair of distinct strings, exactly one
+    // of a<b / a>b holds, and never both
+    let words = ["", "a", "A", "ab", "b", "apple", "banana", "10", "9", "zzz"];
+    for (x in words) {
+        for (y in words) {
+            let lt = x < y;
+            let gt = x > y;
+            let eq = x == y;
+            assert(!(lt && gt), "both < and > true for '" @ x @ "','" @ y @ "'");
+            if (eq) {
+                assert(!lt && !gt, "equal strings ordered: '" @ x @ "'");
+            } else {
+                assert(lt || gt, "distinct strings unordered: '" @ x @ "','" @ y @ "'");
+            }
+            // <= and >= must agree with < / > plus equality
+            assert((x <= y) == (lt || eq), "'<=' disagrees for '" @ x @ "','" @ y @ "'");
+            assert((x >= y) == (gt || eq), "'>=' disagrees for '" @ x @ "','" @ y @ "'");
+        }
+    }
+
+    // sort() already used to_string() and was never broken; assert it still agrees
+    // with the operators now that both are lexicographic
+    let arr = ["banana", "apple", "cherry", "Apple"];
+    arr.sort();
+    assert(arr[0] == "Apple", "sort: Apple first, got " @ arr[0]);
+    assert(arr[1] == "apple", "sort: apple second, got " @ arr[1]);
+    assert(arr[2] == "banana", "sort: banana third, got " @ arr[2]);
+    assert(arr[3] == "cherry", "sort: cherry fourth, got " @ arr[3]);
+    for (let i = 0; i < arr.length() - 1; i++) {
+        assert(arr[i] < arr[i + 1], "sort order disagrees with '<' at " @ i);
+    }
+
+    print("string relational compare: OK");
+}

@@ -1,8 +1,7 @@
-// -- Regex -------------------------------------------------------------------
-// Stdlib surface over the runtime's regex engine (SRELL, ECMAScript syntax).
-// Lets you build regexes from dynamic strings (literals like /foo/i remain
-// the primary form). Returns/uses native regex values, so .test() / .exec()
-// remain available as methods.
+// Regex
+//  Stdlib surface over the runtime's regex engine (SRELL, ECMAScript syntax).
+//  Lets you build regexes from dynamic strings (literals like /foo/i remain the primary form).
+//  Returns/uses native regex values, so .test() / .exec() remain available as methods.
 //
 // import { Regex } from "std/regex";
 

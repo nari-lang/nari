@@ -66,4 +66,34 @@ func build_with_marker(n) {
 let m = build_with_marker(2);
 assert(m == "payload::END::END", "marker append: got '" @ m @ "'");
 
+func exercise_append_conversion(n) {
+    let body = "long-enough-seed";
+    body = body @ 7;
+    let i = 0;
+    while (i < n) {
+        body = body @ true;
+        i++;
+    }
+    return body;
+}
+
+func exercise_captured_append(n) {
+    let body = "seed";
+    body = body @ 7;
+    let read = func() { return body; };
+    let i = 0;
+    while (i < n) {
+        body = body @ true;
+        i++;
+    }
+    return [body, read()];
+}
+
+let conversion_result = exercise_append_conversion(2);
+assert(conversion_result == "long-enough-seed7truetrue", "non-string append result: " @ conversion_result);
+
+let captured_result = exercise_captured_append(2);
+assert(captured_result[0] == "seed7truetrue", "captured append result: " @ captured_result[0]);
+assert(captured_result[1] == captured_result[0], "closure did not observe append: " @ captured_result[1] @ " vs " @ captured_result[0]);
+
 print("test_jit_str_append_var_literal: PASS");

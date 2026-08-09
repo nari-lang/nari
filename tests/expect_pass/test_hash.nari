@@ -1,0 +1,18 @@
+// Test Hash stdlib (mbedtls-backed SHA-1 / SHA-256)
+import { Hash } from "std/hash";
+
+// Well-known SHA-1 vectors
+let s1 = Hash.sha1("abc");
+print("sha1(abc) = " @ s1);
+if (s1 != "a9993e364706816aba3e25717850c26c9cd0d89d") { panic("SHA-1 abc vector failed"); }
+
+let s1e = Hash.sha1("");
+print("sha1(\"\") = " @ s1e);
+if (s1e != "da39a3ee5e6b4b0d3255bfef95601890afd80709") { panic("SHA-1 empty vector failed"); }
+
+// Well-known SHA-256 vectors
+let s2 = Hash.sha256("abc");
+print("sha256(abc) = " @ s2);
+if (s2 != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") { panic("SHA-256 abc vector failed"); }
+
+print("All Hash tests passed!");

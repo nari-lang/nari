@@ -1,0 +1,11 @@
+import { assert } from "../lib/assert.nari";
+
+let µb = 40
+µb += 2
+assert(µb == 42, "Unicode variable")
+
+func café(value) {
+    return value
+}
+
+assert(café("ok") == "ok", "Unicode function")

@@ -30,6 +30,7 @@ static int p1_width(OpCode op) {
         case OpCode::OP_SUB:
         case OpCode::OP_MUL:
         case OpCode::OP_MOD:
+        case OpCode::OP_POW:
         case OpCode::OP_DIV:
         case OpCode::OP_NEG:
         case OpCode::OP_BIT_AND:
@@ -38,22 +39,35 @@ static int p1_width(OpCode op) {
         case OpCode::OP_BIT_NOT:
         case OpCode::OP_LSHIFT:
         case OpCode::OP_RSHIFT:
+        case OpCode::OP_JS_BIT_AND:
+        case OpCode::OP_JS_BIT_OR:
+        case OpCode::OP_JS_BIT_XOR:
+        case OpCode::OP_JS_BIT_NOT:
+        case OpCode::OP_JS_SHL:
+        case OpCode::OP_JS_SHR:
+        case OpCode::OP_JS_USHR:
         case OpCode::OP_NOT:
+        case OpCode::OP_JS_TRUTHY:
         case OpCode::OP_LT:
         case OpCode::OP_LE:
         case OpCode::OP_GT:
         case OpCode::OP_GE:
         case OpCode::OP_EQ:
         case OpCode::OP_NE:
+        case OpCode::OP_STRICT_EQ:
+        case OpCode::OP_STRICT_NE:
         case OpCode::OP_RETURN:
         case OpCode::OP_GET_INDEX:
         case OpCode::OP_SET_INDEX:
-            break;
         case OpCode::OP_CALL:
+        case OpCode::OP_CALL_SPREAD:
+        case OpCode::OP_ARRAY_PUSH:
+        case OpCode::OP_ARRAY_SPREAD:
+        case OpCode::OP_SELF_TAIL_CALL:
             break;
         case OpCode::OP_STR_CONCAT:
+        case OpCode::OP_STR_APPEND_VAR:
         case OpCode::OP_ITER_ARRAY:
-            break;
         case OpCode::OP_LOAD_CONST:
         case OpCode::OP_LOAD_VAR:
         case OpCode::OP_STORE_VAR:
@@ -61,16 +75,21 @@ static int p1_width(OpCode op) {
         case OpCode::OP_JUMP:
         case OpCode::OP_JUMP_IF_FALSE:
         case OpCode::OP_JUMP_IF_TRUE:
+        case OpCode::OP_JUMP_IF_NONE:
             break;
         case OpCode::OP_STORE_GLOBAL:
         case OpCode::OP_LOAD_CAPTURE:
         case OpCode::OP_STORE_CAPTURE:
         case OpCode::OP_GET_PROPERTY:
+        case OpCode::OP_JS_GET_PROP_STATIC:
         case OpCode::OP_SET_PROPERTY:
+        case OpCode::OP_JS_SET_PROP_STATIC:
+        case OpCode::OP_JS_POSTINC:
+        case OpCode::OP_CLOSE_UPVALUES:
         case OpCode::OP_FORMAT_VALUE:
         case OpCode::OP_MAKE_ARRAY:
         case OpCode::OP_MAKE_OBJECT:
-            break;
+        case OpCode::OP_MAKE_CLOSURE:
         case OpCode::OP_CALL_METHOD:
             break;
         default:
@@ -85,6 +104,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
     }
     const FunctionMeta &func_meta = chunk.functions[func_idx];
     const ByteArray &code = func_meta.code;
+    static const bool kBuildReport = getenv("NARI_IR_BUILD_REPORT") != nullptr;
     if (code.empty()) {
         return false;
     }
@@ -95,14 +115,15 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         return (size_t)((ptrdiff_t)(op_pc + 3) + off);
     };
 
-    static const bool kBuildReport = getenv("NARI_IR_BUILD_REPORT") != nullptr;
-
     // eligibility and block leaders
     std::set<size_t> leaders;
     leaders.insert(0);
     for (size_t pc = 0; pc < code.size();) {
         OpCode op = (OpCode)code[pc];
         int w = p1_width(op);
+        if (op == OpCode::OP_MAKE_CLOSURE) {
+            w = (int)nari::bytecode::decoded_instruction_size(code, pc);
+        }
         if (w == 0) {
             if (kBuildReport) {
                 fprintf(stderr, "[IR-BUILD] %s: non-P1 opcode %s at pc=%zu\n", func_meta.name.c_str(),
@@ -110,15 +131,16 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             }
             return false; // non-P1 opcode
         }
-        if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE) {
+        if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE ||
+            op == OpCode::OP_JUMP_IF_NONE) {
             size_t target = jtarget(pc);
             if (target > code.size()) {
                 return false;
             }
             leaders.insert(target);
             leaders.insert(pc + 3); // fall-through / post-jump
-        } else if (op == OpCode::OP_RETURN) {
-            leaders.insert(pc + 1); // unreachable-but-consistent boundary
+        } else if (op == OpCode::OP_RETURN || op == OpCode::OP_SELF_TAIL_CALL) {
+            leaders.insert(pc + w); // unreachable-but-consistent boundary
         }
         pc += w;
     }
@@ -127,6 +149,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
     out.meta = &func_meta;
     out.num_slots = (uint32_t)func_meta.var_names.size();
     out.num_params = func_meta.param_count;
+    out.captured_local_slots.assign(out.num_slots, 0);
     std::map<size_t, BlockId> at; // leader pc -> block id
     std::vector<size_t> leader_vec(leaders.begin(), leaders.end());
     for (size_t leader : leader_vec) {
@@ -160,6 +183,9 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         while (pc < end) {
             OpCode op = (OpCode)code[pc];
             int w = p1_width(op);
+            if (op == OpCode::OP_MAKE_CLOSURE) {
+                w = (int)nari::bytecode::decoded_instruction_size(code, pc);
+            }
             if (w == 0) {
                 return false; // pass 1 already filtered, defensive
             }
@@ -173,7 +199,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 found_term = true;
                 break;
             }
-            if (op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE) {
+            if (op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE || op == OpCode::OP_JUMP_IF_NONE) {
                 size_t target = jtarget(pc);
                 BlockId tb = block_at(target);
                 BlockId fall = block_at(pc + 3);
@@ -182,6 +208,11 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 }
                 cfg_succs[bid].push_back(fall);
                 cfg_succs[bid].push_back(tb);
+                found_term = true;
+                break;
+            }
+            if (op == OpCode::OP_SELF_TAIL_CALL) {
+                cfg_succs[bid].push_back(out.entry);
                 found_term = true;
                 break;
             }
@@ -246,10 +277,6 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 } else if (depth != exit_depth[p]) {
                     // predecessors leave different stack depths at this block's entry,
                     // this is a malformed CFG or unsupported shape, we should bail here.
-                    if (kBuildReport) {
-                        fprintf(stderr, "[IR-BUILD] %s: pred depth mismatch at block start pc=%zu (%d vs %d)\n",
-                                func_meta.name.c_str(), start, depth, exit_depth[p]);
-                    }
                     return false;
                 }
             }
@@ -262,10 +289,6 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 depth = 0;
             }
             if (has_back_edge && depth != 0) {
-                if (kBuildReport) {
-                    fprintf(stderr, "[IR-BUILD] %s: loop header has entry depth %d at pc=%zu (back-edge requires 0)\n",
-                            func_meta.name.c_str(), depth, start);
-                }
                 return false;
             }
             entry_depth[bid] = depth;
@@ -524,6 +547,12 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     }
                     break;
                 }
+                case OpCode::OP_POW: {
+                    if (!bin(Op::Pow, op_pc)) {
+                        return false;
+                    }
+                    break;
+                }
                 case OpCode::OP_DIV: {
                     if (!bin(Op::DynDiv, op_pc)) {
                         return false;
@@ -534,6 +563,22 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     if (!bin(Op::StrConcat, op_pc)) {
                         return false;
                     }
+                    break;
+                }
+                case OpCode::OP_STR_APPEND_VAR: {
+                    uint16_t slot = u16(pc);
+                    pc += 2;
+                    if (vstk.empty()) {
+                        return false;
+                    }
+                    ValueId rhs = vstk.back();
+                    vstk.pop_back();
+                    Inst instruction;
+                    instruction.op = Op::StrAppendSlot;
+                    instruction.imm_u32 = slot;
+                    instruction.operands = { rhs };
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
                     break;
                 }
                 case OpCode::OP_NEG: {
@@ -578,8 +623,32 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     }
                     break;
                 }
+                case OpCode::OP_JS_BIT_AND:
+                case OpCode::OP_JS_BIT_OR:
+                case OpCode::OP_JS_BIT_XOR:
+                case OpCode::OP_JS_SHL:
+                case OpCode::OP_JS_SHR:
+                case OpCode::OP_JS_USHR: {
+                    if (!bin(Op::JsBitBinary, op_pc)) {
+                        return false;
+                    }
+                    out.inst(block.insts.back()).imm_u32 = static_cast<uint32_t>(op);
+                    break;
+                }
+                case OpCode::OP_JS_BIT_NOT: {
+                    if (!unary_in_place(Op::JsBitNot, op_pc)) {
+                        return false;
+                    }
+                    break;
+                }
                 case OpCode::OP_NOT: {
                     if (!unary_in_place(Op::Not, op_pc)) {
+                        return false;
+                    }
+                    break;
+                }
+                case OpCode::OP_JS_TRUTHY: {
+                    if (!unary_in_place(Op::JsTruthy, op_pc)) {
                         return false;
                     }
                     break;
@@ -616,6 +685,18 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 }
                 case OpCode::OP_NE: {
                     if (!bin(Op::DynCmpNe, op_pc)) {
+                        return false;
+                    }
+                    break;
+                }
+                case OpCode::OP_STRICT_EQ: {
+                    if (!bin(Op::DynStrictCmpEq, op_pc)) {
+                        return false;
+                    }
+                    break;
+                }
+                case OpCode::OP_STRICT_NE: {
+                    if (!bin(Op::DynStrictCmpNe, op_pc)) {
                         return false;
                     }
                     break;
@@ -668,6 +749,35 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     emit_push(block, vstk, std::move(instruction));
                     break;
                 }
+                case OpCode::OP_CLOSE_UPVALUES: {
+                    uint16_t first_slot = u16(pc);
+                    pc += 2;
+                    Inst instruction;
+                    instruction.op = Op::CloseUpvalues;
+                    instruction.imm_u32 = first_slot;
+                    instruction.bytecode_pc = op_pc;
+                    block.insts.push_back(out.add_inst(std::move(instruction)));
+                    break;
+                }
+                case OpCode::OP_JS_GET_PROP_STATIC:
+                case OpCode::OP_JS_POSTINC: {
+                    uint16_t name = u16(pc);
+                    pc += 2;
+                    if (vstk.empty()) {
+                        return false;
+                    }
+                    ValueId obj = vstk.back();
+                    vstk.pop_back();
+                    Inst instruction;
+                    instruction.op =
+                        op == OpCode::OP_JS_POSTINC ? Op::JsPostinc : Op::JsGetPropStatic;
+                    instruction.imm_u32 = name;
+                    instruction.operands = { obj };
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
+                    break;
+                }
+                case OpCode::OP_JS_SET_PROP_STATIC:
                 case OpCode::OP_SET_PROPERTY: {
                     uint16_t name = u16(pc);
                     pc += 2;
@@ -679,7 +789,8 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     ValueId obj = vstk.back();
                     vstk.pop_back();
                     Inst instruction;
-                    instruction.op = Op::StoreProperty;
+                    instruction.op =
+                        op == OpCode::OP_JS_SET_PROP_STATIC ? Op::JsSetPropStatic : Op::StoreProperty;
                     instruction.imm_u32 = name;
                     instruction.operands = { obj, val };
                     instruction.bytecode_pc = op_pc;
@@ -707,6 +818,54 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     emit_push(block, vstk, std::move(instruction));
                     break;
                 }
+                case OpCode::OP_ARRAY_PUSH: {
+                    if (vstk.size() < 2) {
+                        return false;
+                    }
+                    ValueId value = vstk.back();
+                    vstk.pop_back();
+                    ValueId target = vstk.back();
+                    vstk.pop_back();
+                    Inst instruction;
+                    instruction.op = Op::ArrayPush;
+                    instruction.operands = { target, value };
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
+                    break;
+                }
+                case OpCode::OP_ARRAY_SPREAD: {
+                    if (vstk.size() < 2) {
+                        return false;
+                    }
+                    ValueId iterable = vstk.back();
+                    vstk.pop_back();
+                    ValueId target = vstk.back();
+                    vstk.pop_back();
+                    Inst instruction;
+                    instruction.op = Op::ArraySpread;
+                    instruction.operands = { target, iterable };
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
+                    break;
+                }
+                case OpCode::OP_CALL_SPREAD: {
+                    uint16_t callee_label_idx = u16(pc);
+                    pc += 2;
+                    if (vstk.size() < 2) {
+                        return false;
+                    }
+                    ValueId args = vstk.back();
+                    vstk.pop_back();
+                    ValueId callee = vstk.back();
+                    vstk.pop_back();
+                    Inst instruction;
+                    instruction.op = Op::CallSpread;
+                    instruction.imm_u32 = callee_label_idx;
+                    instruction.operands = { callee, args };
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
+                    break;
+                }
                 case OpCode::OP_MAKE_OBJECT: {
                     uint16_t n = u16(pc);
                     pc += 2;
@@ -725,6 +884,25 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     instruction.op = Op::MakeObject;
                     instruction.imm_u32 = n;
                     instruction.operands = std::move(ops);
+                    instruction.bytecode_pc = op_pc;
+                    emit_push(block, vstk, std::move(instruction));
+                    break;
+                }
+                case OpCode::OP_MAKE_CLOSURE: {
+                    uint16_t func_idx = u16(pc);
+                    uint16_t capture_count = u16(pc + 2);
+                    size_t descriptor = pc + 4;
+                    for (uint16_t i = 0; i < capture_count; i++, descriptor += 3) {
+                        uint8_t source = code[descriptor];
+                        uint16_t idx = u16(descriptor + 1);
+                        if (source == 0 && idx < out.captured_local_slots.size()) {
+                            out.captured_local_slots[idx] = 1;
+                        }
+                    }
+                    pc += 4 + (size_t)capture_count * 3;
+                    Inst instruction;
+                    instruction.op = Op::MakeClosure;
+                    instruction.imm_u32 = func_idx;
                     instruction.bytecode_pc = op_pc;
                     emit_push(block, vstk, std::move(instruction));
                     break;
@@ -806,7 +984,8 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     break;
                 }
                 case OpCode::OP_JUMP_IF_FALSE:
-                case OpCode::OP_JUMP_IF_TRUE: {
+                case OpCode::OP_JUMP_IF_TRUE:
+                case OpCode::OP_JUMP_IF_NONE: {
                     size_t target = jtarget(op_pc);
                     pc = op_pc + 3;
                     if (vstk.empty()) {
@@ -814,6 +993,14 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     }
                     ValueId cond = vstk.back();
                     vstk.pop_back();
+                    if (op == OpCode::OP_JUMP_IF_NONE) {
+                        Inst test;
+                        test.op = Op::IsNone;
+                        test.operands = { cond };
+                        test.bytecode_pc = op_pc;
+                        cond = out.add_inst(std::move(test));
+                        block.insts.push_back(cond);
+                    }
                     BlockId fall = block_at(pc);
                     BlockId jump = block_at(target);
                     if (fall == InvalidBlock || jump == InvalidBlock) {
@@ -843,6 +1030,23 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                         instruction.operands = { vstk.back() };
                         vstk.pop_back();
                     }
+                    block.terminator = out.add_inst(std::move(instruction));
+                    terminated = true;
+                    break;
+                }
+                case OpCode::OP_SELF_TAIL_CALL: {
+                    uint8_t argc = code[pc++];
+                    if (vstk.size() < argc) {
+                        return false;
+                    }
+                    size_t base = vstk.size() - argc;
+                    Inst instruction;
+                    instruction.op = Op::SelfTailCall;
+                    instruction.imm_u32 = argc;
+                    instruction.operands.assign(vstk.begin() + base, vstk.end());
+                    instruction.target0 = out.entry;
+                    instruction.bytecode_pc = op_pc;
+                    vstk.resize(base);
                     block.terminator = out.add_inst(std::move(instruction));
                     terminated = true;
                     break;
@@ -879,10 +1083,6 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         for (BlockId successor : cfg_succs[bid]) {
             if ((size_t)successor <= (size_t)bid && entry_depth[successor] >= 0) {
                 if (entry_depth[successor] != (int)vstk.size()) {
-                    if (kBuildReport) {
-                        fprintf(stderr, "[IR-BUILD] %s: back-edge depth %zu -> %d mismatch (block %d -> %d)\n",
-                                func_meta.name.c_str(), vstk.size(), entry_depth[successor], (int)bid, (int)successor);
-                    }
                     return false;
                 }
                 // depth-0 match is the only legal case
@@ -899,7 +1099,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             continue;
         }
         const Inst &term = out.inst(block.terminator);
-        if (term.op == Op::Jump) {
+        if (term.op == Op::Jump || term.op == Op::SelfTailCall) {
             block.succs.push_back(term.target0);
         } else if (term.op == Op::Branch) {
             block.succs.push_back(term.target0);

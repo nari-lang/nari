@@ -15,6 +15,7 @@ Mutations:
     bad_local_idx   write OP_LOAD_VAR (1) + operand 0xFFFF
     stack_underflow write OP_POP at function entry
     bad_jump_target write OP_JUMP to the middle of its own operand
+    short_compact    replace the first function body with a compact alias missing its operand
 
 Opcode numeric values come from the enum order in src/bytecode.h and must
 stay in sync with it.
@@ -36,10 +37,6 @@ OP_JUMP = 36
 # the first byte matching the requested semantic.
 
 
-def read_u32(buf, pos):
-    return struct.unpack_from("<I", buf, pos)[0], pos + 4
-
-
 def read_u16(buf, pos):
     return struct.unpack_from("<H", buf, pos)[0], pos + 2
 
@@ -48,8 +45,21 @@ def read_u8(buf, pos):
     return buf[pos], pos + 1
 
 
+def read_varuint(buf, pos):
+    value = 0
+    shift = 0
+    while True:
+        if shift >= 64:
+            raise ValueError("varuint overflow")
+        byte, pos = read_u8(buf, pos)
+        value |= (byte & 0x7F) << shift
+        if byte & 0x80 == 0:
+            return value, pos
+        shift += 7
+
+
 def skip_string(buf, pos):
-    n, pos = read_u32(buf, pos)
+    n, pos = read_varuint(buf, pos)
     return pos + n
 
 
@@ -57,28 +67,57 @@ def first_code_offset(buf):
     """
     Walk the header and function metadata to find the offset of the first function's code bytes.
 
-    Returns (offset, code_len, main_fn_idx).
+    Returns (length offset, code offset, code length, main function index).
     """
     assert buf[:4] == b"NARI"
     pos = 8  # magic(4) + version(2) + flags(2)
     # string table
-    n_strs, pos = read_u32(buf, pos)
+    n_strs, pos = read_varuint(buf, pos)
     for _ in range(n_strs):
         pos = skip_string(buf, pos)
     # function table
-    n_funcs, pos = read_u32(buf, pos)
-    main_idx, pos = read_u32(buf, pos)
+    n_funcs, pos = read_varuint(buf, pos)
+    main_idx, pos = read_varuint(buf, pos)
     # first function metadata
     pos = skip_string(buf, pos)  # name
-    pos += 5  # param_count, capture_count, rest_param_idx, is_lambda, strict_mode
-    n_vars, pos = read_u32(buf, pos)
+    # param_count(u8), capture_count(u16), rest_param_idx(i8), is_lambda(u8),
+    # js_undefined_params(u8), strict_mode(u8) -- keep in sync with
+    # BytecodeSerializer::serialize in src/bytecode/bytecode_serializer.h
+    pos += 7
+    n_vars, pos = read_varuint(buf, pos)
     for _ in range(n_vars):
         pos = skip_string(buf, pos)
-    n_consts, pos = read_u32(buf, pos)
+    n_consts, pos = read_varuint(buf, pos)
     for _ in range(n_consts):
-        pos += 1 + 8  # type byte + 8 bytes payload
-    code_len, pos = read_u32(buf, pos)
-    return pos, code_len, main_idx
+        const_type, pos = read_u8(buf, pos)
+        if const_type == 1:  # zigzag integer
+            _, pos = read_varuint(buf, pos)
+        elif const_type == 2:  # float
+            pos += 8
+        elif const_type in (3, 4):  # string, function
+            _, pos = read_varuint(buf, pos)
+        elif const_type != 0:  # none has no payload
+            raise ValueError(f"unknown constant type {const_type}")
+    length_pos = pos
+    code_len, pos = read_varuint(buf, pos)
+    return length_pos, pos, code_len, main_idx
+
+
+def write_varuint(value):
+    result = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        result.append(byte | (0x80 if value else 0))
+        if not value:
+            return result
+
+
+def replace_first_instruction(buf, length_pos, code_off, code_len, replacement):
+    encoded_size = 2 if buf[code_off] & 0x80 else 3
+    new_code_len = code_len - encoded_size + len(replacement)
+    buf[code_off:code_off + encoded_size] = replacement
+    buf[length_pos:code_off] = write_varuint(new_code_len)
 
 
 def find_opcode(buf, start, length, target_op):
@@ -114,7 +153,7 @@ def main():
 
     in_path, out_path, mutation = sys.argv[1], sys.argv[2], sys.argv[3]
     buf = bytearray(open(in_path, "rb").read())
-    code_off, code_len, _ = first_code_offset(buf)
+    length_pos, code_off, code_len, _ = first_code_offset(buf)
 
     if mutation == "bad_opcode":
         buf[code_off] = 0xFE
@@ -122,37 +161,34 @@ def main():
     elif mutation == "huge_const_idx":
         # The first opcode in any function body is usually a LOAD_CONST/LOAD_*.
         # Write OP_LOAD_CONST (value 0) + operand 0xFFFF.
-        buf[code_off] = 0  # OP_LOAD_CONST
-        buf[code_off + 1] = 0xFF  # msb
-        buf[code_off + 2] = 0xFF  # lsb
+        replace_first_instruction(buf, length_pos, code_off, code_len, bytes((OP_LOAD_CONST, 0xFF, 0xFF)))
 
     elif mutation == "huge_str_idx":
         # OP_LOAD_GLOBAL is enum value 3. Its operand is a 2-byte string idx.
-        buf[code_off] = 3  # OP_LOAD_GLOBAL
-        buf[code_off + 1] = 0xFF
-        buf[code_off + 2] = 0xFF
+        replace_first_instruction(buf, length_pos, code_off, code_len, bytes((OP_LOAD_GLOBAL, 0xFF, 0xFF)))
 
     elif mutation == "bad_local_idx":
-        buf[code_off] = 1  # OP_LOAD_VAR
-        buf[code_off + 1] = 0xFF
-        buf[code_off + 2] = 0xFF
+        replace_first_instruction(buf, length_pos, code_off, code_len, bytes((OP_LOAD_VAR, 0xFF, 0xFF)))
 
     elif mutation == "stack_underflow":
         # Preserve the original first instruction's 3-byte footprint while
         # replacing it with three no-operand instructions. LOAD_NONE supplies one
         # value, the first POP consumes it, and the second POP underflows on the
         # reachable entry path.
-        buf[code_off] = OP_LOAD_NONE
-        buf[code_off + 1] = OP_POP
-        buf[code_off + 2] = OP_POP
+        replace_first_instruction(buf, length_pos, code_off, code_len, bytes((OP_LOAD_NONE, OP_POP, OP_POP)))
 
     elif mutation == "bad_jump_target":
         # OP_JUMP has a signed 16-bit operand. Offset -1 targets the middle of
         # the jump instruction operand, which is within the function body but
         # not an instruction boundary.
-        buf[code_off] = OP_JUMP
-        buf[code_off + 1] = 0xFF
-        buf[code_off + 2] = 0xFF
+        replace_first_instruction(buf, length_pos, code_off, code_len, bytes((OP_JUMP, 0xFF, 0xFF)))
+
+    elif mutation == "short_compact":
+        # A compact LOAD_CONST alias must be followed by its low operand byte.
+        # Keep the remainder of the file intact so rejection specifically comes
+        # from expanding this one-byte code section.
+        replacement = bytes((OP_LOAD_CONST | 0x80,))
+        buf = buf[:length_pos] + write_varuint(len(replacement)) + replacement + buf[code_off + code_len:]
 
     else:
         print(f"unknown mutation: {mutation}", file=sys.stderr)

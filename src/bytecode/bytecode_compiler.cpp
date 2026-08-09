@@ -1,16 +1,28 @@
 #include "ast.h"
 #include "bytecode.h"
+#include "bytecode_verify.h"
 #include "parser_api.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <set>
 #include <string>
+#include <type_traits>
 
 using namespace nari;
 
+// NumberExpr promotes out-of-int48 integer literals to float at parse time using its own copy of the int48 bounds
+static_assert(NumberExpr::AST_INT48_MIN == Value::INT48_MIN && NumberExpr::AST_INT48_MAX == Value::INT48_MAX,
+              "ast.h NumberExpr int48 bounds must match Value::INT48_MIN/MAX");
+
 namespace nari {
 namespace bytecode {
+
+static bool is_js_undefined_param(const Param &param) {
+    const auto *ident = dynamic_cast<const IdentExpr *>(param.default_value.get());
+    return ident && ident->name == "__js_undefined";
+}
 
 static std::string callee_label(const Expr *expr) {
     if (const auto *ident = dynamic_cast<const IdentExpr *>(expr)) {
@@ -34,15 +46,91 @@ struct CompilerContext {
     std::unordered_map<std::string, uint16_t> capture_map; // captured var name -> capture index
     std::set<std::string> const_locals;
     std::set<std::string> const_captures;
+    std::set<std::string> lexical_bindings;
     uint16_t local_count;
 
     CompilerContext(FunctionMeta *f, Chunk *c) : function(f), chunk(c), local_count(0) {
+    }
+
+    // Block scoping. `locals` is one entry per name for the whole function and slots are never reused,
+    // so only the name -> slot mapping needs unwinding at the end of a block.
+    struct ShadowedBinding {
+        std::string name;
+        uint16_t prev_slot;
+        bool had_prev;
+        bool prev_const;
+        bool prev_lexical;
+    };
+    std::vector<ShadowedBinding> shadow_stack;
+    std::vector<size_t> scope_marks;
+
+    void push_scope() {
+        scope_marks.push_back(shadow_stack.size());
+    }
+    void pop_scope() {
+        if (scope_marks.empty()) {
+            return;
+        }
+        const size_t mark = scope_marks.back();
+        scope_marks.pop_back();
+        while (shadow_stack.size() > mark) {
+            const ShadowedBinding &s = shadow_stack.back();
+            if (s.had_prev) {
+                locals[s.name] = s.prev_slot;
+                if (s.prev_const) {
+                    const_locals.insert(s.name);
+                } else {
+                    const_locals.erase(s.name);
+                }
+                if (s.prev_lexical) {
+                    lexical_bindings.insert(s.name);
+                } else {
+                    lexical_bindings.erase(s.name);
+                }
+            } else {
+                locals.erase(s.name);
+                const_locals.erase(s.name);
+                lexical_bindings.erase(s.name);
+            }
+            shadow_stack.pop_back();
+        }
+    }
+
+    // Slots of this function's locals that some inner closure captures. Loops consult
+    // this to decide whether they need OP_CLOSE_UPVALUES: a loop whose locals nobody
+    // captures cannot alias cells across iterations, so it stays free of the extra op.
+    std::vector<uint8_t> captured_locals;
+
+    void note_local_captured(uint16_t slot) {
+        if (captured_locals.size() <= slot) {
+            captured_locals.resize((size_t)slot + 1, 0);
+        }
+        captured_locals[slot] = 1;
+    }
+
+    bool any_captured_local_at_or_above(uint16_t first) const {
+        for (size_t i = first; i < captured_locals.size(); i++) {
+            if (captured_locals[i]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     uint16_t declare_local(const std::string &name) {
         if (local_count >= 0xFFFE) {
             fprintf(stderr, "error: too many local variables in function (max 65534)!\n");
             return 0xFFFF;
+        }
+        if (!scope_marks.empty()) {
+            auto it = locals.find(name);
+            ShadowedBinding s;
+            s.name = name;
+            s.had_prev = it != locals.end();
+            s.prev_slot = s.had_prev ? it->second : 0;
+            s.prev_const = const_locals.count(name) != 0;
+            s.prev_lexical = lexical_bindings.count(name) != 0;
+            shadow_stack.push_back(std::move(s));
         }
         uint16_t idx = local_count++;
         locals[name] = idx;
@@ -59,6 +147,33 @@ struct CompilerContext {
     }
 
     uint16_t add_constant(const Constant &c) {
+        for (uint16_t i = 0; i < function->constants.size(); ++i) {
+            const Constant &existing = function->constants[i];
+            if (existing.type != c.type) {
+                continue;
+            }
+            bool equal = false;
+            switch (c.type) {
+                case Constant::Type::NONE:
+                    equal = true;
+                    break;
+                case Constant::Type::INT:
+                    equal = existing.as_int == c.as_int;
+                    break;
+                case Constant::Type::FLOAT:
+                    equal = std::memcmp(&existing.as_float, &c.as_float, sizeof(c.as_float)) == 0;
+                    break;
+                case Constant::Type::STRING:
+                    equal = existing.string_idx == c.string_idx;
+                    break;
+                case Constant::Type::FUNCTION:
+                    equal = existing.func_idx == c.func_idx;
+                    break;
+            }
+            if (equal) {
+                return i;
+            }
+        }
         function->constants.push_back(c);
         return static_cast<uint16_t>(function->constants.size() - 1);
     }
@@ -144,12 +259,34 @@ class Compiler {
     bool strict_mode = false;         // true when the current source file has "use strict" at the top level
     std::string current_return_type_; // e.g. "int", "string", "bool"
     std::set<std::string> global_consts;
+#ifdef NARI_EXTENDED_JSRT
+    std::unordered_map<std::string, OpCode> extended_jsrt_helpers;
+#endif
 
     void compile_expr(const Expr *expr);
+    // Ends a loop iteration by dropping the upvalue cells for locals the loop declared,
+    // so the next iteration's closures capture fresh cells. Nari otherwise caches one
+    // cell per slot for the whole frame, which made every iteration's closure share it
+    // (`for (let i..) fns.push(func(){return i;})` yielded 3,3,3 instead of 0,1,2).
+    // Emitted only when an inner closure really captures one of those locals, keeping
+    // the op off loops that cannot alias.
+    void emit_close_upvalues_for_loop(uint16_t first_slot) {
+        if (!ctx->any_captured_local_at_or_above(first_slot)) {
+            return;
+        }
+        ctx->emit_op_short(OpCode::OP_CLOSE_UPVALUES, first_slot);
+    }
+
     void compile_stmt(const Stmt *stmt);
-    void compile_function_body(const Function *func, FunctionMeta &meta);
+    // FnLike is nari::Function or nari::ClassMethod: both expose
+    // name/params/body/return_type/filename/line. Strict-mode annotation
+    // enforcement applies to Function only (see definition).
+    template <typename FnLike> void compile_function_body(const FnLike *func, FunctionMeta &meta);
+    void compile_classes();
+    void emit_js_truthy();
     void collect_idents(const Stmt *stmt, std::set<std::string> &idents);
     void collect_idents_expr(const Expr *expr, std::set<std::string> &idents);
+    void collect_bindings(const Stmt *stmt, std::set<std::string> &bindings);
     bool is_const_binding(const std::string &name) const;
     void emit_const_assignment_error(const std::string &name);
 
@@ -158,7 +295,199 @@ class Compiler {
     }
 
     Chunk *compile(const FuncList &functions);
+    AppendedCode compile_append(Chunk *existing, const FuncList &functions, const std::string &entry_name);
 };
+
+void Compiler::emit_js_truthy() {
+    ctx->emit_op(OpCode::OP_DUP);
+    uint32_t undefined_idx = chunk->add_string("__js_undefined");
+    ctx->emit_op_short(OpCode::OP_LOAD_GLOBAL, static_cast<uint16_t>(undefined_idx));
+    ctx->emit_op(OpCode::OP_STRICT_EQ);
+    size_t native_truthy = ctx->emit_jump(OpCode::OP_JUMP_IF_FALSE);
+    ctx->emit_op(OpCode::OP_POP);
+    ctx->emit_op(OpCode::OP_LOAD_FALSE);
+    size_t end = ctx->emit_jump(OpCode::OP_JUMP);
+    ctx->patch_jump(native_truthy);
+    ctx->emit_op(OpCode::OP_JS_TRUTHY);
+    ctx->patch_jump(end);
+}
+
+#ifdef NARI_EXTENDED_JSRT
+static bool is_ident(const Expr *expr, const char *name) {
+    const auto *ident = dynamic_cast<const IdentExpr *>(expr);
+    return ident && ident->name == name;
+}
+
+static const CallExpr *is_call(const Expr *expr, const char *name, size_t argc) {
+    const auto *call = dynamic_cast<const CallExpr *>(expr);
+    return call && !call->has_spread && !call->optional && call->args.size() == argc && is_ident(call->callee.get(), name) ? call
+                                                                                                                        : nullptr;
+}
+
+static bool is_conversion(const Expr *expr, const char *conversion, const char *param) {
+    const auto *call = is_call(expr, conversion, 1);
+    return call && is_ident(call->args[0].get(), param);
+}
+
+static bool is_int(const Expr *expr, int64_t value) {
+    const auto *number = dynamic_cast<const NumberExpr *>(expr);
+    return number && !number->is_float && number->i == value;
+}
+
+static const Expr *single_return(const Function *func) {
+    if (!func->body || func->body->stmts.size() != 1) return nullptr;
+    const auto *ret = dynamic_cast<const ReturnStmt *>(func->body->stmts[0].get());
+    return ret ? ret->value.get() : nullptr;
+}
+
+static bool matches_binary_helper(const Function *func, const char *op) {
+    if (func->params.size() != 2 || func->params[0].name != "a" || func->params[1].name != "b") return false;
+    const auto *binary = dynamic_cast<const BinaryExpr *>(single_return(func));
+    return binary && binary->op == op && is_conversion(binary->left.get(), "__js_to_int32", "a") &&
+           is_conversion(binary->right.get(), "__js_to_int32", "b");
+}
+
+static bool matches_shift_count(const Expr *expr, const char *param) {
+    const auto *mod = dynamic_cast<const BinaryExpr *>(expr);
+    return mod && mod->op == "%" && is_conversion(mod->left.get(), "__js_to_uint32", param) && is_int(mod->right.get(), 32);
+}
+
+static bool matches_apply_array_helper(const Function *func) {
+    if (func->params.size() != 2 || func->params[0].name != "f" || func->params[1].name != "args" || !func->body ||
+        func->body->stmts.size() != 15) {
+        return false;
+    }
+    const auto *length = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
+    const auto *length_call = length ? dynamic_cast<const CallExpr *>(length->initializerExpr.get()) : nullptr;
+    const auto *length_member = length_call ? dynamic_cast<const MemberExpr *>(length_call->callee.get()) : nullptr;
+    if (!length || length->name != "n" || !length_call || length_call->has_spread || length_call->optional ||
+        !length_call->args.empty() || !length_member || length_member->member != "length" ||
+        !is_ident(length_member->object.get(), "args")) {
+        return false;
+    }
+    for (int64_t arity = 0; arity <= 12; ++arity) {
+        const auto *branch = dynamic_cast<const IfStmt *>(func->body->stmts[arity + 1].get());
+        const auto *condition = branch ? dynamic_cast<const BinaryExpr *>(branch->cond.get()) : nullptr;
+        const auto *body = branch ? dynamic_cast<const BlockStmt *>(branch->then_branch.get()) : nullptr;
+        const auto *ret = body && body->stmts.size() == 1 ? dynamic_cast<const ReturnStmt *>(body->stmts[0].get()) : nullptr;
+        const auto *call = ret ? dynamic_cast<const CallExpr *>(ret->value.get()) : nullptr;
+        if (!condition || condition->op != "==" || !is_ident(condition->left.get(), "n") ||
+            !is_int(condition->right.get(), arity) || branch->else_branch || !call || call->has_spread || call->optional ||
+            !is_ident(call->callee.get(), "f") || call->args.size() != static_cast<size_t>(arity)) {
+            return false;
+        }
+        for (int64_t i = 0; i < arity; ++i) {
+            const auto *index = dynamic_cast<const IndexExpr *>(call->args[i].get());
+            if (!index || index->optional || !is_ident(index->object.get(), "args") || !is_int(index->index.get(), i)) {
+                return false;
+            }
+        }
+    }
+    const auto *fallback = dynamic_cast<const ReturnStmt *>(func->body->stmts[14].get());
+    const auto *fallback_call = fallback ? is_call(fallback->value.get(), "__js_apply_array_spread", 2) : nullptr;
+    return fallback_call && is_ident(fallback_call->args[0].get(), "f") && is_ident(fallback_call->args[1].get(), "args");
+}
+
+static bool matches_extended_jsrt_helper(const Function *func, OpCode op) {
+    if (op == OpCode::OP_CALL_SPREAD) return matches_apply_array_helper(func);
+    if (op == OpCode::OP_JS_GET_PROP_STATIC) {
+        const bool legacy = func->params.size() == 2 && func->body && func->body->stmts.size() == 10;
+        const bool own_miss_aware = func->params.size() == 3 && func->params[2].name == "ownMiss" && func->body &&
+                                    func->body->stmts.size() == 8;
+        if ((!legacy && !own_miss_aware) || func->params[0].name != "obj" || func->params[1].name != "key") {
+            return false;
+        }
+        const auto *getter_key = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
+        const auto *concat = getter_key ? dynamic_cast<const BinaryExpr *>(getter_key->initializerExpr.get()) : nullptr;
+        const auto *prefix = concat ? dynamic_cast<const StringExpr *>(concat->left.get()) : nullptr;
+        return getter_key && getter_key->name == "getterKey" && concat && concat->op == "@" && prefix &&
+                prefix->value == "__js_getter__" && is_ident(concat->right.get(), "key");
+    }
+    if (op == OpCode::OP_JS_SET_PROP_STATIC) {
+        // Same contract as the getter gate: confirm jsrt's helper still starts by
+        // deriving "__js_setter__" @ key, so editing jsrt silently disables the
+        // opcode instead of silently changing semantics.
+        if (func->params.size() != 3 || func->params[0].name != "obj" || func->params[1].name != "key" ||
+            func->params[2].name != "value" || !func->body || func->body->stmts.size() < 2) {
+            return false;
+        }
+        const auto *setter_key = dynamic_cast<const VarDeclStmt *>(func->body->stmts[1].get());
+        const auto *concat = setter_key ? dynamic_cast<const BinaryExpr *>(setter_key->initializerExpr.get()) : nullptr;
+        const auto *prefix = concat ? dynamic_cast<const StringExpr *>(concat->left.get()) : nullptr;
+        return setter_key && setter_key->name == "setterKey" && concat && concat->op == "@" && prefix &&
+               prefix->value == "__js_setter__" && is_ident(concat->right.get(), "key");
+    }
+    if (op == OpCode::OP_JS_POSTINC) {
+        // Gate on jsrt's exact body, same contract as the get/set gates: editing
+        // jsrt silently disables the opcode rather than silently changing meaning.
+        //   func __js_postinc(o, k) { let old = __js_to_number(o[k]); o[k] = old + 1; return old; }
+        if (func->params.size() != 2 || func->params[0].name != "o" || func->params[1].name != "k" || !func->body ||
+            func->body->stmts.size() != 3) {
+            return false;
+        }
+        const auto *old_decl = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
+        if (!old_decl || old_decl->name != "old") {
+            return false;
+        }
+        const auto *to_number = is_call(old_decl->initializerExpr.get(), "__js_to_number", 1);
+        const auto *read = to_number ? dynamic_cast<const IndexExpr *>(to_number->args[0].get()) : nullptr;
+        if (!read || !is_ident(read->object.get(), "o") || !is_ident(read->index.get(), "k")) {
+            return false;
+        }
+        const auto *store = dynamic_cast<const IndexAssignStmt *>(func->body->stmts[1].get());
+        const auto *target = store ? dynamic_cast<const IndexExpr *>(store->target.get()) : nullptr;
+        if (!target || !is_ident(target->object.get(), "o") || !is_ident(target->index.get(), "k")) {
+            return false;
+        }
+        const auto *bump = dynamic_cast<const BinaryExpr *>(store->value.get());
+        if (!bump || bump->op != "+" || !is_ident(bump->left.get(), "old") || !is_int(bump->right.get(), 1)) {
+            return false;
+        }
+        const auto *ret = dynamic_cast<const ReturnStmt *>(func->body->stmts[2].get());
+        return ret && is_ident(ret->value.get(), "old");
+    }
+    if (op == OpCode::OP_JS_BIT_NOT) {
+        if (func->params.size() != 1 || func->params[0].name != "value") return false;
+        const auto *unary = dynamic_cast<const UnaryExpr *>(single_return(func));
+        return unary && unary->op == "~" && is_conversion(unary->operand.get(), "__js_to_int32", "value");
+    }
+    if (op == OpCode::OP_JS_BIT_AND) return matches_binary_helper(func, "&");
+    if (op == OpCode::OP_JS_BIT_OR) return matches_binary_helper(func, "|");
+    if (op == OpCode::OP_JS_BIT_XOR) return matches_binary_helper(func, "^");
+    if (op == OpCode::OP_JS_SHL || op == OpCode::OP_JS_SHR) {
+        if (func->params.size() != 2 || func->params[0].name != "a" || func->params[1].name != "b") return false;
+        const Expr *value = single_return(func);
+        if (op == OpCode::OP_JS_SHL) {
+            const auto *outer = is_call(value, "__js_to_int32", 1);
+            value = outer ? outer->args[0].get() : nullptr;
+        }
+        const auto *shift = dynamic_cast<const BinaryExpr *>(value);
+        return shift && shift->op == (op == OpCode::OP_JS_SHL ? "<<" : ">>") &&
+               is_conversion(shift->left.get(), "__js_to_int32", "a") && matches_shift_count(shift->right.get(), "b");
+    }
+    if (op != OpCode::OP_JS_USHR || func->params.size() != 2 || func->params[0].name != "a" ||
+        func->params[1].name != "b" || !func->body || func->body->stmts.size() != 3) {
+        return false;
+    }
+    const auto *value = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
+    const auto *shift = dynamic_cast<const VarDeclStmt *>(func->body->stmts[1].get());
+    const auto *ret = dynamic_cast<const ReturnStmt *>(func->body->stmts[2].get());
+    if (!value || value->name != "value" || !is_conversion(value->initializerExpr.get(), "__js_to_uint32", "a") || !shift ||
+        shift->name != "shift" || !matches_shift_count(shift->initializerExpr.get(), "b") || !ret) {
+        return false;
+    }
+    const auto *floor = dynamic_cast<const CallExpr *>(ret->value.get());
+    const auto *member = floor ? dynamic_cast<const MemberExpr *>(floor->callee.get()) : nullptr;
+    if (!floor || floor->has_spread || floor->optional || floor->args.size() != 1 || !member || member->member != "floor" ||
+        !is_ident(member->object.get(), "math")) {
+        return false;
+    }
+    const auto *divide = dynamic_cast<const BinaryExpr *>(floor->args[0].get());
+    const auto *power = divide ? is_call(divide->right.get(), "__js_pow", 2) : nullptr;
+    return divide && divide->op == "/" && is_ident(divide->left.get(), "value") && power && is_int(power->args[0].get(), 2) &&
+           is_ident(power->args[1].get(), "shift");
+}
+#endif
 
 bool Compiler::is_const_binding(const std::string &name) const {
     if (ctx->locals.count(name)) {
@@ -202,6 +531,10 @@ void Compiler::collect_idents_expr(const Expr *expr, std::set<std::string> &iden
         }
         return;
     }
+    if (auto *spread = dynamic_cast<const SpreadExpr *>(expr)) {
+        collect_idents_expr(spread->operand.get(), idents);
+        return;
+    }
     if (auto *index = dynamic_cast<const IndexExpr *>(expr)) {
         collect_idents_expr(index->object.get(), idents);
         collect_idents_expr(index->index.get(), idents);
@@ -229,12 +562,37 @@ void Compiler::collect_idents_expr(const Expr *expr, std::set<std::string> &iden
         }
         return;
     }
-    if (dynamic_cast<const StringInterpolationExpr *>(expr)) {
-        // StringInterpolationExpr has parts/expr_sources (strings), no ExprPtr children
+    if (auto *interp = dynamic_cast<const StringInterpolationExpr *>(expr)) {
+        for (const auto &value : interp->exprs) {
+            collect_idents_expr(value.get(), idents);
+        }
+        return;
+    }
+    if (auto *match = dynamic_cast<const MatchExpr *>(expr)) {
+        collect_idents_expr(match->scrutinee.get(), idents);
+        for (const auto &arm : match->arms) {
+            if (auto *literal = dynamic_cast<const LiteralPattern *>(arm.pattern.get())) {
+                collect_idents_expr(literal->value.get(), idents);
+            }
+            collect_idents_expr(arm.body.get(), idents);
+        }
+        return;
+    }
+    if (auto *new_expr = dynamic_cast<const NewExpr *>(expr)) {
+        for (const auto &arg : new_expr->args) {
+            collect_idents_expr(arg.get(), idents);
+        }
+        return;
+    }
+    if (auto *spawn = dynamic_cast<const SpawnExpr *>(expr)) {
+        collect_idents(spawn->body.get(), idents);
         return;
     }
     // Note: we *do* descend into FunctionExpr to collect transitive captures
     if (auto *fn = dynamic_cast<const FunctionExpr *>(expr)) {
+        for (const auto &param : fn->params) {
+            collect_idents_expr(param.default_value.get(), idents);
+        }
         if (fn->body) {
             collect_idents(fn->body.get(), idents);
         }
@@ -298,6 +656,58 @@ void Compiler::collect_idents(const Stmt *stmt, std::set<std::string> &idents) {
         collect_idents_expr(foreach_stmt->iterable.get(), idents);
         collect_idents(foreach_stmt->body.get(), idents);
         return;
+    }
+    if (auto *switch_stmt = dynamic_cast<const SwitchStmt *>(stmt)) {
+        collect_idents_expr(switch_stmt->value.get(), idents);
+        for (const auto &_case : switch_stmt->cases) {
+            collect_idents_expr(_case.match.get(), idents);
+            collect_idents(_case.body.get(), idents);
+        }
+        collect_idents(switch_stmt->default_body.get(), idents);
+        return;
+    }
+}
+
+void Compiler::collect_bindings(const Stmt *stmt, std::set<std::string> &bindings) {
+    if (!stmt) return;
+    if (const auto *decl = dynamic_cast<const VarDeclStmt *>(stmt)) {
+        if (decl->destructure_kind == DestructureKind::Array) {
+            bindings.insert(decl->array_names.begin(), decl->array_names.end());
+        } else if (decl->destructure_kind == DestructureKind::Object) {
+            for (const auto &[_, name] : decl->object_bindings) bindings.insert(name);
+        } else {
+            bindings.insert(decl->name);
+        }
+        return;
+    }
+    if (const auto *block = dynamic_cast<const BlockStmt *>(stmt)) {
+        for (const auto &child : block->stmts) collect_bindings(child.get(), bindings);
+        return;
+    }
+    if (const auto *branch = dynamic_cast<const IfStmt *>(stmt)) {
+        collect_bindings(branch->then_branch.get(), bindings);
+        collect_bindings(branch->else_branch.get(), bindings);
+        return;
+    }
+    if (const auto *loop = dynamic_cast<const WhileStmt *>(stmt)) {
+        collect_bindings(loop->body.get(), bindings);
+        return;
+    }
+    if (const auto *loop = dynamic_cast<const ForStmt *>(stmt)) {
+        collect_bindings(loop->init.get(), bindings);
+        collect_bindings(loop->post.get(), bindings);
+        collect_bindings(loop->body.get(), bindings);
+        return;
+    }
+    if (const auto *loop = dynamic_cast<const ForEachStmt *>(stmt)) {
+        bindings.insert(loop->var);
+        if (!loop->val_var.empty()) bindings.insert(loop->val_var);
+        collect_bindings(loop->body.get(), bindings);
+        return;
+    }
+    if (const auto *switch_stmt = dynamic_cast<const SwitchStmt *>(stmt)) {
+        for (const auto &item : switch_stmt->cases) collect_bindings(item.body.get(), bindings);
+        collect_bindings(switch_stmt->default_body.get(), bindings);
     }
 }
 
@@ -456,6 +866,10 @@ void Compiler::compile_expr(const Expr *expr) {
             ctx->emit_op(OpCode::OP_EQ);
         } else if (bin->op == "!=") {
             ctx->emit_op(OpCode::OP_NE);
+        } else if (bin->op == "===") {
+            ctx->emit_op(OpCode::OP_STRICT_EQ);
+        } else if (bin->op == "!==") {
+            ctx->emit_op(OpCode::OP_STRICT_NE);
         } else if (bin->op == "<") {
             ctx->emit_op(OpCode::OP_LT);
         } else if (bin->op == "<=") {
@@ -488,49 +902,52 @@ void Compiler::compile_expr(const Expr *expr) {
             bool is_postfix = (unary->op == "post++" || unary->op == "post--");
             uint16_t local_idx = ctx->resolve_local(ident->name);
             bool is_local = (local_idx != 0xFFFF);
+            auto cap_it = ctx->capture_map.find(ident->name);
+            bool is_capture = !is_local && cap_it != ctx->capture_map.end();
             uint32_t global_str_idx = 0;
-            if (!is_local) {
+            if (!is_local && !is_capture) {
                 global_str_idx = chunk->add_string(ident->name);
             }
 
-            if (is_postfix) {
-                // postfix: result is the OLD value
-                // load old value (this will be the result)
+            auto emit_load = [&]() {
                 if (is_local) {
                     ctx->emit_op_short(OpCode::OP_LOAD_VAR, local_idx);
+                } else if (is_capture) {
+                    ctx->emit_op_short(OpCode::OP_LOAD_CAPTURE, cap_it->second);
                 } else {
                     ctx->emit_op_short(OpCode::OP_LOAD_GLOBAL, static_cast<uint16_t>(global_str_idx));
                 }
+            };
+            auto emit_store = [&]() {
+                if (is_local) {
+                    ctx->emit_op_short(OpCode::OP_STORE_VAR, local_idx);
+                } else if (is_capture) {
+                    ctx->emit_op_short(OpCode::OP_STORE_CAPTURE, cap_it->second);
+                } else {
+                    ctx->emit_op_short(OpCode::OP_STORE_GLOBAL, static_cast<uint16_t>(global_str_idx));
+                }
+            };
+
+            if (is_postfix) {
+                // postfix: result is the OLD value
+                emit_load();
                 // duplicate old value (keep one copy as result)
                 ctx->emit_op(OpCode::OP_DUP);
                 uint16_t one_idx = ctx->add_constant(Constant::make_int(1));
                 ctx->emit_op_short(OpCode::OP_LOAD_CONST, one_idx);
                 ctx->emit_op(is_increment ? OpCode::OP_ADD : OpCode::OP_SUB);
                 // store new value (leaves new value on stack)
-                if (is_local) {
-                    ctx->emit_op_short(OpCode::OP_STORE_VAR, local_idx);
-                } else {
-                    ctx->emit_op_short(OpCode::OP_STORE_GLOBAL, static_cast<uint16_t>(global_str_idx));
-                }
+                emit_store();
                 // pop the new value, leaving old value as result
                 ctx->emit_op(OpCode::OP_POP);
             } else {
                 // prefix: result is the NEW value
-                // load current value
-                if (is_local) {
-                    ctx->emit_op_short(OpCode::OP_LOAD_VAR, local_idx);
-                } else {
-                    ctx->emit_op_short(OpCode::OP_LOAD_GLOBAL, static_cast<uint16_t>(global_str_idx));
-                }
+                emit_load();
                 uint16_t one_idx = ctx->add_constant(Constant::make_int(1));
                 ctx->emit_op_short(OpCode::OP_LOAD_CONST, one_idx);
                 ctx->emit_op(is_increment ? OpCode::OP_ADD : OpCode::OP_SUB);
                 // store new value (leaves new value on stack; this IS the result)
-                if (is_local) {
-                    ctx->emit_op_short(OpCode::OP_STORE_VAR, local_idx);
-                } else {
-                    ctx->emit_op_short(OpCode::OP_STORE_GLOBAL, static_cast<uint16_t>(global_str_idx));
-                }
+                emit_store();
             }
             return;
         }
@@ -644,6 +1061,114 @@ void Compiler::compile_expr(const Expr *expr) {
     }
 
     if (auto *call = dynamic_cast<const CallExpr *>(expr)) {
+        auto *callee = dynamic_cast<const IdentExpr *>(call->callee.get());
+#ifdef NARI_EXTENDED_JSRT
+        if (callee && !call->has_spread && !call->optional && !ctx->lexical_bindings.count(callee->name) &&
+            !ctx->capture_map.count(callee->name)) {
+            auto helper = extended_jsrt_helpers.find(callee->name);
+            if (helper != extended_jsrt_helpers.end()) {
+                if (helper->second == OpCode::OP_CALL_SPREAD && call->args.size() == 2) {
+                    compile_expr(call->args[0].get());
+                    compile_expr(call->args[1].get());
+                    uint32_t label_idx = chunk->add_string("__js_apply_array");
+                    ctx->emit_op_short(OpCode::OP_CALL_SPREAD, static_cast<uint16_t>(label_idx));
+                    return;
+                }
+                if (helper->second == OpCode::OP_JS_SET_PROP_STATIC && call->args.size() == 3) {
+                    const auto *key = dynamic_cast<const StringExpr *>(call->args[1].get());
+                    if (key) {
+                        compile_expr(call->args[0].get());
+                        compile_expr(call->args[2].get());
+                        uint32_t key_idx = chunk->add_string(key->value);
+                        ctx->emit_op_short(OpCode::OP_JS_SET_PROP_STATIC, static_cast<uint16_t>(key_idx));
+                        return;
+                    }
+                }
+                if (helper->second == OpCode::OP_JS_POSTINC && call->args.size() == 2) {
+                    const auto *key = dynamic_cast<const StringExpr *>(call->args[1].get());
+                    if (key) {
+                        compile_expr(call->args[0].get());
+                        uint32_t key_idx = chunk->add_string(key->value);
+                        ctx->emit_op_short(OpCode::OP_JS_POSTINC, static_cast<uint16_t>(key_idx));
+                        return;
+                    }
+                }
+                if (helper->second == OpCode::OP_JS_GET_PROP_STATIC && call->args.size() == 2) {
+                    const auto *key = dynamic_cast<const StringExpr *>(call->args[1].get());
+                    if (key) {
+                        compile_expr(call->args[0].get());
+                        uint32_t key_idx = chunk->add_string(key->value);
+                        ctx->emit_op_short(OpCode::OP_JS_GET_PROP_STATIC, static_cast<uint16_t>(key_idx));
+                        return;
+                    }
+                }
+                // only the bit and shift helpers lower to an operand-free opcode that consumes exactly its arguments.
+                const bool operand_free = helper->second == OpCode::OP_JS_BIT_AND || helper->second == OpCode::OP_JS_BIT_OR ||
+                                          helper->second == OpCode::OP_JS_BIT_XOR || helper->second == OpCode::OP_JS_BIT_NOT ||
+                                          helper->second == OpCode::OP_JS_SHL || helper->second == OpCode::OP_JS_SHR ||
+                                          helper->second == OpCode::OP_JS_USHR;
+                const size_t arity = helper->second == OpCode::OP_JS_BIT_NOT ? 1 : 2;
+                if (operand_free && call->args.size() == arity) {
+                    for (const auto &arg : call->args) {
+                        compile_expr(arg.get());
+                    }
+                    ctx->emit_op(helper->second);
+                    return;
+                }
+            }
+        }
+#endif
+        if (callee && callee->name == "__js_strict_eq" && !call->has_spread && !call->optional && call->args.size() == 2) {
+            compile_expr(call->args[0].get());
+            compile_expr(call->args[1].get());
+            ctx->emit_op(OpCode::OP_EQ);
+            return;
+        }
+        if (callee && callee->name == "__js_truthy" && !call->has_spread && !call->optional && call->args.size() == 1) {
+            compile_expr(call->args[0].get());
+            emit_js_truthy();
+            return;
+        }
+        if (callee && callee->name == "__js_omitted_has" && !call->has_spread && !call->optional && call->args.size() == 2) {
+            compile_expr(call->args[0].get());
+            compile_expr(call->args[1].get());
+            uint32_t index_of_idx = chunk->add_string("index_of");
+            ctx->emit_op(OpCode::OP_CALL_METHOD);
+            ctx->emit_short(static_cast<uint16_t>(index_of_idx));
+            ctx->emit_byte(1);
+            ctx->emit_op(OpCode::OP_LOAD_ZERO);
+            ctx->emit_op(OpCode::OP_GE);
+            return;
+        }
+        if (callee && callee->name == "__js_set_function_length" && !call->has_spread && !call->optional &&
+            call->args.size() == 2) {
+            compile_expr(call->args[0].get());
+            ctx->emit_op(OpCode::OP_DUP);
+            compile_expr(call->args[1].get());
+            uint32_t length_idx = chunk->add_string("length");
+            ctx->emit_op_short(OpCode::OP_SET_PROPERTY, static_cast<uint16_t>(length_idx));
+            ctx->emit_op(OpCode::OP_POP);
+            return;
+        }
+        bool is_js_and = callee && callee->name == "__js_and";
+        bool is_js_or = callee && callee->name == "__js_or";
+        if (!call->has_spread && !call->optional && (is_js_and || is_js_or) && call->args.size() == 2) {
+            auto *right_thunk = dynamic_cast<const FunctionExpr *>(call->args[1].get());
+            if (right_thunk && right_thunk->params.empty() && right_thunk->body && right_thunk->body->stmts.size() == 1) {
+                auto *ret = dynamic_cast<const ReturnStmt *>(right_thunk->body->stmts[0].get());
+                if (ret && ret->value) {
+                    compile_expr(call->args[0].get());
+                    ctx->emit_op(OpCode::OP_DUP);
+                    emit_js_truthy();
+                    size_t keep_left = ctx->emit_jump(is_js_and ? OpCode::OP_JUMP_IF_FALSE : OpCode::OP_JUMP_IF_TRUE);
+                    ctx->emit_op(OpCode::OP_POP);
+                    compile_expr(ret->value.get());
+                    ctx->patch_jump(keep_left);
+                    return;
+                }
+            }
+        }
+
         if (call->has_spread) {
             // spread call: build args array, then use OP_CALL_SPREAD.
             // for method calls with spread, we still need the object on the stack
@@ -657,14 +1182,26 @@ void Compiler::compile_expr(const Expr *expr) {
             } else {
                 compile_expr(call->callee.get());
             }
-            ctx->emit_op_short(OpCode::OP_MAKE_ARRAY, 0);
-            for (const auto &arg : call->args) {
-                if (auto *spread = dynamic_cast<const SpreadExpr *>(arg.get())) {
+            // A single spread operand is already the argument array expected
+            // by OP_CALL_SPREAD, so avoid copying it into a temporary array.
+            if (call->args.size() == 1) {
+                if (auto *spread = dynamic_cast<const SpreadExpr *>(call->args[0].get())) {
                     compile_expr(spread->operand.get());
-                    ctx->emit_op(OpCode::OP_ARRAY_SPREAD);
                 } else {
-                    compile_expr(arg.get());
+                    ctx->emit_op_short(OpCode::OP_MAKE_ARRAY, 0);
+                    compile_expr(call->args[0].get());
                     ctx->emit_op(OpCode::OP_ARRAY_PUSH);
+                }
+            } else {
+                ctx->emit_op_short(OpCode::OP_MAKE_ARRAY, 0);
+                for (const auto &arg : call->args) {
+                    if (auto *spread = dynamic_cast<const SpreadExpr *>(arg.get())) {
+                        compile_expr(spread->operand.get());
+                        ctx->emit_op(OpCode::OP_ARRAY_SPREAD);
+                    } else {
+                        compile_expr(arg.get());
+                        ctx->emit_op(OpCode::OP_ARRAY_PUSH);
+                    }
                 }
             }
             uint32_t label_idx = chunk->add_string(callee_label(call->callee.get()));
@@ -719,9 +1256,11 @@ void Compiler::compile_expr(const Expr *expr) {
     if (auto *func_expr = dynamic_cast<const FunctionExpr *>(expr)) {
         FunctionMeta meta;
         meta.name = "<lambda>";
+        meta.source_file = func_expr->filename;
         meta.param_count = static_cast<uint8_t>(func_expr->params.size());
         meta.capture_count = 0;
         meta.is_lambda = true;
+        meta.js_undefined_params = std::any_of(func_expr->params.begin(), func_expr->params.end(), is_js_undefined_param);
 
         // collect identifiers used in the body to detect captures
         CompilerContext lambda_ctx(&meta, chunk);
@@ -730,10 +1269,17 @@ void Compiler::compile_expr(const Expr *expr) {
         parent_ctx = saved;
         ctx = &lambda_ctx;
         bool saved_main_scope = is_main_scope;
+        auto saved_loop_stack = std::move(loop_stack);
+        int saved_try_depth = try_depth;
+        loop_stack.clear();
+        try_depth = 0;
         is_main_scope = false;
         std::vector<std::string> captures;
         if (saved) {
             std::set<std::string> body_idents;
+            for (const auto &param : func_expr->params) {
+                collect_idents_expr(param.default_value.get(), body_idents);
+            }
             collect_idents(func_expr->body.get(), body_idents);
 
             for (const auto &name : body_idents) {
@@ -763,19 +1309,25 @@ void Compiler::compile_expr(const Expr *expr) {
                 ctx->const_captures.insert(captures[i]);
             }
         }
-        meta.capture_count = static_cast<uint8_t>(captures.size());
-        if (captures.size() > 255) {
-            throw std::runtime_error("closure captures too many variables (max 255)");
+        if (captures.size() > UINT16_MAX) {
+            throw std::runtime_error("closure captures too many variables (max 65535)");
         }
+        meta.capture_count = static_cast<uint16_t>(captures.size());
 
         // declare params as locals
-        for (const auto &param : func_expr->params) {
+        for (size_t i = 0; i < func_expr->params.size(); ++i) {
+            const auto &param = func_expr->params[i];
             ctx->declare_local(param.name);
+            ctx->lexical_bindings.insert(param.name);
+            if (param.is_rest) {
+                meta.rest_param_index = static_cast<int8_t>(i);
+            }
         }
+        collect_bindings(func_expr->body.get(), ctx->lexical_bindings);
 
         // compile default parameter values
         for (const auto &param : func_expr->params) {
-            if (param.default_value) {
+            if (param.default_value && !is_js_undefined_param(param)) {
                 uint16_t idx = ctx->resolve_local(param.name);
                 ctx->emit_op_short(OpCode::OP_LOAD_VAR, idx);
                 size_t skip = ctx->emit_jump(OpCode::OP_JUMP_IF_NONE);
@@ -798,6 +1350,8 @@ void Compiler::compile_expr(const Expr *expr) {
         ctx = saved;
         parent_ctx = saved_parent;
         is_main_scope = saved_main_scope;
+        loop_stack = std::move(saved_loop_stack);
+        try_depth = saved_try_depth;
 
         uint32_t func_idx = static_cast<uint32_t>(chunk->functions.size());
         std::string lambda_name = "<lambda_" + std::to_string(func_idx) + ">";
@@ -805,27 +1359,27 @@ void Compiler::compile_expr(const Expr *expr) {
         chunk->functions.push_back(std::move(meta));
 
         if (!captures.empty()) {
-            // emit OP_MAKE_CLOSURE: func_idx(2), capture_count(1), then for each
+            // emit OP_MAKE_CLOSURE: func_idx(2), capture_count(2), then for each
             // capture: source(1), index(2) source: 0=parent local, 1=parent capture
             ctx->emit_op(OpCode::OP_MAKE_CLOSURE);
             ctx->emit_short(static_cast<uint16_t>(func_idx));
-            ctx->emit_byte(static_cast<uint8_t>(captures.size()));
+            ctx->emit_short(static_cast<uint16_t>(captures.size()));
             for (const auto &cap : captures) {
+                // a parent local shadows a parent capture of the same name
+                uint16_t parent_idx = saved->resolve_local(cap);
                 auto parent_cap = saved->capture_map.find(cap);
-                if (parent_cap != saved->capture_map.end()) {
+                if (parent_idx != 0xFFFF) {
+                    ctx->emit_byte(0); // source: parent local
+                    ctx->emit_short(parent_idx);
+                    saved->note_local_captured(parent_idx);
+                } else if (parent_cap != saved->capture_map.end()) {
                     ctx->emit_byte(1); // source: parent capture
                     ctx->emit_short(parent_cap->second);
                 } else {
-                    uint16_t parent_idx = saved->resolve_local(cap);
-                    if (parent_idx != 0xFFFF) {
-                        ctx->emit_byte(0); // source: parent local
-                        ctx->emit_short(parent_idx);
-                    } else {
-                        // fallback: try global
-                        ctx->emit_byte(2); // source: global
-                        uint32_t str_idx = chunk->add_string(cap);
-                        ctx->emit_short(static_cast<uint16_t>(str_idx));
-                    }
+                    // fallback: try global
+                    ctx->emit_byte(2); // source: global
+                    uint32_t str_idx = chunk->add_string(cap);
+                    ctx->emit_short(static_cast<uint16_t>(str_idx));
                 }
             }
         } else {
@@ -869,8 +1423,7 @@ void Compiler::compile_expr(const Expr *expr) {
                 } else {
                     // Fallback: parse the expression source on demand.
                     auto expr_funcs = Parser::parse_program_from_source(interp->expr_sources[i]);
-                    if (expr_funcs.size() >= 2 && expr_funcs[1] && expr_funcs[1]->body &&
-                        !expr_funcs[1]->body->stmts.empty()) {
+                    if (expr_funcs.size() >= 2 && expr_funcs[1] && expr_funcs[1]->body && !expr_funcs[1]->body->stmts.empty()) {
                         auto *first_stmt = expr_funcs[1]->body->stmts[0].get();
                         if (auto *exprStmt = dynamic_cast<nari::ExprStmt *>(first_stmt)) {
                             frag_expr = exprStmt->expr.get();
@@ -1062,6 +1615,7 @@ void Compiler::compile_expr(const Expr *expr) {
         // referenced parent local.
         FunctionMeta meta;
         meta.name = "<spawn>";
+        meta.source_file = spawn_expr->filename;
         meta.param_count = 0;
         meta.capture_count = 0;
         meta.is_lambda = true;
@@ -1072,7 +1626,12 @@ void Compiler::compile_expr(const Expr *expr) {
         parent_ctx = saved;
         ctx = &spawn_ctx;
         bool saved_main_scope = is_main_scope;
+        auto saved_loop_stack = std::move(loop_stack);
+        int saved_try_depth = try_depth;
+        loop_stack.clear();
+        try_depth = 0;
         is_main_scope = false;
+        collect_bindings(spawn_expr->body.get(), ctx->lexical_bindings);
         std::vector<std::string> captures;
         if (saved) {
             std::set<std::string> body_idents;
@@ -1092,10 +1651,10 @@ void Compiler::compile_expr(const Expr *expr) {
                 ctx->const_captures.insert(captures[i]);
             }
         }
-        meta.capture_count = static_cast<uint8_t>(captures.size());
-        if (captures.size() > 255) {
-            throw std::runtime_error("spawn captures too many variables (max 255)");
+        if (captures.size() > UINT16_MAX) {
+            throw std::runtime_error("spawn captures too many variables (max 65535)");
         }
+        meta.capture_count = static_cast<uint16_t>(captures.size());
 
         // Compile the body block; a missing/no-value return falls through to none
         compile_stmt(spawn_expr->body.get());
@@ -1106,6 +1665,8 @@ void Compiler::compile_expr(const Expr *expr) {
         ctx = saved;
         parent_ctx = saved_parent;
         is_main_scope = saved_main_scope;
+        loop_stack = std::move(saved_loop_stack);
+        try_depth = saved_try_depth;
 
         // Add function to chunk and assign a unique name
         uint32_t func_idx = static_cast<uint32_t>(chunk->functions.size());
@@ -1114,11 +1675,11 @@ void Compiler::compile_expr(const Expr *expr) {
         chunk->functions.push_back(std::move(meta));
 
         if (!captures.empty()) {
-            // Emit OP_MAKE_CLOSURE: func_idx(2), capture_count(1), then for each
+            // Emit OP_MAKE_CLOSURE: func_idx(2), capture_count(2), then for each
             // capture: source(1), index(2)
             ctx->emit_op(OpCode::OP_MAKE_CLOSURE);
             ctx->emit_short(static_cast<uint16_t>(func_idx));
-            ctx->emit_byte(static_cast<uint8_t>(captures.size()));
+            ctx->emit_short(static_cast<uint16_t>(captures.size()));
             for (const auto &cap : captures) {
                 auto parent_cap = saved->capture_map.find(cap);
                 if (parent_cap != saved->capture_map.end()) {
@@ -1129,6 +1690,7 @@ void Compiler::compile_expr(const Expr *expr) {
                     if (parent_idx != 0xFFFF) {
                         ctx->emit_byte(0); // source is parent local
                         ctx->emit_short(parent_idx);
+                        saved->note_local_captured(parent_idx);
                     } else {
                         ctx->emit_byte(2); // source is global
                         uint32_t str_idx = chunk->add_string(cap);
@@ -1278,9 +1840,14 @@ void Compiler::compile_stmt(const Stmt *stmt) {
 
     if (auto *while_stmt = dynamic_cast<const WhileStmt *>(stmt)) {
         size_t loop_start = ctx->function->code.size();
+        // locals the body declares get slots at or above this, so closing from here
+        // never touches a binding that lives outside the loop
+        uint16_t loop_slot_watermark = ctx->local_count;
 
         loop_stack.push_back(LoopInfo());
-        loop_stack.back().continue_target = loop_start;
+        // `continue` is patched forward to the end-of-iteration point rather than
+        // jumping straight back to loop_start, so it cannot skip OP_CLOSE_UPVALUES
+        loop_stack.back().continue_target = LoopInfo::kContinueForward;
         loop_stack.back().outer_try_depth = this->try_depth;
 
         compile_expr(while_stmt->cond.get());
@@ -1288,6 +1855,12 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         size_t exit_jump = ctx->emit_jump(OpCode::OP_JUMP_IF_FALSE);
 
         compile_stmt(while_stmt->body.get());
+
+        for (size_t cp : loop_stack.back().continue_patches) {
+            ctx->patch_jump(cp);
+        }
+
+        emit_close_upvalues_for_loop(loop_slot_watermark);
 
         // jump back to start (offset is relative to position after jump instruction)
         size_t current_pos = ctx->function->code.size();
@@ -1305,9 +1878,11 @@ void Compiler::compile_stmt(const Stmt *stmt) {
     }
 
     if (auto *block = dynamic_cast<const BlockStmt *>(stmt)) {
+        ctx->push_scope();
         for (const auto &s : block->stmts) {
             compile_stmt(s.get());
         }
+        ctx->pop_scope();
         return;
     }
 
@@ -1331,9 +1906,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
                             ctx->emit_op(OpCode::OP_POP);
                             return;
                         }
-                        // Not local: skip the peephole when captured (no
-                        // STR_APPEND_CAPTURE opcode); fall through to general
-                        // assignment path below.
+                        // skip the peephole when captured
                         if (ctx->capture_map.find(assign->target) == ctx->capture_map.end() && !is_main_scope) {
                             // global variable
                             uint32_t str_idx = chunk->add_string(assign->target);
@@ -1433,6 +2006,8 @@ void Compiler::compile_stmt(const Stmt *stmt) {
     }
 
     if (auto *for_stmt = dynamic_cast<const ForStmt *>(stmt)) {
+        // taken before init so a `for (let i = ...)` binding is covered too
+        uint16_t loop_slot_watermark = ctx->local_count;
         if (for_stmt->init) {
             compile_stmt(for_stmt->init.get());
         }
@@ -1457,6 +2032,10 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         for (size_t cp : loop_stack.back().continue_patches) {
             ctx->patch_jump(cp);
         }
+
+        // before `post`: the update must land in the slot only, leaving the cell the
+        // just-finished iteration handed to its closures holding that iteration's value
+        emit_close_upvalues_for_loop(loop_slot_watermark);
 
         if (for_stmt->post) {
             compile_stmt(for_stmt->post.get());
@@ -1484,7 +2063,6 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         // Single-variable for-in is desugared onto an index loop over hidden locals
         if (!is_kv) {
             // Desugar `for (v in iterable) { body }` into:
-            //
             //     __arr = normalize(iterable)   ; OP_ITER_ARRAY (array->self, obj->keys)
             //     __idx = -1
             //   loop_start (continue target):
@@ -1515,11 +2093,16 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             ctx->emit_op_short(OpCode::OP_STORE_VAR, idx_idx);
             ctx->emit_op(OpCode::OP_POP);
 
+            // the loop var and any body local sit at or above this; the hidden $forin_arr$
+            // / $forin_idx$ slots are below it and must survive the whole loop
+            uint16_t loop_slot_watermark = var_idx;
+
             loop_stack.push_back(LoopInfo());
             loop_stack.back().outer_try_depth = this->try_depth;
 
             size_t loop_start = ctx->function->code.size();
-            loop_stack.back().continue_target = loop_start;
+            // forward-patched so `continue` cannot skip the end-of-iteration close
+            loop_stack.back().continue_target = LoopInfo::kContinueForward;
 
             // __idx = __idx + 1
             ctx->emit_op_short(OpCode::OP_LOAD_VAR, idx_idx);
@@ -1543,6 +2126,12 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             ctx->emit_op(OpCode::OP_POP);
 
             compile_stmt(foreach_stmt->body.get());
+
+            for (size_t cp : loop_stack.back().continue_patches) {
+                ctx->patch_jump(cp);
+            }
+
+            emit_close_upvalues_for_loop(loop_slot_watermark);
 
             // goto loop_start
             size_t current_pos = ctx->function->code.size();
@@ -1569,11 +2158,15 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             val_idx = ctx->declare_local(foreach_stmt->val_var);
         }
 
+        // key/value vars and body locals are at or above this slot
+        uint16_t loop_slot_watermark = var_idx;
+
         loop_stack.push_back(LoopInfo());
         loop_stack.back().outer_try_depth = this->try_depth;
 
         size_t loop_start = ctx->function->code.size();
-        loop_stack.back().continue_target = loop_start;
+        // forward-patched so `continue` cannot skip the end-of-iteration close
+        loop_stack.back().continue_target = LoopInfo::kContinueForward;
 
         ctx->emit_op(is_kv ? OpCode::OP_ITER_NEXT_KV : OpCode::OP_ITER_NEXT);
 
@@ -1595,6 +2188,12 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         }
 
         compile_stmt(foreach_stmt->body.get());
+
+        for (size_t cp : loop_stack.back().continue_patches) {
+            ctx->patch_jump(cp);
+        }
+
+        emit_close_upvalues_for_loop(loop_slot_watermark);
 
         size_t current_pos = ctx->function->code.size();
         int32_t offset = static_cast<int32_t>(loop_start) - static_cast<int32_t>(current_pos) - 3;
@@ -1683,15 +2282,19 @@ void Compiler::compile_stmt(const Stmt *stmt) {
     fprintf(stderr, "unhandled statement type\n");
 }
 
-void Compiler::compile_function_body(const Function *func, FunctionMeta &meta) {
+template <typename FnLike> void Compiler::compile_function_body(const FnLike *func, FunctionMeta &meta) {
+    constexpr bool is_plain_function = std::is_same<FnLike, Function>::value;
+
     CompilerContext context(&meta, chunk);
     CompilerContext *saved_ctx = ctx;
     ctx = &context;
 
     // Propagate strict_mode from the AST Function node.
     bool saved_strict = strict_mode;
-    if (func->strict_mode) {
-        strict_mode = true;
+    if constexpr (is_plain_function) {
+        if (func->strict_mode) {
+            strict_mode = true;
+        }
     }
     meta.strict_mode = strict_mode;
     meta.source_file = func->filename;
@@ -1704,8 +2307,12 @@ void Compiler::compile_function_body(const Function *func, FunctionMeta &meta) {
 
     // strict mode enforcement: named non-lambda functions MUST have type annotations on all non-rest, non-ignored
     // parameters and a return type. Lambdas/anonymous functions and internal compiler-generated functions are exempt.
-    if (strict_mode && !meta.is_lambda && !func->name.empty() &&
-        func->name.find("__top_level__") == std::string::npos && func->name.find("__module_") == std::string::npos) {
+    // Class methods are exempt: before methods were compiled they ran on the AST
+    // interpreter, which never enforced this. Applying it now would exit(1) on
+    // existing strict-mode code with un-annotated methods.
+    if constexpr (is_plain_function) {
+    if (strict_mode && !meta.is_lambda && !func->name.empty() && func->name.find("__top_level__") == std::string::npos &&
+        func->name.find("__module_") == std::string::npos) {
         bool had_error = false;
         for (const auto &param : func->params) {
             if (param.is_rest) {
@@ -1715,20 +2322,21 @@ void Compiler::compile_function_body(const Function *func, FunctionMeta &meta) {
                 continue;
             }
             if (!param.type) {
-                fprintf(stderr, "StrictModeError: parameter '%s' of function '%s' has no type annotation%s\n",
-                        param.name.c_str(), func->name.c_str(), func->loc_str().c_str());
+                fprintf(stderr, "StrictModeError: parameter '%s' of function '%s' has no type annotation%s\n", param.name.c_str(),
+                        func->name.c_str(), func->loc_str().c_str());
                 had_error = true;
             }
         }
         if (!func->return_type) {
-            fprintf(stderr, "StrictModeError: function '%s' has no return type annotation (add '-> <type>')%s\n",
-                    func->name.c_str(), func->loc_str().c_str());
+            fprintf(stderr, "StrictModeError: function '%s' has no return type annotation (add '-> <type>')%s\n", func->name.c_str(),
+                    func->loc_str().c_str());
             had_error = true;
         }
         if (had_error) {
             exit(1);
         }
     }
+    } // if constexpr (is_plain_function)
 
     // Track return type for OP_RETURN injection.
     std::string saved_return_type = current_return_type_;
@@ -1744,7 +2352,9 @@ void Compiler::compile_function_body(const Function *func, FunctionMeta &meta) {
 
     for (const auto &param : func->params) {
         ctx->declare_local(param.name);
+        ctx->lexical_bindings.insert(param.name);
     }
+    collect_bindings(func->body.get(), ctx->lexical_bindings);
 
     // In strict mode: emit a type check for each typed parameter right after
     // the function frame is set up (before any user code runs).
@@ -1768,7 +2378,7 @@ void Compiler::compile_function_body(const Function *func, FunctionMeta &meta) {
     }
 
     for (const auto &param : func->params) {
-        if (param.default_value) {
+        if (param.default_value && !is_js_undefined_param(param)) {
             uint16_t idx = ctx->resolve_local(param.name);
             ctx->emit_op_short(OpCode::OP_LOAD_VAR, idx);
             size_t skip = ctx->emit_jump(OpCode::OP_JUMP_IF_NONE);
@@ -1804,8 +2414,204 @@ void Compiler::compile_function_body(const Function *func, FunctionMeta &meta) {
     ctx = saved_ctx;
 }
 
+// Compile every registered class into chunk functions, so the VM never has to
+// walk method ASTs. Per class we emit:
+//   - one function per declared method (instance, static, and the 'init' ctor,
+//     which is separately callable as a normal method: `a.init(x)` works)
+//   - C.__init__  : field defaults, then a forward call to 'init' if present
+//   - C.__static_init__ : static field defaults (only when some static has one)
+// Dispatch keys off the ClassMethod/ClassDecl pointer (see Chunk), so inherited
+// methods resolve without name mangling.
+void Compiler::compile_classes() {
+    for (const auto &entry : Parser::get_all_registered_classes()) {
+        const nari::ClassDecl *cd = entry.second;
+        if (!cd) {
+            continue;
+        }
+        // __init__ is emitted for every class, so this doubles as "already compiled".
+        // Matters for eval(): compile_classes() walks the whole parser registry each call.
+        if (chunk->class_init_idx.count(cd)) {
+            continue;
+        }
+        const std::string &cname = entry.first;
+
+        for (const auto &method : cd->methods) {
+            FunctionMeta meta;
+            meta.name = cname + "." + method.name;
+            meta.param_count = static_cast<uint8_t>(method.params.size());
+            meta.capture_count = 0;
+            meta.is_lambda = false;
+            meta.js_undefined_params = std::any_of(method.params.begin(), method.params.end(), is_js_undefined_param);
+            compile_function_body(&method, meta);
+            chunk->method_func_idx[&method] = static_cast<uint32_t>(chunk->functions.size());
+            chunk->functions.push_back(std::move(meta));
+        }
+
+        // C.__init__: run field defaults against `this`, then forward to the ctor.
+        // Fields come from bc_collect_all_fields so inherited fields are included,
+        // in the same parent-first order the ClassLayout uses.
+        std::vector<const nari::ClassField *> all_fields;
+        bc_collect_all_fields(cd, all_fields);
+        const nari::ClassMethod *ctor = bc_find_method(cd, "init");
+        if (ctor && !ctor->is_constructor) {
+            ctor = nullptr;
+        }
+
+        {
+            FunctionMeta meta;
+            meta.name = cname + ".__init__";
+            meta.param_count = static_cast<uint8_t>(ctor ? ctor->params.size() : 0);
+            meta.capture_count = 0;
+            meta.is_lambda = false;
+            meta.source_file = cd->filename;
+
+            CompilerContext context(&meta, chunk);
+            CompilerContext *saved_ctx = ctx;
+            ctx = &context;
+            if (cd->line > 0) {
+                ctx->emit_line(cd->line);
+            }
+
+            // Ctor params occupy the leading local slots so the forwarding call can
+            // reload them; declared before the field defaults so both see one frame.
+            if (ctor) {
+                for (const auto &param : ctor->params) {
+                    ctx->declare_local(param.name);
+                    ctx->lexical_bindings.insert(param.name);
+                }
+            }
+
+            for (const nari::ClassField *field : all_fields) {
+                if (!field->default_value) {
+                    continue; // slot already defaults to none
+                }
+                ctx->emit_op(OpCode::OP_LOAD_THIS);
+                compile_expr(field->default_value.get());
+                uint32_t name_idx = chunk->add_string(field->name);
+                ctx->emit_op_short(OpCode::OP_SET_PROPERTY, static_cast<uint16_t>(name_idx));
+                ctx->emit_op(OpCode::OP_POP); // SET_PROPERTY leaves the value
+            }
+
+            if (ctor) {
+                ctx->emit_op(OpCode::OP_LOAD_THIS);
+                for (size_t i = 0; i < ctor->params.size(); i++) {
+                    ctx->emit_op_short(OpCode::OP_LOAD_VAR, static_cast<uint16_t>(i));
+                }
+                uint32_t init_idx = chunk->add_string("init");
+                ctx->emit_op(OpCode::OP_CALL_METHOD);
+                ctx->emit_short(static_cast<uint16_t>(init_idx));
+                ctx->emit_byte(static_cast<uint8_t>(ctor->params.size()));
+                ctx->emit_op(OpCode::OP_POP); // ctor return value is discarded
+            }
+
+            ctx->emit_op(OpCode::OP_LOAD_NONE);
+            ctx->emit_op(OpCode::OP_RETURN);
+            meta.var_names = context.local_names;
+            ctx = saved_ctx;
+
+            chunk->class_init_idx[cd] = static_cast<uint32_t>(chunk->functions.size());
+            chunk->functions.push_back(std::move(meta));
+        }
+
+        // C.__static_init__: `C.field = <default>` per static field with a default.
+        // Assigning through the class name is what user code already compiles to
+        // (OP_SET_PROPERTY's is_string branch writes Parser::get_static_fields()).
+        bool any_static_default = false;
+        for (const auto &field : cd->fields) {
+            if (field.is_static && field.default_value) {
+                any_static_default = true;
+                break;
+            }
+        }
+        if (any_static_default) {
+            FunctionMeta meta;
+            meta.name = cname + ".__static_init__";
+            meta.param_count = 0;
+            meta.capture_count = 0;
+            meta.is_lambda = false;
+            meta.source_file = cd->filename;
+
+            CompilerContext context(&meta, chunk);
+            CompilerContext *saved_ctx = ctx;
+            ctx = &context;
+            if (cd->line > 0) {
+                ctx->emit_line(cd->line);
+            }
+
+            uint32_t cname_idx = chunk->add_string(cname);
+            for (const auto &field : cd->fields) {
+                if (!field.is_static || !field.default_value) {
+                    continue;
+                }
+                uint16_t const_idx = ctx->add_constant(Constant::make_string(cname_idx));
+                ctx->emit_op_short(OpCode::OP_LOAD_CONST, const_idx);
+                compile_expr(field.default_value.get());
+                uint32_t name_idx = chunk->add_string(field.name);
+                ctx->emit_op_short(OpCode::OP_SET_PROPERTY, static_cast<uint16_t>(name_idx));
+                ctx->emit_op(OpCode::OP_POP);
+            }
+
+            ctx->emit_op(OpCode::OP_LOAD_NONE);
+            ctx->emit_op(OpCode::OP_RETURN);
+            meta.var_names = context.local_names;
+            ctx = saved_ctx;
+
+            chunk->class_static_init_idx[cd] = static_cast<uint32_t>(chunk->functions.size());
+            chunk->functions.push_back(std::move(meta));
+        }
+    }
+}
+
 Chunk *Compiler::compile(const FuncList &functions) {
     chunk = new Chunk();
+
+#ifdef NARI_EXTENDED_JSRT
+    const std::unordered_map<std::string, OpCode> candidates = {
+        { "__js_bitand", OpCode::OP_JS_BIT_AND }, { "__js_bitor", OpCode::OP_JS_BIT_OR },
+        { "__js_bitxor", OpCode::OP_JS_BIT_XOR }, { "__js_bitnot", OpCode::OP_JS_BIT_NOT },
+        { "__js_shl", OpCode::OP_JS_SHL },       { "__js_shr", OpCode::OP_JS_SHR },
+        { "__js_ushr", OpCode::OP_JS_USHR },
+        { "__js_get_prop_static", OpCode::OP_JS_GET_PROP_STATIC },
+        { "__js_set_prop_static", OpCode::OP_JS_SET_PROP_STATIC },
+        { "__js_apply_array", OpCode::OP_CALL_SPREAD },
+        { "__js_postinc", OpCode::OP_JS_POSTINC },
+    };
+    std::unordered_map<std::string, size_t> definitions;
+    std::set<std::string> assigned;
+    for (const auto &func : functions) {
+        if (!func) continue;
+        if (candidates.count(func->name)) definitions[func->name]++;
+        const auto scan_assignments = [&](const auto &self, const Stmt *stmt) -> void {
+            if (!stmt) return;
+            if (const auto *assign = dynamic_cast<const AssignStmt *>(stmt)) assigned.insert(assign->target);
+            if (const auto *block = dynamic_cast<const BlockStmt *>(stmt)) {
+                for (const auto &child : block->stmts) self(self, child.get());
+            } else if (const auto *branch = dynamic_cast<const IfStmt *>(stmt)) {
+                self(self, branch->then_branch.get()); self(self, branch->else_branch.get());
+            } else if (const auto *loop = dynamic_cast<const WhileStmt *>(stmt)) {
+                self(self, loop->body.get());
+            } else if (const auto *loop = dynamic_cast<const ForStmt *>(stmt)) {
+                self(self, loop->init.get()); self(self, loop->post.get()); self(self, loop->body.get());
+            } else if (const auto *loop = dynamic_cast<const ForEachStmt *>(stmt)) {
+                self(self, loop->body.get());
+            } else if (const auto *switch_stmt = dynamic_cast<const SwitchStmt *>(stmt)) {
+                for (const auto &item : switch_stmt->cases) self(self, item.body.get());
+                self(self, switch_stmt->default_body.get());
+            }
+        };
+        scan_assignments(scan_assignments, func->body.get());
+    }
+    const bool no_postinc_op = std::getenv("NARI_NO_POSTINC_OP") != nullptr;
+    for (const auto &func : functions) {
+        if (!func) continue;
+        auto candidate = candidates.find(func->name);
+        if (candidate != candidates.end() && no_postinc_op && candidate->second == OpCode::OP_JS_POSTINC) continue;
+        if (candidate != candidates.end() && definitions[func->name] == 1 && !assigned.count(func->name) &&
+            matches_extended_jsrt_helper(func.get(), candidate->second)) {
+            extended_jsrt_helpers.emplace(func->name, candidate->second);
+        }
+    }
+#endif
 
     // named functions are compiled before <main>, so collect top-level consts first.
     for (const auto &func : functions) {
@@ -1825,6 +2631,38 @@ Chunk *Compiler::compile(const FuncList &functions) {
                 }
             } else {
                 global_consts.insert(decl->name);
+            }
+        }
+    }
+
+    {
+        std::set<std::string> global_names;
+        for (const auto &func : functions) {
+            if (!func || !func->body) {
+                continue;
+            }
+            for (const auto &stmt : func->body->stmts) {
+                const auto *decl = dynamic_cast<const VarDeclStmt *>(stmt.get());
+                if (decl && decl->is_global) {
+                    global_names.insert(decl->name);
+                }
+            }
+        }
+        for (const auto &func : functions) {
+            // a lambda assigned straight to a global (`global Ok = func(...)`) is named after that global on purpose,
+            // and an enum variant ctor is synthesized rather than user-written to avoid collision
+            if (!func || func->function_expr != nullptr || func->is_enum_ctor) {
+                continue;
+            }
+            const std::string &fname = func->name;
+            if (fname.empty() || fname[0] == '<' || fname.find('.') != std::string::npos || fname.compare(0, 2, "__") == 0) {
+                continue; // <main>/<lambda_N>, class methods, and compiler internals
+            }
+            if (global_names.count(fname)) {
+                fprintf(stderr,
+                        "warning: top-level func '%s' is shadowed by a global of the same name and will never be "
+                        "called; rename it\n",
+                        fname.c_str());
             }
         }
     }
@@ -1849,12 +2687,15 @@ Chunk *Compiler::compile(const FuncList &functions) {
         meta.param_count = static_cast<uint8_t>(func->params.size());
         meta.capture_count = 0;
         meta.is_lambda = false;
+        meta.js_undefined_params = std::any_of(func->params.begin(), func->params.end(), is_js_undefined_param);
         // strict_mode is propagated inside compile_function_body from func->strict_mode
 
         compile_function_body(func, meta);
 
         chunk->functions.push_back(std::move(meta));
     }
+
+    compile_classes();
 
     FunctionMeta main_func;
     main_func.name = "<main>";
@@ -1871,6 +2712,9 @@ Chunk *Compiler::compile(const FuncList &functions) {
 
     CompilerContext context(&main_func, chunk);
     ctx = &context;
+    for (const Function *body : top_level_bodies) {
+        if (body && body->body) collect_bindings(body->body.get(), ctx->lexical_bindings);
+    }
 
     // compile all top-level statements from all top-level functions (imports first, then main)
     is_main_scope = true;
@@ -1900,8 +2744,7 @@ Chunk *Compiler::compile(const FuncList &functions) {
             typeInfo.alias_target = decl->alias_target->name;
         }
         for (const auto &field : decl->fields) {
-            typeInfo.fields.emplace_back(field.name, field.type ? field.type->name : "number",
-                                         field.type ? field.type->is_array : false,
+            typeInfo.fields.emplace_back(field.name, field.type ? field.type->name : "number", field.type ? field.type->is_array : false,
                                          field.type ? field.type->fixed_array_count : 0);
         }
         chunk->types.push_back(std::move(typeInfo));
@@ -1912,7 +2755,52 @@ Chunk *Compiler::compile(const FuncList &functions) {
 
 Chunk *compile_bytecode(const FuncList &functions) {
     Compiler compiler;
-    return compiler.compile(functions);
+    Chunk *chunk = compiler.compile(functions);
+    // TODO: this should be removed!
+    if (chunk != nullptr && getenv("NARI_NO_VERIFY") == nullptr) {
+        if (!BytecodeVerifier::verify(*chunk)) {
+            delete chunk;
+            return nullptr;
+        }
+    }
+    return chunk;
+}
+
+AppendedCode Compiler::compile_append(Chunk *existing, const FuncList &functions, const std::string &entry_name) {
+    AppendedCode out;
+    chunk = existing; // borrowed: never deleted here, and main_func_idx is left alone
+
+    for (const auto &fptr : functions) {
+        const Function *func = fptr.get();
+        if (!func || func->name == "__top_level__") {
+            continue;
+        }
+
+        FunctionMeta meta;
+        meta.name = func->name;
+        meta.param_count = static_cast<uint8_t>(func->params.size());
+        meta.capture_count = 0;
+        meta.is_lambda = false;
+        meta.js_undefined_params = std::any_of(func->params.begin(), func->params.end(), is_js_undefined_param);
+
+        compile_function_body(func, meta);
+
+        uint32_t idx = static_cast<uint32_t>(chunk->functions.size());
+        chunk->functions.push_back(std::move(meta));
+        if (!entry_name.empty() && func->name == entry_name) {
+            out.entry_idx = idx;
+        } else if (func->name.compare(0, 14, "__top_level__@") == 0) {
+            out.toplevel_idxs.push_back(idx);
+        }
+    }
+
+    compile_classes(); // classes declared inside the eval'd source
+    return out;
+}
+
+AppendedCode compile_bytecode_append(Chunk *existing, const FuncList &functions, const std::string &entry_name) {
+    Compiler compiler;
+    return compiler.compile_append(existing, functions, entry_name);
 }
 
 } // namespace bytecode

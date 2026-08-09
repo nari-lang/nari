@@ -1,0 +1,11 @@
+import { assert } from "../lib/assert.nari";
+
+func __js_bitxor(a, b) { return __js_to_int32(a) ^ __js_to_int32(b); }
+
+func replacement(a, b) { return a + b; }
+
+func start() {
+    __js_bitxor = replacement;
+    assert(__js_bitxor(20, 22) == 42, "reassigned helper was lowered");
+    print("extended jsrt reassignment ok");
+}

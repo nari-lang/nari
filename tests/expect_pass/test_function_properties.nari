@@ -1,0 +1,36 @@
+let assert = func(condition, message) {
+    if (!condition) {
+        panic("function property assertion failed: " @ message);
+    }
+};
+
+let callable = func(value) { return value * 2; };
+callable.answer = 42;
+callable["label"] = "callable";
+callable.run = func(value) { return value + 3; };
+
+assert(callable(6) == 12, "function remains callable");
+assert(callable.answer == 42, "dotted property read");
+assert(callable["label"] == "callable", "indexed property read");
+assert(callable.run(7) == 10, "property method call");
+assert(callable.has_key("run"), "has_key sees function fields");
+assert(callable.keys().length() == 3, "keys sees function fields");
+
+callable.assign({ extra: 99 });
+assert(callable.extra == 99, "assign targets a function");
+
+let source = func() { return null; };
+source.copied = "yes";
+callable.assign(source);
+assert(callable.copied == "yes", "assign reads a function source");
+
+// Exercise a function -> object -> function cycle. Collection may run at any
+// allocation safe point, so retaining this root also checks transitive marks.
+let holder = { fn: callable };
+callable.holder = holder;
+for (let i = 0; i < 10000; i++) {
+    let garbage = { value: i };
+}
+assert(callable.holder.fn(5) == 10, "GC preserves callable property cycles");
+
+print("All function property tests passed!");

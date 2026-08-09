@@ -1,6 +1,4 @@
-func assert(cond, msg) {
-    if (!cond) { panic(msg); }
-}
+import { assert } from "../lib/assert.nari";
 
 // expression form returns the expression's value
 assert(eval("1 + 2") == 3, "arith expr, got " @ eval("1 + 2"));

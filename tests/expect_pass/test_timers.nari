@@ -1,0 +1,77 @@
+// set_timeout / set_interval / clear_interval per docs/08-async.md.
+// Sections 1-3 spin on yield() so a broken timer fails loudly here in the main body.
+// Section 4 arms timers with no spin at all, so it can only pass if the end-of-program
+// event loop drains them.
+
+func spin(n) {
+    let i = 0;
+    while (i < n) {
+        yield();
+        i = i + 1;
+    }
+}
+
+// 1. set_timeout fires exactly once
+let fired = 0;
+set_timeout(func() {
+    fired = fired + 1;
+}, 5);
+if (fired != 0) {
+    panic("set_timeout ran synchronously; should be deferred");
+}
+spin(200);
+if (fired != 1) {
+    panic("set_timeout: expected 1 call, got " @ to_string(fired));
+}
+
+// 2. set_interval repeats, clear_interval stops it
+let ticks = 0;
+let iid = 0;
+iid = set_interval(func() {
+    ticks = ticks + 1;
+    if (ticks >= 3) {
+        clear_interval(iid);
+    }
+}, 5);
+spin(400);
+if (ticks != 3) {
+    panic("set_interval: expected 3 ticks then clear, got " @ to_string(ticks));
+}
+let after_clear = ticks;
+spin(200);
+if (ticks != after_clear) {
+    panic("clear_interval did not stop the interval: " @ to_string(ticks));
+}
+
+// 3. clear_interval before the first deadline suppresses all ticks
+let never = 0;
+let nid = set_interval(func() {
+    never = never + 1;
+}, 50);
+clear_interval(nid);
+spin(300);
+if (never != 0) {
+    panic("cleared interval still fired " @ to_string(never) @ " times");
+}
+
+// 4. no spin: only the end-of-program event loop can run these
+let deferred = 0;
+let did = 0;
+did = set_interval(func() {
+    deferred = deferred + 1;
+    if (deferred > 2) {
+        panic("interval fired after clear_interval in event loop");
+    }
+    if (deferred == 2) {
+        clear_interval(did);
+        // an interval callback may arm a timeout; the loop must still drain it
+        set_timeout(func() {
+            if (deferred != 2) {
+                panic("nested set_timeout saw bad state: " @ to_string(deferred));
+            }
+            print("test_timers: ok!");
+        }, 5);
+    }
+}, 10);
+
+print("test_timers: armed");

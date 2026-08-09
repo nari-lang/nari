@@ -48,13 +48,13 @@ type Person {
     email: string
 }
 
-let alice: Person = {
+let alice = {
     name: "Alice",
     age: 30,
     email: "alice@example.com"
 };
 
-let bob: Person = {
+let bob = {
     name: "Bob",
     age: 25,
     email: "bob@example.com"
@@ -188,7 +188,7 @@ func getAccountInfo(account: BankAccount) -> string {
 }
 
 // Usage
-let myAccount: BankAccount = {
+let myAccount = {
     accountNumber: "123456",
     balance: 1000,
     owner: "Alice"
@@ -262,12 +262,16 @@ if (!validation.isValid) {
 3. **Object Implementation**: Custom types are implemented as regular objects
 
 ```nari
-type Number {
+type Boxed {
     value: number
 }
 
-// This works even though it doesn't match the type structure
-let wrong: NumberType = "not a number";  // No error at runtime
+// A parameter annotation is documentation only. Nothing rejects the string.
+func unwrap(b: Boxed) -> number {
+    return b.value;
+}
+
+let wrong = "not a number";   // No error, and no check against Boxed
 ```
 
 ### Best Practices

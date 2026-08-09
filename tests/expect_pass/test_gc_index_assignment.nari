@@ -1,0 +1,17 @@
+func collect_and_return_key() {
+    __gc_collect();
+    return "answer";
+}
+
+func make_value() {
+    return { marker: 42 };
+}
+
+// The pending value must survive GC while the computed target is evaluated.
+let target = {};
+target[collect_and_return_key()] = make_value();
+if (target.answer.marker != 42) {
+    panic("indexed assignment lost its pending value");
+}
+
+print("GC indexed assignment roots passed");

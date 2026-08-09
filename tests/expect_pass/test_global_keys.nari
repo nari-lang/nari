@@ -1,0 +1,8 @@
+import { assert } from "../lib/assert.nari";
+
+let object = { first: 1, keys: "shadowed", last: 2 };
+let names = keys(object);
+
+assert(names.length() == 3, "global keys omitted object fields");
+assert(names[0] == "first" && names[1] == "keys" && names[2] == "last", "global keys changed insertion order");
+print("global keys ok");

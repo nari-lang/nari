@@ -12,9 +12,12 @@ namespace Parser {
 bool is_package_import_spec(const std::string &inc);
 
 // Resolve a bare package import (see is_package_import_spec) to an absolute file
-// path by walking up to the nearest nari.toml, consulting its [dependencies] and
-// the nearest nari.lock.toml, then the matched package's [exports].
-// Returns "" on failure and writes a human-readable reason into `error_out`.
+// path by walking up to the nearest nari.toml, checking its [dependencies] and
+// the nearest nari.lock.toml, then the matched package's [exports]
 std::string resolve_package_import_path(const std::string &inc, const std::string &basefile, std::string &error_out);
+
+// Resolve the root export of a package directory containing nari.toml.
+// Returns the original path when it is not a directory.
+std::string resolve_package_directory_path(const std::string &path, std::string &error_out);
 
 } // namespace Parser

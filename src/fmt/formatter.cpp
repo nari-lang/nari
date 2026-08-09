@@ -20,9 +20,9 @@ namespace {
 // words that are never call/index targets: affects `(`, `[`, and unary-op spacing
 bool is_keyword(const std::string &s) {
     static const std::unordered_set<std::string> kws = {
-        "if",    "else",    "while",  "for",  "foreach", "in",     "return", "switch", "case",     "default", "match",
-        "let",   "global",  "const",  "func", "import",  "export", "from",   "as",     "type",     "union",   "enum",
-        "class", "extends", "static", "new",  "typeof",  "spawn",  "await",  "break",  "continue", "yield",
+        "if",    "else",    "while",  "for",  "foreach", "in",     "return", "switch",   "case",  "default", "match",
+        "let",   "global",  "const",  "func", "import",  "export", "from",   "as",       "type",  "union",   "enum",
+        "class", "extends", "static", "new",  "spawn",   "await",  "break",  "continue", "yield",
     };
     return kws.count(s) > 0;
 }
@@ -30,7 +30,7 @@ bool is_keyword(const std::string &s) {
 // keywords followed by a space before `(`: `if (x)` but `foo(x)`, `func(x)`
 bool is_paren_space_keyword(const std::string &s) {
     static const std::unordered_set<std::string> kws = {
-        "if", "while", "for", "foreach", "switch", "match", "return", "new", "typeof", "await",
+        "if", "while", "for", "foreach", "switch", "match", "return", "new", "await",
     };
     return kws.count(s) > 0;
 }
@@ -63,6 +63,8 @@ bool is_binary_op(TokenKind k) {
         case TokenKind::TK_EXPONENT:
         case TokenKind::TK_EQEQ:
         case TokenKind::TK_NEQ:
+        case TokenKind::TK_STRICT_EQ:
+        case TokenKind::TK_STRICT_NEQ:
         case TokenKind::TK_LE:
         case TokenKind::TK_GE:
         case TokenKind::TK_ANDAND:
@@ -203,13 +205,12 @@ struct Formatter {
             return true;
         }
         // member access
-        if (cur.kind == K::TK_DOT || cur.kind == K::TK_COLONCOLON || cur.kind == K::TK_QUESTIONDOT ||
-            prev.kind == K::TK_DOT || prev.kind == K::TK_COLONCOLON || prev.kind == K::TK_QUESTIONDOT) {
+        if (cur.kind == K::TK_DOT || cur.kind == K::TK_COLONCOLON || cur.kind == K::TK_QUESTIONDOT || prev.kind == K::TK_DOT ||
+            prev.kind == K::TK_COLONCOLON || prev.kind == K::TK_QUESTIONDOT) {
             return false;
         }
         // closers and separators hug the left side
-        if (cur.kind == K::TK_RPAREN || cur.kind == K::TK_RBRACKET || cur.kind == K::TK_COMMA ||
-            cur.kind == K::TK_SEMICOLON) {
+        if (cur.kind == K::TK_RPAREN || cur.kind == K::TK_RBRACKET || cur.kind == K::TK_COMMA || cur.kind == K::TK_SEMICOLON) {
             return false;
         }
         // nothing right after ( or [
@@ -294,8 +295,8 @@ struct Formatter {
             return true;
         }
         // binary operators
-        if (is_binary_op(cur.kind) || cur.kind == K::TK_LT || cur.kind == K::TK_GT || cur.kind == K::TK_RSHIFT ||
-            is_binary_op(prev.kind) || prev.kind == K::TK_LT || prev.kind == K::TK_GT || prev.kind == K::TK_RSHIFT) {
+        if (is_binary_op(cur.kind) || cur.kind == K::TK_LT || cur.kind == K::TK_GT || cur.kind == K::TK_RSHIFT || is_binary_op(prev.kind) ||
+            prev.kind == K::TK_LT || prev.kind == K::TK_GT || prev.kind == K::TK_RSHIFT) {
             return true;
         }
         // words and literals next to each other
@@ -354,8 +355,7 @@ struct Formatter {
                 if (cur.kind == TokenKind::TK_IDENT && (cur.text == "case" || cur.text == "default")) {
                     case_boost = 0;
                 }
-                line_starts_with_case =
-                    cur.kind == TokenKind::TK_IDENT && (cur.text == "case" || cur.text == "default");
+                line_starts_with_case = cur.kind == TokenKind::TK_IDENT && (cur.text == "case" || cur.text == "default");
                 int blanks = std::min(gap - 1, opts.max_blank_lines);
                 out.append(static_cast<size_t>(1 + blanks), '\n');
                 emit_indent();
@@ -439,14 +439,13 @@ struct Formatter {
 
 } // namespace
 
-bool format_source(const std::string &src, const std::string &filename, const FmtOptions &opts, std::string &out,
-                   std::string &error_out) {
+bool format_source(const std::string &src, const std::string &filename, const FmtOptions &opts, std::string &out, std::string &error_out) {
     std::vector<Parser::LexError> errors;
     std::vector<Token> comments;
     std::vector<Token> tokens = Parser::tokenize(src, filename, &errors, &comments);
     if (!errors.empty()) {
-        error_out = errors.front().filename + ":" + std::to_string(errors.front().line) + ":" +
-                    std::to_string(errors.front().col) + ": " + errors.front().message;
+        error_out = errors.front().filename + ":" + std::to_string(errors.front().line) + ":" + std::to_string(errors.front().col) + ": " +
+                    errors.front().message;
         return false;
     }
 

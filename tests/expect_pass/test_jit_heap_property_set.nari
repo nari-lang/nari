@@ -1,6 +1,4 @@
-func assert(cond, msg) {
-    if (!cond) panic(msg);
-}
+import { assert } from "../lib/assert.nari";
 
 func run_heap_property_set() {
     let holder = { value: null, other: null };

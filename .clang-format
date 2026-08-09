@@ -7,7 +7,8 @@ DerivePointerAlignment: false
 PointerAlignment: Right
 InsertBraces: true
 
-ColumnLimit: 120
+ColumnLimit: 140
 Cpp11BracedListStyle: false
 AllowShortBlocksOnASingleLine: Never
 AllowShortFunctionsOnASingleLine: None
+AllowShortEnumsOnASingleLine: false

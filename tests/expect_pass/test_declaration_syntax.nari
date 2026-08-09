@@ -1,0 +1,8 @@
+class Client {
+    request(path: string, timeout: number = null) -> Promise<string> {}
+}
+
+func create_client() -> Client {}
+
+let declarations_parsed = true;
+if (!declarations_parsed) { panic("declaration syntax did not parse"); }
