@@ -87,3 +87,7 @@ class Regex {
         return out;
     }
 }
+
+export {
+    Regex
+}

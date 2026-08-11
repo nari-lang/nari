@@ -38,3 +38,7 @@ class Random {
         return arr[this.step() % arr.length()];
     }
 }
+
+export {
+    Random
+}

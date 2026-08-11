@@ -12,7 +12,7 @@ class Map {
     private store: Object = {};
     private order: Array = [];
     
-    get(key) {
+    get(key) -> Option<any> {
         if (!this.store.has_key(key)) { 
             return None(); 
         }
@@ -49,11 +49,11 @@ class Map {
         this.order = [];
     }
 
-    has(key) {
-        return this.store.has_key(k);
+    has(key) -> bool {
+        return this.store.has_key(key);
     }
 
-    size() {
+    size() -> number {
         return this.order.length();
     }
 

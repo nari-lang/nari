@@ -26,6 +26,7 @@ class Date {
             }, true).unwrap();
     }
     private utc: bool = true;
+
     init(ms: number, opts) {
         if (opts == null) { opts = {}; }
         if (opts.has_key("utc")) { this.utc = opts.utc; }
@@ -45,13 +46,13 @@ class Date {
     add_ms(n: number) -> Date {
         return new Date(this.ms + n, { utc: this.utc });
     }
-    diff_ms(other: Date) {
+    diff_ms(other: Date) -> number {
         return this.ms - other.ms;
     }
-    equals(other: Date) {
+    equals(other: Date) -> bool {
         return this.ms == other.ms;
     }
-    to_iso_string() {
+    to_iso_string() -> string {
         // Hand-format to guarantee canonical YYYY-MM-DDTHH:MM:SS.sssZ
         // (strftime's %Y zero-pads to >=4 but not exactly 4 across libc
         // versions for negative years; we don't support BCE here).
