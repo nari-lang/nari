@@ -174,31 +174,31 @@ class URL {
     to_string() {
         if (parts == null) { return ""; }
         let proto = "";
-        if (parts.protocol != null) { proto = parts.protocol; }
+        if (this.protocol != null) { proto = this.protocol; }
         let out = proto @ ":";
-        let has_host = (parts.host != null && parts.host != "");
+        let has_host = (this.host != null && this.host != "");
         if (has_host) {
             out = out @ "//";
-            if (parts.username != null && parts.username != "") {
-                out = out @ __url_encode(parts.username, "component");
-                if (parts.password != null && parts.password != "") {
-                    out = out @ ":" @ __url_encode(parts.password, "component");
+            if (this.username != null && this.username != "") {
+                out = out @ __url_encode(this.username, "component");
+                if (this.password != null && this.password != "") {
+                    out = out @ ":" @ __url_encode(this.password, "component");
                 }
                 out = out @ "@";
             }
-            out = out @ parts.host;
-            if (parts.port != null && parts.port != "") {
-                out = out @ ":" @ ("" @ parts.port);
+            out = out @ this.host;
+            if (this.port != null && this.port != "") {
+                out = out @ ":" @ ("" @ this.port);
             }
         }
-        if (parts.pathname != null && parts.pathname != "") {
-            out = out @ parts.pathname;
+        if (this.pathname != null && this.pathname != "") {
+            out = out @ this.pathname;
         }
-        if (parts.search != null && parts.search != "") {
-            out = out @ "?" @ parts.search;
+        if (this.search != null && this.search != "") {
+            out = out @ "?" @ this.search;
         }
-        if (parts.hash != null && parts.hash != "") {
-            out = out @ "#" @ parts.hash;
+        if (this.hash != null && this.hash != "") {
+            out = out @ "#" @ this.hash;
         }
         return out;
     }

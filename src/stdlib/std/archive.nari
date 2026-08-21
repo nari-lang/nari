@@ -10,13 +10,13 @@
 // `files`: array of either string (source path) or { src, dest }.
 // opts: { base_dir?: string } - when set, string sources are stored
 //  relative to base_dir; otherwise the basename is used.
-func create(archive_path, files, opts) {
+export func create(archive_path, files, opts) {
     return __archive_create(archive_path, files, opts);
 }
 
 // Archive.list(path) -> Result<[{ name, size, type, mtime }, ...], string>
 // type: "file" | "dir" | "symlink" | "other"
-func list(path) {
+export func list(path) {
     return __archive_list(path);
 }
 
@@ -24,6 +24,6 @@ func list(path) {
 // opts: { max_files?: int=10000, max_bytes?: int=1<<30, allow_links?: bool=false }
 // Rejects entries with absolute or escaping paths, and symlinks
 // (unless allow_links=true). dest_dir is created if needed.
-func extract(archive_path, dest_dir, opts) {
+export func extract(archive_path, dest_dir, opts) {
     return __archive_extract(archive_path, dest_dir, opts);
 }

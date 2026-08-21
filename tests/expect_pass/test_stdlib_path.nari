@@ -1,6 +1,6 @@
 // Path stdlib: POSIX-style path utilities (forward-slash separator).
 
-import { Path } from "std/path";
+import Path from "std/path";
 
 func check(name, cond) {
     if (!cond) { panic("Path test failed: " @ name); }

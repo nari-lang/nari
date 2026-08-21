@@ -1,4 +1,4 @@
-import { Archive } from "std/archive";
+import Archive from "std/archive";
 
 let errs = 0;
 

@@ -6,7 +6,7 @@ func check(name, cond) {
     if (!cond) { panic("Collections test failed: " @ name); }
 }
 
-let m = Map.create();
+let m = new Map();
 check("empty size", m.size() == 0);
 check("empty has", !m.has("x"));
 check("empty get", m.get("x") == null);
@@ -17,8 +17,8 @@ m.set("c", 3);
 check("size after 3 sets", m.size() == 3);
 check("has a", m.has("a"));
 check("has b", m.has("b"));
-check("get a", m.get("a") == 1);
-check("get b", m.get("b") == 2);
+check("get a", m.get("a").unwrap() == 1);
+check("get b", m.get("b").unwrap() == 2);
 
 // overwrite preserves order
 m.set("a", 100);
@@ -62,7 +62,7 @@ check("int-key get via int", m.get(1) == "int");
 check("int-key get via str", m.get("1") == "int");
 
 // Set
-let s = Set.create();
+let s =  new Set();
 check("set empty", s.size() == 0);
 s.add("x");
 s.add("y");

@@ -1,6 +1,6 @@
 // uuid.v4(): RFC-4122 version-4 layout. Non-cryptographic (mt19937).
 
-import { uuid } from "std/uuid";
+import uuid from "std/uuid";
 
 func check(name, cond) {
     if (!cond) {

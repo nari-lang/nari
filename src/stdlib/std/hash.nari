@@ -2,20 +2,20 @@
 //  Cryptographic hash helpers backed by mbedtls. Intended for integrity
 //  checks (lockfile, registry archives) - not authentication.
 //
-//  import { Hash } from "std/hash";
+//  import Hash from "std/hash";
 
-    // Hash.sha1(str) -> 40-char lowercase hex string of SHA-1(bytes(str))
-func sha1(str) {
+// Hash.sha1(str) -> 40-char lowercase hex string of SHA-1(bytes(str))
+export func sha1(str) {
     return __hash_sha1(str);
 }
 
 // Hash.sha256(str) -> 64-char lowercase hex string of SHA-256(bytes(str))
-func sha256(str) {
+export func sha256(str) {
     return __hash_sha256(str);
 }
 
 // Hash.sha256_file(path) -> 64-char lowercase hex string of SHA-256
 // of the file's bytes. Streams the file; safe for large archives.
-func sha256_file(path) {
+export func sha256_file(path) {
     return __hash_sha256_file(path);
 }
