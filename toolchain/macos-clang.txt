@@ -1,0 +1,21 @@
+[binaries]
+c = 'clang'
+cpp = 'clang++'
+ar = 'ar'
+strip = 'strip'
+pkg-config = 'pkg-config'
+
+[host_machine]
+system = 'darwin'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = false
+
+[built-in options]
+c_args = ['-fdiagnostics-absolute-paths', '-Wno-unused-command-line-argument', '-mcpu=native']
+cpp_args = ['-stdlib=libc++', '-fdiagnostics-absolute-paths', '-Wno-unused-variable', '-Wno-unused-lambda-capture', '-Wno-unused-command-line-argument', '-Wno-unused-function', '-mcpu=native']
+c_link_args = []
+cpp_link_args = ['-stdlib=libc++', '-Wl,-dead_strip']
