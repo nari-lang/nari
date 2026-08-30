@@ -11,6 +11,12 @@ SYSTEM_DEPS=false
 CROSS_FILE="glibc-clang.txt"
 MESON_OPTS=""
 
+# macOS: Apple clang links with ld64, not mold, and the glibc cross file
+# advertises a linux/x86_64 host. Use the native darwin toolchain instead.
+if [ "$(uname -s)" = "Darwin" ]; then
+  CROSS_FILE="macos-clang.txt"
+fi
+
 EXTRA_ARGS=""
 
 # Windows builds run natively via GitHub Actions CI. See .github/workflows/build-windows.yml.
