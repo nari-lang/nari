@@ -109,6 +109,9 @@ func __stdlib_init__() {
             is_none: func() {
                 return false;
             },
+            expect: func(msg) {
+                return value;
+            },
             unwrap: func() {
                 return value;
             },
@@ -143,6 +146,9 @@ func __stdlib_init__() {
             },
             is_none: func() {
                 return true;
+            },
+            expect: func(msg) {
+                panic(msg);
             },
             unwrap: func() {
                 panic("Called unwrap on None value");
