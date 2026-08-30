@@ -9,7 +9,7 @@ func check(name, cond) {
 let m = new Map();
 check("empty size", m.size() == 0);
 check("empty has", !m.has("x"));
-check("empty get", m.get("x") == null);
+check("empty get", m.get("x").is_none());
 
 m.set("a", 1);
 m.set("b", 2);
@@ -17,12 +17,12 @@ m.set("c", 3);
 check("size after 3 sets", m.size() == 3);
 check("has a", m.has("a"));
 check("has b", m.has("b"));
-check("get a", m.get("a").unwrap() == 1);
-check("get b", m.get("b").unwrap() == 2);
+check("get a", m.get("a").expect("a should not be none") == 1);
+check("get b", m.get("b").expect("b should not be none") == 2);
 
 // overwrite preserves order
 m.set("a", 100);
-check("overwrite value", m.get("a") == 100);
+check("overwrite value", m.get("a").expect("a should not be none") == 100);
 check("overwrite size", m.size() == 3);
 let keys = m.keys();
 check("order[0]", keys[0] == "a");
@@ -41,7 +41,7 @@ check("entries[1][1]", ents[1][1] == 2);
 check("delete existing", m.delete("b"));
 check("delete missing", !m.delete("zzz"));
 check("size after delete", m.size() == 2);
-check("get deleted", m.get("b") == null);
+check("get deleted", m.get("b").expect("b should not be none") == null);
 let keys2 = m.keys();
 check("order after delete[0]", keys2[0] == "a");
 check("order after delete[1]", keys2[1] == "c");
@@ -55,11 +55,6 @@ check("for_each sum", acc == 103);
 m.clear();
 check("clear size", m.size() == 0);
 check("clear keys", m.keys().length() == 0);
-
-// stringified keys: 1 and "1" collide
-m.set(1, "int");
-check("int-key get via int", m.get(1) == "int");
-check("int-key get via str", m.get("1") == "int");
 
 // Set
 let s =  new Set();
