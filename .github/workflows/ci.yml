@@ -76,7 +76,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       # Toolchain
-      - name: Install Linux build tools
+      - name: Install Build tools (Linux)
         if: matrix.os_label == 'linux'
         run: |
           sudo apt-get update -qq
@@ -86,20 +86,20 @@ jobs:
           echo "CC=clang"   >> "$GITHUB_ENV"
           echo "CXX=clang++" >> "$GITHUB_ENV"
 
-      - name: Install macOS build tools
+      - name: Install Build tools (macOS)
         if: matrix.os_label == 'macos'
         run: |
           # coreutils provides gtimeout, used by run_tests.sh (no GNU timeout on macOS).
           brew install ninja coreutils
           python3 -m pip install --break-system-packages meson conan
 
-      - name: Set up MSVC environment
+      - name: Set up MSVC environment (Windows)
         if: matrix.os_label == 'windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.msvc_arch }}
 
-      - name: Install Windows build tools
+      - name: Install Build tools (Windows)
         if: matrix.os_label == 'windows'
         run: pip install meson ninja conan
 
@@ -133,11 +133,7 @@ jobs:
             [ -f "$b" ] && patchelf --remove-needed libunwind.so.1 "$b" || true
           done
 
-      - name: Run tests
-        if: matrix.os_label != 'windows'
-        run: SKIP_BUILD=1 SKIP_NETWORK_TESTS=1 ./run_tests.sh
-
-      - name: "Smoke test (Unix)"
+      - name: Smoke test (Unix)
         if: matrix.os_label != 'windows'
         shell: bash
         run: |
@@ -152,7 +148,11 @@ jobs:
           ./build/release/nari.exe --help >/dev/null
           printf 'print("hello from %s-%s");\n' "${{ matrix.os_label }}" "${{ matrix.arch }}" > smoke.nari
           ./build/release/nari.exe smoke.nari
-
+    
+      - name: Run tests
+        if: matrix.os_label != 'windows'
+        run: SKIP_BUILD=1 SKIP_NETWORK_TESTS=1 ./run_tests.sh
+        
       # package
       #
       # Extracted layout (both formats):
