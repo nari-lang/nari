@@ -75,9 +75,10 @@ class BytecodeVerifier {
         return static_cast<int64_t>(operand_pc) + static_cast<int64_t>(operand_size) + static_cast<int64_t>(rel);
     }
 
-    static bool add_successor(const std::string &where, const std::vector<InsnInfo> &insns,
-                              const PcIndex &pc_to_index, size_t code_size, std::queue<size_t> &work,
-                              std::vector<int> &height_at, size_t target_pc, int out_height, size_t from_pc) {
+    static bool add_successor(
+        const std::string &where, const std::vector<InsnInfo> &insns, const PcIndex &pc_to_index, size_t code_size,
+        std::queue<size_t> &work, std::vector<int> &height_at, size_t target_pc, int out_height, size_t from_pc
+    ) {
         if (target_pc == code_size) {
             return true;
         }
@@ -256,8 +257,8 @@ class BytecodeVerifier {
         return false;
     }
 
-    static bool verify_stack_flow(const std::string &where, const std::vector<InsnInfo> &insns,
-                                  const PcIndex &pc_to_index, size_t code_size) {
+    static bool
+    verify_stack_flow(const std::string &where, const std::vector<InsnInfo> &insns, const PcIndex &pc_to_index, size_t code_size) {
         if (insns.empty()) {
             return true;
         }
@@ -295,8 +296,9 @@ class BytecodeVerifier {
                 int64_t target = jump_target_after_operand(branch.operand_pc, 2, branch.jump_a);
                 const size_t after_branch_pc = branch.pc + branch.size;
 
-                if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), false_height,
-                                   branch.pc)) {
+                if (!add_successor(
+                        where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), false_height, branch.pc
+                    )) {
                     return false;
                 }
                 if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, after_branch_pc, true_height, branch.pc)) {
@@ -323,8 +325,9 @@ class BytecodeVerifier {
 
                 case OpCode::OP_JUMP: {
                     int64_t target = jump_target_after_operand(insn.operand_pc, 2, insn.jump_a);
-                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), out_height,
-                                       insn.pc)) {
+                    if (!add_successor(
+                            where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), out_height, insn.pc
+                        )) {
                         return false;
                     }
                     break;
@@ -334,8 +337,9 @@ class BytecodeVerifier {
                 case OpCode::OP_JUMP_IF_TRUE:
                 case OpCode::OP_JUMP_IF_NONE: {
                     int64_t target = jump_target_after_operand(insn.operand_pc, 2, insn.jump_a);
-                    if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), out_height,
-                                       insn.pc)) {
+                    if (!add_successor(
+                            where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), out_height, insn.pc
+                        )) {
                         return false;
                     }
                     if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, next_pc, out_height, insn.pc)) {
@@ -354,14 +358,18 @@ class BytecodeVerifier {
                         return false;
                     }
                     if (catch_target != static_cast<int64_t>(next_pc) && catch_target != static_cast<int64_t>(code_size)) {
-                        if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(catch_target),
-                                           out_height + 1, insn.pc)) {
+                        if (!add_successor(
+                                where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(catch_target), out_height + 1,
+                                insn.pc
+                            )) {
                             return false;
                         }
                     }
                     if (finally_target != static_cast<int64_t>(next_pc) && finally_target != static_cast<int64_t>(code_size)) {
-                        if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(finally_target),
-                                           out_height, insn.pc)) {
+                        if (!add_successor(
+                                where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(finally_target), out_height,
+                                insn.pc
+                            )) {
                             return false;
                         }
                     }

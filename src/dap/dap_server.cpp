@@ -74,8 +74,9 @@ void write_message(const json &msg) {
     std::cout.flush();
 }
 
-void send_response(int request_seq, const std::string &command, bool success, json body = json::object(),
-                   const std::string &msg = std::string()) {
+void send_response(
+    int request_seq, const std::string &command, bool success, json body = json::object(), const std::string &msg = std::string()
+) {
 
     json resp;
     resp["seq"] = g_seq++;
@@ -228,8 +229,10 @@ static bytecode::Chunk *compile_source_for_debug(const std::string &path) {
         if (g_log && chunk) {
             log_line("--", "compiled " + std::to_string(chunk->functions.size()) + " functions:");
             for (const auto &fn : chunk->functions) {
-                log_line("  ", std::string("name='") + fn.name + "' source='" + fn.source_file +
-                                   "' line_map_size=" + std::to_string(fn.line_map.size()));
+                log_line(
+                    "  ", std::string("name='") + fn.name + "' source='" + fn.source_file +
+                              "' line_map_size=" + std::to_string(fn.line_map.size())
+                );
             }
         }
         return chunk;

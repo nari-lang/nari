@@ -126,13 +126,11 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         }
         if (w == 0) {
             if (kBuildReport) {
-                fprintf(stderr, "[IR-BUILD] %s: non-P1 opcode %s at pc=%zu\n", func_meta.name.c_str(),
-                        nari::bytecode::opcode_name(op), pc);
+                fprintf(stderr, "[IR-BUILD] %s: non-P1 opcode %s at pc=%zu\n", func_meta.name.c_str(), nari::bytecode::opcode_name(op), pc);
             }
             return false; // non-P1 opcode
         }
-        if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE ||
-            op == OpCode::OP_JUMP_IF_NONE) {
+        if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE || op == OpCode::OP_JUMP_IF_NONE) {
             size_t target = jtarget(pc);
             if (target > code.size()) {
                 return false;
@@ -769,8 +767,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     ValueId obj = vstk.back();
                     vstk.pop_back();
                     Inst instruction;
-                    instruction.op =
-                        op == OpCode::OP_JS_POSTINC ? Op::JsPostinc : Op::JsGetPropStatic;
+                    instruction.op = op == OpCode::OP_JS_POSTINC ? Op::JsPostinc : Op::JsGetPropStatic;
                     instruction.imm_u32 = name;
                     instruction.operands = { obj };
                     instruction.bytecode_pc = op_pc;
@@ -789,8 +786,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     ValueId obj = vstk.back();
                     vstk.pop_back();
                     Inst instruction;
-                    instruction.op =
-                        op == OpCode::OP_JS_SET_PROP_STATIC ? Op::JsSetPropStatic : Op::StoreProperty;
+                    instruction.op = op == OpCode::OP_JS_SET_PROP_STATIC ? Op::JsSetPropStatic : Op::StoreProperty;
                     instruction.imm_u32 = name;
                     instruction.operands = { obj, val };
                     instruction.bytecode_pc = op_pc;

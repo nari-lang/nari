@@ -18,8 +18,9 @@ struct LexError {
 //   when `errors` is provided, lexical errors are collected instead of terminating the process.
 //   when `comments` is provided, comments (which are not part of the token stream) are recorded
 //     into it as TK_COMMENT tokens carrying their full raw text and start position (used by `nari fmt`).
-std::vector<Token> tokenize(const std::string &src, const std::string &filename, std::vector<LexError> *errors = nullptr,
-                            std::vector<Token> *comments = nullptr);
+std::vector<Token> tokenize(
+    const std::string &src, const std::string &filename, std::vector<LexError> *errors = nullptr, std::vector<Token> *comments = nullptr
+);
 
 // print a fatal parse/lex diagnostic (with source context + include trace) and exit(1)
 void fatal_error(const std::string &msg, const Token *tok = nullptr);

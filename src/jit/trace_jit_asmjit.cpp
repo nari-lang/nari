@@ -195,17 +195,21 @@ static std::vector<AsmLiveVar> asm_collect_live_vars(const std::vector<TraceStep
     for (const auto &s : steps) {
         if ((s.kind == TraceStep::Kind::LoadIntVar || s.kind == TraceStep::Kind::StoreIntVar) && seen.find(s.slot) == seen.end()) {
             seen[s.slot] = TraceType::Int;
-        } else if ((s.kind == TraceStep::Kind::LoadFloatVar || s.kind == TraceStep::Kind::StoreFloatVar) &&
-                   seen.find(s.slot) == seen.end()) {
+        } else if (
+            (s.kind == TraceStep::Kind::LoadFloatVar || s.kind == TraceStep::Kind::StoreFloatVar) && seen.find(s.slot) == seen.end()
+        ) {
             seen[s.slot] = TraceType::Float;
-        } else if ((s.kind == TraceStep::Kind::LoadObjVar || s.kind == TraceStep::Kind::ObjAddConstInPlace ||
-                    s.kind == TraceStep::Kind::ObjAddPropInPlace) &&
-                   seen.find(s.slot) == seen.end()) {
+        } else if (
+            (s.kind == TraceStep::Kind::LoadObjVar || s.kind == TraceStep::Kind::ObjAddConstInPlace ||
+             s.kind == TraceStep::Kind::ObjAddPropInPlace) &&
+            seen.find(s.slot) == seen.end()
+        ) {
             seen[s.slot] = TraceType::Obj;
         } else if (s.kind == TraceStep::Kind::LoadArrayVar && seen.find(s.slot) == seen.end()) {
             seen[s.slot] = TraceType::Array;
-        } else if ((s.kind == TraceStep::Kind::ClosureInc || s.kind == TraceStep::Kind::ClosureAddConst) &&
-                   seen.find(s.closure_slot) == seen.end()) {
+        } else if (
+            (s.kind == TraceStep::Kind::ClosureInc || s.kind == TraceStep::Kind::ClosureAddConst) && seen.find(s.closure_slot) == seen.end()
+        ) {
             seen[s.closure_slot] = TraceType::Function;
         }
     }
@@ -1886,7 +1890,8 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 arch::cmp_imm_jcc(
                     cc, inline_kind,
                     (int32_t)(step.kind == Kind::ClosureAddConst ? JitInlineKind::ClosureAddConst : JitInlineKind::ClosureInc),
-                    arch::CC::kNE, lbl_done);
+                    arch::CC::kNE, lbl_done
+                );
 
                 if (step.kind == Kind::ClosureAddConst) {
                     arch::Gp imm = cc.new_gp64("cic_imm");

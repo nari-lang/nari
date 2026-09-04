@@ -815,7 +815,7 @@ static bool propagate_slot_consts(Func &f, Block &b) {
 
 // Dead store elimination: a StoreSlot to a slot that is never read (no LoadSlot anywhere)
 //  and is not captured by a closure is unobservable, since a non-aliased slot is purely function-local.
-// 
+//
 // StoreSlot is stack-neutral (it peeks), so dropping it preserves the value stack, the peeked value stays on the stack.
 // Composes with const-prop and DCE (which then removes the now-unused value + its Pop).
 static bool eliminate_dead_stores(Func &f) {
@@ -1020,9 +1020,7 @@ static bool local_value_numbering(Func &f, Block &b) {
                 st.pop_back();
                 in.operands = { lhs.vid, rhs.vid }; // keep operands consistent with CSE
                 int o1 = lhs.vn, o2 = rhs.vn;
-                if ((in.op == Op::DynAdd || in.op == Op::DynMul || in.op == Op::DynStrictCmpEq ||
-                     in.op == Op::DynStrictCmpNe) &&
-                    o1 > o2) {
+                if ((in.op == Op::DynAdd || in.op == Op::DynMul || in.op == Op::DynStrictCmpEq || in.op == Op::DynStrictCmpNe) && o1 > o2) {
                     std::swap(o1, o2); // commutative: normalize operand order
                 }
                 int vn = getvn(std::to_string((int)in.op) + ":" + std::to_string(o1) + ":" + std::to_string(o2));
@@ -2107,8 +2105,10 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
         totals.cls[c] += lc[c];
         totals.cls_loop[c] += lc_loop[c];
     }
-    fprintf(stderr, "[GVN] %-24s#%-3u B=%zu | xred=%ld(loop=%ld) part=%ld |", (fn_name && *fn_name) ? fn_name : "<anon>", fn_idx,
-            rpo.size(), fx, fx_loop, part);
+    fprintf(
+        stderr, "[GVN] %-24s#%-3u B=%zu | xred=%ld(loop=%ld) part=%ld |", (fn_name && *fn_name) ? fn_name : "<anon>", fn_idx, rpo.size(),
+        fx, fx_loop, part
+    );
     for (int c = 0; c < GC_N; c++) {
         if (lc[c]) {
             fprintf(stderr, " %s=%ld(l%ld)", gc_name(c), lc[c], lc_loop[c]);
@@ -2808,7 +2808,7 @@ IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_i
                     // candidate, only two method calls keep it int-array-pure:
                     //   push(<Int48>)  (argc==1) - in-place int append,
                     //   length()       (argc==0) - pure read of the element count
-                    // 
+                    //
                     // any other method conservatively escapes the receiver.
                     if (in.operands.empty()) {
                         break;
@@ -2897,8 +2897,9 @@ IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_i
     return out;
 }
 
-void infer_types(Func &f, std::vector<Ty> &slot_ty, const GlobalTypeMap *global_types, const IntArraySlots *int_array_slots,
-                 bool int48_params) {
+void infer_types(
+    Func &f, std::vector<Ty> &slot_ty, const GlobalTypeMap *global_types, const IntArraySlots *int_array_slots, bool int48_params
+) {
     // Optimistic init: non-param slots start Bottom (refined upward by their
     // stores); params are dynamically typed at entry, so Unknown. Non-const value
     // types start Bottom; constants are fixed.

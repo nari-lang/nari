@@ -17,11 +17,10 @@ void dump_chunk(const Chunk &chunk) {
     for (size_t fi = 0; fi < chunk.functions.size(); fi++) {
         const auto &func = chunk.functions[fi];
         printf("\n--- Function #%zu: %s ---\n", fi, func.name.c_str());
-        printf("  params: %u, captures: %u, rest_param: %d, lambda: %s\n", 
-                func.param_count,
-                func.capture_count,
-                func.rest_param_index,
-                func.is_lambda ? "yes" : "no");
+        printf(
+            "  params: %u, captures: %u, rest_param: %d, lambda: %s\n", func.param_count, func.capture_count, func.rest_param_index,
+            func.is_lambda ? "yes" : "no"
+        );
         printf("  locals: %zu [", func.var_names.size());
         for (size_t i = 0; i < func.var_names.size(); i++) {
             if (i > 0) {
@@ -52,9 +51,10 @@ void dump_chunk(const Chunk &chunk) {
                     printf("float(%g)\n", constant.as_float);
                     break;
                 case CType::STRING:
-                    printf("string(%u) \"%s\"\n", 
-                            constant.string_idx,
-                            constant.string_idx < chunk.strings.size() ? chunk.strings[constant.string_idx].c_str() : "???");
+                    printf(
+                        "string(%u) \"%s\"\n", constant.string_idx,
+                        constant.string_idx < chunk.strings.size() ? chunk.strings[constant.string_idx].c_str() : "???"
+                    );
                     break;
                 case CType::FUNCTION:
                     printf("func(%u)\n", constant.func_idx);
@@ -101,8 +101,10 @@ void dump_chunk(const Chunk &chunk) {
                         printf(" (\"%s\")", chunk.strings[val].c_str());
                     }
                     printf("\n");
-                } else if (op == OpCode::OP_GET_PROPERTY || op == OpCode::OP_JS_GET_PROP_STATIC || op == OpCode::OP_SET_PROPERTY ||
-                           op == OpCode::OP_JS_SET_PROP_STATIC || op == OpCode::OP_JS_POSTINC) {
+                } else if (
+                    op == OpCode::OP_GET_PROPERTY || op == OpCode::OP_JS_GET_PROP_STATIC || op == OpCode::OP_SET_PROPERTY ||
+                    op == OpCode::OP_JS_SET_PROP_STATIC || op == OpCode::OP_JS_POSTINC
+                ) {
                     printf("%-16s #%u", opcode_name(op), val);
                     if (val < chunk.strings.size()) {
                         printf(" (.%s)", chunk.strings[val].c_str());

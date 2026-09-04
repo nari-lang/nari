@@ -10,8 +10,8 @@
 #include "jit_tls.h"
 #include "trace_jit.h"
 #endif
-#include <cassert>
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <climits>
 #include <cmath>
@@ -40,14 +40,18 @@ static inline int64_t js_signed32(uint32_t value) noexcept {
 static bool js_to_uint32(VM &vm, const Value &value, uint32_t &result) {
     ScriptRuntime::BuiltinFn to_number = vm.runtime->lookup_builtin_member("__js_to_number");
     Value number = vm.call_builtin_member(to_number, &value, 1);
-    if (vm.has_error) return false;
+    if (vm.has_error) {
+        return false;
+    }
     const double numeric = number.as_number();
     if (numeric == 0.0 || !std::isfinite(numeric)) {
         result = 0;
         return true;
     }
     double reduced = std::fmod(std::trunc(numeric), 4294967296.0);
-    if (reduced < 0.0) reduced += 4294967296.0;
+    if (reduced < 0.0) {
+        reduced += 4294967296.0;
+    }
     result = static_cast<uint32_t>(reduced);
     return true;
 }
@@ -228,7 +232,8 @@ Value VM::jit_lookup_object_property(ObjectObj *oobj, uint16_t name_idx) {
 }
 
 void VM::run_timer_loop() {
-    while (runtime->has_pending_timers() && !has_error && !Runtime::g_shutdown_requested.load() && !Runtime::g_runtime_error_occurred.load()) {
+    while (runtime->has_pending_timers() && !has_error && !Runtime::g_shutdown_requested.load() &&
+           !Runtime::g_runtime_error_occurred.load()) {
         runtime->process_completed_io(); // set_timeout completions
         runtime->fire_due_intervals();   // set_interval deadlines
         NARI_SLEEP_MILLIS(1);
@@ -352,8 +357,10 @@ void VM::report_interpreter_profile() {
             break;
         }
         const FunctionMeta &fn = chunk->functions[idx];
-        fprintf(stderr, "%12llu  %6zu  %s  %s\n", static_cast<unsigned long long>(count), idx,
-                fn.name.empty() ? "<anonymous>" : fn.name.c_str(), fn.source_file.c_str());
+        fprintf(
+            stderr, "%12llu  %6zu  %s  %s\n", static_cast<unsigned long long>(count), idx,
+            fn.name.empty() ? "<anonymous>" : fn.name.c_str(), fn.source_file.c_str()
+        );
     }
 }
 
@@ -662,8 +669,10 @@ void VM::note_jit_callee(uint32_t func_idx) {
 #endif
 }
 
-void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures,
-                            const CapturesList &cell_captures, const Value *receiver) {
+void VM::call_user_function(
+    uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures, const CapturesList &cell_captures,
+    const Value *receiver
+) {
     if (frames.size() >= MAX_CALL_DEPTH) {
         fprintf(stderr, "Stack Overflow: maximum call-depth exceeded!\n");
         has_error = true;
@@ -768,8 +777,9 @@ void VM::call_user_function(uint32_t func_idx, const std::vector<Value> &args, c
 
 // Allocation-free variant: stack[args_base..args_base+argc] are the args on entry.
 // Pops args + func (at args_base-1), then sets up the new call frame.
-void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t argc, const CapturesList &cell_captures,
-                                  const Value *receiver) {
+void VM::call_user_function_stack(
+    uint32_t func_idx, size_t args_base, size_t argc, const CapturesList &cell_captures, const Value *receiver
+) {
     if (frames.size() >= MAX_CALL_DEPTH) {
         fprintf(stderr, "Stack Overflow: maximum call-depth exceeded!\n");
         has_error = true;
@@ -817,8 +827,7 @@ void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t ar
             }
             args_ptr = arg_buf;
         } else {
-            arg_vec.assign(std::make_move_iterator(stack.begin() + args_base),
-                           std::make_move_iterator(stack.begin() + args_base + argc));
+            arg_vec.assign(std::make_move_iterator(stack.begin() + args_base), std::make_move_iterator(stack.begin() + args_base + argc));
             args_ptr = arg_vec.data();
         }
         stack.resize(slot_base);
@@ -878,8 +887,9 @@ void VM::call_user_function_stack(uint32_t func_idx, size_t args_base, size_t ar
 }
 
 // Span variant of call_user_function for runtime re-entry, this avoids creating a Vector<Value>.
-void VM::call_user_function_span(uint32_t func_idx, const Value *args, size_t argc, const CapturesList &cell_captures,
-                                 const Value *receiver) {
+void VM::call_user_function_span(
+    uint32_t func_idx, const Value *args, size_t argc, const CapturesList &cell_captures, const Value *receiver
+) {
     if (frames.size() >= MAX_CALL_DEPTH) {
         fprintf(stderr, "Stack Overflow: maximum call-depth exceeded!\n");
         has_error = true;
@@ -1383,7 +1393,9 @@ bool VM::execute_instruction() {
 #ifdef NARI_EXTENDED_JSRT
             case OpCode::OP_JS_BIT_NOT: {
                 uint32_t value;
-                if (!js_to_uint32(*this, peek(0), value)) return false;
+                if (!js_to_uint32(*this, peek(0), value)) {
+                    return false;
+                }
                 peek(0).set_int(js_signed32(~value));
                 break;
             }
@@ -1396,15 +1408,22 @@ bool VM::execute_instruction() {
             case OpCode::OP_JS_USHR: {
                 uint32_t left;
                 uint32_t right;
-                if (!js_to_uint32(*this, peek(1), left) || !js_to_uint32(*this, peek(0), right)) return false;
+                if (!js_to_uint32(*this, peek(1), left) || !js_to_uint32(*this, peek(0), right)) {
+                    return false;
+                }
                 stack.pop_back();
                 Value &result = peek(0);
-                if (op == OpCode::OP_JS_BIT_AND) result.set_int(js_signed32(left & right));
-                else if (op == OpCode::OP_JS_BIT_OR) result.set_int(js_signed32(left | right));
-                else if (op == OpCode::OP_JS_BIT_XOR) result.set_int(js_signed32(left ^ right));
-                else if (op == OpCode::OP_JS_SHL) result.set_int(js_signed32(left << (right & 31U)));
-                else if (op == OpCode::OP_JS_USHR) result.set_int(static_cast<int64_t>(left >> (right & 31U)));
-                else {
+                if (op == OpCode::OP_JS_BIT_AND) {
+                    result.set_int(js_signed32(left & right));
+                } else if (op == OpCode::OP_JS_BIT_OR) {
+                    result.set_int(js_signed32(left | right));
+                } else if (op == OpCode::OP_JS_BIT_XOR) {
+                    result.set_int(js_signed32(left ^ right));
+                } else if (op == OpCode::OP_JS_SHL) {
+                    result.set_int(js_signed32(left << (right & 31U)));
+                } else if (op == OpCode::OP_JS_USHR) {
+                    result.set_int(static_cast<int64_t>(left >> (right & 31U)));
+                } else {
                     const uint32_t shift = right & 31U;
                     const uint32_t shifted = (left & 0x80000000U) && shift ? ~(~left >> shift) : left >> shift;
                     result.set_int(js_signed32(shifted));
@@ -1524,11 +1543,13 @@ bool VM::execute_instruction() {
                                     st.second++;
                                     static const bool trace_stats = (getenv("NARI_TRACE_STATS") != nullptr);
                                     if (trace_stats && (st.second & (st.second - 1)) == 0) {
-                                        fprintf(stderr,
-                                                "[trace-stats] func=%u anchor=%zu entries=%u "
-                                                "total_iters=%llu avg=%llu\n",
-                                                func_idx, anchor_pc, st.second, (unsigned long long)st.first,
-                                                (unsigned long long)(st.first / st.second));
+                                        fprintf(
+                                            stderr,
+                                            "[trace-stats] func=%u anchor=%zu entries=%u "
+                                            "total_iters=%llu avg=%llu\n",
+                                            func_idx, anchor_pc, st.second, (unsigned long long)st.first,
+                                            (unsigned long long)(st.first / st.second)
+                                        );
                                     }
                                 }
                                 break;
@@ -1617,8 +1638,12 @@ bool VM::execute_instruction() {
                                               : func_ref.is_array()  ? "array"
                                               : func_ref.is_object() ? "object"
                                                                      : "other";
-                    runtime_panic(Value::make_string("called a non-function value: '" + chunk->strings[callee_label_idx] +
-                                                     "' (type " + actual_type + ", value " + func_ref.to_string() + ")"));
+                    runtime_panic(
+                        Value::make_string(
+                            "called a non-function value: '" + chunk->strings[callee_label_idx] + "' (type " + actual_type + ", value " +
+                            func_ref.to_string() + ")"
+                        )
+                    );
                     return false;
                 }
 
@@ -1660,8 +1685,9 @@ bool VM::execute_instruction() {
                     }
                     args_ptr = arg_buf;
                 } else {
-                    arg_vec.assign(std::make_move_iterator(stack.begin() + args_base),
-                                   std::make_move_iterator(stack.begin() + args_base + argc));
+                    arg_vec.assign(
+                        std::make_move_iterator(stack.begin() + args_base), std::make_move_iterator(stack.begin() + args_base + argc)
+                    );
                     args_ptr = arg_vec.data();
                 }
                 // copy func out before trimming (func_ref is a reference into stack[args_base-1]).
@@ -1675,8 +1701,7 @@ bool VM::execute_instruction() {
                 }
                 auto bit = builtin_fn ? builtins.end() : builtins.find(fn2.name);
                 if (builtin_fn || bit != builtins.end()) {
-                    Value result = builtin_fn ? call_builtin_member(builtin_fn, args_ptr, argc)
-                                              : call_builtin(fn2.name, args_ptr, argc);
+                    Value result = builtin_fn ? call_builtin_member(builtin_fn, args_ptr, argc) : call_builtin(fn2.name, args_ptr, argc);
                     if (!push_builtin_result(std::move(result))) {
                         return false;
                     }
@@ -1965,8 +1990,9 @@ bool VM::execute_instruction() {
                 size_t args_base = stack.size() - argc;
                 const Value &func_ref = stack[args_base - 1];
                 if (!func_ref.is_function()) {
-                    runtime_panic(Value::make_string("called a non-function value with spread arguments: '" +
-                                                     chunk->strings[callee_label_idx] + "'"));
+                    runtime_panic(
+                        Value::make_string("called a non-function value with spread arguments: '" + chunk->strings[callee_label_idx] + "'")
+                    );
                     return false;
                 }
                 const auto &fn = func_ref.get_function();
@@ -1997,8 +2023,9 @@ bool VM::execute_instruction() {
                     }
                     args_ptr = arg_buf;
                 } else {
-                    arg_vec.assign(std::make_move_iterator(stack.begin() + args_base),
-                                   std::make_move_iterator(stack.begin() + args_base + argc));
+                    arg_vec.assign(
+                        std::make_move_iterator(stack.begin() + args_base), std::make_move_iterator(stack.begin() + args_base + argc)
+                    );
                     args_ptr = arg_vec.data();
                 }
                 Value func_copy = std::move(stack[args_base - 1]);
@@ -2010,8 +2037,7 @@ bool VM::execute_instruction() {
                 }
                 auto bit = builtin_fn ? builtins.end() : builtins.find(fn2.name);
                 if (builtin_fn || bit != builtins.end()) {
-                    Value result = builtin_fn ? call_builtin_member(builtin_fn, args_ptr, argc)
-                                              : call_builtin(fn2.name, args_ptr, argc);
+                    Value result = builtin_fn ? call_builtin_member(builtin_fn, args_ptr, argc) : call_builtin(fn2.name, args_ptr, argc);
                     if (!push_builtin_result(std::move(result))) {
                         return false;
                     }
@@ -2075,8 +2101,7 @@ bool VM::execute_instruction() {
                         if (key->immutable && key->field_id == UINT32_MAX) {
                             key->field_id = intern_field(key->s);
                         }
-                        v = key->immutable ? obj.get_obj_ptr()->get_field_by_id(key->field_id)
-                                           : obj.get_obj_ptr()->get_field(key->s);
+                        v = key->immutable ? obj.get_obj_ptr()->get_field_by_id(key->field_id) : obj.get_obj_ptr()->get_field(key->s);
                     } else {
                         v = obj.get_obj_ptr()->get_field(index.to_string());
                     }
@@ -2295,7 +2320,8 @@ bool VM::execute_instruction() {
                             VM::push(Value::none());
                         } else {
                             bytecode_runtime_fatal(
-                                "Unknown handle member '" + name + "' (valid: await, ready, failed, error, status_code, duration)", name);
+                                "Unknown handle member '" + name + "' (valid: await, ready, failed, error, status_code, duration)", name
+                            );
                             VM::push(Value::none());
                         }
                     } else if (obj.is_string()) {
@@ -2323,13 +2349,14 @@ bool VM::execute_instruction() {
                     } else {
                         // Compiler-internal properties (__variant, __data) are used as
                         // speculative probes in match/pattern expressions, silently return none for non-objects.
-                        // 
+                        //
                         // For all other properties, this is a fatal user error.
                         if (name.size() >= 2 && name[0] == '_' && name[1] == '_') {
                             VM::push(Value::none());
                         } else {
                             bytecode_runtime_fatal(
-                                "Cannot access property '" + name + "' on " + (obj.is_none() ? "null" : "non-object") + " value", name);
+                                "Cannot access property '" + name + "' on " + (obj.is_none() ? "null" : "non-object") + " value", name
+                            );
                             VM::push(Value::none());
                         }
                     }
@@ -2444,13 +2471,15 @@ bool VM::execute_instruction() {
                     if (std::getenv("NARI_TRACE_ITER_ERROR")) {
                         const auto &active = current_frame();
                         const size_t pc = static_cast<size_t>(active.ip - active.function->code.data());
-                        fprintf(stderr, "  function=%s line=%d value=%s type=%zu\n", active.function->name.c_str(),
-                                active.function->resolve_line(pc), iterable.to_string().c_str(),
-                                static_cast<size_t>(iterable.tag()));
+                        fprintf(
+                            stderr, "  function=%s line=%d value=%s type=%zu\n", active.function->name.c_str(),
+                            active.function->resolve_line(pc), iterable.to_string().c_str(), static_cast<size_t>(iterable.tag())
+                        );
                         for (const auto &trace_frame : frames) {
                             const size_t trace_pc = static_cast<size_t>(trace_frame.ip - trace_frame.function->code.data());
-                            fprintf(stderr, "    at %s:%d\n", trace_frame.function->name.c_str(),
-                                    trace_frame.function->resolve_line(trace_pc));
+                            fprintf(
+                                stderr, "    at %s:%d\n", trace_frame.function->name.c_str(), trace_frame.function->resolve_line(trace_pc)
+                            );
                         }
                     }
                     has_error = true;
@@ -2481,13 +2510,15 @@ bool VM::execute_instruction() {
                     if (std::getenv("NARI_TRACE_ITER_ERROR")) {
                         const auto &active = current_frame();
                         const size_t pc = static_cast<size_t>(active.ip - active.function->code.data());
-                        fprintf(stderr, "  function=%s line=%d value=%s type=%zu\n", active.function->name.c_str(),
-                                active.function->resolve_line(pc), iterable.to_string().c_str(),
-                                static_cast<size_t>(iterable.tag()));
+                        fprintf(
+                            stderr, "  function=%s line=%d value=%s type=%zu\n", active.function->name.c_str(),
+                            active.function->resolve_line(pc), iterable.to_string().c_str(), static_cast<size_t>(iterable.tag())
+                        );
                         for (const auto &trace_frame : frames) {
                             const size_t trace_pc = static_cast<size_t>(trace_frame.ip - trace_frame.function->code.data());
-                            fprintf(stderr, "    at %s:%d\n", trace_frame.function->name.c_str(),
-                                    trace_frame.function->resolve_line(trace_pc));
+                            fprintf(
+                                stderr, "    at %s:%d\n", trace_frame.function->name.c_str(), trace_frame.function->resolve_line(trace_pc)
+                            );
                         }
                     }
                     has_error = true;
@@ -3874,8 +3905,9 @@ bool VM::dispatch_throw(Value error) {
         // catch_ip must be a valid offset inside the current function
         FunctionMeta *fn = current_function();
         if (!fn || handler.catch_ip >= fn->code.size()) {
-            fprintf(stderr, "warning: try handler catch_ip=%zu out of range (code.size()=%zu)\n", handler.catch_ip,
-                    fn ? fn->code.size() : 0);
+            fprintf(
+                stderr, "warning: try handler catch_ip=%zu out of range (code.size()=%zu)\n", handler.catch_ip, fn ? fn->code.size() : 0
+            );
             break;
         }
 
@@ -3929,21 +3961,37 @@ void VM::register_chunk_functions(size_t from) {
 
             fd.jit_inline_kind = fmeta.jit_inline_kind;
             fd.jit_inline_imm = fmeta.jit_inline_imm;
-            if (name == "__js_lt") fd.jit_native_kind = 2;
-            else if (name == "__js_gt") fd.jit_native_kind = 3;
-            else if (name == "__js_le") fd.jit_native_kind = 4;
-            else if (name == "__js_ge") fd.jit_native_kind = 5;
-            else if (name == "__js_get_prop") fd.jit_native_kind = 6;
-            else if (name == "__js_set_prop") fd.jit_native_kind = 7;
-            else if (name == "__js_set_prop_static") fd.jit_native_kind = 8;
-            else if (name == "__js_length") fd.jit_native_kind = 9;
-            else if (name == "__js_str_char_code_at") fd.jit_native_kind = 10;
-            else if (name == "__js_invoke") fd.jit_native_kind = 11;
-            else if (name == "__js_loose_eq") fd.jit_native_kind = 12;
-            else if (name == "__js_postinc") fd.jit_native_kind = 13;
-            else if (name == "__js_str_code_point_at") fd.jit_native_kind = 15;
-            else if (name == "__js_add") fd.jit_native_kind = 16;
-            else if (name == "__js_to_string") fd.jit_native_kind = 14;
+            if (name == "__js_lt") {
+                fd.jit_native_kind = 2;
+            } else if (name == "__js_gt") {
+                fd.jit_native_kind = 3;
+            } else if (name == "__js_le") {
+                fd.jit_native_kind = 4;
+            } else if (name == "__js_ge") {
+                fd.jit_native_kind = 5;
+            } else if (name == "__js_get_prop") {
+                fd.jit_native_kind = 6;
+            } else if (name == "__js_set_prop") {
+                fd.jit_native_kind = 7;
+            } else if (name == "__js_set_prop_static") {
+                fd.jit_native_kind = 8;
+            } else if (name == "__js_length") {
+                fd.jit_native_kind = 9;
+            } else if (name == "__js_str_char_code_at") {
+                fd.jit_native_kind = 10;
+            } else if (name == "__js_invoke") {
+                fd.jit_native_kind = 11;
+            } else if (name == "__js_loose_eq") {
+                fd.jit_native_kind = 12;
+            } else if (name == "__js_postinc") {
+                fd.jit_native_kind = 13;
+            } else if (name == "__js_str_code_point_at") {
+                fd.jit_native_kind = 15;
+            } else if (name == "__js_add") {
+                fd.jit_native_kind = 16;
+            } else if (name == "__js_to_string") {
+                fd.jit_native_kind = 14;
+            }
 
             std::string local_alias = Parser::get_exported_function_local_name(name);
             if (!local_alias.empty()) {
@@ -3991,7 +4039,6 @@ bool VM::run(Chunk *compiled_chunk) {
 #endif
 
     register_chunk_functions(0);
-
 
     // set up FFI callback dispatch so native callbacks can re-enter the VM
     runtime->external_call_function_value = [&](const Value &func_val, const std::vector<Value> &args, const Value *receiver) -> Value {
@@ -4140,7 +4187,6 @@ bool VM::run(Chunk *compiled_chunk) {
     return !has_error;
 }
 
-
 // Constant-key JS property ops (OP_JS_GET/SET_PROP_STATIC, OP_JS_POSTINC) and their shared shape->slot stub cache.
 namespace {
 // Global megamorphic property stub cache, keyed by (shape, field_id)
@@ -4153,14 +4199,15 @@ struct PropStubEntry {
     uint32_t slot = 0;
 };
 
-enum { kPropStubN = 4096 };
+enum {
+    kPropStubN = 4096
+};
 PropStubEntry g_prop_stub[kPropStubN];
 inline size_t prop_stub_hash(const ObjectShape *s, uint32_t fid) {
     uint64_t h = ((uint64_t)((uintptr_t)s >> 4)) * 0x9E3779B97F4A7C15ull ^ (uint64_t)fid * 0x100000001B3ull;
     return (size_t)((h ^ (h >> 29)) & ((uint64_t)kPropStubN - 1));
 }
 } // namespace
-
 
 // Constant-key property store, mirrors OP_JS_GET_PROP_STATIC on the write side
 extern "C" void jit_js_set_prop_static(VM *vm, uint32_t name_idx) {
@@ -4173,8 +4220,7 @@ extern "C" void jit_js_set_prop_static(VM *vm, uint32_t name_idx) {
         if (NARI_LIKELY(!object->dict_mode && !object->frozen)) {
             static const uint32_t proto_id = intern_field("__proto__");
             const uint32_t setter_id = vm->setter_field_id_for_name((uint16_t)name_idx);
-            const uint64_t guard_mask =
-                (uint64_t{1} << (setter_id & 63)) | (uint64_t{1} << (proto_id & 63));
+            const uint64_t guard_mask = (uint64_t{ 1 } << (setter_id & 63)) | (uint64_t{ 1 } << (proto_id & 63));
             if (NARI_LIKELY((object->shape->field_mask & guard_mask) == 0)) {
                 Value value = vm->stack[val_idx];
                 object->set_field_by_id(vm->field_id_for_name((uint16_t)name_idx), value);
@@ -4203,8 +4249,8 @@ extern "C" void jit_js_postinc(VM *vm, uint32_t name_idx) {
             static const uint32_t proto_id = intern_field("__proto__");
             const uint32_t getter_id = vm->getter_field_id_for_name((uint16_t)name_idx);
             const uint32_t setter_id = vm->setter_field_id_for_name((uint16_t)name_idx);
-            const uint64_t guard_mask = (uint64_t{1} << (getter_id & 63)) |
-                                        (uint64_t{1} << (setter_id & 63)) | (uint64_t{1} << (proto_id & 63));
+            const uint64_t guard_mask =
+                (uint64_t{ 1 } << (getter_id & 63)) | (uint64_t{ 1 } << (setter_id & 63)) | (uint64_t{ 1 } << (proto_id & 63));
             if (NARI_LIKELY((object->shape->field_mask & guard_mask) == 0)) {
                 const uint32_t fid = vm->field_id_for_name((uint16_t)name_idx);
                 const PropStubEntry &e = g_prop_stub[prop_stub_hash(object->shape, fid)];
@@ -4264,7 +4310,7 @@ extern "C" void jit_js_get_prop_static(VM *vm, uint32_t name_idx) {
             }
         }
         const uint32_t getter_field_id = vm->getter_field_id_for_name((uint16_t)name_idx);
-        const uint64_t getter_mask = uint64_t{1} << (getter_field_id & 63);
+        const uint64_t getter_mask = uint64_t{ 1 } << (getter_field_id & 63);
         if (object->dict_mode || (object->shape->field_mask & getter_mask)) {
             const Value *getter = object->get_field_by_id(getter_field_id);
             if (getter && getter->is_function()) {
@@ -4276,15 +4322,14 @@ extern "C" void jit_js_get_prop_static(VM *vm, uint32_t name_idx) {
         }
 
         const uint32_t field_id = vm->field_id_for_name((uint16_t)name_idx);
-        const uint64_t field_mask = uint64_t{1} << (field_id & 63);
+        const uint64_t field_mask = uint64_t{ 1 } << (field_id & 63);
         if (object->dict_mode || (object->shape->field_mask & field_mask)) {
             if (!object->dict_mode) {
                 const uint32_t getter_slot = object->shape->slot_of(getter_field_id);
                 const uint32_t field_slot = object->shape->slot_of(field_id);
                 const bool plain_field = getter_slot == ObjectShape::kNoSlot && field_slot != ObjectShape::kNoSlot;
                 if (plain_field) {
-                    g_prop_stub[prop_stub_hash(object->shape, field_id)] =
-                        PropStubEntry{ object->shape, field_id, field_slot };
+                    g_prop_stub[prop_stub_hash(object->shape, field_id)] = PropStubEntry{ object->shape, field_id, field_slot };
                 }
                 if (plain_field && name_idx < vm->js_get_prop_static_ic.size()) {
                     const uint32_t slot = field_slot;
@@ -4294,7 +4339,7 @@ extern "C" void jit_js_get_prop_static(VM *vm, uint32_t name_idx) {
                     ic.lazy_mask2 = ic.lazy_mask;
                     ic.shape = object->shape;
                     ic.slot = slot;
-                    ic.lazy_mask = slot < 64 ? uint64_t{1} << slot : uint64_t{0};
+                    ic.lazy_mask = slot < 64 ? uint64_t{ 1 } << slot : uint64_t{ 0 };
                 }
             }
             const Value *field = object->get_field_by_id(field_id);

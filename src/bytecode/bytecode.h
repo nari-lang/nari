@@ -1,18 +1,18 @@
 #pragma once
 
+#include "compiler_support.h" // NARI_UNLIKELY
 #include "core_types.h"
+#include "int_overflow.h" // mul_overflow_i48 and friends
 #include "parser_api.h"
 #include "runtime.h"
-#include "compiler_support.h" // NARI_UNLIKELY
-#include "int_overflow.h"     // mul_overflow_i48 and friends
-#include <cmath>              // std::nan, std::fmod
+#include <cmath> // std::nan, std::fmod
 #include <csetjmp>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <deque>
 #include <string>
 #include <unordered_map>
-#include <deque>
 #include <vector>
 #ifndef DISABLE_JIT
 #include "trace_jit.h"
@@ -113,14 +113,14 @@ namespace bytecode {
     X(JS_SHR, 0, false)                                                                                                                    \
     X(JS_USHR, 0, false)                                                                                                                   \
     X(STRICT_EQ, 0, false)                                                                                                                 \
-    X(STRICT_NE, 0, false)                                                                                                                \
-    /* appended last on purpose: opcode numbers are serialized into .naric files, */                                              \
-    /* so new opcodes go at the end or every existing compiled artifact breaks.   */                                              \
-    X(JS_SET_PROP_STATIC, 2, false)                                                                                         \
-    X(JS_POSTINC, 2, false)                                                                                             \
-    /* CLOSE_UPVALUES <first_slot>: drop this frame's open upvalue cells for locals   */                                \
-    /* at or above first_slot, so a re-entered scope (loop iteration) hands fresh     */                                \
-    /* cells to new closures instead of aliasing the previous iteration's.            */                                \
+    X(STRICT_NE, 0, false)                                                                                                                 \
+    /* appended last on purpose: opcode numbers are serialized into .naric files, */                                                       \
+    /* so new opcodes go at the end or every existing compiled artifact breaks.   */                                                       \
+    X(JS_SET_PROP_STATIC, 2, false)                                                                                                        \
+    X(JS_POSTINC, 2, false)                                                                                                                \
+    /* CLOSE_UPVALUES <first_slot>: drop this frame's open upvalue cells for locals   */                                                   \
+    /* at or above first_slot, so a re-entered scope (loop iteration) hands fresh     */                                                   \
+    /* cells to new closures instead of aliasing the previous iteration's.            */                                                   \
     X(CLOSE_UPVALUES, 2, false)
 
 enum class OpCode : uint8_t {
@@ -192,7 +192,13 @@ template <typename Bytecode> inline size_t decoded_instruction_size(const Byteco
 }
 
 struct Constant {
-    enum class Type { NONE, INT, FLOAT, STRING, FUNCTION };
+    enum class Type {
+        NONE,
+        INT,
+        FLOAT,
+        STRING,
+        FUNCTION
+    };
 
     Type type;
     union {
@@ -213,7 +219,7 @@ struct Constant {
 
     static Constant make_int(int64_t val) {
         Constant c;
-        // Values are NaN-boxed with a 48-bit int payload, so an INT constant outside int48 cannot be materialized. 
+        // Values are NaN-boxed with a 48-bit int payload, so an INT constant outside int48 cannot be materialized.
         // so, promote to float if out of range
         if (!Value::fits_int48(val)) {
             return make_float(static_cast<double>(val));
@@ -267,8 +273,8 @@ struct FunctionMeta {
     int8_t rest_param_index; // index of rest param (-1 if none)
     bool is_lambda;
     bool js_undefined_params; // omitted parameters use the global JavaScript undefined singleton
-    bool strict_mode; // true when function was compiled under "use strict"
-    int8_t return_vt; // JIT vt of return value: 0=unknown, 1=int, 2=float (set
+    bool strict_mode;         // true when function was compiled under "use strict"
+    int8_t return_vt;         // JIT vt of return value: 0=unknown, 1=int, 2=float (set
     // for strict-mode annotated functions)
     JitInlineKind jit_inline_kind = JitInlineKind::None;
     int64_t jit_inline_imm = 0;
@@ -351,9 +357,8 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
     };
 
     // 0-arg closure getter: LOAD_CAPTURE(0) [CHECK_TYPE] RETURN.
-    if (func_meta.param_count == 0 && base + 3 < func_code.size() &&
-        (OpCode)func_code[base] == OpCode::OP_LOAD_CAPTURE && func_code[base + 1] == 0 && func_code[base + 2] == 0 &&
-        is_return_end(base + 3)) {
+    if (func_meta.param_count == 0 && base + 3 < func_code.size() && (OpCode)func_code[base] == OpCode::OP_LOAD_CAPTURE &&
+        func_code[base + 1] == 0 && func_code[base + 2] == 0 && is_return_end(base + 3)) {
         return { JitInlineKind::Capture0, 0 };
     }
 
@@ -668,8 +673,7 @@ class VM {
             frames.emplace_back();
         } else {
             CallFrame *frame = frames.storage_end++;
-            if (NARI_UNLIKELY(frame->captures || frame->inline_upvalue || frame->open_upvalues ||
-                              frame->single_capture_cache)) {
+            if (NARI_UNLIKELY(frame->captures || frame->inline_upvalue || frame->open_upvalues || frame->single_capture_cache)) {
                 frame->captures.reset();
                 frame->inline_upvalue.reset();
                 frame->inline_upvalue_idx = UINT16_MAX;
@@ -920,15 +924,19 @@ class VM {
     // pushes a builtin's return value, but first promotes any pending
     // ScriptRuntime throw_flag into a bytecode-VM throw via dispatch_throw, false when the throw is uncaught.
     bool push_builtin_result(Value result);
-    void call_user_function(uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures = nullptr,
-                            const CapturesList &cell_captures = {}, const Value *receiver = nullptr);
+    void call_user_function(
+        uint32_t func_idx, const std::vector<Value> &args, const std::vector<Value> *captures = nullptr,
+        const CapturesList &cell_captures = {}, const Value *receiver = nullptr
+    );
     // allocation-free variant: reads argc args from the top of the VM stack WITHOUT popping them.
     // The caller is responsible for popping args + func after this returns!!
-    void call_user_function_stack(uint32_t func_idx, size_t args_base, size_t argc, const CapturesList &cell_captures = {},
-                                  const Value *receiver = nullptr);
+    void call_user_function_stack(
+        uint32_t func_idx, size_t args_base, size_t argc, const CapturesList &cell_captures = {}, const Value *receiver = nullptr
+    );
     // span variant for runtime re-entry (delegate traps, FFI callbacks)
-    void call_user_function_span(uint32_t func_idx, const Value *args, size_t argc, const CapturesList &cell_captures = {},
-                                 const Value *receiver = nullptr);
+    void call_user_function_span(
+        uint32_t func_idx, const Value *args, size_t argc, const CapturesList &cell_captures = {}, const Value *receiver = nullptr
+    );
 
   public:
     VM(int argc = 0, char **argv = nullptr);
@@ -968,11 +976,11 @@ Chunk *compile_bytecode(const FuncList &functions);
 
 // Result of appending code to a live chunk (see compile_bytecode_append).
 struct AppendedCode {
-    uint32_t entry_idx = UINT32_MAX;      // function to run, or UINT32_MAX for declarations-only
-    std::vector<uint32_t> toplevel_idxs;  // module top-levels from eval'd imports, in source order
+    uint32_t entry_idx = UINT32_MAX;     // function to run, or UINT32_MAX for declarations-only
+    std::vector<uint32_t> toplevel_idxs; // module top-levels from eval'd imports, in source order
 };
 
-// Compile extra functions into an already-running chunk, for eval(). 
+// Compile extra functions into an already-running chunk, for eval().
 // Safe because calls resolve by name at runtime (OP_CALL carries a name label)
 AppendedCode compile_bytecode_append(Chunk *existing, const FuncList &functions, const std::string &entry_name);
 
@@ -1018,7 +1026,6 @@ inline const nari::ClassMethod *bc_find_method(const nari::ClassDecl *class_decl
     return nullptr;
 }
 
-
 // Shared VM op bodies. These live here, not in jit_helpers.h, because the interpreter needs them in EVERY build config
 extern "C" {
 
@@ -1028,7 +1035,7 @@ void jit_js_get_prop_static(VM *vm, uint32_t name_idx);
 void jit_js_set_prop_static(VM *vm, uint32_t name_idx);
 void jit_js_postinc(VM *vm, uint32_t name_idx);
 
-// Shared arithmetic op bodies. 
+// Shared arithmetic op bodies.
 // These are the single definition used by both the bytecode interpreter and JIT-emitted code
 inline void jit_add(VM *vm) {
     Value &b = vm->peek(0);

@@ -131,7 +131,9 @@ Value ScriptRuntime::builtin_print(const Value *argvals, size_t argc, const nari
         }
     }
     for (size_t i = next_arg; i < argc; ++i) {
-        if (!line.empty() || i > next_arg) { line += ' '; }
+        if (!line.empty() || i > next_arg) {
+            line += ' ';
+        }
         line += argvals[i].to_string();
     }
     line += '\n';
@@ -146,7 +148,9 @@ Value ScriptRuntime::builtin_print(const Value *argvals, size_t argc, const nari
 }
 
 Value ScriptRuntime::builtin_write_stdout(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if (argc == 0) { return Value::none(); }
+    if (argc == 0) {
+        return Value::none();
+    }
 
     const std::string text = argvals[0].to_string();
     if (stdout_writer) {
@@ -159,7 +163,9 @@ Value ScriptRuntime::builtin_write_stdout(const Value *argvals, size_t argc, con
 }
 
 Value ScriptRuntime::builtin_write_stderr(const Value *argvals, size_t argc, const nari::CallExpr *) {
-    if (argc == 0) { return Value::none(); }
+    if (argc == 0) {
+        return Value::none();
+    }
 
     const std::string text = argvals[0].to_string();
     fwrite(text.data(), 1, text.size(), stderr);

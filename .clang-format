@@ -6,6 +6,7 @@ Language: Cpp
 DerivePointerAlignment: false
 PointerAlignment: Right
 InsertBraces: true
+AlignAfterOpenBracket: BlockIndent
 
 ColumnLimit: 140
 Cpp11BracedListStyle: false

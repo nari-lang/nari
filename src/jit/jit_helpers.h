@@ -98,6 +98,4 @@ void jit_slot_store_raw(VM *, uint32_t idx, uint64_t raw);
 void jit_slot_copy(VM *, uint32_t src_idx, uint32_t dst_idx);
 }
 
-extern "C" {
-
-} // extern "C"
+extern "C" {} // extern "C"

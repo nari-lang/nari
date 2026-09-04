@@ -265,8 +265,7 @@ static bool nari_verify_capture_vec_layout() {
     void *const *words = reinterpret_cast<void *const *>(&v);
     const void *begin = words[0];
     const void *end = words[1];
-    if (begin != static_cast<const void *>(v.data()) ||
-        end != static_cast<const void *>(v.data() + v.size())) {
+    if (begin != static_cast<const void *>(v.data()) || end != static_cast<const void *>(v.data() + v.size())) {
         return false;
     }
     for (size_t i = 0; i < v.size(); i++) {
@@ -334,25 +333,27 @@ static void jit_write_layout_legend(FILE *f) {
         return;
     }
     written = true;
-    fprintf(f,
-            "; ============================================================\n"
-            "; NARI JIT asm dump. `call` targets are symbolized to helper names where known.\n"
-            "; Memory operands `[base+off]` into the VM pointer (first arg) or a CallFrame use these offsets:\n"
-            ";\n"
-            ";   VM.stack.begin      +%-4lld    VM.stack.end        +%-4lld\n"
-            ";   VM.stack.cap        +%-4lld    VM.jit_captures_raw +%-4lld\n"
-            ";   VM.global_cache     +%-4lld    VM.gcache_valid     +%-4lld\n"
-            ";   VM.frames.begin     +%-4lld    VM.frames.end       +%-4lld\n"
-            ";   VM.frames.cap       +%-4lld\n"
-            ";   sizeof(Value)=%lld  sizeof(CallFrame)=%lld\n"
-            ";   CallFrame.function  +%-4lld    CallFrame.ip        +%-4lld\n"
-            ";   CallFrame.slot_base +%-4lld    CallFrame.captures  +%-4lld\n"
-            ";   CallFrame.open_upvalues +%lld\n"
-            "; ============================================================\n",
-            (long long)VMStackStartOff, (long long)VMStackFinishOff, (long long)VMStackCapacityOff, (long long)VMCapturesRawOff,
-            (long long)VMGlobalCacheStartOff, (long long)VMGlobalCacheValidStartOff, (long long)FramesStartOff, (long long)FramesFinishOff,
-            (long long)VMFramesCapacityOff, (long long)ValSize, (long long)FrameSize, (long long)FrameFunctionOff, (long long)FrameIpOff,
-            (long long)SlotBaseOff, (long long)FrameCapturesOff, (long long)FrameOpenUpvalOff);
+    fprintf(
+        f,
+        "; ============================================================\n"
+        "; NARI JIT asm dump. `call` targets are symbolized to helper names where known.\n"
+        "; Memory operands `[base+off]` into the VM pointer (first arg) or a CallFrame use these offsets:\n"
+        ";\n"
+        ";   VM.stack.begin      +%-4lld    VM.stack.end        +%-4lld\n"
+        ";   VM.stack.cap        +%-4lld    VM.jit_captures_raw +%-4lld\n"
+        ";   VM.global_cache     +%-4lld    VM.gcache_valid     +%-4lld\n"
+        ";   VM.frames.begin     +%-4lld    VM.frames.end       +%-4lld\n"
+        ";   VM.frames.cap       +%-4lld\n"
+        ";   sizeof(Value)=%lld  sizeof(CallFrame)=%lld\n"
+        ";   CallFrame.function  +%-4lld    CallFrame.ip        +%-4lld\n"
+        ";   CallFrame.slot_base +%-4lld    CallFrame.captures  +%-4lld\n"
+        ";   CallFrame.open_upvalues +%lld\n"
+        "; ============================================================\n",
+        (long long)VMStackStartOff, (long long)VMStackFinishOff, (long long)VMStackCapacityOff, (long long)VMCapturesRawOff,
+        (long long)VMGlobalCacheStartOff, (long long)VMGlobalCacheValidStartOff, (long long)FramesStartOff, (long long)FramesFinishOff,
+        (long long)VMFramesCapacityOff, (long long)ValSize, (long long)FrameSize, (long long)FrameFunctionOff, (long long)FrameIpOff,
+        (long long)SlotBaseOff, (long long)FrameCapturesOff, (long long)FrameOpenUpvalOff
+    );
 }
 
 // Emits the jit_return(vm) equivalent. Must be immediately followed by cc.ret().
@@ -454,8 +455,8 @@ struct CompileJob {
 
 std::deque<std::unique_ptr<CompileJob>> g_jobs;
 std::mutex g_jobs_mu;
-std::condition_variable g_jobs_cv;   // signals: work available, or stop
-std::condition_variable g_idle_cv;   // signals: queue drained and nothing running
+std::condition_variable g_jobs_cv; // signals: work available, or stop
+std::condition_variable g_idle_cv; // signals: queue drained and nothing running
 std::vector<std::thread> g_workers;
 bool g_worker_stop = false;
 bool g_worker_started = false;
@@ -745,14 +746,16 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::compile_chunk(const nar
 // Optimizing-IR tier
 //
 // Build SSA IR, then lower it to AsmJIT
-AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t chunk_idx,
-                                                                    CompiledFunc spec_fallback, bool *spec_candidate) {
+AsmJITMethodCompiler::CompiledFunc
+AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t chunk_idx, CompiledFunc spec_fallback, bool *spec_candidate) {
     const bool spec = spec_fallback != nullptr;
     static const bool kJitReport = getenv("NARI_JIT_REPORT") != nullptr;
     auto report = [&](const char *what) {
         if (kJitReport) {
-            fprintf(stderr, "[JIT] %-30s %s\n",
-                    chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(), what);
+            fprintf(
+                stderr, "[JIT] %-30s %s\n", chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(),
+                what
+            );
         }
     };
     ir::Func irFuncs;
@@ -768,18 +771,19 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
         struct Census {
             uint64_t sites = 0, cap_callee = 0, resolved = 0, small12 = 0, small30 = 0, self_rec = 0;
             ~Census() {
-                fprintf(stderr,
-                        "\n[INLINE CENSUS] Call sites in compiled fns: %llu\n"
-                        "  callee is LoadCapture:            %llu (%.1f%%)\n"
-                        "  resolved to a live FunctionData:  %llu (%.1f%%)\n"
-                        "    of which callee code <= 64B:    %llu (%.1f%%)\n"
-                        "    of which callee code <= 160B:   %llu (%.1f%%)\n"
-                        "    self-recursive (refuse):        %llu\n",
-                        (unsigned long long)sites, (unsigned long long)cap_callee,
-                        sites ? 100.0 * (double)cap_callee / (double)sites : 0.0, (unsigned long long)resolved,
-                        sites ? 100.0 * (double)resolved / (double)sites : 0.0, (unsigned long long)small12,
-                        sites ? 100.0 * (double)small12 / (double)sites : 0.0, (unsigned long long)small30,
-                        sites ? 100.0 * (double)small30 / (double)sites : 0.0, (unsigned long long)self_rec);
+                fprintf(
+                    stderr,
+                    "\n[INLINE CENSUS] Call sites in compiled fns: %llu\n"
+                    "  callee is LoadCapture:            %llu (%.1f%%)\n"
+                    "  resolved to a live FunctionData:  %llu (%.1f%%)\n"
+                    "    of which callee code <= 64B:    %llu (%.1f%%)\n"
+                    "    of which callee code <= 160B:   %llu (%.1f%%)\n"
+                    "    self-recursive (refuse):        %llu\n",
+                    (unsigned long long)sites, (unsigned long long)cap_callee, sites ? 100.0 * (double)cap_callee / (double)sites : 0.0,
+                    (unsigned long long)resolved, sites ? 100.0 * (double)resolved / (double)sites : 0.0, (unsigned long long)small12,
+                    sites ? 100.0 * (double)small12 / (double)sites : 0.0, (unsigned long long)small30,
+                    sites ? 100.0 * (double)small30 / (double)sites : 0.0, (unsigned long long)self_rec
+                );
             }
         };
         static Census census;
@@ -828,13 +832,17 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
     // NARI_DCS_CENSUS=1: per-emitted-site tally of why a Call could not become a
     // guarded direct call. Static (site) counts, not dynamic frequency.
     struct DcsCensus {
-        uint64_t sites = 0, argc_gt4 = 0, callee_op[64] = {}, cap_not_ok = 0, cap_oob = 0, not_fn = 0, no_meta = 0,
-                 native = 0, rest_or_cap0 = 0, arity = 0, fill_gt8 = 0, ok = 0;
+        uint64_t sites = 0, argc_gt4 = 0, callee_op[64] = {}, cap_not_ok = 0, cap_oob = 0, not_fn = 0, no_meta = 0, native = 0,
+                 rest_or_cap0 = 0, arity = 0, fill_gt8 = 0, ok = 0;
         ~DcsCensus() {
-            if (sites == 0) return;
+            if (sites == 0) {
+                return;
+            }
             fprintf(stderr, "\n=== direct-call SITE census (%llu Call sites) ===\n", (unsigned long long)sites);
             auto p = [&](const char *n, uint64_t v) {
-                if (v) fprintf(stderr, "%10llu  %5.1f%%  %s\n", (unsigned long long)v, 100.0 * (double)v / (double)sites, n);
+                if (v) {
+                    fprintf(stderr, "%10llu  %5.1f%%  %s\n", (unsigned long long)v, 100.0 * (double)v / (double)sites, n);
+                }
             };
             p("argc > 4", argc_gt4);
             p("callee not LoadGlobal/LoadCapture", callee_op[0]);
@@ -853,9 +861,13 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
     static const bool kDcsCensus = getenv("NARI_DCS_CENSUS") != nullptr;
     auto resolve_direct_callee = [&](const ir::Inst &in, uint32_t argc) -> DirectCallee {
         DirectCallee d;
-        if (kDcsCensus) dcs.sites++;
+        if (kDcsCensus) {
+            dcs.sites++;
+        }
         if (kNoDirectCall || in.operands.empty() || argc > 4) {
-            if (kDcsCensus && !in.operands.empty()) dcs.argc_gt4++;
+            if (kDcsCensus && !in.operands.empty()) {
+                dcs.argc_gt4++;
+            }
             return d;
         }
         if (!g_compile_vm) {
@@ -875,12 +887,16 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
             // note_jit_callee path; elsewhere jit_captures_raw may describe an unrelated
             // closure, which would make this a guaranteed guard miss.
             if (!g_compile_captures_ok) {
-                if (kDcsCensus) dcs.cap_not_ok++;
+                if (kDcsCensus) {
+                    dcs.cap_not_ok++;
+                }
                 return d;
             }
             auto *caps = g_compile_vm->jit_captures_raw;
             if (!caps || callee_in.imm_u32 >= caps->size()) {
-                if (kDcsCensus) dcs.cap_oob++;
+                if (kDcsCensus) {
+                    dcs.cap_oob++;
+                }
                 return d;
             }
             cvp = (*caps)[callee_in.imm_u32].get();
@@ -888,7 +904,9 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
             const uint32_t ni = callee_in.imm_u32;
             if (ni >= g_compile_vm->global_cache_valid.size() || !g_compile_vm->global_cache_valid[ni] ||
                 ni >= g_compile_vm->global_cache.size()) {
-                if (kDcsCensus) dcs.cap_oob++;
+                if (kDcsCensus) {
+                    dcs.cap_oob++;
+                }
                 return d;
             }
             cvp = &g_compile_vm->global_cache[ni];
@@ -896,34 +914,48 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
             return d;
         }
         if (cvp == nullptr || !cvp->is_function()) {
-            if (kDcsCensus) dcs.not_fn++;
+            if (kDcsCensus) {
+                dcs.not_fn++;
+            }
             return d;
         }
         const Value &cv = *cvp;
         const FunctionData &fd = cv.get_function();
         if (fd.jit_func_idx < 0 || (size_t)fd.jit_func_idx >= chunk.functions.size()) {
-            if (kDcsCensus) dcs.no_meta++;
+            if (kDcsCensus) {
+                dcs.no_meta++;
+            }
             return d;
         }
         if (fd.jit_native_kind != 0 || fd.jit_meta == nullptr) {
-            if (kDcsCensus) dcs.native++;
+            if (kDcsCensus) {
+                dcs.native++;
+            }
             return d;
         }
         if (fd.jit_rest_param_index >= 0 || fd.jit_inline_kind == JitInlineKind::Capture0) {
-            if (kDcsCensus) dcs.rest_or_cap0++;
+            if (kDcsCensus) {
+                dcs.rest_or_cap0++;
+            }
             return d;
         }
         // Exact arity only: no missing-argument fill, so param_count needs no check.
         if ((uint32_t)fd.jit_param_count != argc || fd.jit_locals_count < argc) {
-            if (kDcsCensus) dcs.arity++;
+            if (kDcsCensus) {
+                dcs.arity++;
+            }
             return d;
         }
         // The none-fill of non-parameter locals is unrolled, so bound it.
         if (fd.jit_locals_count - argc > 8) {
-            if (kDcsCensus) dcs.fill_gt8++;
+            if (kDcsCensus) {
+                dcs.fill_gt8++;
+            }
             return d;
         }
-        if (kDcsCensus) dcs.ok++;
+        if (kDcsCensus) {
+            dcs.ok++;
+        }
         d.ok = true;
         d.expected_raw = (uint64_t)(uintptr_t)fd.jit_meta;
         d.fidx = (uint32_t)fd.jit_func_idx;
@@ -1187,7 +1219,9 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
         }
 
         // Depth of the deferred-push queue below.
-        enum { kShadowDepth = 4 }; // local struct: no static data members
+        enum {
+            kShadowDepth = 4
+        }; // local struct: no static data members
 
         // --- deferred pushes ----------------------------------------------------
         // A value whose consumer runs in the same block need never touch memory.
@@ -1447,8 +1481,7 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
         fc.invalidate();
         InvokeNode *inv;
         (void)vm_arg0();
-        arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper,
-                         FuncSignature::build<void, void *, uint32_t, uint32_t, uint64_t>());
+        arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper, FuncSignature::build<void, void *, uint32_t, uint32_t, uint64_t>());
         inv->set_arg(0, vm_arg_scratch);
         inv->set_arg(1, Imm(a));
         inv->set_arg(2, Imm(b));
@@ -1625,8 +1658,7 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
         fc.invalidate();
     };
 
-    auto emit_ir_call_value = [&](uint32_t argc, uint32_t callee_label_idx, int kind_hint = -1,
-                                  const DirectCallee *dc = nullptr) {
+    auto emit_ir_call_value = [&](uint32_t argc, uint32_t callee_label_idx, int kind_hint = -1, const DirectCallee *dc = nullptr) {
         if (dc != nullptr && dc->ok) {
             emit_direct_call_guarded(argc, callee_label_idx, *dc);
             return;
@@ -1734,8 +1766,7 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
             arch::load32_zx(cc, native_kind, fd, (int)FDNativeKindOff);
             if (want_char_code) {
                 arch::cmp_imm(cc, native_kind, Imm(10));
-                arch::jcc(cc, want_cmp || want_get_prop ? arch::CC::kEQ : arch::CC::kNE,
-                          want_cmp || want_get_prop ? char_code : slow);
+                arch::jcc(cc, want_cmp || want_get_prop ? arch::CC::kEQ : arch::CC::kNE, want_cmp || want_get_prop ? char_code : slow);
             }
             if (want_get_prop) {
                 arch::cmp_imm(cc, native_kind, Imm(6));
@@ -1760,195 +1791,197 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
                 }
             } else {
 
-            arch::cmp_imm(cc, native_kind, Imm(2));
-            arch::jcc(cc, arch::CC::kLT, slow);
-            arch::cmp_imm(cc, native_kind, Imm(5));
-            arch::jcc(cc, arch::CC::kGT, slow);
+                arch::cmp_imm(cc, native_kind, Imm(2));
+                arch::jcc(cc, arch::CC::kLT, slow);
+                arch::cmp_imm(cc, native_kind, Imm(5));
+                arch::jcc(cc, arch::CC::kGT, slow);
 
-            arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-2 * ValSize + tagWordOff)));
-            arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-ValSize + tagWordOff)));
-            arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
-            arch::jcc(cc, arch::CC::kNE, slow);
+                arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-2 * ValSize + tagWordOff)));
+                arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-ValSize + tagWordOff)));
+                arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
+                arch::jcc(cc, arch::CC::kNE, slow);
 
-            arch::Gp lhs = cc.new_gp64("ir_cv_native_lhs");
-            arch::Gp rhs = cc.new_gp64("ir_cv_native_rhs");
-            arch::load(cc, lhs, arch::ptr(endp, (int)(-2 * ValSize)));
-            arch::load(cc, rhs, arch::ptr(endp, (int)(-ValSize)));
-            arch::sign_extend_48(cc, lhs);
-            arch::sign_extend_48(cc, rhs);
+                arch::Gp lhs = cc.new_gp64("ir_cv_native_lhs");
+                arch::Gp rhs = cc.new_gp64("ir_cv_native_rhs");
+                arch::load(cc, lhs, arch::ptr(endp, (int)(-2 * ValSize)));
+                arch::load(cc, rhs, arch::ptr(endp, (int)(-ValSize)));
+                arch::sign_extend_48(cc, lhs);
+                arch::sign_extend_48(cc, rhs);
 
-            arch::cmp_imm(cc, native_kind, Imm(2));
-            arch::jcc(cc, arch::CC::kEQ, cmp_lt);
-            arch::cmp_imm(cc, native_kind, Imm(3));
-            arch::jcc(cc, arch::CC::kEQ, cmp_gt);
-            arch::cmp_imm(cc, native_kind, Imm(4));
-            arch::jcc(cc, arch::CC::kEQ, cmp_le);
+                arch::cmp_imm(cc, native_kind, Imm(2));
+                arch::jcc(cc, arch::CC::kEQ, cmp_lt);
+                arch::cmp_imm(cc, native_kind, Imm(3));
+                arch::jcc(cc, arch::CC::kEQ, cmp_gt);
+                arch::cmp_imm(cc, native_kind, Imm(4));
+                arch::jcc(cc, arch::CC::kEQ, cmp_le);
 
-            arch::Gp result = cc.new_gp64("ir_cv_native_result");
-            cc.cmp(lhs, rhs);
-            arch::cset(cc, result, arch::CC::kGE);
-            arch::jmp(cc, store);
-            cc.bind(cmp_lt);
-            cc.cmp(lhs, rhs);
-            arch::cset(cc, result, arch::CC::kLT);
-            arch::jmp(cc, store);
-            cc.bind(cmp_gt);
-            cc.cmp(lhs, rhs);
-            arch::cset(cc, result, arch::CC::kGT);
-            arch::jmp(cc, store);
-            cc.bind(cmp_le);
-            cc.cmp(lhs, rhs);
-            arch::cset(cc, result, arch::CC::kLE);
+                arch::Gp result = cc.new_gp64("ir_cv_native_result");
+                cc.cmp(lhs, rhs);
+                arch::cset(cc, result, arch::CC::kGE);
+                arch::jmp(cc, store);
+                cc.bind(cmp_lt);
+                cc.cmp(lhs, rhs);
+                arch::cset(cc, result, arch::CC::kLT);
+                arch::jmp(cc, store);
+                cc.bind(cmp_gt);
+                cc.cmp(lhs, rhs);
+                arch::cset(cc, result, arch::CC::kGT);
+                arch::jmp(cc, store);
+                cc.bind(cmp_le);
+                cc.cmp(lhs, rhs);
+                arch::cset(cc, result, arch::CC::kLE);
 
-            cc.bind(store);
-            arch::or_imm(cc, result, result, (int64_t)nbBoolTag);
-            arch::store(cc, arch::ptr(endp, (int)(-3 * ValSize)), result);
-            arch::sub_imm(cc, endp, (int)(2 * ValSize));
-            fc.set(endp);
-            arch::jmp(cc, done);
+                cc.bind(store);
+                arch::or_imm(cc, result, result, (int64_t)nbBoolTag);
+                arch::store(cc, arch::ptr(endp, (int)(-3 * ValSize)), result);
+                arch::sub_imm(cc, endp, (int)(2 * ValSize));
+                fc.set(endp);
+                arch::jmp(cc, done);
             } // want_cmp
 
             if (want_get_prop) {
-            cc.bind(get_prop);
-            arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-2 * ValSize + tagWordOff)));
-            arch::cmp_imm(cc, tag.r32(), Imm((int)tagHeap));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::Gp array = cc.new_gp64("ir_cv_get_prop_array");
-            arch::load(cc, array, arch::ptr(endp, (int)(-2 * ValSize)));
-            arch::zero_extend_48(cc, array);
-            arch::cmp_mem8_imm(cc, arch::ptr8(array, (int)HeapTypeTagOff), Imm((int)tagArray));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-ValSize + tagWordOff)));
-            arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::Gp index = cc.new_gp64("ir_cv_get_prop_index");
-            arch::load(cc, index, arch::ptr(endp, (int)-ValSize));
-            arch::sign_extend_48(cc, index);
-            arch::js(cc, index, slow);
-            arch::Gp start = cc.new_gp64("ir_cv_get_prop_start");
-            arch::Gp finish = cc.new_gp64("ir_cv_get_prop_finish");
-            arch::load(cc, start, arch::ptr(array, (int)ArrayVecStartOff));
-            arch::load(cc, finish, arch::ptr(array, (int)ArrayVecFinishOff));
-            arch::sub2(cc, finish, start);
-            arch::shr(cc, finish, 3);
-            cc.cmp(index, finish);
-            arch::jcc(cc, arch::CC::kGE, slow);
-            arch::Gp element = cc.new_gp64("ir_cv_get_prop_element");
-            arch::shl(cc, element, index, 3);
-            arch::add2(cc, element, start);
-            arch::Gp get_prop_result = cc.new_gp64("ir_cv_get_prop_result");
-            arch::load(cc, get_prop_result, arch::ptr(element));
-            arch::store(cc, arch::ptr(endp, (int)(-3 * ValSize)), get_prop_result);
-            arch::sub_imm(cc, endp, (int)(2 * ValSize));
-            fc.set(endp);
-            arch::jmp(cc, done);
+                cc.bind(get_prop);
+                arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-2 * ValSize + tagWordOff)));
+                arch::cmp_imm(cc, tag.r32(), Imm((int)tagHeap));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::Gp array = cc.new_gp64("ir_cv_get_prop_array");
+                arch::load(cc, array, arch::ptr(endp, (int)(-2 * ValSize)));
+                arch::zero_extend_48(cc, array);
+                arch::cmp_mem8_imm(cc, arch::ptr8(array, (int)HeapTypeTagOff), Imm((int)tagArray));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-ValSize + tagWordOff)));
+                arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::Gp index = cc.new_gp64("ir_cv_get_prop_index");
+                arch::load(cc, index, arch::ptr(endp, (int)-ValSize));
+                arch::sign_extend_48(cc, index);
+                arch::js(cc, index, slow);
+                arch::Gp start = cc.new_gp64("ir_cv_get_prop_start");
+                arch::Gp finish = cc.new_gp64("ir_cv_get_prop_finish");
+                arch::load(cc, start, arch::ptr(array, (int)ArrayVecStartOff));
+                arch::load(cc, finish, arch::ptr(array, (int)ArrayVecFinishOff));
+                arch::sub2(cc, finish, start);
+                arch::shr(cc, finish, 3);
+                cc.cmp(index, finish);
+                arch::jcc(cc, arch::CC::kGE, slow);
+                arch::Gp element = cc.new_gp64("ir_cv_get_prop_element");
+                arch::shl(cc, element, index, 3);
+                arch::add2(cc, element, start);
+                arch::Gp get_prop_result = cc.new_gp64("ir_cv_get_prop_result");
+                arch::load(cc, get_prop_result, arch::ptr(element));
+                arch::store(cc, arch::ptr(endp, (int)(-3 * ValSize)), get_prop_result);
+                arch::sub_imm(cc, endp, (int)(2 * ValSize));
+                fc.set(endp);
+                arch::jmp(cc, done);
             } // want_get_prop
 
             if (want_char_code) {
-            cc.bind(char_code);
-            arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-2 * ValSize + tagWordOff)));
-            arch::cmp_imm(cc, tag.r32(), Imm((int)tagHeap));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::Gp string_obj = cc.new_gp64("ir_cv_char_string");
-            arch::load(cc, string_obj, arch::ptr(endp, (int)(-2 * ValSize)));
-            arch::zero_extend_48(cc, string_obj);
-            arch::cmp_mem8_imm(cc, arch::ptr8(string_obj, (int)HeapTypeTagOff), Imm((int)tagString));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-ValSize + tagWordOff)));
-            arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::Gp char_index = cc.new_gp64("ir_cv_char_index");
-            arch::load(cc, char_index, arch::ptr(endp, (int)(-ValSize)));
-            arch::sign_extend_48(cc, char_index);
-            arch::cmp_imm(cc, char_index, Imm(std::numeric_limits<int>::min()));
-            arch::jcc(cc, arch::CC::kLT, slow);
-            arch::cmp_imm(cc, char_index, Imm(std::numeric_limits<int>::max()));
-            arch::jcc(cc, arch::CC::kGT, slow);
-            arch::Gp char_result = cc.new_gp64("ir_cv_char_result");
-            InvokeNode *char_inv;
-            arch::invoke_imm(cc, &char_inv, (uint64_t)(uintptr_t)jit_string_char_code_at,
-                             FuncSignature::build<uint64_t, void *, int64_t>());
-            char_inv->set_arg(0, string_obj);
-            char_inv->set_arg(1, char_index);
-            char_inv->set_ret(0, char_result);
-            arch::store(cc, arch::ptr(endp, (int)(-3 * ValSize)), char_result);
-            arch::sub_imm(cc, endp, (int)(2 * ValSize));
-            fc.set(endp);
-            arch::jmp(cc, done);
+                cc.bind(char_code);
+                arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-2 * ValSize + tagWordOff)));
+                arch::cmp_imm(cc, tag.r32(), Imm((int)tagHeap));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::Gp string_obj = cc.new_gp64("ir_cv_char_string");
+                arch::load(cc, string_obj, arch::ptr(endp, (int)(-2 * ValSize)));
+                arch::zero_extend_48(cc, string_obj);
+                arch::cmp_mem8_imm(cc, arch::ptr8(string_obj, (int)HeapTypeTagOff), Imm((int)tagString));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-ValSize + tagWordOff)));
+                arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::Gp char_index = cc.new_gp64("ir_cv_char_index");
+                arch::load(cc, char_index, arch::ptr(endp, (int)(-ValSize)));
+                arch::sign_extend_48(cc, char_index);
+                arch::cmp_imm(cc, char_index, Imm(std::numeric_limits<int>::min()));
+                arch::jcc(cc, arch::CC::kLT, slow);
+                arch::cmp_imm(cc, char_index, Imm(std::numeric_limits<int>::max()));
+                arch::jcc(cc, arch::CC::kGT, slow);
+                arch::Gp char_result = cc.new_gp64("ir_cv_char_result");
+                InvokeNode *char_inv;
+                arch::invoke_imm(
+                    cc, &char_inv, (uint64_t)(uintptr_t)jit_string_char_code_at, FuncSignature::build<uint64_t, void *, int64_t>()
+                );
+                char_inv->set_arg(0, string_obj);
+                char_inv->set_arg(1, char_index);
+                char_inv->set_ret(0, char_result);
+                arch::store(cc, arch::ptr(endp, (int)(-3 * ValSize)), char_result);
+                arch::sub_imm(cc, endp, (int)(2 * ValSize));
+                fc.set(endp);
+                arch::jmp(cc, done);
             } // want_char_code
 
             if (want_add) {
-            // __js_add(int, int). Both operands must be int-tagged and fit in
-            // int32; that window is a strict subset of the +-2^46 range the C++
-            // fast path in jit_try_native_call accepts, so the sum is exact and
-            // the result is identical to the scripted __js_add. Anything else
-            // (strings, doubles, wide ints) falls through to the generic call.
-            cc.bind(add_ints);
-            arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-2 * ValSize + tagWordOff)));
-            arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-ValSize + tagWordOff)));
-            arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::Gp add_lhs = cc.new_gp64("ir_cv_add_lhs");
-            arch::Gp add_rhs = cc.new_gp64("ir_cv_add_rhs");
-            arch::load(cc, add_lhs, arch::ptr(endp, (int)(-2 * ValSize)));
-            arch::load(cc, add_rhs, arch::ptr(endp, (int)(-ValSize)));
-            arch::sign_extend_48(cc, add_lhs);
-            arch::sign_extend_48(cc, add_rhs);
-            arch::cmp_imm(cc, add_lhs, Imm(std::numeric_limits<int>::min()));
-            arch::jcc(cc, arch::CC::kLT, slow);
-            arch::cmp_imm(cc, add_lhs, Imm(std::numeric_limits<int>::max()));
-            arch::jcc(cc, arch::CC::kGT, slow);
-            arch::cmp_imm(cc, add_rhs, Imm(std::numeric_limits<int>::min()));
-            arch::jcc(cc, arch::CC::kLT, slow);
-            arch::cmp_imm(cc, add_rhs, Imm(std::numeric_limits<int>::max()));
-            arch::jcc(cc, arch::CC::kGT, slow);
-            arch::add2(cc, add_lhs, add_rhs);
-            arch::nanbox_encode_int(cc, add_lhs, add_rhs);
-            arch::store(cc, arch::ptr(endp, (int)(-3 * ValSize)), add_lhs);
-            arch::sub_imm(cc, endp, (int)(2 * ValSize));
-            fc.set(endp);
-            arch::jmp(cc, done);
+                // __js_add(int, int). Both operands must be int-tagged and fit in
+                // int32; that window is a strict subset of the +-2^46 range the C++
+                // fast path in jit_try_native_call accepts, so the sum is exact and
+                // the result is identical to the scripted __js_add. Anything else
+                // (strings, doubles, wide ints) falls through to the generic call.
+                cc.bind(add_ints);
+                arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-2 * ValSize + tagWordOff)));
+                arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-ValSize + tagWordOff)));
+                arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::Gp add_lhs = cc.new_gp64("ir_cv_add_lhs");
+                arch::Gp add_rhs = cc.new_gp64("ir_cv_add_rhs");
+                arch::load(cc, add_lhs, arch::ptr(endp, (int)(-2 * ValSize)));
+                arch::load(cc, add_rhs, arch::ptr(endp, (int)(-ValSize)));
+                arch::sign_extend_48(cc, add_lhs);
+                arch::sign_extend_48(cc, add_rhs);
+                arch::cmp_imm(cc, add_lhs, Imm(std::numeric_limits<int>::min()));
+                arch::jcc(cc, arch::CC::kLT, slow);
+                arch::cmp_imm(cc, add_lhs, Imm(std::numeric_limits<int>::max()));
+                arch::jcc(cc, arch::CC::kGT, slow);
+                arch::cmp_imm(cc, add_rhs, Imm(std::numeric_limits<int>::min()));
+                arch::jcc(cc, arch::CC::kLT, slow);
+                arch::cmp_imm(cc, add_rhs, Imm(std::numeric_limits<int>::max()));
+                arch::jcc(cc, arch::CC::kGT, slow);
+                arch::add2(cc, add_lhs, add_rhs);
+                arch::nanbox_encode_int(cc, add_lhs, add_rhs);
+                arch::store(cc, arch::ptr(endp, (int)(-3 * ValSize)), add_lhs);
+                arch::sub_imm(cc, endp, (int)(2 * ValSize));
+                fc.set(endp);
+                arch::jmp(cc, done);
             } // want_add
 
             if (want_code_point) {
-            // __js_str_code_point_at(s, i): same guards as char_code_at (string
-            // receiver, int index in int32 range); the helper differs only in
-            // returning undefined rather than -1 when the index is out of range.
-            cc.bind(code_point);
-            arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-2 * ValSize + tagWordOff)));
-            arch::cmp_imm(cc, tag.r32(), Imm((int)tagHeap));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::Gp cp_string = cc.new_gp64("ir_cv_cp_string");
-            arch::load(cc, cp_string, arch::ptr(endp, (int)(-2 * ValSize)));
-            arch::zero_extend_48(cc, cp_string);
-            arch::cmp_mem8_imm(cc, arch::ptr8(cp_string, (int)HeapTypeTagOff), Imm((int)tagString));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-ValSize + tagWordOff)));
-            arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
-            arch::jcc(cc, arch::CC::kNE, slow);
-            arch::Gp cp_index = cc.new_gp64("ir_cv_cp_index");
-            arch::load(cc, cp_index, arch::ptr(endp, (int)(-ValSize)));
-            arch::sign_extend_48(cc, cp_index);
-            arch::cmp_imm(cc, cp_index, Imm(std::numeric_limits<int>::min()));
-            arch::jcc(cc, arch::CC::kLT, slow);
-            arch::cmp_imm(cc, cp_index, Imm(std::numeric_limits<int>::max()));
-            arch::jcc(cc, arch::CC::kGT, slow);
-            arch::Gp cp_result = cc.new_gp64("ir_cv_cp_result");
-            InvokeNode *cp_inv;
-            arch::invoke_imm(cc, &cp_inv, (uint64_t)(uintptr_t)jit_string_code_point_at,
-                             FuncSignature::build<uint64_t, void *, void *, int64_t>());
-            cp_inv->set_arg(0, vm_arg0());
-            cp_inv->set_arg(1, cp_string);
-            cp_inv->set_arg(2, cp_index);
-            cp_inv->set_ret(0, cp_result);
-            arch::store(cc, arch::ptr(endp, (int)(-3 * ValSize)), cp_result);
-            arch::sub_imm(cc, endp, (int)(2 * ValSize));
-            fc.set(endp);
-            arch::jmp(cc, done);
+                // __js_str_code_point_at(s, i): same guards as char_code_at (string
+                // receiver, int index in int32 range); the helper differs only in
+                // returning undefined rather than -1 when the index is out of range.
+                cc.bind(code_point);
+                arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-2 * ValSize + tagWordOff)));
+                arch::cmp_imm(cc, tag.r32(), Imm((int)tagHeap));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::Gp cp_string = cc.new_gp64("ir_cv_cp_string");
+                arch::load(cc, cp_string, arch::ptr(endp, (int)(-2 * ValSize)));
+                arch::zero_extend_48(cc, cp_string);
+                arch::cmp_mem8_imm(cc, arch::ptr8(cp_string, (int)HeapTypeTagOff), Imm((int)tagString));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::load16_zx(cc, tag, arch::ptr16(endp, (int)(-ValSize + tagWordOff)));
+                arch::cmp_imm(cc, tag.r32(), Imm((int)tagInt));
+                arch::jcc(cc, arch::CC::kNE, slow);
+                arch::Gp cp_index = cc.new_gp64("ir_cv_cp_index");
+                arch::load(cc, cp_index, arch::ptr(endp, (int)(-ValSize)));
+                arch::sign_extend_48(cc, cp_index);
+                arch::cmp_imm(cc, cp_index, Imm(std::numeric_limits<int>::min()));
+                arch::jcc(cc, arch::CC::kLT, slow);
+                arch::cmp_imm(cc, cp_index, Imm(std::numeric_limits<int>::max()));
+                arch::jcc(cc, arch::CC::kGT, slow);
+                arch::Gp cp_result = cc.new_gp64("ir_cv_cp_result");
+                InvokeNode *cp_inv;
+                arch::invoke_imm(
+                    cc, &cp_inv, (uint64_t)(uintptr_t)jit_string_code_point_at, FuncSignature::build<uint64_t, void *, void *, int64_t>()
+                );
+                cp_inv->set_arg(0, vm_arg0());
+                cp_inv->set_arg(1, cp_string);
+                cp_inv->set_arg(2, cp_index);
+                cp_inv->set_ret(0, cp_result);
+                arch::store(cc, arch::ptr(endp, (int)(-3 * ValSize)), cp_result);
+                arch::sub_imm(cc, endp, (int)(2 * ValSize));
+                fc.set(endp);
+                arch::jmp(cc, done);
             } // want_code_point
 
             cc.bind(slow);
@@ -2314,9 +2347,9 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
                         }
                         break;
                     case ir::Op::JsTruthy:
-                        if (in.operands.empty() || (irFuncs.inst(in.operands[0]).type != ir::Ty::Bool &&
-                                                    irFuncs.inst(in.operands[0]).type != ir::Ty::Int48 &&
-                                                    irFuncs.inst(in.operands[0]).type != ir::Ty::None)) {
+                        if (in.operands.empty() ||
+                            (irFuncs.inst(in.operands[0]).type != ir::Ty::Bool && irFuncs.inst(in.operands[0]).type != ir::Ty::Int48 &&
+                             irFuncs.inst(in.operands[0]).type != ir::Ty::None)) {
                             needs_escape_infra = true;
                         }
                         break;
@@ -2434,8 +2467,10 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
             }
         }
         if (dbg_elig && !elig) {
-            fprintf(stderr, "[REG-TIER] %-30s reject: %s\n",
-                    chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(), reject ? reject : "?");
+            fprintf(
+                stderr, "[REG-TIER] %-30s reject: %s\n",
+                chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(), reject ? reject : "?"
+            );
         }
 
         if (elig) {
@@ -2811,10 +2846,10 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
                     const ir::Inst &term = irFuncs.inst(b.terminator);
                     const ir::Inst &last = irFuncs.inst(b.insts.back());
                     bool is_cmp = last.op == ir::Op::DynCmpLt || last.op == ir::Op::DynCmpLe || last.op == ir::Op::DynCmpGt ||
-                                   last.op == ir::Op::DynCmpGe || last.op == ir::Op::DynCmpEq || last.op == ir::Op::DynCmpNe ||
-                                   last.op == ir::Op::DynStrictCmpEq || last.op == ir::Op::DynStrictCmpNe ||
-                                   last.op == ir::Op::ICmpLt || last.op == ir::Op::ICmpLe || last.op == ir::Op::ICmpGt ||
-                                  last.op == ir::Op::ICmpGe || last.op == ir::Op::ICmpEq || last.op == ir::Op::ICmpNe;
+                                  last.op == ir::Op::DynCmpGe || last.op == ir::Op::DynCmpEq || last.op == ir::Op::DynCmpNe ||
+                                  last.op == ir::Op::DynStrictCmpEq || last.op == ir::Op::DynStrictCmpNe || last.op == ir::Op::ICmpLt ||
+                                  last.op == ir::Op::ICmpLe || last.op == ir::Op::ICmpGt || last.op == ir::Op::ICmpGe ||
+                                  last.op == ir::Op::ICmpEq || last.op == ir::Op::ICmpNe;
                     // Ordered float relops only (Eq/Ne need the ZF+PF combine, not a single jcc).
                     // Both operands must be Float.
                     bool is_fcmp = (last.op == ir::Op::FCmpLt || last.op == ir::Op::FCmpLe || last.op == ir::Op::FCmpGt ||
@@ -3208,10 +3243,10 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
                                 inline_ok = obj.op == ir::Op::LoadSlot && int_arr_slots.count(obj.imm_u32) != 0 &&
                                             key.type == ir::Ty::Int48 && val.type == ir::Ty::Int48;
                             }
-                             if (!inline_ok) {
+                            if (!inline_ok) {
                                 // guarded inline in-bounds store for UNPROVEN receivers
-                                 const bool key_raw = ri.ty == ir::Ty::Int48;
-                                 if (!raw_rep(ra.ty) || !(key_raw || raw_rep(ri.ty))) {
+                                const bool key_raw = ri.ty == ir::Ty::Int48;
+                                if (!raw_rep(ra.ty) || !(key_raw || raw_rep(ri.ty))) {
                                     RE r = escape_ex((const void *)jit_set_index, 0, 0, 0, { &ra, &ri, &rv }, 3, true, in.type);
                                     st.push_back(r);
                                     break;
@@ -3223,12 +3258,12 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
                                 arch::shr(cc, t, 48);
                                 arch::cmp_imm(cc, t.r32(), Imm((int)tagHeap));
                                 arch::jcc(cc, arch::CC::kNE, slow);
-                                 arch::Gp ptr = cc.new_gp64("r_gsi_ptr");
-                                 arch::mov_reg(cc, ptr, ra.reg);
-                                 arch::zero_extend_48(cc, ptr);
+                                arch::Gp ptr = cc.new_gp64("r_gsi_ptr");
+                                arch::mov_reg(cc, ptr, ra.reg);
+                                arch::zero_extend_48(cc, ptr);
                                 arch::cmp_mem8_imm(cc, arch::ptr8(ptr, (int)HeapTypeTagOff), Imm((int)tagArray));
                                 arch::jcc(cc, arch::CC::kNE, slow);
-                                 arch::Gp idx = cc.new_gp64("r_gsi_idx");
+                                arch::Gp idx = cc.new_gp64("r_gsi_idx");
                                 if (key_raw) {
                                     arch::mov_reg(cc, idx, reg_of(ri));
                                 } else {
@@ -3376,8 +3411,8 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
                                 argc == 1 && callee.op == ir::Op::LoadGlobal && callee.imm_u32 == js_to_number_name_idx_;
                             const void *helper = direct_to_number ? (const void *)jit_call_js_to_number : nullptr;
                             const int kind = direct_typeof ? 4 : helper ? 0 : 3;
-                            RE r = escape_ex(helper, kind, argc, (uint32_t)in.imm_int, aptrs, argc + 1, true, in.type,
-                                             callee_kind_hint(in));
+                            RE r =
+                                escape_ex(helper, kind, argc, (uint32_t)in.imm_int, aptrs, argc + 1, true, in.type, callee_kind_hint(in));
                             st.push_back(r);
                             break;
                         }
@@ -3443,8 +3478,9 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
                                 arch::jmp(cc, done);
                                 cc.bind(slow);
                                 {
-                                    RE r = escape_ex((const void *)jit_call_method, 2, method_idx, argc, { &rrecv, &rarg }, argc + 1, true,
-                                                     in.type);
+                                    RE r = escape_ex(
+                                        (const void *)jit_call_method, 2, method_idx, argc, { &rrecv, &rarg }, argc + 1, true, in.type
+                                    );
                                     arch::mov_reg(cc, g, r.reg);
                                 }
                                 cc.bind(done);
@@ -3966,9 +4002,10 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
                 return nullptr;
             }
             const char *tier_tag = spec ? " [ir-reg-spec]" : " [ir-reg]";
-            jit_dump_asm(chunk.functions[chunk_idx].name.empty() ? std::string("<anon>") + tier_tag
-                                                                 : chunk.functions[chunk_idx].name + tier_tag,
-                         asm_logger.data(), (uint64_t)(uintptr_t)spec_fallback, spec_fallback ? "spec_fallback (general tier)" : nullptr);
+            jit_dump_asm(
+                chunk.functions[chunk_idx].name.empty() ? std::string("<anon>") + tier_tag : chunk.functions[chunk_idx].name + tier_tag,
+                asm_logger.data(), (uint64_t)(uintptr_t)spec_fallback, spec_fallback ? "spec_fallback (general tier)" : nullptr
+            );
 
             {
                 std::string sym = chunk.functions[chunk_idx].name.empty()
@@ -4036,12 +4073,8 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
     };
     // Per-operand: an Int48-typed operand carries tagInt by construction, so its
     // runtime tag guard is dead code even when the other operand is unknown.
-    auto lhs_int = [&](const ir::Inst &in) {
-        return in.operands.size() >= 2 && irFuncs.inst(in.operands[0]).type == ir::Ty::Int48;
-    };
-    auto rhs_int = [&](const ir::Inst &in) {
-        return in.operands.size() >= 2 && irFuncs.inst(in.operands[1]).type == ir::Ty::Int48;
-    };
+    auto lhs_int = [&](const ir::Inst &in) { return in.operands.size() >= 2 && irFuncs.inst(in.operands[0]).type == ir::Ty::Int48; };
+    auto rhs_int = [&](const ir::Inst &in) { return in.operands.size() >= 2 && irFuncs.inst(in.operands[1]).type == ir::Ty::Int48; };
     {
         const uint32_t stack_bound = (uint32_t)irFuncs.insts.size() + 8;
         Label rz_ok = cc.new_label();
@@ -4084,9 +4117,7 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
     // Slot access as a memory operand: folds the slot displacement into the
     // load/store, so no address register (and no extra vreg for the register
     // allocator) is needed at all.
-    auto emit_ir_slot_mem = [&](uint32_t slot) {
-        return arch::ptr(fc.slot_base(), (int)((int64_t)slot * (int64_t)ValSize));
-    };
+    auto emit_ir_slot_mem = [&](uint32_t slot) { return arch::ptr(fc.slot_base(), (int)((int64_t)slot * (int64_t)ValSize)); };
     // SlotRegCache: IR functions can't alias their own slots (no upvalues), so
     // a slot's value is only written by this function's own Store*Slot/CopySlot ops
     struct SlotRegCache {
@@ -4458,9 +4489,7 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
         memcpy(&bits, &imm, sizeof(bits));
         emit_ir_raw_const(bits, "ir_fc_raw");
     };
-    auto emit_ir_iconst = [&](int64_t imm) {
-        emit_ir_raw_const(Value::make_int_checked(imm).raw_bits(), "ir_ic_raw");
-    };
+    auto emit_ir_iconst = [&](int64_t imm) { emit_ir_raw_const(Value::make_int_checked(imm).raw_bits(), "ir_ic_raw"); };
     // Push a string constant inline.
     // LoadConst only carries STRING/FUNCTION/NONE (ir_build siphons INT->IConst, FLOAT->FConst).
     auto emit_ir_sconst_inline = [&](uint32_t const_idx) -> bool {
@@ -4948,28 +4977,28 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
             // with two heap values; 40% are the same pointer and 52% are non-String, so
             // only ~8% still need the string compare.
             if (!one_int) {
-            cc.bind(same_tag);
-            arch::cmp_imm(cc, cmp_scratch.r32(), Imm((int)tagHeap));
-            arch::jcc(cc, arch::CC::kNE, streq_helper); // int/bool/none/float: helper decides
-            arch::load(cc, cmp_scratch, arch::ptr(e, (int)(-2 * ValSize)));
-            arch::cmp_mem(cc, cmp_scratch, arch::ptr(e, (int)(-ValSize)));
-            arch::jcc(cc, arch::CC::kEQ, equal); // same heap pointer
-            arch::zero_extend_48(cc, cmp_scratch);
-            arch::cmp_mem8_imm(cc, arch::ptr8(cmp_scratch, (int)HeapTypeTagOff), Imm((int)tagString));
-            arch::jcc(cc, arch::CC::kNE, unequal);
-            // lhs is a String, so the rhs pointer is worth loading now
-            arch::load(cc, const_scratch, arch::ptr(e, (int)(-ValSize)));
-            arch::zero_extend_48(cc, const_scratch);
-            arch::cmp_mem8_imm(cc, arch::ptr8(const_scratch, (int)HeapTypeTagOff), Imm((int)tagString));
-            arch::jcc(cc, arch::CC::kNE, unequal);
-            arch::jmp(cc, streq_helper); // String === String: compare contents
+                cc.bind(same_tag);
+                arch::cmp_imm(cc, cmp_scratch.r32(), Imm((int)tagHeap));
+                arch::jcc(cc, arch::CC::kNE, streq_helper); // int/bool/none/float: helper decides
+                arch::load(cc, cmp_scratch, arch::ptr(e, (int)(-2 * ValSize)));
+                arch::cmp_mem(cc, cmp_scratch, arch::ptr(e, (int)(-ValSize)));
+                arch::jcc(cc, arch::CC::kEQ, equal); // same heap pointer
+                arch::zero_extend_48(cc, cmp_scratch);
+                arch::cmp_mem8_imm(cc, arch::ptr8(cmp_scratch, (int)HeapTypeTagOff), Imm((int)tagString));
+                arch::jcc(cc, arch::CC::kNE, unequal);
+                // lhs is a String, so the rhs pointer is worth loading now
+                arch::load(cc, const_scratch, arch::ptr(e, (int)(-ValSize)));
+                arch::zero_extend_48(cc, const_scratch);
+                arch::cmp_mem8_imm(cc, arch::ptr8(const_scratch, (int)HeapTypeTagOff), Imm((int)tagString));
+                arch::jcc(cc, arch::CC::kNE, unequal);
+                arch::jmp(cc, streq_helper); // String === String: compare contents
 
-            cc.bind(equal);
-            cc.mov(cmp_scratch, Imm((int64_t)(nbBoolTag | (ne ? 0ULL : 1ULL))));
-            arch::store(cc, arch::ptr(e, (int)(-2 * ValSize)), cmp_scratch);
-            arch::sub_imm(cc, e, (int)ValSize);
-            fc.set(e);
-            arch::jmp(cc, done);
+                cc.bind(equal);
+                cc.mov(cmp_scratch, Imm((int64_t)(nbBoolTag | (ne ? 0ULL : 1ULL))));
+                arch::store(cc, arch::ptr(e, (int)(-2 * ValSize)), cmp_scratch);
+                arch::sub_imm(cc, e, (int)ValSize);
+                fc.set(e);
+                arch::jmp(cc, done);
             } // !one_int
 
             cc.bind(streq_helper);
@@ -5094,13 +5123,13 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
                     arch::load(cc, cmp_scratch, arch::ptr(vm_reg, (int)VMCapturesRawOff));
                     arch::test_zero(cc, cmp_scratch);
                     arch::jcc(cc, arch::CC::kEQ, lc_slow);
-                    arch::load(cc, const_scratch, arch::ptr(cmp_scratch, 8));  // vector end
-                    arch::load(cc, cmp_scratch, arch::ptr(cmp_scratch, 0));    // vector begin
-                    arch::add_imm(cc, cmp_scratch, (int64_t)in.imm_u32 * 16);  // &elem[idx]
+                    arch::load(cc, const_scratch, arch::ptr(cmp_scratch, 8)); // vector end
+                    arch::load(cc, cmp_scratch, arch::ptr(cmp_scratch, 0));   // vector begin
+                    arch::add_imm(cc, cmp_scratch, (int64_t)in.imm_u32 * 16); // &elem[idx]
                     cc.cmp(cmp_scratch, const_scratch);
-                    arch::jcc(cc, arch::CC::kUGE, lc_slow);                    // out of range
-                    arch::load(cc, cmp_scratch, arch::ptr(cmp_scratch, 0));    // shared_ptr -> cell
-                    arch::load(cc, cmp_scratch, arch::ptr(cmp_scratch, 0));    // cell -> Value
+                    arch::jcc(cc, arch::CC::kUGE, lc_slow);                 // out of range
+                    arch::load(cc, cmp_scratch, arch::ptr(cmp_scratch, 0)); // shared_ptr -> cell
+                    arch::load(cc, cmp_scratch, arch::ptr(cmp_scratch, 0)); // cell -> Value
                     arch::store(cc, arch::ptr(endp, 0), cmp_scratch);
                     arch::add_imm(cc, endp, (int)ValSize);
                     fc.set(endp);
@@ -5521,8 +5550,8 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
     auto is_cmp_op = [](ir::Op op) {
         return op == ir::Op::DynCmpLt || op == ir::Op::DynCmpLe || op == ir::Op::DynCmpGt || op == ir::Op::DynCmpGe ||
                op == ir::Op::DynCmpEq || op == ir::Op::DynCmpNe || op == ir::Op::DynStrictCmpEq || op == ir::Op::DynStrictCmpNe ||
-               op == ir::Op::ICmpLt || op == ir::Op::ICmpLe || op == ir::Op::ICmpGt ||
-               op == ir::Op::ICmpGe || op == ir::Op::ICmpEq || op == ir::Op::ICmpNe;
+               op == ir::Op::ICmpLt || op == ir::Op::ICmpLe || op == ir::Op::ICmpGt || op == ir::Op::ICmpGe || op == ir::Op::ICmpEq ||
+               op == ir::Op::ICmpNe;
     };
     // fusable only when both operands are statically Float and the op is an ordered relational (Lt/Le/Gt/Ge)
     auto is_fcmp_branch_fusable = [&](const ir::Inst &cmp) {
@@ -5561,10 +5590,8 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
         // Operands whose IR type is already Int48 carry tagInt by construction, so
         // their runtime tag check is dead code -- and if BOTH are proven the whole
         // generic fallback block (a duplicate of cmp+term) is unreachable too.
-        const bool lhs_known_int =
-            cmp.operands.size() >= 2 && irFuncs.inst(cmp.operands[0]).type == ir::Ty::Int48;
-        const bool rhs_known_int =
-            cmp.operands.size() >= 2 && irFuncs.inst(cmp.operands[1]).type == ir::Ty::Int48;
+        const bool lhs_known_int = cmp.operands.size() >= 2 && irFuncs.inst(cmp.operands[0]).type == ir::Ty::Int48;
+        const bool rhs_known_int = cmp.operands.size() >= 2 && irFuncs.inst(cmp.operands[1]).type == ir::Ty::Int48;
         const bool need_slow = !(lhs_known_int && rhs_known_int);
         Label slow = cc.new_label();
 
@@ -5717,7 +5744,7 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
 
         if (need_slow) {
             cc.bind(slow);
-            lower_body(cmp);  // its fc.get() materializes the fused operands here
+            lower_body(cmp); // its fc.get() materializes the fused operands here
             lower_term(term);
         } else {
             fc.drop_pend(n_fused); // no slow arm materialized them
@@ -5786,9 +5813,10 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
     }
     if (!ok) {
         if (kJitReport) {
-            fprintf(stderr, "[JIT] %-30s BAIL general (unhandled op %s)\n",
-                    chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(),
-                    ir::op_name(unhandled_op));
+            fprintf(
+                stderr, "[JIT] %-30s BAIL general (unhandled op %s)\n",
+                chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(), ir::op_name(unhandled_op)
+            );
         }
         return nullptr; // unhandled op; VM runs this function in the interpreter
     }
@@ -5829,9 +5857,11 @@ AsmJITMethodCompiler::CompiledFunc AsmJITMethodCompiler::ir_compile(const nari::
     Error err = cc.finalize();
     if (err != kErrorOk) {
         if (kJitReport) {
-            fprintf(stderr, "[JIT] %-30s BAIL asmjit finalize err=%u (%s)\n",
-                    chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(), err,
-                    asmjit::DebugUtils::error_as_string(err));
+            fprintf(
+                stderr, "[JIT] %-30s BAIL asmjit finalize err=%u (%s)\n",
+                chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(), err,
+                asmjit::DebugUtils::error_as_string(err)
+            );
             if (jit_dump_asm_enabled()) {
                 fprintf(stderr, "---- partial asm ----\n%s---------------------\n", asm_logger.data());
             }

@@ -767,7 +767,8 @@ Value ScriptRuntime::builtin_ffi_write_struct(const Value *argvals, size_t argc,
             return Value::none();
         }
         return Value::make_bool(
-            nari::write_struct_to_memory(nari::managed_struct_pointer(argvals[0]), owner->native_struct_type, argvals[1]));
+            nari::write_struct_to_memory(nari::managed_struct_pointer(argvals[0]), owner->native_struct_type, argvals[1])
+        );
     }
     if (argc < 3 || !argvals[0].is_int() || !argvals[1].is_string() || !argvals[2].is_object()) {
         fprintf(stderr, "ERROR: __ffi_write_struct() requires (owner, object) or (pointer_int, type_name_string, object)\n");

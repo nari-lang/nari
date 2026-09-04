@@ -48,9 +48,11 @@ Value ScriptRuntime::builtin_module_import_namespace(const Value *argvals, size_
         }
 
         if (!found) {
-            runtime_fatal("Module export '" + binding.export_name + "' was declared but no binding named '" + binding.local_name +
-                              "' exists in module '" + module_name + "'",
-                          callExpr);
+            runtime_fatal(
+                "Module export '" + binding.export_name + "' was declared but no binding named '" + binding.local_name +
+                    "' exists in module '" + module_name + "'",
+                callExpr
+            );
         }
 
         ns_oobj->set_field(binding.export_name, resolved);

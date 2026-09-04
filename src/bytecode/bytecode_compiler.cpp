@@ -14,8 +14,7 @@ using namespace nari;
 
 // NumberExpr promotes out-of-int48 integer literals to float at parse time using its own copy of the int48 bounds
 static_assert(
-    NumberExpr::AST_INT48_MIN == Value::INT48_MIN &&
-    NumberExpr::AST_INT48_MAX == Value::INT48_MAX,
+    NumberExpr::AST_INT48_MIN == Value::INT48_MIN && NumberExpr::AST_INT48_MAX == Value::INT48_MAX,
     "ast.h NumberExpr int48 bounds must match Value::INT48_MIN/MAX"
 );
 
@@ -55,7 +54,7 @@ struct CompilerContext {
     CompilerContext(FunctionMeta *f, Chunk *c) : function(f), chunk(c), local_count(0) {
     }
 
-    // Block scoping. 
+    // Block scoping.
     // `locals` is one entry per name for the whole function and slots are never reused,
     // so only the name to slot mapping needs unwinding at the end of a block.
     struct ShadowedBinding {
@@ -100,7 +99,7 @@ struct CompilerContext {
         }
     }
 
-    // Slots of this function's locals that some inner closure captures. 
+    // Slots of this function's locals that some inner closure captures.
     // Loops check this to decide whether they need OP_CLOSE_UPVALUES
     std::vector<uint8_t> captured_locals;
 
@@ -127,7 +126,7 @@ struct CompilerContext {
         }
         if (!scope_marks.empty()) {
             auto it = locals.find(name);
-            ShadowedBinding s {
+            ShadowedBinding s{
                 .name = name,
                 .prev_slot = it != locals.end() ? it->second : 0,
                 .had_prev = it != locals.end(),
@@ -319,8 +318,7 @@ static bool is_ident(const Expr *expr, const char *name) {
 
 static const CallExpr *is_call(const Expr *expr, const char *name, size_t argc) {
     const auto *call = dynamic_cast<const CallExpr *>(expr);
-    return call && !call->has_spread && !call->optional && call->args.size() == argc && is_ident(call->callee.get(), name) ? call
-                                                                                                                        : nullptr;
+    return call && !call->has_spread && !call->optional && call->args.size() == argc && is_ident(call->callee.get(), name) ? call : nullptr;
 }
 
 static bool is_conversion(const Expr *expr, const char *conversion, const char *param) {
@@ -334,13 +332,17 @@ static bool is_int(const Expr *expr, int64_t value) {
 }
 
 static const Expr *single_return(const Function *func) {
-    if (!func->body || func->body->stmts.size() != 1) return nullptr;
+    if (!func->body || func->body->stmts.size() != 1) {
+        return nullptr;
+    }
     const auto *ret = dynamic_cast<const ReturnStmt *>(func->body->stmts[0].get());
     return ret ? ret->value.get() : nullptr;
 }
 
 static bool matches_binary_helper(const Function *func, const char *op) {
-    if (func->params.size() != 2 || func->params[0].name != "a" || func->params[1].name != "b") return false;
+    if (func->params.size() != 2 || func->params[0].name != "a" || func->params[1].name != "b") {
+        return false;
+    }
     const auto *binary = dynamic_cast<const BinaryExpr *>(single_return(func));
     return binary && binary->op == op && is_conversion(binary->left.get(), "__js_to_int32", "a") &&
            is_conversion(binary->right.get(), "__js_to_int32", "b");
@@ -359,9 +361,8 @@ static bool matches_apply_array_helper(const Function *func) {
     const auto *length = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
     const auto *length_call = length ? dynamic_cast<const CallExpr *>(length->initializerExpr.get()) : nullptr;
     const auto *length_member = length_call ? dynamic_cast<const MemberExpr *>(length_call->callee.get()) : nullptr;
-    if (!length || length->name != "n" || !length_call || length_call->has_spread || length_call->optional ||
-        !length_call->args.empty() || !length_member || length_member->member != "length" ||
-        !is_ident(length_member->object.get(), "args")) {
+    if (!length || length->name != "n" || !length_call || length_call->has_spread || length_call->optional || !length_call->args.empty() ||
+        !length_member || length_member->member != "length" || !is_ident(length_member->object.get(), "args")) {
         return false;
     }
     for (int64_t arity = 0; arity <= 12; ++arity) {
@@ -370,9 +371,9 @@ static bool matches_apply_array_helper(const Function *func) {
         const auto *body = branch ? dynamic_cast<const BlockStmt *>(branch->then_branch.get()) : nullptr;
         const auto *ret = body && body->stmts.size() == 1 ? dynamic_cast<const ReturnStmt *>(body->stmts[0].get()) : nullptr;
         const auto *call = ret ? dynamic_cast<const CallExpr *>(ret->value.get()) : nullptr;
-        if (!condition || condition->op != "==" || !is_ident(condition->left.get(), "n") ||
-            !is_int(condition->right.get(), arity) || branch->else_branch || !call || call->has_spread || call->optional ||
-            !is_ident(call->callee.get(), "f") || call->args.size() != static_cast<size_t>(arity)) {
+        if (!condition || condition->op != "==" || !is_ident(condition->left.get(), "n") || !is_int(condition->right.get(), arity) ||
+            branch->else_branch || !call || call->has_spread || call->optional || !is_ident(call->callee.get(), "f") ||
+            call->args.size() != static_cast<size_t>(arity)) {
             return false;
         }
         for (int64_t i = 0; i < arity; ++i) {
@@ -388,33 +389,35 @@ static bool matches_apply_array_helper(const Function *func) {
 }
 
 static bool matches_extended_jsrt_helper(const Function *func, OpCode op) {
-    if (op == OpCode::OP_CALL_SPREAD) return matches_apply_array_helper(func);
+    if (op == OpCode::OP_CALL_SPREAD) {
+        return matches_apply_array_helper(func);
+    }
     if (op == OpCode::OP_JS_GET_PROP_STATIC) {
         const bool legacy = func->params.size() == 2 && func->body && func->body->stmts.size() == 10;
-        const bool own_miss_aware = func->params.size() == 3 && func->params[2].name == "ownMiss" && func->body &&
-                                    func->body->stmts.size() == 8;
+        const bool own_miss_aware =
+            func->params.size() == 3 && func->params[2].name == "ownMiss" && func->body && func->body->stmts.size() == 8;
         if ((!legacy && !own_miss_aware) || func->params[0].name != "obj" || func->params[1].name != "key") {
             return false;
         }
         const auto *getter_key = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
         const auto *concat = getter_key ? dynamic_cast<const BinaryExpr *>(getter_key->initializerExpr.get()) : nullptr;
         const auto *prefix = concat ? dynamic_cast<const StringExpr *>(concat->left.get()) : nullptr;
-        return getter_key && getter_key->name == "getterKey" && concat && concat->op == "@" && prefix &&
-                prefix->value == "__js_getter__" && is_ident(concat->right.get(), "key");
+        return getter_key && getter_key->name == "getterKey" && concat && concat->op == "@" && prefix && prefix->value == "__js_getter__" &&
+               is_ident(concat->right.get(), "key");
     }
     if (op == OpCode::OP_JS_SET_PROP_STATIC) {
         // Same contract as the getter gate: confirm jsrt's helper still starts by
         // deriving "__js_setter__" @ key, so editing jsrt silently disables the
         // opcode instead of silently changing semantics.
-        if (func->params.size() != 3 || func->params[0].name != "obj" || func->params[1].name != "key" ||
-            func->params[2].name != "value" || !func->body || func->body->stmts.size() < 2) {
+        if (func->params.size() != 3 || func->params[0].name != "obj" || func->params[1].name != "key" || func->params[2].name != "value" ||
+            !func->body || func->body->stmts.size() < 2) {
             return false;
         }
         const auto *setter_key = dynamic_cast<const VarDeclStmt *>(func->body->stmts[1].get());
         const auto *concat = setter_key ? dynamic_cast<const BinaryExpr *>(setter_key->initializerExpr.get()) : nullptr;
         const auto *prefix = concat ? dynamic_cast<const StringExpr *>(concat->left.get()) : nullptr;
-        return setter_key && setter_key->name == "setterKey" && concat && concat->op == "@" && prefix &&
-               prefix->value == "__js_setter__" && is_ident(concat->right.get(), "key");
+        return setter_key && setter_key->name == "setterKey" && concat && concat->op == "@" && prefix && prefix->value == "__js_setter__" &&
+               is_ident(concat->right.get(), "key");
     }
     if (op == OpCode::OP_JS_POSTINC) {
         // Gate on jsrt's exact body, same contract as the get/set gates: editing
@@ -446,26 +449,36 @@ static bool matches_extended_jsrt_helper(const Function *func, OpCode op) {
         return ret && is_ident(ret->value.get(), "old");
     }
     if (op == OpCode::OP_JS_BIT_NOT) {
-        if (func->params.size() != 1 || func->params[0].name != "value") return false;
+        if (func->params.size() != 1 || func->params[0].name != "value") {
+            return false;
+        }
         const auto *unary = dynamic_cast<const UnaryExpr *>(single_return(func));
         return unary && unary->op == "~" && is_conversion(unary->operand.get(), "__js_to_int32", "value");
     }
-    if (op == OpCode::OP_JS_BIT_AND) return matches_binary_helper(func, "&");
-    if (op == OpCode::OP_JS_BIT_OR) return matches_binary_helper(func, "|");
-    if (op == OpCode::OP_JS_BIT_XOR) return matches_binary_helper(func, "^");
+    if (op == OpCode::OP_JS_BIT_AND) {
+        return matches_binary_helper(func, "&");
+    }
+    if (op == OpCode::OP_JS_BIT_OR) {
+        return matches_binary_helper(func, "|");
+    }
+    if (op == OpCode::OP_JS_BIT_XOR) {
+        return matches_binary_helper(func, "^");
+    }
     if (op == OpCode::OP_JS_SHL || op == OpCode::OP_JS_SHR) {
-        if (func->params.size() != 2 || func->params[0].name != "a" || func->params[1].name != "b") return false;
+        if (func->params.size() != 2 || func->params[0].name != "a" || func->params[1].name != "b") {
+            return false;
+        }
         const Expr *value = single_return(func);
         if (op == OpCode::OP_JS_SHL) {
             const auto *outer = is_call(value, "__js_to_int32", 1);
             value = outer ? outer->args[0].get() : nullptr;
         }
         const auto *shift = dynamic_cast<const BinaryExpr *>(value);
-        return shift && shift->op == (op == OpCode::OP_JS_SHL ? "<<" : ">>") &&
-               is_conversion(shift->left.get(), "__js_to_int32", "a") && matches_shift_count(shift->right.get(), "b");
+        return shift && shift->op == (op == OpCode::OP_JS_SHL ? "<<" : ">>") && is_conversion(shift->left.get(), "__js_to_int32", "a") &&
+               matches_shift_count(shift->right.get(), "b");
     }
-    if (op != OpCode::OP_JS_USHR || func->params.size() != 2 || func->params[0].name != "a" ||
-        func->params[1].name != "b" || !func->body || func->body->stmts.size() != 3) {
+    if (op != OpCode::OP_JS_USHR || func->params.size() != 2 || func->params[0].name != "a" || func->params[1].name != "b" || !func->body ||
+        func->body->stmts.size() != 3) {
         return false;
     }
     const auto *value = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
@@ -668,19 +681,25 @@ void Compiler::collect_idents(const Stmt *stmt, std::set<std::string> &idents) {
 }
 
 void Compiler::collect_bindings(const Stmt *stmt, std::set<std::string> &bindings) {
-    if (!stmt) return;
+    if (!stmt) {
+        return;
+    }
     if (const auto *decl = dynamic_cast<const VarDeclStmt *>(stmt)) {
         if (decl->destructure_kind == DestructureKind::Array) {
             bindings.insert(decl->array_names.begin(), decl->array_names.end());
         } else if (decl->destructure_kind == DestructureKind::Object) {
-            for (const auto &[_, name] : decl->object_bindings) bindings.insert(name);
+            for (const auto &[_, name] : decl->object_bindings) {
+                bindings.insert(name);
+            }
         } else {
             bindings.insert(decl->name);
         }
         return;
     }
     if (const auto *block = dynamic_cast<const BlockStmt *>(stmt)) {
-        for (const auto &child : block->stmts) collect_bindings(child.get(), bindings);
+        for (const auto &child : block->stmts) {
+            collect_bindings(child.get(), bindings);
+        }
         return;
     }
     if (const auto *branch = dynamic_cast<const IfStmt *>(stmt)) {
@@ -700,12 +719,16 @@ void Compiler::collect_bindings(const Stmt *stmt, std::set<std::string> &binding
     }
     if (const auto *loop = dynamic_cast<const ForEachStmt *>(stmt)) {
         bindings.insert(loop->var);
-        if (!loop->val_var.empty()) bindings.insert(loop->val_var);
+        if (!loop->val_var.empty()) {
+            bindings.insert(loop->val_var);
+        }
         collect_bindings(loop->body.get(), bindings);
         return;
     }
     if (const auto *switch_stmt = dynamic_cast<const SwitchStmt *>(stmt)) {
-        for (const auto &item : switch_stmt->cases) collect_bindings(item.body.get(), bindings);
+        for (const auto &item : switch_stmt->cases) {
+            collect_bindings(item.body.get(), bindings);
+        }
         collect_bindings(switch_stmt->default_body.get(), bindings);
     }
 }
@@ -1135,8 +1158,7 @@ void Compiler::compile_expr(const Expr *expr) {
             ctx->emit_op(OpCode::OP_GE);
             return;
         }
-        if (callee && callee->name == "__js_set_function_length" && !call->has_spread && !call->optional &&
-            call->args.size() == 2) {
+        if (callee && callee->name == "__js_set_function_length" && !call->has_spread && !call->optional && call->args.size() == 2) {
             compile_expr(call->args[0].get());
             ctx->emit_op(OpCode::OP_DUP);
             compile_expr(call->args[1].get());
@@ -2293,7 +2315,7 @@ template <typename FnLike> void Compiler::compile_function_body(const FnLike *fu
     meta.strict_mode = strict_mode;
     meta.source_file = func->filename;
 
-    // Seed the line map with the function's definition line 
+    // Seed the line map with the function's definition line
     // so that errors inside the parameter-check preamble point at the function header.
     if (func->line > 0) {
         ctx->emit_line(func->line);
@@ -2302,31 +2324,35 @@ template <typename FnLike> void Compiler::compile_function_body(const FnLike *fu
     // strict mode enforcement: named non-lambda functions
     // MUST have type annotations on all non-rest, non-ignored parameters and a return type.
     if constexpr (is_plain_function) {
-    if (strict_mode && !meta.is_lambda && !func->name.empty() && func->name.find("__top_level__") == std::string::npos &&
-        func->name.find("__module_") == std::string::npos) {
-        bool had_error = false;
-        for (const auto &param : func->params) {
-            if (param.is_rest) {
-                continue;
+        if (strict_mode && !meta.is_lambda && !func->name.empty() && func->name.find("__top_level__") == std::string::npos &&
+            func->name.find("__module_") == std::string::npos) {
+            bool had_error = false;
+            for (const auto &param : func->params) {
+                if (param.is_rest) {
+                    continue;
+                }
+                if (!param.name.empty() && param.name[0] == '_') {
+                    continue;
+                }
+                if (!param.type) {
+                    fprintf(
+                        stderr, "StrictModeError: parameter '%s' of function '%s' has no type annotation%s\n", param.name.c_str(),
+                        func->name.c_str(), func->loc_str().c_str()
+                    );
+                    had_error = true;
+                }
             }
-            if (!param.name.empty() && param.name[0] == '_') {
-                continue;
-            }
-            if (!param.type) {
-                fprintf(stderr, "StrictModeError: parameter '%s' of function '%s' has no type annotation%s\n", param.name.c_str(),
-                        func->name.c_str(), func->loc_str().c_str());
+            if (!func->return_type) {
+                fprintf(
+                    stderr, "StrictModeError: function '%s' has no return type annotation (add '-> <type>')%s\n", func->name.c_str(),
+                    func->loc_str().c_str()
+                );
                 had_error = true;
             }
+            if (had_error) {
+                exit(1);
+            }
         }
-        if (!func->return_type) {
-            fprintf(stderr, "StrictModeError: function '%s' has no return type annotation (add '-> <type>')%s\n", func->name.c_str(),
-                    func->loc_str().c_str());
-            had_error = true;
-        }
-        if (had_error) {
-            exit(1);
-        }
-    }
     } // if constexpr (is_plain_function)
 
     // track return type for OP_RETURN injection.
@@ -2556,9 +2582,12 @@ Chunk *Compiler::compile(const FuncList &functions) {
 
 #ifdef NARI_EXTENDED_JSRT
     const std::unordered_map<std::string, OpCode> candidates = {
-        { "__js_bitand", OpCode::OP_JS_BIT_AND }, { "__js_bitor", OpCode::OP_JS_BIT_OR },
-        { "__js_bitxor", OpCode::OP_JS_BIT_XOR }, { "__js_bitnot", OpCode::OP_JS_BIT_NOT },
-        { "__js_shl", OpCode::OP_JS_SHL },       { "__js_shr", OpCode::OP_JS_SHR },
+        { "__js_bitand", OpCode::OP_JS_BIT_AND },
+        { "__js_bitor", OpCode::OP_JS_BIT_OR },
+        { "__js_bitxor", OpCode::OP_JS_BIT_XOR },
+        { "__js_bitnot", OpCode::OP_JS_BIT_NOT },
+        { "__js_shl", OpCode::OP_JS_SHL },
+        { "__js_shr", OpCode::OP_JS_SHR },
         { "__js_ushr", OpCode::OP_JS_USHR },
         { "__js_get_prop_static", OpCode::OP_JS_GET_PROP_STATIC },
         { "__js_set_prop_static", OpCode::OP_JS_SET_PROP_STATIC },
@@ -2568,23 +2597,38 @@ Chunk *Compiler::compile(const FuncList &functions) {
     std::unordered_map<std::string, size_t> definitions;
     std::set<std::string> assigned;
     for (const auto &func : functions) {
-        if (!func) continue;
-        if (candidates.count(func->name)) definitions[func->name]++;
+        if (!func) {
+            continue;
+        }
+        if (candidates.count(func->name)) {
+            definitions[func->name]++;
+        }
         const auto scan_assignments = [&](const auto &self, const Stmt *stmt) -> void {
-            if (!stmt) return;
-            if (const auto *assign = dynamic_cast<const AssignStmt *>(stmt)) assigned.insert(assign->target);
+            if (!stmt) {
+                return;
+            }
+            if (const auto *assign = dynamic_cast<const AssignStmt *>(stmt)) {
+                assigned.insert(assign->target);
+            }
             if (const auto *block = dynamic_cast<const BlockStmt *>(stmt)) {
-                for (const auto &child : block->stmts) self(self, child.get());
+                for (const auto &child : block->stmts) {
+                    self(self, child.get());
+                }
             } else if (const auto *branch = dynamic_cast<const IfStmt *>(stmt)) {
-                self(self, branch->then_branch.get()); self(self, branch->else_branch.get());
+                self(self, branch->then_branch.get());
+                self(self, branch->else_branch.get());
             } else if (const auto *loop = dynamic_cast<const WhileStmt *>(stmt)) {
                 self(self, loop->body.get());
             } else if (const auto *loop = dynamic_cast<const ForStmt *>(stmt)) {
-                self(self, loop->init.get()); self(self, loop->post.get()); self(self, loop->body.get());
+                self(self, loop->init.get());
+                self(self, loop->post.get());
+                self(self, loop->body.get());
             } else if (const auto *loop = dynamic_cast<const ForEachStmt *>(stmt)) {
                 self(self, loop->body.get());
             } else if (const auto *switch_stmt = dynamic_cast<const SwitchStmt *>(stmt)) {
-                for (const auto &item : switch_stmt->cases) self(self, item.body.get());
+                for (const auto &item : switch_stmt->cases) {
+                    self(self, item.body.get());
+                }
                 self(self, switch_stmt->default_body.get());
             }
         };
@@ -2592,9 +2636,13 @@ Chunk *Compiler::compile(const FuncList &functions) {
     }
     const bool no_postinc_op = std::getenv("NARI_NO_POSTINC_OP") != nullptr;
     for (const auto &func : functions) {
-        if (!func) continue;
+        if (!func) {
+            continue;
+        }
         auto candidate = candidates.find(func->name);
-        if (candidate != candidates.end() && no_postinc_op && candidate->second == OpCode::OP_JS_POSTINC) continue;
+        if (candidate != candidates.end() && no_postinc_op && candidate->second == OpCode::OP_JS_POSTINC) {
+            continue;
+        }
         if (candidate != candidates.end() && definitions[func->name] == 1 && !assigned.count(func->name) &&
             matches_extended_jsrt_helper(func.get(), candidate->second)) {
             extended_jsrt_helpers.emplace(func->name, candidate->second);
@@ -2648,10 +2696,12 @@ Chunk *Compiler::compile(const FuncList &functions) {
                 continue; // <main>/<lambda_N>, class methods, and compiler internals
             }
             if (global_names.count(fname)) {
-                fprintf(stderr,
-                        "warning: top-level func '%s' is shadowed by a global of the same name and will never be "
-                        "called; rename it\n",
-                        fname.c_str());
+                fprintf(
+                    stderr,
+                    "warning: top-level func '%s' is shadowed by a global of the same name and will never be "
+                    "called; rename it\n",
+                    fname.c_str()
+                );
             }
         }
     }
@@ -2702,7 +2752,9 @@ Chunk *Compiler::compile(const FuncList &functions) {
     CompilerContext context(&main_func, chunk);
     ctx = &context;
     for (const Function *body : top_level_bodies) {
-        if (body && body->body) collect_bindings(body->body.get(), ctx->lexical_bindings);
+        if (body && body->body) {
+            collect_bindings(body->body.get(), ctx->lexical_bindings);
+        }
     }
 
     // compile all top-level statements from all top-level functions (imports first, then main)
@@ -2734,9 +2786,7 @@ Chunk *Compiler::compile(const FuncList &functions) {
         }
         for (const auto &field : decl->fields) {
             typeInfo.fields.emplace_back(
-                field.name, 
-                field.type ? field.type->name : "number", 
-                field.type ? field.type->is_array : false,
+                field.name, field.type ? field.type->name : "number", field.type ? field.type->is_array : false,
                 field.type ? field.type->fixed_array_count : 0
             );
         }

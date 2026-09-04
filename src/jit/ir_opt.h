@@ -33,8 +33,10 @@ IntArraySlots int_array_candidates(const Func &f);
 
 // Gives a type to every SSA value and to each local slot. Repeats until the CFG
 // comes to a fixpoint. A type that the pass cannot prove stays Unknown.
-void infer_types(Func &f, std::vector<Ty> &out_slot_types, const GlobalTypeMap *global_types = nullptr,
-                 const IntArraySlots *int_array_slots = nullptr, bool int48_params = false);
+void infer_types(
+    Func &f, std::vector<Ty> &out_slot_types, const GlobalTypeMap *global_types = nullptr, const IntArraySlots *int_array_slots = nullptr,
+    bool int48_params = false
+);
 
 // Changes dynamic numeric operations into typed operations when the lattice
 // proves both operands.

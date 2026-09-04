@@ -117,8 +117,9 @@ class AsmJITMethodCompiler : public MethodJITBase {
     //
     // when `spec_fallback` is non-null, compile in SPECULATIVE mode:
     // seed all parameter slots as Int48 in type inference and attempt ONLY the register tier
-    CompiledFunc ir_compile(const nari::bytecode::Chunk &chunk, uint32_t chunk_idx, CompiledFunc spec_fallback = nullptr,
-                            bool *spec_candidate = nullptr);
+    CompiledFunc ir_compile(
+        const nari::bytecode::Chunk &chunk, uint32_t chunk_idx, CompiledFunc spec_fallback = nullptr, bool *spec_candidate = nullptr
+    );
 };
 
 } // namespace jit

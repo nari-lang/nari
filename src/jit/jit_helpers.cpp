@@ -12,8 +12,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <thread>
 #include <deque>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -447,7 +447,9 @@ static uint32_t jit_js_to_uint32(VM *vm, const Value &value) {
         return 0;
     }
     double reduced = std::fmod(std::trunc(numeric), 4294967296.0);
-    if (reduced < 0.0) reduced += 4294967296.0;
+    if (reduced < 0.0) {
+        reduced += 4294967296.0;
+    }
     return static_cast<uint32_t>(reduced);
 }
 
@@ -461,12 +463,17 @@ void jit_js_bit_binary(VM *vm, uint32_t raw_op) {
     vm->stack.pop_back();
     Value &result = vm->peek(0);
     const OpCode op = static_cast<OpCode>(raw_op);
-    if (op == OpCode::OP_JS_BIT_AND) result.set_int(jit_js_signed32(left & right));
-    else if (op == OpCode::OP_JS_BIT_OR) result.set_int(jit_js_signed32(left | right));
-    else if (op == OpCode::OP_JS_BIT_XOR) result.set_int(jit_js_signed32(left ^ right));
-    else if (op == OpCode::OP_JS_SHL) result.set_int(jit_js_signed32(left << (right & 31U)));
-    else if (op == OpCode::OP_JS_USHR) result.set_int(static_cast<int64_t>(left >> (right & 31U)));
-    else {
+    if (op == OpCode::OP_JS_BIT_AND) {
+        result.set_int(jit_js_signed32(left & right));
+    } else if (op == OpCode::OP_JS_BIT_OR) {
+        result.set_int(jit_js_signed32(left | right));
+    } else if (op == OpCode::OP_JS_BIT_XOR) {
+        result.set_int(jit_js_signed32(left ^ right));
+    } else if (op == OpCode::OP_JS_SHL) {
+        result.set_int(jit_js_signed32(left << (right & 31U)));
+    } else if (op == OpCode::OP_JS_USHR) {
+        result.set_int(static_cast<int64_t>(left >> (right & 31U)));
+    } else {
         const uint32_t shift = right & 31U;
         const uint32_t shifted = (left & 0x80000000U) && shift ? ~(~left >> shift) : left >> shift;
         result.set_int(jit_js_signed32(shifted));
@@ -491,8 +498,7 @@ static NARI_ALWAYS_INLINE bool jit_values_equal(const Value &a, const Value &b) 
     const uint16_t a_tag = a.tag_word();
     const uint16_t b_tag = b.tag_word();
 
-    if (a._raw == b._raw && a_tag != Value::TAG_INT && a_tag != Value::TAG_HEAP && a_tag != Value::TAG_BOOL &&
-        a_tag != Value::TAG_NONE) {
+    if (a._raw == b._raw && a_tag != Value::TAG_INT && a_tag != Value::TAG_HEAP && a_tag != Value::TAG_BOOL && a_tag != Value::TAG_NONE) {
         return std::fabs(a.as_number() - b.as_number()) < 1e-12;
     }
     if (a._raw == b._raw) {
@@ -549,15 +555,14 @@ static NARI_ALWAYS_INLINE bool jit_values_strict_equal(const Value &a, const Val
     const uint16_t a_tag = a.tag_word();
 
     if (a._raw == b._raw) {
-        return a_tag == Value::TAG_HEAP || a_tag == Value::TAG_INT || a_tag == Value::TAG_BOOL ||
-               a_tag == Value::TAG_NONE || !std::isnan(a.as_number());
+        return a_tag == Value::TAG_HEAP || a_tag == Value::TAG_INT || a_tag == Value::TAG_BOOL || a_tag == Value::TAG_NONE ||
+               !std::isnan(a.as_number());
     }
 
     const uint16_t b_tag = b.tag_word();
 
-    if (a_tag != b_tag &&
-        (a_tag == Value::TAG_HEAP || a_tag == Value::TAG_BOOL || a_tag == Value::TAG_NONE ||
-         b_tag == Value::TAG_HEAP || b_tag == Value::TAG_BOOL || b_tag == Value::TAG_NONE)) {
+    if (a_tag != b_tag && (a_tag == Value::TAG_HEAP || a_tag == Value::TAG_BOOL || a_tag == Value::TAG_NONE || b_tag == Value::TAG_HEAP ||
+                           b_tag == Value::TAG_BOOL || b_tag == Value::TAG_NONE)) {
         return false;
     }
 
@@ -695,7 +700,6 @@ static inline void jit_deliver_pending_throw(VM *vm) {
 void jit_call(VM *vm, uint32_t argc);
 static void jit_call_value_impl(VM *vm, uint32_t argc, uint32_t callee_label_idx);
 
-
 // __js_to_string(v) returns `v` unchanged when it is already a string: the
 // helper's leading `v === __js_undefined` test can never match a string, and the
 // next branch is `typeof(v) == "string" -> return v`.
@@ -720,8 +724,7 @@ static bool jit_native_to_string(VM *vm, uint32_t argc, size_t args_base, size_t
     return true;
 }
 
-static bool jit_try_native_call(VM *vm, FunctionData &fd, uint32_t argc, uint32_t callee_label_idx,
-                                size_t args_base, size_t slot_base) {
+static bool jit_try_native_call(VM *vm, FunctionData &fd, uint32_t argc, uint32_t callee_label_idx, size_t args_base, size_t slot_base) {
     if (fd.jit_native_kind == 14) {
         return jit_native_to_string(vm, argc, args_base, slot_base);
     }
@@ -730,9 +733,10 @@ static bool jit_try_native_call(VM *vm, FunctionData &fd, uint32_t argc, uint32_
         const Value &a = vm->stack[args_base];
         const Value &b = vm->stack[args_base + 1];
         if (a.is_none() || b.is_none()) {
-            vm->stack[slot_base].set_bool((a.is_none() && b.is_none()) ||
-                                          (a.is_none() && b.raw_bits() == vm->js_undefined_value.raw_bits()) ||
-                                          (b.is_none() && a.raw_bits() == vm->js_undefined_value.raw_bits()));
+            vm->stack[slot_base].set_bool(
+                (a.is_none() && b.is_none()) || (a.is_none() && b.raw_bits() == vm->js_undefined_value.raw_bits()) ||
+                (b.is_none() && a.raw_bits() == vm->js_undefined_value.raw_bits())
+            );
             vm->stack.resize(slot_base + 1);
             return true;
         }
@@ -772,7 +776,7 @@ static bool jit_try_native_call(VM *vm, FunctionData &fd, uint32_t argc, uint32_
         const Value &a = vm->stack[args_base];
         const Value &b = vm->stack[args_base + 1];
         if (a.is_int() && b.is_int()) {
-            constexpr int64_t kSafeIntMax = (int64_t{1} << 46);
+            constexpr int64_t kSafeIntMax = (int64_t{ 1 } << 46);
             const int64_t x = a.get_int();
             const int64_t y = b.get_int();
             if (x > -kSafeIntMax && x < kSafeIntMax && y > -kSafeIntMax && y < kSafeIntMax) {
@@ -790,7 +794,7 @@ static bool jit_try_native_call(VM *vm, FunctionData &fd, uint32_t argc, uint32_
     if (argc == 2 && fd.jit_native_kind == 13) {
         Value &object = vm->stack[args_base];
         const Value &key = vm->stack[args_base + 1];
-        constexpr int64_t kSafeIntMax = (int64_t{1} << 46);
+        constexpr int64_t kSafeIntMax = (int64_t{ 1 } << 46);
         if (object.is_object() && key.is_string() && !key.is_sso()) {
             auto *string_key = static_cast<StringObj *>(key.heap_ptr());
             if (string_key->immutable) {
@@ -832,18 +836,28 @@ static bool jit_try_native_call(VM *vm, FunctionData &fd, uint32_t argc, uint32_
         if ((a.is_int() || a.is_float()) && (b.is_int() || b.is_float())) {
             const double left = a.as_number();
             const double right = b.as_number();
-            if (fd.jit_native_kind == 2) result = left < right;
-            else if (fd.jit_native_kind == 3) result = left > right;
-            else if (fd.jit_native_kind == 4) result = left <= right;
-            else result = left >= right;
+            if (fd.jit_native_kind == 2) {
+                result = left < right;
+            } else if (fd.jit_native_kind == 3) {
+                result = left > right;
+            } else if (fd.jit_native_kind == 4) {
+                result = left <= right;
+            } else {
+                result = left >= right;
+            }
             handled = true;
         } else if (a.is_string() && b.is_string()) {
             const std::string &left = a.get_string();
             const std::string &right = b.get_string();
-            if (fd.jit_native_kind == 2) result = left < right;
-            else if (fd.jit_native_kind == 3) result = left > right;
-            else if (fd.jit_native_kind == 4) result = left <= right;
-            else result = left >= right;
+            if (fd.jit_native_kind == 2) {
+                result = left < right;
+            } else if (fd.jit_native_kind == 3) {
+                result = left > right;
+            } else if (fd.jit_native_kind == 4) {
+                result = left <= right;
+            } else {
+                result = left >= right;
+            }
             handled = true;
         }
         if (handled) {
@@ -1010,7 +1024,9 @@ static bool jit_try_native_call(VM *vm, FunctionData &fd, uint32_t argc, uint32_
                     this_cell->set_field_by_id(value_id, receiver);
                     vm->stack.resize(slot_base);
                     vm->push(std::move(callee));
-                    for (const Value &arg : call_args) vm->push(arg);
+                    for (const Value &arg : call_args) {
+                        vm->push(arg);
+                    }
                     jit_call_value_impl(vm, static_cast<uint32_t>(call_args.size()), callee_label_idx);
                     this_cell->set_field_by_id(value_id, std::move(previous));
                     return true;
@@ -1041,8 +1057,12 @@ static void jit_call_non_function(VM *vm, uint32_t argc, uint32_t callee_label_i
                                                      : "other";
     std::string actual_value = func_val.to_string();
     vm->stack.resize(slot_base);
-    vm->runtime_panic(Value::make_string("called a non-function value '" + vm->chunk->strings[callee_label_idx] +
-                                         "' (type " + actual_type + ", value " + actual_value + ")"));
+    vm->runtime_panic(
+        Value::make_string(
+            "called a non-function value '" + vm->chunk->strings[callee_label_idx] + "' (type " + actual_type + ", value " + actual_value +
+            ")"
+        )
+    );
     if (vm->overflow_jmp) {
         std::longjmp(*vm->overflow_jmp, 1);
     }
@@ -1053,16 +1073,22 @@ namespace {
 struct CallCensus {
     std::unordered_map<std::string, uint64_t> counts;
     ~CallCensus() {
-        if (counts.empty()) return;
+        if (counts.empty()) {
+            return;
+        }
         std::vector<std::pair<std::string, uint64_t>> v(counts.begin(), counts.end());
         std::sort(v.begin(), v.end(), [](const auto &a, const auto &b) { return a.second > b.second; });
         uint64_t total = 0;
-        for (const auto &e : v) total += e.second;
+        for (const auto &e : v) {
+            total += e.second;
+        }
         fprintf(stderr, "\n=== dynamic call census (total %llu) ===\n", (unsigned long long)total);
         size_t n = v.size() < 40 ? v.size() : 40;
         for (size_t i = 0; i < n; i++) {
-            fprintf(stderr, "%10llu  %5.2f%%  %s\n", (unsigned long long)v[i].second,
-                    100.0 * (double)v[i].second / (double)total, v[i].first.c_str());
+            fprintf(
+                stderr, "%10llu  %5.2f%%  %s\n", (unsigned long long)v[i].second, 100.0 * (double)v[i].second / (double)total,
+                v[i].first.c_str()
+            );
         }
     }
 };
@@ -1084,7 +1110,9 @@ struct DcCensus {
     uint64_t fill[9] = {}; // fill[i] = locals-argc == i, i>=8 lumps the tail into fill[8]
     uint64_t eligible = 0;
     ~DcCensus() {
-        if (total == 0) return;
+        if (total == 0) {
+            return;
+        }
         fprintf(stderr, "\n=== direct-call blocker census (total %llu) ===\n", (unsigned long long)total);
         auto p = [&](const char *n, uint64_t v) {
             fprintf(stderr, "%12llu  %5.2f%%  %s\n", (unsigned long long)v, 100.0 * (double)v / (double)total, n);
@@ -1108,17 +1136,36 @@ struct DcCensus {
 static void jit_dc_census_record(const FunctionData &fd, uint32_t argc) {
     static DcCensus c;
     c.total++;
-    if (fd.jit_native_kind != 0) { c.native++; return; }
-    if (fd.jit_func_idx < 0 || fd.jit_meta == nullptr) { c.no_meta++; return; }
-    if (fd.jit_rest_param_index >= 0) { c.rest++; return; }
-    if (fd.jit_inline_kind == JitInlineKind::Capture0) { c.cap0++; return; }
-    if (argc > 4) { c.argc_gt4++; return; }
-    if ((uint32_t)fd.jit_param_count != argc || fd.jit_locals_count < argc) { c.arity++; return; }
+    if (fd.jit_native_kind != 0) {
+        c.native++;
+        return;
+    }
+    if (fd.jit_func_idx < 0 || fd.jit_meta == nullptr) {
+        c.no_meta++;
+        return;
+    }
+    if (fd.jit_rest_param_index >= 0) {
+        c.rest++;
+        return;
+    }
+    if (fd.jit_inline_kind == JitInlineKind::Capture0) {
+        c.cap0++;
+        return;
+    }
+    if (argc > 4) {
+        c.argc_gt4++;
+        return;
+    }
+    if ((uint32_t)fd.jit_param_count != argc || fd.jit_locals_count < argc) {
+        c.arity++;
+        return;
+    }
     const uint32_t fillcount = fd.jit_locals_count - argc;
     c.fill[fillcount < 8 ? fillcount : 8]++;
-    if (fillcount <= 8) c.eligible++;
+    if (fillcount <= 8) {
+        c.eligible++;
+    }
 }
-
 
 // fast-dispatch call when caller loaded the function from a variable (not a statically-resolved global)
 // Diagnostic only (NARI_CALL_CENSUS=1): which callees dominate dynamic dispatch.
@@ -1270,9 +1317,8 @@ void jit_call_value(VM *vm, uint32_t argc, uint32_t callee_label_idx) {
 
 uint64_t jit_string_char_code_at(void *string_obj, int64_t index) {
     const std::string &text = static_cast<StringObj *>(string_obj)->s;
-    const int64_t code = index >= 0 && index < static_cast<int64_t>(text.size())
-                             ? static_cast<unsigned char>(text[static_cast<size_t>(index)])
-                             : -1;
+    const int64_t code =
+        index >= 0 && index < static_cast<int64_t>(text.size()) ? static_cast<unsigned char>(text[static_cast<size_t>(index)]) : -1;
     return Value::make_int(code).raw_bits();
 }
 
@@ -1290,8 +1336,8 @@ uint64_t jit_string_code_point_at(void *vmp, void *string_obj, int64_t index) {
 
 uint64_t jit_js_length(void *heap_obj) {
     auto *header = static_cast<HeapHeader *>(heap_obj);
-    const size_t size = header->type_tag == ValueTag::Array ? static_cast<ArrayObj *>(heap_obj)->v.size()
-                                                            : static_cast<StringObj *>(heap_obj)->s.size();
+    const size_t size =
+        header->type_tag == ValueTag::Array ? static_cast<ArrayObj *>(heap_obj)->v.size() : static_cast<StringObj *>(heap_obj)->s.size();
     return Value::make_int(static_cast<int64_t>(size)).raw_bits();
 }
 
@@ -2172,7 +2218,10 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
             vm->push(Value::none());
         } else {
             // a handle is not it's result
-            fprintf(stderr, "RuntimeError: unknown handle member '%s' (valid: await, ready, failed, error, status_code, duration)\n", name.c_str());
+            fprintf(
+                stderr, "RuntimeError: unknown handle member '%s' (valid: await, ready, failed, error, status_code, duration)\n",
+                name.c_str()
+            );
             vm->has_error = true;
             vm->push(Value::none());
         }
@@ -2206,7 +2255,6 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
         }
     }
 }
-
 
 void jit_set_property(VM *vm, uint32_t name_idx) {
     const std::string &name = vm->chunk->strings[name_idx];
@@ -2352,8 +2400,7 @@ namespace jit {
 // padding.
 bool stl_layouts_ok() {
     static const bool ok = [] {
-        bool good = stl::null_is_all_zero<CellRef>() && stl::null_is_all_zero<CapturesList>() &&
-                    sizeof(CapturesList) == 2 * sizeof(void *);
+        bool good = stl::null_is_all_zero<CellRef>() && stl::null_is_all_zero<CapturesList>() && sizeof(CapturesList) == 2 * sizeof(void *);
         if (!good) {
             fprintf(stderr, "nari: smart-pointer ABI check failed; JIT disabled (interpreter only)\n");
         }
