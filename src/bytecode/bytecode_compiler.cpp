@@ -13,8 +13,11 @@
 using namespace nari;
 
 // NumberExpr promotes out-of-int48 integer literals to float at parse time using its own copy of the int48 bounds
-static_assert(NumberExpr::AST_INT48_MIN == Value::INT48_MIN && NumberExpr::AST_INT48_MAX == Value::INT48_MAX,
-              "ast.h NumberExpr int48 bounds must match Value::INT48_MIN/MAX");
+static_assert(
+    NumberExpr::AST_INT48_MIN == Value::INT48_MIN &&
+    NumberExpr::AST_INT48_MAX == Value::INT48_MAX,
+    "ast.h NumberExpr int48 bounds must match Value::INT48_MIN/MAX"
+);
 
 namespace nari {
 namespace bytecode {
@@ -52,8 +55,9 @@ struct CompilerContext {
     CompilerContext(FunctionMeta *f, Chunk *c) : function(f), chunk(c), local_count(0) {
     }
 
-    // Block scoping. `locals` is one entry per name for the whole function and slots are never reused,
-    // so only the name -> slot mapping needs unwinding at the end of a block.
+    // Block scoping. 
+    // `locals` is one entry per name for the whole function and slots are never reused,
+    // so only the name to slot mapping needs unwinding at the end of a block.
     struct ShadowedBinding {
         std::string name;
         uint16_t prev_slot;
@@ -96,14 +100,13 @@ struct CompilerContext {
         }
     }
 
-    // Slots of this function's locals that some inner closure captures. Loops consult
-    // this to decide whether they need OP_CLOSE_UPVALUES: a loop whose locals nobody
-    // captures cannot alias cells across iterations, so it stays free of the extra op.
+    // Slots of this function's locals that some inner closure captures. 
+    // Loops check this to decide whether they need OP_CLOSE_UPVALUES
     std::vector<uint8_t> captured_locals;
 
     void note_local_captured(uint16_t slot) {
         if (captured_locals.size() <= slot) {
-            captured_locals.resize((size_t)slot + 1, 0);
+            captured_locals.resize(slot + 1, 0);
         }
         captured_locals[slot] = 1;
     }
@@ -118,18 +121,19 @@ struct CompilerContext {
     }
 
     uint16_t declare_local(const std::string &name) {
-        if (local_count >= 0xFFFE) {
+        if (local_count > 65534) {
             fprintf(stderr, "error: too many local variables in function (max 65534)!\n");
             return 0xFFFF;
         }
         if (!scope_marks.empty()) {
             auto it = locals.find(name);
-            ShadowedBinding s;
-            s.name = name;
-            s.had_prev = it != locals.end();
-            s.prev_slot = s.had_prev ? it->second : 0;
-            s.prev_const = const_locals.count(name) != 0;
-            s.prev_lexical = lexical_bindings.count(name) != 0;
+            ShadowedBinding s {
+                .name = name,
+                .prev_slot = it != locals.end() ? it->second : 0,
+                .had_prev = it != locals.end(),
+                .prev_const = const_locals.count(name) != 0,
+                .prev_lexical = lexical_bindings.count(name) != 0,
+            };
             shadow_stack.push_back(std::move(s));
         }
         uint16_t idx = local_count++;
@@ -245,7 +249,6 @@ class Compiler {
     // stack of { break_patches, continue_target } for nested loops
     struct LoopInfo {
         // continue_target == kContinueForward means the target isn't known yet
-        // (C-style for: continue lands on the post clause, which is emitted after the body)
         static constexpr size_t kContinueForward = SIZE_MAX;
         std::vector<size_t> break_patches;
         std::vector<size_t> continue_patches;
@@ -256,7 +259,7 @@ class Compiler {
 
     bool is_main_scope;               // true when compiling the <main> function body
     int try_depth = 0;                // nesting depth of try blocks (TCO forbidden when > 0)
-    bool strict_mode = false;         // true when the current source file has "use strict" at the top level
+    bool strict_mode = false;         // true when the current file has "use strict" at the top level
     std::string current_return_type_; // e.g. "int", "string", "bool"
     std::set<std::string> global_consts;
 #ifdef NARI_EXTENDED_JSRT
@@ -265,11 +268,7 @@ class Compiler {
 
     void compile_expr(const Expr *expr);
     // Ends a loop iteration by dropping the upvalue cells for locals the loop declared,
-    // so the next iteration's closures capture fresh cells. Nari otherwise caches one
-    // cell per slot for the whole frame, which made every iteration's closure share it
-    // (`for (let i..) fns.push(func(){return i;})` yielded 3,3,3 instead of 0,1,2).
-    // Emitted only when an inner closure really captures one of those locals, keeping
-    // the op off loops that cannot alias.
+    // so the next iteration's closures capture fresh cells.
     void emit_close_upvalues_for_loop(uint16_t first_slot) {
         if (!ctx->any_captured_local_at_or_above(first_slot)) {
             return;
@@ -279,8 +278,8 @@ class Compiler {
 
     void compile_stmt(const Stmt *stmt);
     // FnLike is nari::Function or nari::ClassMethod: both expose
-    // name/params/body/return_type/filename/line. Strict-mode annotation
-    // enforcement applies to Function only (see definition).
+    // name/params/body/return_type/filename/line.
+    // Strict-mode annotation enforcement applies to Function only (see definition).
     template <typename FnLike> void compile_function_body(const FnLike *func, FunctionMeta &meta);
     void compile_classes();
     void emit_js_truthy();
@@ -763,9 +762,6 @@ void Compiler::compile_expr(const Expr *expr) {
     }
 
     if (auto *var = dynamic_cast<const IdentExpr *>(expr)) {
-        // Local declarations shadow captured upvalues with the same name.
-        // (A `let x = ...;` inside a function body must override an outer `x`
-        //  that happened to be captured at function-entry capture-collection.)
         uint16_t idx = ctx->resolve_local(var->name);
         if (idx != 0xFFFF) {
             ctx->emit_op_short(OpCode::OP_LOAD_VAR, idx);
@@ -778,7 +774,7 @@ void Compiler::compile_expr(const Expr *expr) {
             return;
         }
         if (Parser::get_registered_type(var->name) || Parser::is_registered_class(var->name)) {
-            // Registered type names resolve at compile time to a string constant
+            // registered type names resolve at compile time to a string constant
             // so precompiled .naric files work without needing the parser's type registry at runtime.
             uint32_t str_idx = chunk->add_string(var->name);
             uint16_t const_idx = ctx->add_constant(Constant::make_string(str_idx));
@@ -994,8 +990,7 @@ void Compiler::compile_expr(const Expr *expr) {
 
     if (auto *obj = dynamic_cast<const ObjectLiteralExpr *>(expr)) {
         if (obj->has_spread) {
-            // Build object incrementally: start with empty object, set/spread each
-            // entry
+            // build object incrementally
             ctx->emit_op_short(OpCode::OP_MAKE_OBJECT, 0);
             for (const auto &[key, value] : obj->entries) {
                 if (key.empty()) {
@@ -2063,12 +2058,12 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         // Single-variable for-in is desugared onto an index loop over hidden locals
         if (!is_kv) {
             // Desugar `for (v in iterable) { body }` into:
-            //     __arr = normalize(iterable)   ; OP_ITER_ARRAY (array->self, obj->keys)
+            //     __arr = normalize(iterable)               ; OP_ITER_ARRAY (array->self, obj->keys)
             //     __idx = -1
             //   loop_start (continue target):
-            //     __idx = __idx + 1             ; increment-first keeps `continue`
-            //                                     a backward jump to the top
-            //     if !(__idx < __arr.length) goto exit   ; length re-read each iteration
+            //     __idx = __idx + 1                         ; increment-first keeps `continue`
+            //                                                  a backward jump to the top
+            //     if !(__idx < __arr.length) goto exit      ; length re-read each iteration
             //     v = __arr[__idx]
             //     body
             //     goto loop_start
@@ -2174,8 +2169,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         size_t exit_jump = ctx->emit_jump(OpCode::OP_JUMP_IF_FALSE);
 
         if (is_kv) {
-            // stack: [..., pairs, index, key, value]
-            // store value first (it's on top), then key
+            // stack looks like [..., pairs, index, key, value]
             ctx->emit_op_short(OpCode::OP_STORE_VAR, val_idx);
             ctx->emit_op(OpCode::OP_POP);
             ctx->emit_op_short(OpCode::OP_STORE_VAR, var_idx);
@@ -2299,17 +2293,14 @@ template <typename FnLike> void Compiler::compile_function_body(const FnLike *fu
     meta.strict_mode = strict_mode;
     meta.source_file = func->filename;
 
-    // Seed the line map with the function's definition line so that errors inside the parameter-check preamble point at
-    // the function header.
+    // Seed the line map with the function's definition line 
+    // so that errors inside the parameter-check preamble point at the function header.
     if (func->line > 0) {
         ctx->emit_line(func->line);
     }
 
-    // strict mode enforcement: named non-lambda functions MUST have type annotations on all non-rest, non-ignored
-    // parameters and a return type. Lambdas/anonymous functions and internal compiler-generated functions are exempt.
-    // Class methods are exempt: before methods were compiled they ran on the AST
-    // interpreter, which never enforced this. Applying it now would exit(1) on
-    // existing strict-mode code with un-annotated methods.
+    // strict mode enforcement: named non-lambda functions
+    // MUST have type annotations on all non-rest, non-ignored parameters and a return type.
     if constexpr (is_plain_function) {
     if (strict_mode && !meta.is_lambda && !func->name.empty() && func->name.find("__top_level__") == std::string::npos &&
         func->name.find("__module_") == std::string::npos) {
@@ -2338,7 +2329,7 @@ template <typename FnLike> void Compiler::compile_function_body(const FnLike *fu
     }
     } // if constexpr (is_plain_function)
 
-    // Track return type for OP_RETURN injection.
+    // track return type for OP_RETURN injection.
     std::string saved_return_type = current_return_type_;
     current_return_type_ = (strict_mode && func->return_type) ? func->return_type->name : "";
     // Store the JIT vt of the return value for call-site optimization.
@@ -2356,8 +2347,8 @@ template <typename FnLike> void Compiler::compile_function_body(const FnLike *fu
     }
     collect_bindings(func->body.get(), ctx->lexical_bindings);
 
-    // In strict mode: emit a type check for each typed parameter right after
-    // the function frame is set up (before any user code runs).
+    // in strict mode: emit a type check for each typed parameter right after
+    // the function frame is set up.
     //  LOAD_VAR(i)  CHECK_TYPE(type_str, 0)  STORE_VAR(i)  POP
     // context byte 0 = parameter check
     if (strict_mode) {
@@ -2414,14 +2405,12 @@ template <typename FnLike> void Compiler::compile_function_body(const FnLike *fu
     ctx = saved_ctx;
 }
 
-// Compile every registered class into chunk functions, so the VM never has to
-// walk method ASTs. Per class we emit:
+// Compile every registered class into chunk functions.
+// Per class we emit:
 //   - one function per declared method (instance, static, and the 'init' ctor,
 //     which is separately callable as a normal method: `a.init(x)` works)
-//   - C.__init__  : field defaults, then a forward call to 'init' if present
-//   - C.__static_init__ : static field defaults (only when some static has one)
-// Dispatch keys off the ClassMethod/ClassDecl pointer (see Chunk), so inherited
-// methods resolve without name mangling.
+//   - <Class>.__init__  : field defaults, then a forward call to 'init' if present
+//   - <Class>.__static_init__ : static field defaults (only when some static has one)
 void Compiler::compile_classes() {
     for (const auto &entry : Parser::get_all_registered_classes()) {
         const nari::ClassDecl *cd = entry.second;
@@ -2447,7 +2436,7 @@ void Compiler::compile_classes() {
             chunk->functions.push_back(std::move(meta));
         }
 
-        // C.__init__: run field defaults against `this`, then forward to the ctor.
+        // <Class>.__init__: run field defaults against `this`, then forward to the ctor.
         // Fields come from bc_collect_all_fields so inherited fields are included,
         // in the same parent-first order the ClassLayout uses.
         std::vector<const nari::ClassField *> all_fields;
@@ -2513,7 +2502,7 @@ void Compiler::compile_classes() {
             chunk->functions.push_back(std::move(meta));
         }
 
-        // C.__static_init__: `C.field = <default>` per static field with a default.
+        // <Class>.__static_init__: `<Class>.field = <default>` per static field with a default.
         // Assigning through the class name is what user code already compiles to
         // (OP_SET_PROPERTY's is_string branch writes Parser::get_static_fields()).
         bool any_static_default = false;
@@ -2744,8 +2733,12 @@ Chunk *Compiler::compile(const FuncList &functions) {
             typeInfo.alias_target = decl->alias_target->name;
         }
         for (const auto &field : decl->fields) {
-            typeInfo.fields.emplace_back(field.name, field.type ? field.type->name : "number", field.type ? field.type->is_array : false,
-                                         field.type ? field.type->fixed_array_count : 0);
+            typeInfo.fields.emplace_back(
+                field.name, 
+                field.type ? field.type->name : "number", 
+                field.type ? field.type->is_array : false,
+                field.type ? field.type->fixed_array_count : 0
+            );
         }
         chunk->types.push_back(std::move(typeInfo));
     }
@@ -2756,8 +2749,7 @@ Chunk *Compiler::compile(const FuncList &functions) {
 Chunk *compile_bytecode(const FuncList &functions) {
     Compiler compiler;
     Chunk *chunk = compiler.compile(functions);
-    // TODO: this should be removed!
-    if (chunk != nullptr && getenv("NARI_NO_VERIFY") == nullptr) {
+    if (chunk != nullptr) {
         if (!BytecodeVerifier::verify(*chunk)) {
             delete chunk;
             return nullptr;
