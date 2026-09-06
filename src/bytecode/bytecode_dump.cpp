@@ -14,28 +14,28 @@ void dump_chunk(const Chunk &chunk) {
 
     printf("\nFunctions: %zu (main = #%u)\n", chunk.functions.size(), chunk.main_func_idx);
 
-    for (size_t fi = 0; fi < chunk.functions.size(); fi++) {
-        const auto &func = chunk.functions[fi];
-        printf("\n--- Function #%zu: %s ---\n", fi, func.name.c_str());
+    for (size_t func_idx = 0; func_idx < chunk.functions.size(); func_idx++) {
+        const auto &func = chunk.functions[func_idx];
+        printf("\n--- Function #%zu: %s ---\n", func_idx, func.name.c_str());
         printf(
             "  params: %u, captures: %u, rest_param: %d, lambda: %s\n", func.param_count, func.capture_count, func.rest_param_index,
             func.is_lambda ? "yes" : "no"
         );
         printf("  locals: %zu [", func.var_names.size());
-        for (size_t i = 0; i < func.var_names.size(); i++) {
-            if (i > 0) {
+        for (size_t var_idx = 0; var_idx < func.var_names.size(); var_idx++) {
+            if (var_idx > 0) {
                 printf(", ");
             }
-            printf("%s", func.var_names[i].c_str());
+            printf("%s", func.var_names[var_idx].c_str());
         }
         printf("]\n");
 
         printf("  constants: %zu\n", func.constants.size());
-        for (size_t i = 0; i < func.constants.size(); i++) {
-            const auto &constant = func.constants[i];
-            printf("  [%zu] ", i);
+        for (size_t constants_idx = 0; constants_idx < func.constants.size(); constants_idx++) {
+            const auto &constant = func.constants[constants_idx];
+            printf("  [%zu] ", constants_idx);
             switch (constant.type) {
-                typedef nari::bytecode::Constant::Type CType;
+                typedef bytecode::Constant::Type CType;
                 case CType::NONE:
                     printf("none\n");
                     break;
@@ -45,7 +45,6 @@ void dump_chunk(const Chunk &chunk) {
 #else
                     printf("int(%ld)\n", constant.as_int);
 #endif
-
                     break;
                 case CType::FLOAT:
                     printf("float(%g)\n", constant.as_float);
@@ -71,16 +70,16 @@ void dump_chunk(const Chunk &chunk) {
 
             if (op == OpCode::OP_MAKE_CLOSURE) {
                 // variable-length: 2 (func_idx) + 2 (capture_count) + N*3
-                uint16_t fidx = (func.code[ip] << 8) | func.code[ip + 1];
+                uint16_t func_idx = (func.code[ip] << 8) | func.code[ip + 1];
                 ip += 2;
-                uint16_t ncap = (func.code[ip] << 8) | func.code[ip + 1];
+                uint16_t capture_count = (func.code[ip] << 8) | func.code[ip + 1];
                 ip += 2;
-                printf("%-16s func=#%u captures=%u\n", opcode_name(op), fidx, ncap);
-                for (uint16_t ci = 0; ci < ncap; ci++) {
+                printf("%-16s func=#%u captures=%u\n", opcode_name(op), func_idx, capture_count);
+                for (uint16_t capture_index = 0; capture_index < capture_count; capture_index++) {
                     uint8_t src = func.code[ip++];
                     uint16_t idx = (func.code[ip] << 8) | func.code[ip + 1];
                     ip += 2;
-                    printf("  capture[%u]: %s #%u\n", ci, src == 0 ? "local" : src == 1 ? "upvalue" : "global", idx);
+                    printf("  capture[%u]: %s #%u\n", capture_index, src == 0 ? "local" : src == 1 ? "upvalue" : "global", idx);
                 }
             } else if (operand_size == 0) {
                 printf("%s\n", opcode_name(op));
@@ -150,8 +149,8 @@ void dump_chunk(const Chunk &chunk) {
                 ip += 2;
                 uint16_t b = (func.code[ip] << 8) | func.code[ip + 1];
                 ip += 2;
-                int16_t sa = (int16_t)a;
-                int16_t sb = (int16_t)b;
+                int16_t sa = a;
+                int16_t sb = b;
                 printf("%-16s catch=%+d (-> %04zu) finally=%+d (-> %04zu)\n", opcode_name(op), sa, ip + sa, sb, ip + sb);
             }
         }
