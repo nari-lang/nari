@@ -321,7 +321,7 @@ class BytecodeSerializer {
         std::vector<uint8_t> result;
         result.reserve(code.size());
         for (size_t pc = 0; pc < code.size();) {
-            OpCode op = static_cast<OpCode>(code[pc]);
+            OpCode op = (OpCode)code[pc];
             size_t size = decoded_instruction_size(code, pc);
             if (size == 0) {
                 result.insert(result.end(), code.begin() + pc, code.end());
@@ -343,7 +343,7 @@ class BytecodeSerializer {
         code.reserve(length);
         for (size_t pc = 0; pc < length;) {
             uint8_t encoded_op = data[pc];
-            OpCode alias_op = static_cast<OpCode>(encoded_op & 0x7f);
+            OpCode alias_op = (OpCode)(encoded_op & 0x7f);
             if ((encoded_op & 0x80) != 0 && has_compact_u16_alias(alias_op)) {
                 if (pc + 2 > length || code.size() > (1u << 26) - 3) {
                     throw DeserializeError{};
