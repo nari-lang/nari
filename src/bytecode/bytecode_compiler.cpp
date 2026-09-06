@@ -128,7 +128,7 @@ struct CompilerContext {
             auto it = locals.find(name);
             ShadowedBinding s{
                 .name = name,
-                .prev_slot = it != locals.end() ? it->second : 0,
+                .prev_slot = (uint16_t)(it != locals.end() ? it->second : 0),
                 .had_prev = it != locals.end(),
                 .prev_const = const_locals.count(name) != 0,
                 .prev_lexical = lexical_bindings.count(name) != 0,
