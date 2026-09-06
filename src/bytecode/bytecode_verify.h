@@ -18,16 +18,16 @@ namespace bytecode {
 class BytecodeVerifier {
   public:
     static bool verify(const Chunk &chunk) {
-        const size_t n_funcs = chunk.functions.size();
-        const size_t n_strs = chunk.strings.size();
+        const size_t num_funcs = chunk.functions.size();
+        const size_t num_strs = chunk.strings.size();
 
-        if (chunk.main_func_idx >= n_funcs) {
+        if (chunk.main_func_idx >= num_funcs) {
             fail("main_func_idx out of range");
             return false;
         }
 
-        for (size_t fi = 0; fi < n_funcs; fi++) {
-            if (!verify_function(chunk, chunk.functions[fi], n_strs, n_funcs, fi)) {
+        for (size_t func_idx = 0; func_idx < num_funcs; func_idx++) {
+            if (!verify_function(chunk, chunk.functions[func_idx], num_strs, num_funcs, func_idx)) {
                 return false;
             }
         }
@@ -56,11 +56,11 @@ class BytecodeVerifier {
     }
 
     static uint16_t read_u16_be(const uint8_t *p) {
-        return (static_cast<uint16_t>(p[0]) << 8) | static_cast<uint16_t>(p[1]);
+        return ((uint16_t)(p[0]) << 8) | ((uint16_t)(p[1]));
     }
 
     static int16_t read_i16_be(const uint8_t *p) {
-        return static_cast<int16_t>(read_u16_be(p));
+        return (int16_t)read_u16_be(p);
     }
 
     // pc -> instruction index, as a flat table indexed by byte offset rather than a hash map.
@@ -72,7 +72,7 @@ class BytecodeVerifier {
     }
 
     static int64_t jump_target_after_operand(size_t operand_pc, size_t operand_size, int16_t rel) {
-        return static_cast<int64_t>(operand_pc) + static_cast<int64_t>(operand_size) + static_cast<int64_t>(rel);
+        return (int64_t)operand_pc + (int64_t)operand_size + (int64_t)rel;
     }
 
     static bool add_successor(
@@ -209,22 +209,22 @@ class BytecodeVerifier {
                 return set_delta(0, 0);
 
             case OpCode::OP_MAKE_ARRAY:
-                return set_delta(static_cast<int>(insn.u16_a), 1);
+                return set_delta(insn.u16_a, 1);
 
             case OpCode::OP_MAKE_OBJECT:
-                return set_delta(static_cast<int>(insn.u16_a) * 2, 1);
+                return set_delta(insn.u16_a * 2, 1);
 
             case OpCode::OP_CALL:
-                return set_delta(static_cast<int>(insn.u8_a) + 1, 1);
+                return set_delta(insn.u8_a + 1, 1);
 
             case OpCode::OP_SELF_TAIL_CALL:
-                return set_delta(static_cast<int>(insn.u8_a), 0);
+                return set_delta(insn.u8_a, 0);
 
             case OpCode::OP_NEW_INSTANCE:
-                return set_delta(static_cast<int>(insn.u8_a), 1);
+                return set_delta(insn.u8_a, 1);
 
             case OpCode::OP_CALL_METHOD:
-                return set_delta(static_cast<int>(insn.u8_a) + 1, 1);
+                return set_delta(insn.u8_a + 1, 1);
 
             case OpCode::OP_CALL_SPREAD:
                 return set_delta(2, 1);
@@ -297,7 +297,7 @@ class BytecodeVerifier {
                 const size_t after_branch_pc = branch.pc + branch.size;
 
                 if (!add_successor(
-                        where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), false_height, branch.pc
+                        where, insns, pc_to_index, code_size, work, height_at, target, false_height, branch.pc
                     )) {
                     return false;
                 }
@@ -326,7 +326,7 @@ class BytecodeVerifier {
                 case OpCode::OP_JUMP: {
                     int64_t target = jump_target_after_operand(insn.operand_pc, 2, insn.jump_a);
                     if (!add_successor(
-                            where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), out_height, insn.pc
+                            where, insns, pc_to_index, code_size, work, height_at, target, out_height, insn.pc
                         )) {
                         return false;
                     }
@@ -338,7 +338,7 @@ class BytecodeVerifier {
                 case OpCode::OP_JUMP_IF_NONE: {
                     int64_t target = jump_target_after_operand(insn.operand_pc, 2, insn.jump_a);
                     if (!add_successor(
-                            where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(target), out_height, insn.pc
+                            where, insns, pc_to_index, code_size, work, height_at, target, out_height, insn.pc
                         )) {
                         return false;
                     }
@@ -357,17 +357,17 @@ class BytecodeVerifier {
                     if (!add_successor(where, insns, pc_to_index, code_size, work, height_at, next_pc, out_height, insn.pc)) {
                         return false;
                     }
-                    if (catch_target != static_cast<int64_t>(next_pc) && catch_target != static_cast<int64_t>(code_size)) {
+                    if (catch_target != (int64_t)next_pc && catch_target != (int64_t)code_size) {
                         if (!add_successor(
-                                where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(catch_target), out_height + 1,
+                                where, insns, pc_to_index, code_size, work, height_at, catch_target, out_height + 1,
                                 insn.pc
                             )) {
                             return false;
                         }
                     }
-                    if (finally_target != static_cast<int64_t>(next_pc) && finally_target != static_cast<int64_t>(code_size)) {
+                    if (finally_target != (int64_t)next_pc && finally_target != (int64_t)code_size) {
                         if (!add_successor(
-                                where, insns, pc_to_index, code_size, work, height_at, static_cast<size_t>(finally_target), out_height,
+                                where, insns, pc_to_index, code_size, work, height_at, finally_target, out_height,
                                 insn.pc
                             )) {
                             return false;
@@ -415,7 +415,7 @@ class BytecodeVerifier {
             InsnInfo info;
             info.pc = pc;
             info.op_byte = code[pc];
-            info.op = static_cast<OpCode>(info.op_byte);
+            info.op = (OpCode)info.op_byte;
 #ifndef NARI_EXTENDED_JSRT
             if (info.op >= OpCode::OP_JS_BIT_AND && info.op <= OpCode::OP_JS_USHR) {
                 fail(where, info.pc, "extended JSRT opcode is disabled in this runtime");
@@ -427,10 +427,10 @@ class BytecodeVerifier {
 
             const int osz = opcode_operand_size(info.op);
             if (osz < 0) {
-                fail(where, info.pc, "unknown opcode " + std::to_string(static_cast<int>(info.op_byte)));
+                fail(where, info.pc, "unknown opcode " + std::to_string((int)info.op_byte));
                 return false;
             }
-            if (pc + static_cast<size_t>(osz) > n_code) {
+            if (pc + (size_t)osz > n_code) {
                 fail(where, info.pc, "operand bytes truncated by end of code");
                 return false;
             }
@@ -536,7 +536,7 @@ class BytecodeVerifier {
                 case OpCode::OP_JUMP_IF_NONE: {
                     info.jump_a = read_i16_be(&code[pc]);
                     int64_t target = jump_target_after_operand(pc, 2, info.jump_a);
-                    if (target < 0 || target > static_cast<int64_t>(n_code)) {
+                    if (target < 0 || target > (int64_t)n_code) {
                         fail(where, info.pc, "jump target outside function body");
                         return false;
                     }
@@ -547,11 +547,11 @@ class BytecodeVerifier {
                     info.jump_b = read_i16_be(&code[pc + 2]);
                     int64_t catch_tgt = jump_target_after_operand(pc, 4, info.jump_a);
                     int64_t finally_tgt = jump_target_after_operand(pc, 4, info.jump_b);
-                    if (catch_tgt < 0 || catch_tgt > static_cast<int64_t>(n_code)) {
+                    if (catch_tgt < 0 || catch_tgt > (int64_t)n_code) {
                         fail(where, info.pc, "OP_SETUP_TRY: catch target out of range");
                         return false;
                     }
-                    if (finally_tgt < 0 || finally_tgt > static_cast<int64_t>(n_code)) {
+                    if (finally_tgt < 0 || finally_tgt > (int64_t)n_code) {
                         fail(where, info.pc, "OP_SETUP_TRY: finally target out of range");
                         return false;
                     }
@@ -565,7 +565,7 @@ class BytecodeVerifier {
                         return false;
                     }
                     uint16_t cap_count = read_u16_be(&code[pc + 2]);
-                    if (pc + 4 + static_cast<size_t>(cap_count) * 3 > n_code) {
+                    if (pc + 4 + (size_t)cap_count * 3 > n_code) {
                         fail(where, info.pc, "OP_MAKE_CLOSURE: capture descriptors truncated");
                         return false;
                     }
@@ -592,9 +592,9 @@ class BytecodeVerifier {
                             return false;
                         }
                     }
-                    info.size = 1 + 4 + static_cast<size_t>(cap_count) * 3;
-                    pc += 4 + static_cast<size_t>(cap_count) * 3;
-                    pc_to_index[info.pc] = static_cast<uint32_t>(insns.size());
+                    info.size = 1 + 4 + (size_t)cap_count * 3;
+                    pc += 4 + (size_t)cap_count * 3;
+                    pc_to_index[info.pc] = (uint32_t)insns.size();
                     insns.push_back(info);
                     continue;
                 }
@@ -626,9 +626,9 @@ class BytecodeVerifier {
                     break;
             }
 
-            info.size = 1 + static_cast<size_t>(osz);
-            pc += static_cast<size_t>(osz);
-            pc_to_index[info.pc] = static_cast<uint32_t>(insns.size());
+            info.size = 1 + (size_t)osz;
+            pc += (size_t)osz;
+            pc_to_index[info.pc] = (uint32_t)insns.size();
             insns.push_back(info);
         }
 
@@ -643,7 +643,7 @@ class BytecodeVerifier {
                 case OpCode::OP_JUMP_IF_FALSE:
                 case OpCode::OP_JUMP_IF_TRUE:
                 case OpCode::OP_JUMP_IF_NONE: {
-                    size_t target = static_cast<size_t>(jump_target_after_operand(insn.operand_pc, 2, insn.jump_a));
+                    size_t target = (size_t)jump_target_after_operand(insn.operand_pc, 2, insn.jump_a);
                     if (!is_instruction_boundary(target, pc_to_index, n_code)) {
                         fail(where, insn.pc, "jump target is not an instruction boundary");
                         return false;
@@ -651,8 +651,8 @@ class BytecodeVerifier {
                     break;
                 }
                 case OpCode::OP_SETUP_TRY: {
-                    size_t catch_target = static_cast<size_t>(jump_target_after_operand(insn.operand_pc, 4, insn.jump_a));
-                    size_t finally_target = static_cast<size_t>(jump_target_after_operand(insn.operand_pc, 4, insn.jump_b));
+                    size_t catch_target = (size_t)jump_target_after_operand(insn.operand_pc, 4, insn.jump_a);
+                    size_t finally_target = (size_t)jump_target_after_operand(insn.operand_pc, 4, insn.jump_b);
                     if (!is_instruction_boundary(catch_target, pc_to_index, n_code)) {
                         fail(where, insn.pc, "OP_SETUP_TRY: catch target is not an instruction boundary");
                         return false;
