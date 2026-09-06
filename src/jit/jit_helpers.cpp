@@ -38,7 +38,8 @@ static void jit_dispatch_script_throw(VM *vm, Value error) {
     }
 }
 
-template <typename Call> static auto jit_runtime_call(VM *vm, Call &&call) -> decltype(call()) {
+template <typename Call>
+static auto jit_runtime_call(VM *vm, Call &&call) -> decltype(call()) {
     try {
         auto result = call();
         if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
@@ -58,7 +59,8 @@ template <typename Call> static auto jit_runtime_call(VM *vm, Call &&call) -> de
     }
 }
 
-template <typename Call> static void jit_runtime_call_void(VM *vm, Call &&call) {
+template <typename Call>
+static void jit_runtime_call_void(VM *vm, Call &&call) {
     try {
         call();
         if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {

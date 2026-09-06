@@ -279,7 +279,8 @@ class Compiler {
     // FnLike is nari::Function or nari::ClassMethod: both expose
     // name/params/body/return_type/filename/line.
     // Strict-mode annotation enforcement applies to Function only (see definition).
-    template <typename FnLike> void compile_function_body(const FnLike *func, FunctionMeta &meta);
+    template <typename FnLike>
+    void compile_function_body(const FnLike *func, FunctionMeta &meta);
     void compile_classes();
     void emit_js_truthy();
     void collect_idents(const Stmt *stmt, std::set<std::string> &idents);
@@ -2298,7 +2299,8 @@ void Compiler::compile_stmt(const Stmt *stmt) {
     fprintf(stderr, "unhandled statement type\n");
 }
 
-template <typename FnLike> void Compiler::compile_function_body(const FnLike *func, FunctionMeta &meta) {
+template <typename FnLike>
+void Compiler::compile_function_body(const FnLike *func, FunctionMeta &meta) {
     constexpr bool is_plain_function = std::is_same<FnLike, Function>::value;
 
     CompilerContext context(&meta, chunk);

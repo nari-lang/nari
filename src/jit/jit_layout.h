@@ -12,7 +12,8 @@
 namespace nari {
 namespace jit {
 
-template <typename T, typename M> static inline int64_t field_offset(M T::*mp) {
+template <typename T, typename M>
+static inline int64_t field_offset(M T::*mp) {
     alignas(T) char buf[sizeof(T)];
     T *obj = new (buf) T{};
     int64_t off = reinterpret_cast<const char *>(&(obj->*mp)) - reinterpret_cast<const char *>(obj);
@@ -20,9 +21,11 @@ template <typename T, typename M> static inline int64_t field_offset(M T::*mp) {
     return off;
 }
 
-template <typename> struct member_pointer_traits;
+template <typename>
+struct member_pointer_traits;
 
-template <typename T, typename M> struct member_pointer_traits<M T::*> {
+template <typename T, typename M>
+struct member_pointer_traits<M T::*> {
     using class_type = T;
     using member_type = M;
 };

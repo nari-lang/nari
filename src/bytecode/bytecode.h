@@ -119,8 +119,7 @@ namespace bytecode {
     X(JS_SET_PROP_STATIC, 2, false)                                                                                                        \
     X(JS_POSTINC, 2, false)                                                                                                                \
     /* CLOSE_UPVALUES <first_slot>: drop this frame's open upvalue cells for locals   */                                                   \
-    /* at or above first_slot, so a re-entered scope (loop iteration) hands fresh     */                                                   \
-    /* cells to new closures instead of aliasing the previous iteration's.            */                                                   \
+    /* at or above first_slot */                                                                                                           \
     X(CLOSE_UPVALUES, 2, false)
 
 enum class OpCode : uint8_t {
@@ -142,7 +141,7 @@ inline constexpr OpcodeInfo OPCODE_INFO[] = {
 };
 
 inline constexpr const OpcodeInfo *opcode_info(OpCode op) {
-    size_t index = static_cast<size_t>(op);
+    size_t index = (size_t)op;
     return index < sizeof(OPCODE_INFO) / sizeof(OPCODE_INFO[0]) ? &OPCODE_INFO[index] : nullptr;
 }
 
@@ -168,7 +167,8 @@ inline size_t opcode_fixed_size(OpCode op) {
     return operands < 0 ? 0 : 1 + static_cast<size_t>(operands);
 }
 
-template <typename Bytecode> inline size_t decoded_instruction_size(const Bytecode &code, size_t pc) {
+template <typename Bytecode>
+inline size_t decoded_instruction_size(const Bytecode &code, size_t pc) {
     if (pc >= code.size()) {
         return 0;
     }

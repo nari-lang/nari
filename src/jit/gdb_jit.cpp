@@ -131,7 +131,8 @@ size_t align_up(size_t value, size_t alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
-template <typename T> void write_at(std::vector<char> &out, size_t offset, const T &value) {
+template <typename T>
+void write_at(std::vector<char> &out, size_t offset, const T &value) {
     if (out.size() < offset + sizeof(T)) {
         out.resize(offset + sizeof(T));
     }
