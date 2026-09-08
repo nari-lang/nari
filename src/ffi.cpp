@@ -18,7 +18,7 @@
 
 #ifndef _WIN32
 #include <dlfcn.h>
-#if !defined(__APPLE__)
+#ifndef __APPLE__
 #include <elf.h>
 #endif
 #endif

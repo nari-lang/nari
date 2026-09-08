@@ -51,7 +51,7 @@ using json = nlohmann::json;
 #include <unordered_set>
 #include <vector>
 
-#if defined(_WIN32)
+#ifdef _WIN32
 #include <combaseapi.h>
 #include <fcntl.h>
 #include <io.h>
@@ -1934,7 +1934,7 @@ extern std::string nari_std_prelude_source();
 
 // Returns the directory used for Nari user data (~/.nari or %APPDATA%/nari).
 static std::filesystem::path nari_data_dir() {
-#if defined(_WIN32)
+#ifdef _WIN32
     PWSTR path = nullptr;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &path))) {
         std::filesystem::path result = std::filesystem::path(path) / "nari";
@@ -4246,7 +4246,7 @@ class NariLspServer {
 };
 
 int main(int, char **) {
-#if defined(_WIN32)
+#ifdef _WIN32
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
 #endif

@@ -4,7 +4,7 @@
 #include <cctype>
 #include <utility>
 
-#if defined(NARI_WINDOWS_WIN7_COMPAT)
+#ifdef NARI_WINDOWS_WIN7_COMPAT
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -41,7 +41,7 @@ const std::string &Path::native() const {
     return value_;
 }
 
-#if defined(NARI_WINDOWS_WIN7_COMPAT)
+#ifdef NARI_WINDOWS_WIN7_COMPAT
 
 namespace {
 
