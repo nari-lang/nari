@@ -12,8 +12,8 @@
 
 namespace {
 
-constexpr size_t kSha1DigestSize = 20;
-constexpr size_t kSha256DigestSize = 32;
+constexpr size_t SHA1_DIGEST_SIZE = 20;
+constexpr size_t SHA256_DIGEST_SIZE = 32;
 
 std::string digest_to_hex(const unsigned char *digest, size_t size) {
     static constexpr char kHex[] = "0123456789abcdef";
@@ -27,8 +27,8 @@ std::string digest_to_hex(const unsigned char *digest, size_t size) {
     return out;
 }
 
-std::string sha256_to_hex(const unsigned char (&digest)[kSha256DigestSize]) {
-    return digest_to_hex(digest, kSha256DigestSize);
+std::string sha256_to_hex(const unsigned char (&digest)[SHA256_DIGEST_SIZE]) {
+    return digest_to_hex(digest, SHA256_DIGEST_SIZE);
 }
 
 } // namespace
@@ -55,14 +55,14 @@ Value ScriptRuntime::builtin_hash_sha1(const Value *argvals, size_t argc, const 
         }
     }
 
-    unsigned char digest[kSha1DigestSize];
+    unsigned char digest[SHA1_DIGEST_SIZE];
     if (mbedtls_sha1_finish(&ctx, digest) != 0) {
         mbedtls_sha1_free(&ctx);
         runtime_fatal("Hash.sha1: mbedtls_sha1_finish failed", call);
     }
 
     mbedtls_sha1_free(&ctx);
-    return Value::make_string(digest_to_hex(digest, kSha1DigestSize));
+    return Value::make_string(digest_to_hex(digest, SHA1_DIGEST_SIZE));
 }
 
 Value ScriptRuntime::builtin_hash_sha256(const Value *argvals, size_t argc, const nari::CallExpr *call) {
@@ -88,7 +88,7 @@ Value ScriptRuntime::builtin_hash_sha256(const Value *argvals, size_t argc, cons
         }
     }
 
-    unsigned char digest[kSha256DigestSize];
+    unsigned char digest[SHA256_DIGEST_SIZE];
     if (mbedtls_sha256_finish(&ctx, digest) != 0) {
         mbedtls_sha256_free(&ctx);
         runtime_fatal("Hash.sha256: mbedtls_sha256_finish failed", call);
@@ -143,7 +143,7 @@ Value ScriptRuntime::builtin_hash_sha256_file(const Value *argvals, size_t argc,
 
     std::fclose(fp);
 
-    unsigned char digest[kSha256DigestSize];
+    unsigned char digest[SHA256_DIGEST_SIZE];
     if (mbedtls_sha256_finish(&ctx, digest) != 0) {
         mbedtls_sha256_free(&ctx);
         runtime_fatal("Hash.sha256_file: mbedtls_sha256_finish failed", call);

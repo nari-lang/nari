@@ -235,7 +235,7 @@ Value ScriptRuntime::builtin_setTimeout(const Value *argvals, size_t argc, const
         if (argvals[1].is_int()) {
             delay_ms = argvals[1].get_int();
         } else if (argvals[1].is_float()) {
-            delay_ms = static_cast<int64_t>(argvals[1].get_float());
+            delay_ms = (int64_t)(argvals[1].get_float());
         }
 
         auto io_op = std::make_shared<IOOperation>(IOOperation::Type::Timer);
@@ -302,7 +302,7 @@ Value ScriptRuntime::builtin_setInterval(const Value *argvals, size_t argc, cons
         if (argvals[1].is_int()) {
             delay_ms = argvals[1].get_int();
         } else if (argvals[1].is_float()) {
-            delay_ms = static_cast<int64_t>(argvals[1].get_float());
+            delay_ms = (int64_t)(argvals[1].get_float());
         }
 
         IntervalData interval;
@@ -331,7 +331,7 @@ Value ScriptRuntime::builtin_math_sqrt(const Value *argvals, size_t argc, const 
     if (argc > 0) {
         double num = 0.0;
         if (argvals[0].is_int()) {
-            num = static_cast<double>(argvals[0].get_int());
+            num = (double)(argvals[0].get_int());
         } else if (argvals[0].is_float()) {
             num = argvals[0].get_float();
         }
@@ -619,7 +619,7 @@ Value ScriptRuntime::builtin_fs_listDir(const Value *argvals, size_t argc, const
 // Network builtins
 Value ScriptRuntime::builtin_net_createServer(const Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc >= 2) {
-        int port = static_cast<int>(argvals[0].as_number());
+        int port = (int)argvals[0].as_number();
         Value callback_val = argvals[1];
 
         auto listen_op = std::make_shared<TcpOperation>(IOOperation::Type::TcpListen);
@@ -707,7 +707,7 @@ Value ScriptRuntime::builtin_net_conn_read(const Value *argvals, size_t argc, co
         const ObjectObj *conn = argvals[0].get_obj_ptr();
         const Value *fd_v = conn->get_field("fd");
         if (fd_v && fd_v->is_int()) {
-            int fd = static_cast<int>(fd_v->get_int());
+            int fd = (int)fd_v->get_int();
             Value callback_val = argvals[1];
 
             auto read_op = std::make_shared<TcpOperation>(IOOperation::Type::TcpRead);
@@ -738,7 +738,7 @@ Value ScriptRuntime::builtin_net_conn_write(const Value *argvals, size_t argc, c
 
         const Value *fd2_v = conn->get_field("fd");
         if (fd2_v && fd2_v->is_int()) {
-            int fd = static_cast<int>(fd2_v->get_int());
+            int fd = (int)fd2_v->get_int();
             std::string data = argvals[1].to_string();
 
             auto handle = Value::make_handle_ptr();
@@ -771,7 +771,7 @@ Value ScriptRuntime::builtin_net_conn_close(const Value *argvals, size_t argc, c
 
         const Value *fd3_v = conn->get_field("fd");
         if (fd3_v && fd3_v->is_int()) {
-            int fd = static_cast<int>(fd3_v->get_int());
+            int fd = (int)fd3_v->get_int();
 
             auto close_op = std::make_shared<TcpOperation>(IOOperation::Type::TcpClose);
             close_op->socket_fd = fd;
@@ -785,14 +785,14 @@ Value ScriptRuntime::builtin_net_conn_close(const Value *argvals, size_t argc, c
     return Value::none();
 }
 
-// Build the raw conn object exposed to scripts.
+// Build the raw conn object
 // Shared by listen/accept/connect.
 static Value build_conn_object(int fd, const std::string &remote_ip, int remote_port) {
     auto conn_obj = Value::make_object();
-    ObjectObj *o = conn_obj.get_obj_ptr();
-    o->set_field("fd", Value::make_int(fd));
-    o->set_field("ip", Value::make_string(remote_ip));
-    o->set_field("port", Value::make_int(remote_port));
+    ObjectObj *obj_ptr = conn_obj.get_obj_ptr();
+    obj_ptr->set_field("fd", Value::make_int(fd));
+    obj_ptr->set_field("ip", Value::make_string(remote_ip));
+    obj_ptr->set_field("port", Value::make_int(remote_port));
     return conn_obj;
 }
 
@@ -802,7 +802,7 @@ Value ScriptRuntime::builtin_net_connect(const Value *argvals, size_t argc, cons
         return Value::none();
     }
     std::string host = argvals[0].to_string();
-    int port = static_cast<int>(argvals[1].as_number());
+    int port = (int)argvals[1].as_number();
 
     auto connect_op = std::make_shared<TcpOperation>(IOOperation::Type::TcpConnect);
     connect_op->host = host;
@@ -827,12 +827,13 @@ Value ScriptRuntime::builtin_net_connect(const Value *argvals, size_t argc, cons
     return Value::make_handle(handle);
 }
 
-// TCP listen: net.listen(port) -> handle resolving to server { fd, port, accept, close }
-// port == 0 -> kernel-assigned ephemeral port (read back into server.port).
+// TCP listen: 
+//  net.listen(port) -> handle resolving to server { fd, port, accept, close }
+//  port == 0 -> kernel-assigned ephemeral port (read back into server.port).
 Value ScriptRuntime::builtin_net_listen(const Value *argvals, size_t argc, const nari::CallExpr *) {
     int port = 0;
     if (argc >= 1) {
-        port = static_cast<int>(argvals[0].as_number());
+        port = (int)argvals[0].as_number();
     }
 
     auto listen_op = std::make_shared<TcpOperation>(IOOperation::Type::TcpListen);
@@ -844,9 +845,9 @@ Value ScriptRuntime::builtin_net_listen(const Value *argvals, size_t argc, const
         handle->end_time = chrono::steady_clock::now();
         if (listen_op->success) {
             auto server_obj = Value::make_object();
-            ObjectObj *o = server_obj.get_obj_ptr();
-            o->set_field("fd", Value::make_int(listen_op->socket_fd));
-            o->set_field("port", Value::make_int(listen_op->port));
+            ObjectObj *obj_ptr = server_obj.get_obj_ptr();
+            obj_ptr->set_field("fd", Value::make_int(listen_op->socket_fd));
+            obj_ptr->set_field("port", Value::make_int(listen_op->port));
             handle->result = ScriptRuntime::make_ok(server_obj);
             handle->state = HandleData::Completed;
         } else {
@@ -871,7 +872,7 @@ Value ScriptRuntime::builtin_net_accept(const Value *argvals, size_t argc, const
     if (!fd_v || !fd_v->is_int()) {
         return Value::none();
     }
-    int server_fd = static_cast<int>(fd_v->get_int());
+    int server_fd = (int)fd_v->get_int();
 
     auto accept_op = std::make_shared<TcpOperation>(IOOperation::Type::TcpAccept);
     accept_op->socket_fd = server_fd;
@@ -905,7 +906,7 @@ Value ScriptRuntime::builtin_net_server_close(const Value *argvals, size_t argc,
     if (!fd_v || !fd_v->is_int()) {
         return Value::none();
     }
-    int fd = static_cast<int>(fd_v->get_int());
+    int fd = (int)fd_v->get_int();
 
     auto close_op = std::make_shared<TcpOperation>(IOOperation::Type::TcpClose);
     close_op->socket_fd = fd;
@@ -920,9 +921,9 @@ Value ScriptRuntime::builtin_net_server_close(const Value *argvals, size_t argc,
 // Build the raw UDP socket data object. Prelude wraps it with closures.
 static Value build_udp_socket_object(int fd, int port) {
     auto sock_obj = Value::make_object();
-    ObjectObj *o = sock_obj.get_obj_ptr();
-    o->set_field("fd", Value::make_int(fd));
-    o->set_field("port", Value::make_int(port));
+    ObjectObj *obj_ptr = sock_obj.get_obj_ptr();
+    obj_ptr->set_field("fd", Value::make_int(fd));
+    obj_ptr->set_field("port", Value::make_int(port));
     return sock_obj;
 }
 
@@ -931,7 +932,7 @@ static Value build_udp_socket_object(int fd, int port) {
 Value ScriptRuntime::builtin_udp_bind(const Value *argvals, size_t argc, const nari::CallExpr *) {
     int port = 0;
     if (argc >= 1 && !argvals[0].is_none()) {
-        port = static_cast<int>(argvals[0].as_number());
+        port = (int)argvals[0].as_number();
     }
 
     auto bind_op = std::make_shared<UdpOperation>(IOOperation::Type::UdpBind);
@@ -957,7 +958,7 @@ Value ScriptRuntime::builtin_udp_bind(const Value *argvals, size_t argc, const n
 }
 
 // UDP send: sock.send(host, port, data) -> handle resolving to none.
-// Called as a method: argvals[0] is the socket object, argvals[1]=host, argvals[2]=port, argvals[3]=data.
+// argvals[0] is the socket object, argvals[1]=host, argvals[2]=port, argvals[3]=data.
 Value ScriptRuntime::builtin_udp_send(const Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc < 4 || !argvals[0].is_object()) {
         return Value::none();
@@ -967,9 +968,9 @@ Value ScriptRuntime::builtin_udp_send(const Value *argvals, size_t argc, const n
     if (!fd_v || !fd_v->is_int()) {
         return Value::none();
     }
-    int fd = static_cast<int>(fd_v->get_int());
+    int fd = (int)fd_v->get_int();
     std::string host = argvals[1].to_string();
-    int port = static_cast<int>(argvals[2].as_number());
+    int port = (int)argvals[2].as_number();
     std::string data = argvals[3].to_string();
 
     auto send_op = std::make_shared<UdpOperation>(IOOperation::Type::UdpSend);
@@ -983,7 +984,7 @@ Value ScriptRuntime::builtin_udp_send(const Value *argvals, size_t argc, const n
     send_op->callback = [this, handle, send_op]() {
         handle->end_time = chrono::steady_clock::now();
         if (send_op->success) {
-            handle->result = ScriptRuntime::make_ok(Value::make_int(static_cast<int64_t>(send_op->data.size())));
+            handle->result = ScriptRuntime::make_ok(Value::make_int((int64_t)send_op->data.size()));
             handle->state = HandleData::Completed;
         } else {
             handle->result = ScriptRuntime::make_err(Value::make_string(send_op->error_msg));
@@ -1008,11 +1009,11 @@ Value ScriptRuntime::builtin_udp_recv(const Value *argvals, size_t argc, const n
     if (!fd_v || !fd_v->is_int()) {
         return Value::none();
     }
-    int fd = static_cast<int>(fd_v->get_int());
+    int fd = (int)fd_v->get_int();
 
     int timeout_ms = -1;
     if (argc >= 2 && !argvals[1].is_none()) {
-        timeout_ms = static_cast<int>(argvals[1].as_number());
+        timeout_ms = (int)argvals[1].as_number();
     }
 
     auto recv_op = std::make_shared<UdpOperation>(IOOperation::Type::UdpRecv);
@@ -1025,10 +1026,10 @@ Value ScriptRuntime::builtin_udp_recv(const Value *argvals, size_t argc, const n
         handle->end_time = chrono::steady_clock::now();
         if (recv_op->success) {
             auto result = Value::make_object();
-            ObjectObj *o = result.get_obj_ptr();
-            o->set_field("data", Value::make_string(recv_op->result_string));
-            o->set_field("ip", Value::make_string(recv_op->from_ip));
-            o->set_field("port", Value::make_int(recv_op->from_port));
+            ObjectObj *obj_ptr = result.get_obj_ptr();
+            obj_ptr->set_field("data", Value::make_string(recv_op->result_string));
+            obj_ptr->set_field("ip", Value::make_string(recv_op->from_ip));
+            obj_ptr->set_field("port", Value::make_int(recv_op->from_port));
             handle->result = ScriptRuntime::make_ok(result);
             handle->state = HandleData::Completed;
         } else {
@@ -1053,7 +1054,7 @@ Value ScriptRuntime::builtin_udp_close(const Value *argvals, size_t argc, const 
     if (!fd_v || !fd_v->is_int()) {
         return Value::none();
     }
-    int fd = static_cast<int>(fd_v->get_int());
+    int fd = (int)fd_v->get_int();
 
     auto close_op = std::make_shared<UdpOperation>(IOOperation::Type::UdpClose);
     close_op->socket_fd = fd;
