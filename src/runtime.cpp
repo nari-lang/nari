@@ -305,21 +305,21 @@ static Value delegate_trap(const Value &del, TrapId which) {
 
 // Invoke a resolved trap function with a fixed-arity argument list
 Value ScriptRuntime::invoke_trap(const Value &trap, const Value &a, const Value &b) {
-    GcTempRoot gcRoot(*this);
-    gcRoot.add(&trap);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&trap);
     Value args[2] = { a, b };
-    gcRoot.add(&args[0]);
-    gcRoot.add(&args[1]);
+    temp_root.add(&args[0]);
+    temp_root.add(&args[1]);
     return call_function_value(trap, args, 2);
 }
 
 Value ScriptRuntime::invoke_trap(const Value &trap, const Value &a, const Value &b, const Value &c) {
-    GcTempRoot gcRoot(*this);
-    gcRoot.add(&trap);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&trap);
     Value args[3] = { a, b, c };
-    gcRoot.add(&args[0]);
-    gcRoot.add(&args[1]);
-    gcRoot.add(&args[2]);
+    temp_root.add(&args[0]);
+    temp_root.add(&args[1]);
+    temp_root.add(&args[2]);
     return call_function_value(trap, args, 3);
 }
 
@@ -378,21 +378,21 @@ Value ScriptRuntime::delegate_call(const Value &del, const Value *args, size_t a
     Value target = d->target;
     Value trap = delegate_trap(del, TrapId::Call);
     if (trap.is_function()) {
-        GcTempRoot gcRoot(*this);
-        gcRoot.add(&target);
-        gcRoot.add(&trap);
+        GcTempRoot temp_root(*this);
+        temp_root.add(&target);
+        temp_root.add(&trap);
         // The trap receives the call args as a Nari array
         // that allocation is inherent. invoke_trap then avoids the extra {target, arr} vector.
         Value arr = Value::make_array(args, argc);
-        gcRoot.add(&arr);
+        temp_root.add(&arr);
         // trap(target, argsArray)
         return invoke_trap(trap, target, arr);
     }
     // No call trap, forward to the target if it is itself callable.
     // The span passes through unchanged, its values stay rooted at the source until the VM copies them.
     if (target.is_function()) {
-        GcTempRoot gcRoot(*this);
-        gcRoot.add(&target);
+        GcTempRoot temp_root(*this);
+        temp_root.add(&target);
         return call_function_value(target, args, argc);
     }
     if (target.is_delegate()) {
@@ -405,9 +405,9 @@ Value ScriptRuntime::delegate_call(const Value &del, const Value *args, size_t a
 // args.
 Value ScriptRuntime::delegate_call_method(const Value &del, const std::string &method, std::vector<Value> args) {
     Value callee = delegate_get(del, Value::make_string(method));
-    GcTempRoot gcRoot(*this);
-    gcRoot.add(&callee);
-    gcRoot.add_vec(&args);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&callee);
+    temp_root.add_vec(&args);
     if (callee.is_function()) {
         return call_function_value(callee, args);
     }

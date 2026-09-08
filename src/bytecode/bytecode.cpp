@@ -150,19 +150,17 @@ VM::VM(int argc, char **argv) : chunk(nullptr) {
             }
         }
         // C++ temporaries held across nested execution
-        for (const Value *r : gc_temp_roots) {
-            if (r) {
-                roots.push_back(r);
+        for (const Value *root : gc_temp_roots) {
+            if (root) {
+                roots.push_back(root);
             }
         }
     };
 
     register_all_builtins();
 
-    gc_stress = (getenv("NARI_GC_STRESS") != nullptr);
     // The precise sweep is the only reclaimer, so safe-points must run during
-    // execution or memory grows unbounded. On by default; NARI_GC_NO_SAFEPOINT
-    // can disable for debugging.
+    // execution or memory grows unbounded, toggleable for debugging.
     gc_safepoints = (getenv("NARI_GC_NO_SAFEPOINT") == nullptr);
     profile_interpreter = (getenv("NARI_INTERPRETER_PROFILE") != nullptr);
 
@@ -350,7 +348,7 @@ void VM::report_interpreter_profile() {
     for (uint64_t count : interpreted_instruction_counts) {
         total += count;
     }
-    fprintf(stderr, "[INTERPRETER PROFILE] total=%llu\n", static_cast<unsigned long long>(total));
+    fprintf(stderr, "[INTERPRETER PROFILE] total=%llu\n", (unsigned long long)total);
     for (size_t idx : ranked) {
         const uint64_t count = interpreted_instruction_counts[idx];
         if (count == 0) {
@@ -358,7 +356,7 @@ void VM::report_interpreter_profile() {
         }
         const FunctionMeta &fn = chunk->functions[idx];
         fprintf(
-            stderr, "%12llu  %6zu  %s  %s\n", static_cast<unsigned long long>(count), idx,
+            stderr, "%12llu  %6zu  %s  %s\n", (unsigned long long)count, idx,
             fn.name.empty() ? "<anonymous>" : fn.name.c_str(), fn.source_file.c_str()
         );
     }
@@ -772,11 +770,9 @@ void VM::call_user_function(
         }
     }
 #endif
-    // execution continues in the main loop (interpreter dispatch)
 }
 
-// Allocation-free variant: stack[args_base..args_base+argc] are the args on entry.
-// Pops args + func (at args_base-1), then sets up the new call frame.
+// no alloc version of call_user_function
 void VM::call_user_function_stack(
     uint32_t func_idx, size_t args_base, size_t argc, const CapturesList &cell_captures, const Value *receiver
 ) {
@@ -995,11 +991,7 @@ bool VM::execute_instruction() {
         if (NARI_UNLIKELY(Runtime::g_shutdown_requested.load())) {
             return false;
         }
-        // a full precise collection at every instruction boundary (all live Values are scanned roots),
-        // no-op unless NARI_GC_STRESS is set.
-        if (NARI_UNLIKELY(gc_stress)) {
-            gc_collect_roots();
-        } else if (NARI_UNLIKELY(gc_safepoints) && GarbageCollector::instance().should_collect()) {
+        if (NARI_UNLIKELY(gc_safepoints) && GarbageCollector::instance().should_collect()) {
             // collect only when the GC has flagged that enough has been allocated.
             // at an instruction boundary the operand stack is at a clean height
             gc_collect_roots();
@@ -1026,25 +1018,25 @@ bool VM::execute_instruction() {
 
         // Debugger hook
         {
-            auto &dc = dbg::DebugController::instance();
-            if (dc.enabled()) {
+            auto &debug_controller = dbg::DebugController::instance();
+            if (debug_controller.enabled()) {
                 uint8_t *const dbg_ip = ip();
                 FunctionMeta *const dbg_fn = current_function();
                 const size_t dbg_pc = dbg_ip - dbg_fn->code.data();
                 const int dbg_line = dbg_fn->resolve_line(dbg_pc);
                 const std::string dbg_file = dbg::canonicalise_path(dbg_fn->source_file);
-                const bool pending_entry_stop = dc.pending_entry_stop();
-                if (dc.should_stop(*this, dbg_pc, frames.size(), dbg_line, dbg_file)) {
+                const bool pending_entry_stop = debug_controller.pending_entry_stop();
+                if (debug_controller.should_stop(*this, dbg_pc, frames.size(), dbg_line, dbg_file)) {
                     dbg::StopReason reason;
-                    if (!dc.has_fired_first_stop() && pending_entry_stop) {
+                    if (!debug_controller.has_fired_first_stop() && pending_entry_stop) {
                         reason = dbg::StopReason::Entry;
-                    } else if (dc.has_breakpoint(dbg_file, dbg_line)) {
+                    } else if (debug_controller.has_breakpoint(dbg_file, dbg_line)) {
                         reason = dbg::StopReason::Breakpoint;
                     } else {
                         reason = dbg::StopReason::Step;
                     }
-                    dc.mark_first_stop_fired();
-                    dc.publish_stop_and_wait(dc.snapshot_frames(*this, reason));
+                    debug_controller.mark_first_stop_fired();
+                    debug_controller.publish_stop_and_wait(debug_controller.snapshot_frames(*this, reason));
                 }
             }
         }

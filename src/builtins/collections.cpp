@@ -156,7 +156,7 @@ Value ScriptRuntime::builtin_values(const Value *argvals, size_t argc, const nar
     return Value::make_array();
 }
 
-Value ScriptRuntime::builtin_hasKey(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_has_key(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 2 && argvals[0].is_array()) {
         auto *array = static_cast<ArrayObj *>(argvals[0].heap_ptr());
         return Value::make_bool(array->has_property(argvals[1].to_string()));
@@ -264,7 +264,7 @@ Value ScriptRuntime::builtin_freeze(const Value *argvals, size_t argc, const nar
     return argc > 0 ? argvals[0] : Value::none();
 }
 
-Value ScriptRuntime::builtin_isFrozen(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_is_frozen(const Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc > 0 && argvals[0].is_object()) {
         return Value::make_bool(argvals[0].get_obj_ptr()->frozen);
     }
@@ -338,7 +338,7 @@ Value ScriptRuntime::builtin_substr(const Value *argvals, size_t argc, const nar
 
 // TODO: make index_of only show up on string and array, like we do with methods exclusive to those types, instead of
 // being universal
-Value ScriptRuntime::builtin_indexOf(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
+Value ScriptRuntime::builtin_index_of(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
     if (argc < 2) {
         return Value::make_int(-1);
     }
@@ -368,7 +368,7 @@ Value ScriptRuntime::builtin_indexOf(const Value *argvals, size_t argc, const na
     return Value::make_int((int64_t)pos);
 }
 
-Value ScriptRuntime::builtin_lastIndexOf(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_last_index_of(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 2) {
         // array.last_index_of(val, from_index)
         if (argvals[0].is_array()) {
@@ -494,7 +494,7 @@ Value ScriptRuntime::builtin_replace(const Value *argvals, size_t argc, const na
     return (argc == 0) ? Value::make_string("") : Value::make_string(argvals[0].to_string());
 }
 
-Value ScriptRuntime::builtin_replaceAll(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_replace_all(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 3) {
         std::string str = argvals[0].to_string();
         std::string find = argvals[1].to_string();
@@ -528,7 +528,7 @@ Value ScriptRuntime::builtin_trim(const Value *argvals, size_t argc, const nari:
     return Value::make_string("");
 }
 
-Value ScriptRuntime::builtin_trimStart(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_trim_start(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc > 0) {
         std::string str = argvals[0].to_string();
         size_t start = 0;
@@ -540,7 +540,7 @@ Value ScriptRuntime::builtin_trimStart(const Value *argvals, size_t argc, const 
     return Value::make_string("");
 }
 
-Value ScriptRuntime::builtin_trimEnd(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_trim_end(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc > 0) {
         std::string str = argvals[0].to_string();
         size_t end = str.size();
@@ -587,7 +587,7 @@ Value ScriptRuntime::builtin_string_at(const Value *argvals, size_t argc, const 
     return Value::make_string("");
 }
 
-Value ScriptRuntime::builtin_toCharArray(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_to_char_array(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc > 0) {
         std::string str = argvals[0].to_string();
         std::vector<Value> chars;
@@ -600,7 +600,7 @@ Value ScriptRuntime::builtin_toCharArray(const Value *argvals, size_t argc, cons
     return Value::make_array();
 }
 
-Value ScriptRuntime::builtin_toUpper(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_to_upper(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc > 0) {
         std::string str = argvals[0].to_string();
         for (char &c : str) {
@@ -611,7 +611,7 @@ Value ScriptRuntime::builtin_toUpper(const Value *argvals, size_t argc, const na
     return Value::make_string("");
 }
 
-Value ScriptRuntime::builtin_toLower(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_to_lower(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc > 0) {
         std::string str = argvals[0].to_string();
         for (char &c : str) {
@@ -622,7 +622,7 @@ Value ScriptRuntime::builtin_toLower(const Value *argvals, size_t argc, const na
     return Value::make_string("");
 }
 
-Value ScriptRuntime::builtin_startsWith(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_starts_with(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 2) {
         std::string str_storage;
         std::string prefix_storage;
@@ -635,7 +635,7 @@ Value ScriptRuntime::builtin_startsWith(const Value *argvals, size_t argc, const
     return Value::make_bool(false);
 }
 
-Value ScriptRuntime::builtin_endsWith(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_ends_with(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 2) {
         std::string str_storage;
         std::string suffix_storage;
@@ -648,7 +648,7 @@ Value ScriptRuntime::builtin_endsWith(const Value *argvals, size_t argc, const n
     return Value::make_bool(false);
 }
 
-Value ScriptRuntime::builtin_charAt(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_char_at(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 2) {
         std::string str = argvals[0].to_string();
         int index = 0;
@@ -662,7 +662,7 @@ Value ScriptRuntime::builtin_charAt(const Value *argvals, size_t argc, const nar
     return Value::make_string("");
 }
 
-Value ScriptRuntime::builtin_charCodeAt(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_char_code_at(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 2) {
         // Avoid copying the receiver: read the byte directly from the live string
         // buffer when possible. byte_hash calls this ~720K times on ~30-char
@@ -680,7 +680,7 @@ Value ScriptRuntime::builtin_charCodeAt(const Value *argvals, size_t argc, const
     return Value::make_int(-1);
 }
 
-Value ScriptRuntime::builtin_fromCharCode(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_from_char_code(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 1) {
         // attempt to coerce float -> int if needed, but reject non-numeric types
         if (argvals[0].is_float()) {
@@ -702,11 +702,7 @@ Value ScriptRuntime::builtin_fromCharCode(const Value *argvals, size_t argc, con
     return Value::make_string("");
 }
 
-// ---- Encoding builtins (hex / base64) ----
-// Nari strings are raw byte buffers, so these are binary-safe over bytes
-// 0-255 (unlike from_char_code, which caps at 127). Backing the Hex/Base64
-// stdlib globals.
-
+// -- encoding builtins --
 static const char HEX_DIGITS[] = "0123456789abcdef";
 
 Value ScriptRuntime::builtin_hex_encode(const Value *argvals, size_t argc, const nari::CallExpr *) {
@@ -834,7 +830,7 @@ Value ScriptRuntime::builtin_base64_decode(const Value *argvals, size_t argc, co
     return Value::make_string(out);
 }
 
-Value ScriptRuntime::builtin_padStart(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_pad_start(const Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc >= 2) {
         std::string str = argvals[0].to_string();
         int target_len = argvals[1].get_int();
@@ -856,7 +852,7 @@ Value ScriptRuntime::builtin_padStart(const Value *argvals, size_t argc, const n
     return Value::make_string(argc > 0 ? argvals[0].to_string() : "");
 }
 
-Value ScriptRuntime::builtin_padEnd(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
+Value ScriptRuntime::builtin_pad_end(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
     if (argc >= 2) {
         std::string str = argvals[0].to_string();
         int target_len = argvals[1].get_int();
@@ -926,9 +922,9 @@ Value ScriptRuntime::builtin_sort(const Value *argvals, size_t argc, const nari:
         // root the comparator and the array under sort.
         // the callback runs nested bytecode, and without rooting, a precise collection could cause a dangling ref
         Value arr_val = argvals[0];
-        GcTempRoot _gr(*this);
-        _gr.add(&cmp);
-        _gr.add(&arr_val);
+        GcTempRoot temp_root(*this);
+        temp_root.add(&cmp);
+        temp_root.add(&arr_val);
         std::stable_sort(arr.begin(), arr.end(), [&](const Value &a, const Value &b) {
             Value r = call_function_value(cmp, { a, b });
             return r.is_int() ? r.get_int() < 0 : r.as_number() < 0.0;
@@ -956,10 +952,10 @@ Value ScriptRuntime::builtin_map(const Value *argvals, size_t argc, const nari::
     Value arr_val = argvals[0];
     std::vector<Value> result;
     result.reserve(arr.size());
-    GcTempRoot _gr(*this);
-    _gr.add(&fn);
-    _gr.add(&arr_val);
-    _gr.add_vec(&result);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&fn);
+    temp_root.add(&arr_val);
+    temp_root.add_vec(&result);
     for (size_t i = 0; i < arr.size(); i++) {
         result.push_back(call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val }));
     }
@@ -974,10 +970,10 @@ Value ScriptRuntime::builtin_filter(const Value *argvals, size_t argc, const nar
     Value fn = argvals[1];
     Value arr_val = argvals[0];
     std::vector<Value> result;
-    GcTempRoot _gr(*this);
-    _gr.add(&fn);
-    _gr.add(&arr_val);
-    _gr.add_vec(&result);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&fn);
+    temp_root.add(&arr_val);
+    temp_root.add_vec(&result);
     for (size_t i = 0; i < arr.size(); i++) {
         Value keep = call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
         if (keep.as_bool()) {
@@ -1005,10 +1001,10 @@ Value ScriptRuntime::builtin_reduce(const Value *argvals, size_t argc, const nar
         acc = arr[0];
         start = 1;
     }
-    GcTempRoot _gr(*this);
-    _gr.add(&fn);
-    _gr.add(&arr_val);
-    _gr.add(&acc);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&fn);
+    temp_root.add(&arr_val);
+    temp_root.add(&acc);
     for (size_t i = start; i < arr.size(); i++) {
         acc = call_function_value(fn, { acc, arr[i], Value::make_int((int64_t)i), arr_val });
     }
@@ -1022,9 +1018,9 @@ Value ScriptRuntime::builtin_find(const Value *argvals, size_t argc, const nari:
     const auto &arr = argvals[0].get_array();
     Value fn = argvals[1];
     Value arr_val = argvals[0];
-    GcTempRoot _gr(*this);
-    _gr.add(&fn);
-    _gr.add(&arr_val);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&fn);
+    temp_root.add(&arr_val);
     for (size_t i = 0; i < arr.size(); i++) {
         Value r = call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
         if (r.as_bool()) {
@@ -1034,16 +1030,16 @@ Value ScriptRuntime::builtin_find(const Value *argvals, size_t argc, const nari:
     return Value::none();
 }
 
-Value ScriptRuntime::builtin_findIndex(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_find_index(const Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc < 2 || !argvals[0].is_array() || !argvals[1].is_function()) {
         return Value::make_int(-1);
     }
     const auto &arr = argvals[0].get_array();
     Value fn = argvals[1];
     Value arr_val = argvals[0];
-    GcTempRoot _gr(*this);
-    _gr.add(&fn);
-    _gr.add(&arr_val);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&fn);
+    temp_root.add(&arr_val);
     for (size_t i = 0; i < arr.size(); i++) {
         Value r = call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
         if (r.as_bool()) {
@@ -1087,9 +1083,9 @@ Value ScriptRuntime::builtin_every(const Value *argvals, size_t argc, const nari
     const auto &arr = argvals[0].get_array();
     Value fn = argvals[1];
     Value arr_val = argvals[0];
-    GcTempRoot _gr(*this);
-    _gr.add(&fn);
-    _gr.add(&arr_val);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&fn);
+    temp_root.add(&arr_val);
     for (size_t i = 0; i < arr.size(); i++) {
         Value r = call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
         if (!r.as_bool()) {
@@ -1106,9 +1102,9 @@ Value ScriptRuntime::builtin_some(const Value *argvals, size_t argc, const nari:
     const auto &arr = argvals[0].get_array();
     Value fn = argvals[1];
     Value arr_val = argvals[0];
-    GcTempRoot _gr(*this);
-    _gr.add(&fn);
-    _gr.add(&arr_val);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&fn);
+    temp_root.add(&arr_val);
     for (size_t i = 0; i < arr.size(); i++) {
         Value r = call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
         if (r.as_bool()) {
@@ -1118,16 +1114,16 @@ Value ScriptRuntime::builtin_some(const Value *argvals, size_t argc, const nari:
     return Value::make_bool(false);
 }
 
-Value ScriptRuntime::builtin_forEach(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_for_each(const Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc < 2 || !argvals[0].is_array() || !argvals[1].is_function()) {
         return Value::none();
     }
     const auto &arr = argvals[0].get_array();
     Value fn = argvals[1];
     Value arr_val = argvals[0];
-    GcTempRoot _gr(*this);
-    _gr.add(&fn);
-    _gr.add(&arr_val);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&fn);
+    temp_root.add(&arr_val);
     for (size_t i = 0; i < arr.size(); i++) {
         call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
     }
@@ -1229,7 +1225,7 @@ Value ScriptRuntime::builtin_flat(const Value *argvals, size_t argc, const nari:
     return Value::make_array(std::move(result));
 }
 
-Value ScriptRuntime::builtin_flatMap(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_flat_map(const Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc < 2 || !argvals[0].is_array() || !argvals[1].is_function()) {
         return Value::make_array();
     }
@@ -1237,10 +1233,10 @@ Value ScriptRuntime::builtin_flatMap(const Value *argvals, size_t argc, const na
     Value fn = argvals[1];
     Value arr_val = argvals[0];
     std::vector<Value> result;
-    GcTempRoot _gr(*this);
-    _gr.add(&fn);
-    _gr.add(&arr_val);
-    _gr.add_vec(&result);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&fn);
+    temp_root.add(&arr_val);
+    temp_root.add_vec(&result);
     for (size_t i = 0; i < arr.size(); i++) {
         Value mapped = call_function_value(fn, { arr[i], Value::make_int((int64_t)i), arr_val });
         if (mapped.is_array()) {

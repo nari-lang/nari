@@ -215,14 +215,14 @@ Value ScriptRuntime::builtin_nari_invoke_with_this(const Value *argvals, size_t 
     }
     Value fn = argvals[0];
     Value receiver = argvals[1];
-    GcTempRoot _gr(*this);
-    _gr.add(&fn);
-    _gr.add(&receiver);
+    GcTempRoot temp_root(*this);
+    temp_root.add(&fn);
+    temp_root.add(&receiver);
     if (argc < 3 || !argvals[2].is_array()) {
         return call_function_value(fn, nullptr, 0, &receiver);
     }
     Value args_val = argvals[2];
-    _gr.add(&args_val);
+    temp_root.add(&args_val);
     const auto &args = args_val.get_array();
     return call_function_value(fn, args.data(), args.size(), &receiver);
 }
@@ -662,8 +662,8 @@ Value ScriptRuntime::builtin_net_createServer(const Value *argvals, size_t argc,
                         if (callback_val.is_function()) {
                             // conn_obj is a C++ local live across the handler call
                             // (nested bytecode = safe-points); root it for that call.
-                            GcTempRoot _gr(*this);
-                            _gr.add(&conn_obj);
+                            GcTempRoot temp_root(*this);
+                            temp_root.add(&conn_obj);
                             call_function_value(callback_val, { conn_obj });
                         }
                     };

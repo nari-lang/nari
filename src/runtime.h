@@ -194,7 +194,7 @@ void runtime_log(TraceLevel level, const std::string &msg);
     X("__archive_create", builtin_archive_create)                                                                                          \
     X("__module_import_namespace", builtin_module_import_namespace)                                                                        \
     X("__module_import_named", builtin_module_import_named)                                                                                \
-    X("from_char_code", builtin_fromCharCode)                                                                                              \
+    X("from_char_code", builtin_from_char_code)                                                                                              \
     X("__hex_encode", builtin_hex_encode)                                                                                                  \
     X("__hex_decode", builtin_hex_decode)                                                                                                  \
     X("__base64_encode", builtin_base64_encode)                                                                                            \
@@ -211,24 +211,24 @@ void runtime_log(TraceLevel level, const std::string &msg);
 // methods that are only accessible via type.method() syntax
 #define string_methods(X)                                                                                                                  \
     X("substr", builtin_substr)                                                                                                            \
-    X("last_index_of", builtin_lastIndexOf)                                                                                                \
+    X("last_index_of", builtin_last_index_of)                                                                                                \
     X("split", builtin_split)                                                                                                              \
     X("replace", builtin_replace)                                                                                                          \
-    X("replace_all", builtin_replaceAll)                                                                                                   \
+    X("replace_all", builtin_replace_all)                                                                                                   \
     X("trim", builtin_trim)                                                                                                                \
-    X("trim_start", builtin_trimStart)                                                                                                     \
-    X("trim_end", builtin_trimEnd)                                                                                                         \
-    X("to_upper", builtin_toUpper)                                                                                                         \
-    X("to_lower", builtin_toLower)                                                                                                         \
-    X("starts_with", builtin_startsWith)                                                                                                   \
-    X("ends_with", builtin_endsWith)                                                                                                       \
-    X("char_at", builtin_charAt)                                                                                                           \
-    X("char_code_at", builtin_charCodeAt)                                                                                                  \
-    X("pad_start", builtin_padStart)                                                                                                       \
-    X("pad_end", builtin_padEnd)                                                                                                           \
+    X("trim_start", builtin_trim_start)                                                                                                     \
+    X("trim_end", builtin_trim_end)                                                                                                         \
+    X("to_upper", builtin_to_upper)                                                                                                         \
+    X("to_lower", builtin_to_lower)                                                                                                         \
+    X("starts_with", builtin_starts_with)                                                                                                   \
+    X("ends_with", builtin_ends_with)                                                                                                       \
+    X("char_at", builtin_char_at)                                                                                                           \
+    X("char_code_at", builtin_char_code_at)                                                                                                  \
+    X("pad_start", builtin_pad_start)                                                                                                       \
+    X("pad_end", builtin_pad_end)                                                                                                           \
     X("repeat", builtin_repeat)                                                                                                            \
     X("at", builtin_string_at)                                                                                                             \
-    X("to_char_array", builtin_toCharArray)
+    X("to_char_array", builtin_to_char_array)
 
 #define array_methods(X)                                                                                                                   \
     X("push", builtin_push)                                                                                                                \
@@ -241,24 +241,24 @@ void runtime_log(TraceLevel level, const std::string &msg);
     X("filter", builtin_filter)                                                                                                            \
     X("reduce", builtin_reduce)                                                                                                            \
     X("find", builtin_find)                                                                                                                \
-    X("find_index", builtin_findIndex)                                                                                                     \
+    X("find_index", builtin_find_index)                                                                                                     \
     X("reverse", builtin_reverse)                                                                                                          \
     X("every", builtin_every)                                                                                                              \
     X("some", builtin_some)                                                                                                                \
-    X("for_each", builtin_forEach)                                                                                                         \
+    X("for_each", builtin_for_each)                                                                                                         \
     X("splice", builtin_splice)                                                                                                            \
     X("fill", builtin_fill)                                                                                                                \
     X("flat", builtin_flat)                                                                                                                \
-    X("flat_map", builtin_flatMap)
+    X("flat_map", builtin_flat_map)
 
 #define object_methods(X)                                                                                                                  \
     X("keys", builtin_keys)                                                                                                                \
     X("values", builtin_values)                                                                                                            \
-    X("has_key", builtin_hasKey)                                                                                                           \
+    X("has_key", builtin_has_key)                                                                                                           \
     X("entries", builtin_entries)                                                                                                          \
     X("assign", builtin_assign)                                                                                                            \
     X("freeze", builtin_freeze)                                                                                                            \
-    X("is_frozen", builtin_isFrozen)
+    X("is_frozen", builtin_is_frozen)
 
 #define regex_methods(X)                                                                                                                   \
     X("test", builtin_regex_test)                                                                                                          \
@@ -268,7 +268,7 @@ void runtime_log(TraceLevel level, const std::string &msg);
 #define universal_methods(X)                                                                                                               \
     X("length", builtin_length)                                                                                                            \
     X("includes", builtin_includes)                                                                                                        \
-    X("index_of", builtin_indexOf)
+    X("index_of", builtin_index_of)
 
 // combined method table
 #define METHOD_ONLY_BUILTINS(X) string_methods(X) array_methods(X) object_methods(X) regex_methods(X) universal_methods(X)
@@ -797,46 +797,46 @@ class ScriptRuntime {
     Value builtin_filter(const Value *, size_t, const CallExpr *);
     Value builtin_reduce(const Value *, size_t, const CallExpr *);
     Value builtin_find(const Value *, size_t, const CallExpr *);
-    Value builtin_findIndex(const Value *, size_t, const CallExpr *);
+    Value builtin_find_index(const Value *, size_t, const CallExpr *);
     Value builtin_reverse(const Value *, size_t, const CallExpr *);
     Value builtin_includes(const Value *, size_t, const CallExpr *);
     Value builtin_every(const Value *, size_t, const CallExpr *);
     Value builtin_some(const Value *, size_t, const CallExpr *);
-    Value builtin_forEach(const Value *, size_t, const CallExpr *);
+    Value builtin_for_each(const Value *, size_t, const CallExpr *);
     Value builtin_splice(const Value *, size_t, const CallExpr *);
     Value builtin_fill(const Value *, size_t, const CallExpr *);
     Value builtin_flat(const Value *, size_t, const CallExpr *);
-    Value builtin_flatMap(const Value *, size_t, const CallExpr *);
+    Value builtin_flat_map(const Value *, size_t, const CallExpr *);
     Value builtin_keys(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_values(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_hasKey(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_has_key(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_entries(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_assign(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_freeze(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_isFrozen(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_is_frozen(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_yield(const Value *, size_t, const CallExpr *);
     Value builtin_shutdown_requested(const Value *, size_t, const CallExpr *);
     Value builtin_substr(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_indexOf(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_lastIndexOf(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_index_of(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_last_index_of(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_split(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_replace(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_replaceAll(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_replace_all(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_trim(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_toUpper(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_toLower(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_startsWith(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_endsWith(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_charAt(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_charCodeAt(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_padStart(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_padEnd(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_to_upper(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_to_lower(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_starts_with(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ends_with(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_char_at(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_char_code_at(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_pad_start(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_pad_end(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_repeat(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_trimStart(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_trimEnd(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_trim_start(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_trim_end(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_string_at(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_toCharArray(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_fromCharCode(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_to_char_array(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_from_char_code(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_hex_encode(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_hex_decode(const Value *argvals, size_t argc, const CallExpr *);
     Value builtin_base64_encode(const Value *argvals, size_t argc, const CallExpr *);

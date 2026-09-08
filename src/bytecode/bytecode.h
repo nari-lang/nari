@@ -742,8 +742,6 @@ class VM {
   private:
     void rebuild_global_cache();
 
-    // gather every Value reachable from the bytecode VM as a root, then collect
-    bool gc_stress = false;
     // allocator-paced precise collection
     bool gc_safepoints = false;
     void gc_collect_roots();
