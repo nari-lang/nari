@@ -209,7 +209,7 @@ The standard library is automatically imported:
 // - Ok, Err, Some, None
 
 print(math.sqrt(16));        // 4
-print(stdlib_version);       // "0.0.3"
+print(stdlib_version);       // "0.0.4"
 ```
 
 There is no `system` module and no `io` module. Standard input lives on

@@ -18,7 +18,7 @@ enum Option<T> {
 }
 
 func __stdlib_init__() {
-    global stdlib_version = "0.0.3";
+    global stdlib_version = "0.0.4";
 
     // Result helpers
     global Ok = func(value) {

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Nari is pre-1.0 (current language version `0.0.1`, stdlib `0.0.3`). Only the
+Nari is pre-1.0 (current language version `0.0.1`, stdlib `0.0.4`). Only the
 `main` branch and the most recent tagged release receive security fixes.
 
 | Version  | Supported  |

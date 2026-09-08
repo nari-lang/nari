@@ -34,36 +34,36 @@
 #include "../parser_api.h"
 
 // Returns a human-readable type name for a Value (used in TypeError messages).
-static std::string value_type_name(const Value &v) {
-    if (v.is_none()) {
+static std::string value_type_name(const Value &val) {
+    if (val.is_none()) {
         return "null";
     }
-    if (v.is_int()) {
+    if (val.is_int()) {
         return "int";
     }
-    if (v.is_float()) {
+    if (val.is_float()) {
         return "float";
     }
-    if (v.is_string()) {
+    if (val.is_string()) {
         return "string";
     }
-    if (v.is_bool()) {
+    if (val.is_bool()) {
         return "bool";
     }
-    if (v.is_array()) {
+    if (val.is_array()) {
         return "array";
     }
-    if (v.is_object()) {
+    if (val.is_object()) {
         return "object";
     }
-    if (v.is_function()) {
+    if (val.is_function()) {
         return "function";
     }
-    if (v.is_regex()) {
+    if (val.is_regex()) {
         return "regex";
     }
-    if (v.is_class_instance()) {
-        return v.get_class_instance()->class_name;
+    if (val.is_class_instance()) {
+        return val.get_class_instance()->class_name;
     }
     return "unknown";
 }
@@ -240,7 +240,7 @@ bool utf16_to_utf8(const std::u16string &input, std::string &output) {
 } // namespace
 #endif
 
-#define STDLIB_VERSION "0.0.3"
+#define STDLIB_VERSION "0.0.4"
 
 // Builtin implementations are split across src/builtins/*.cpp and share this
 // common prelude header.

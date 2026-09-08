@@ -20,11 +20,8 @@ Every program gets these globals without an import:
 | `Ok`, `Err`, `Some`, `None` | `Result` and `Option` constructors |
 | `stdlib_version` | Standard library version string |
 
-There is no `system` global and no `io` global. Reach the modules by their own
-names, as shown below.
-
 ```nari
-print(stdlib_version);   // "0.0.3"
+print(stdlib_version);   // "0.0.4"
 ```
 
 Everything else needs an explicit import, for example
