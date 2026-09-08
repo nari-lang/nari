@@ -66,7 +66,7 @@ Value ScriptRuntime::builtin_platform_endianness(const Value *, size_t, const na
     return Value::make_string(ENDIAN_STRING);
 }
 
-#ifndef NARI_ESP_IDF
+#ifndef NARI_MCU
 Value ScriptRuntime::builtin_platform_hostname(const Value *, size_t, const nari::CallExpr *) {
     char hostname[256];
     gethostname(hostname, sizeof(hostname));
@@ -74,7 +74,7 @@ Value ScriptRuntime::builtin_platform_hostname(const Value *, size_t, const nari
 }
 #else
 Value ScriptRuntime::builtin_platform_hostname(const Value *, size_t, const nari::CallExpr *) {
-    return Value::make_string("esp32");
+    return Value::make_string("generic_mcu");
 }
 #endif
 
