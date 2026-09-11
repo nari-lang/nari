@@ -4,24 +4,24 @@
 //
 //  import { Hex, Base64 } from "std/encoding";
 
-export let Hex = {
-    // Hex.encode(str) -> lowercase hex string (2 chars per byte)
-    encode: func(str: string) -> string {
+class Hex {
+    static encode(str: string) -> string {
         return __hex_encode(str);
-    },
-    // Hex.decode(hex) -> byte string. Accepts upper/lowercase; throws on odd length or non-hex characters.
-    decode: func(hex: string) -> string {
+    }
+    static decode(hex: string) -> string {
         return __hex_decode(hex);
     }
-};
-
-export let Base64 = {
-    // Base64.encode(str) -> standard base64 with '=' padding
-    encode: func(str: string) -> string {
+}
+class Base64 {
+    static encode(str: string) -> string {
         return __base64_encode(str);
-    },
-    // Base64.decode(b64) -> byte string. Skips ASCII whitespace; throws on invalid characters.
-    decode: func(b64: string) -> string {
+    }
+    static decode(b64: string) -> string {
         return __base64_decode(b64);
     }
 };
+
+export {
+    Hex,
+    Base64,
+}
