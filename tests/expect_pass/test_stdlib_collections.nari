@@ -41,7 +41,7 @@ check("entries[1][1]", ents[1][1] == 2);
 check("delete existing", m.delete("b"));
 check("delete missing", !m.delete("zzz"));
 check("size after delete", m.size() == 2);
-check("get deleted", m.get("b").expect("b should not be none") == null);
+check("get deleted", m.get("b").is_none());
 let keys2 = m.keys();
 check("order after delete[0]", keys2[0] == "a");
 check("order after delete[1]", keys2[1] == "c");
@@ -75,7 +75,7 @@ check("set delete miss", !s.delete("zzz"));
 check("set size after del", s.size() == 1);
 
 // initial-values constructor
-let s2 = Set.create([1, 2, 3, 2, 1]);
+let s2 = Set([1, 2, 3, 2, 1]);
 check("set init dedup", s2.size() == 3);
 check("set init has 1", s2.has(1));
 

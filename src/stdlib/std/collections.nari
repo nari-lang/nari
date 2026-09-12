@@ -27,15 +27,15 @@ class Map {
     }
 
     delete(key) {
-        if (!store.has_key(key)) { return false; }
+        if (!this.store.has_key(key)) { return false; }
         // rebuild store without this key
         let new_store = {};
         let new_order = [];
         let i = 0;
         while (i < this.order.length()) {
             if (this.order[i] != key) {
-                new_order.push(order[i]);
-                new_store[order[i]] = store[order[i]];
+                new_order.push(this.order[i]);
+                new_store[this.order[i]] = this.store[this.order[i]];
             }
             i = i + 1;
         }
@@ -99,6 +99,15 @@ class Map {
 class Set {
     private map: Map = new Map();
 
+    init(items = null) {
+        if (items == null) { return; }
+        let i = 0;
+        while (i < items.length()) {
+            this.add(items[i]);
+            i = i + 1;
+        }
+    }
+
     public add(v) {
         this.map.set(v, true)
     }
@@ -106,7 +115,7 @@ class Set {
         return this.map.has(v);
     }
     public delete(v) {
-        return this.map.has(v)
+        return this.map.delete(v);
     }
     public size() {
         return this.map.size();
