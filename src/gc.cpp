@@ -233,6 +233,14 @@ void GarbageCollector::mark_value(const Value &root) {
     }
 }
 
+#if __GNUC__ || __clang__
+#define NARI_PREFETCH(addr) __builtin_prefetch(addr, 1, 1)
+#elif _MSC_VER
+#define NARI_PREFETCH(addr) _m_prefetchw(addr)
+#else
+#define NARI_PREFETCH(addr) (void)addr
+#endif
+
 // sweep phase: collect cycle garbage.
 //  1. find unreachable tracked_objects, drop from registry
 //  2. clear containers -> breaks cycles, may cascade-free children
@@ -253,7 +261,7 @@ size_t GarbageCollector::sweep() {
     }();
     const auto pf = [this](size_t i) {
         if (i < tracked_objects.size()) {
-            __builtin_prefetch(tracked_objects[i], 1, 1);
+            NARI_PREFETCH(tracked_objects[i]);
         }
     };
 
@@ -333,7 +341,7 @@ size_t GarbageCollector::sweep() {
     // Delete from the back so each removed registry entry can be popped immediately.
     while (tracked_objects.size() > live_count) {
         if (tracked_objects.size() > live_count + kGcPrefetch) {
-            __builtin_prefetch(tracked_objects[tracked_objects.size() - 1 - kGcPrefetch], 1, 1);
+            NARI_PREFETCH(tracked_objects[tracked_objects.size() - 1 - kGcPrefetch]);
         }
         HeapHeader *g = tracked_objects.back();
         tracked_objects.pop_back();
