@@ -89,16 +89,15 @@ Value ScriptRuntime::builtin_platform_getenv(const Value *argvals, size_t argc, 
 }
 
 #if defined(_WIN32)
-extern "C" char **_environ;
+#include <stdlib.h>
 #define NARI_ENVIRON _environ
 #else
-extern "C" char **environ;
+extern char **environ;
 #define NARI_ENVIRON environ
 #endif
 
 Value ScriptRuntime::builtin_platform_environ(const Value *, size_t, const nari::CallExpr *) {
-    // Snapshot the whole environment as a name -> value object so shims can
-    // expose a faithful process.env instead of per-name lookups.
+    // Snapshot the whole environment as a name -> value object
     Value env = Value::make_object();
     ObjectObj *oobj = env.get_obj_ptr();
     for (char **cur = NARI_ENVIRON; cur != nullptr && *cur != nullptr; ++cur) {

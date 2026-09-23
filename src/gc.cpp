@@ -8,6 +8,9 @@
 #ifdef __linux__
 #include <malloc.h>
 #endif
+#if _MSC_VER
+#include <intrin.h>
+#endif
 
 GarbageCollector GarbageCollector::singleton;
 
