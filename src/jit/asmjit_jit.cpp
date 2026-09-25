@@ -280,13 +280,20 @@ static const int64_t VMCapture0RawOff = field_offset(&VM::jit_capture0_raw);
 static const int64_t VMCapture1RawOff = field_offset(&VM::jit_capture1_raw);
 static const int64_t VMCapture2RawOff = field_offset(&VM::jit_capture2_raw);
 static const int64_t VMRuntimeOff = field_offset(&VM::runtime);
+// Constructing ScriptRuntime in field_offset would allocate GC values and start
+// I/O threads during static initialization; use the compiler's layout extension.
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Winvalid-offsetof"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
 #endif
 static const int64_t RuntimeTypeofValuesOff = __builtin_offsetof(ScriptRuntime, typeof_values);
 #if defined(__clang__)
 #pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
 #endif
 
 // VM::stack storage pointers.
@@ -386,42 +393,6 @@ static void emit_inline_return(arch::Compiler &cc, arch::Gp vm_reg) {
     arch::add_imm(cc, nf, (int)ValSize);
     arch::store(cc, arch::ptr(vm_reg, (int)VMStackFinishOff), nf);
     cc.bind(done);
-}
-
-// signed division by constant: magic multiply
-// replaces idiv with imul+shift for x % d (d > 1).
-// algorithm adapted from Hacker's Delight, 2nd ed., Chapter 10.
-struct SignedDivMagic {
-    int64_t magic;
-    int shift;
-};
-static SignedDivMagic sdiv_magic(int64_t d) {
-    uint64_t ad = (uint64_t)d;
-    uint64_t two63 = 1ULL << 63;
-    uint64_t anc = two63 - 1 - (two63 % ad);
-    uint64_t q1 = two63 / anc, r1 = two63 - q1 * anc;
-    uint64_t q2 = two63 / ad, r2 = two63 - q2 * ad;
-    int p = 63;
-    for (;;) {
-        p++;
-        q1 *= 2;
-        r1 *= 2;
-        if (r1 >= anc) {
-            q1++;
-            r1 -= anc;
-        }
-        q2 *= 2;
-        r2 *= 2;
-        if (r2 >= ad) {
-            q2++;
-            r2 -= ad;
-        }
-        if (q1 < ad - r2 || (q1 == ad - r2 && r1 == 0)) {
-            continue;
-        }
-        break;
-    }
-    return { (int64_t)(q2 + 1), p - 64 };
 }
 
 bool AsmJITMethodCompiler::is_compiled(uint32_t chunk_idx) const {
@@ -1443,9 +1414,6 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         cc.bind(running);
     };
 
-    typedef void (*VMFunc)(nari::bytecode::VM *);
-
-    auto call_vm = [&](VMFunc helper, nari::bytecode::VM *vm) { helper(vm); };
     auto call_u32 = [&](const void *helper, uint32_t a) {
         fc.invalidate();
         InvokeNode *inv;
@@ -1481,16 +1449,6 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         inv->set_arg(1, Imm(a));
         inv->set_arg(2, Imm(b));
     };
-    auto call_u32_u32_u64 = [&](const void *helper, uint32_t a, uint32_t b, uint64_t c) {
-        fc.invalidate();
-        InvokeNode *inv;
-        (void)vm_arg0();
-        arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper, FuncSignature::build<void, void *, uint32_t, uint32_t, uint64_t>());
-        inv->set_arg(0, vm_arg_scratch);
-        inv->set_arg(1, Imm(a));
-        inv->set_arg(2, Imm(b));
-        inv->set_arg(3, Imm(c));
-    };
 
     // kind_hint: statically-known jit_native_kind of the callee builtin, or -1.
     // Guarded direct call. Structure follows the NARI_ENABLE_DIRECT_CALL_JIT path
@@ -1510,10 +1468,6 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
             arch::load(cc, dc_tmp, field);
             arch::test_zero(cc, dc_tmp);
             arch::jcc(cc, arch::CC::kNE, slow);
-        };
-        auto store_ptr_imm = [&](int off, const void *pv) {
-            cc.mov(dc_tmp, Imm((uint64_t)(uintptr_t)pv));
-            arch::store(cc, arch::ptr(vm_reg, off), dc_tmp);
         };
 
         arch::Gp endp = fc.get();
@@ -2478,16 +2432,9 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         }
 
         if (elig) {
-            auto call_push_reg = [&](const void *helper, arch::Gp val) {
-                InvokeNode *inv;
-                (void)vm_arg0();
-                arch::invoke_imm(cc, &inv, (uint64_t)(uintptr_t)helper, FuncSignature::build<void, void *, int64_t>());
-                inv->set_arg(0, vm_arg_scratch);
-                inv->set_arg(1, val);
-            };
             std::vector<arch::Gp> slot_reg(irFuncs.num_slots);
-            // parallel XMM home for Float slots. slot_reg[s] stays
-            // default-constructed (unused) for xmm slots
+            // parallel XMM home for Float slots.
+            // slot_reg[s] stays default-constructed for xmm slots
             std::vector<arch::Vec> slot_vec(irFuncs.num_slots);
             auto is_xmm_slot = [&](uint32_t s) { return s < slot_types.size() && slot_types[s] == ir::Ty::Float; };
             for (uint32_t s = 0; s < irFuncs.num_slots; s++) {
@@ -4072,13 +4019,14 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     auto both_float = [&](const ir::Inst &in) {
         return irFuncs.inst(in.operands[0]).type == ir::Ty::Float && irFuncs.inst(in.operands[1]).type == ir::Ty::Float;
     };
-    auto both_int = [&](const ir::Inst &in) {
-        return irFuncs.inst(in.operands[0]).type == ir::Ty::Int48 && irFuncs.inst(in.operands[1]).type == ir::Ty::Int48;
-    };
     // Per-operand: an Int48-typed operand carries tagInt by construction, so its
     // runtime tag guard is dead code even when the other operand is unknown.
-    auto lhs_int = [&](const ir::Inst &in) { return in.operands.size() >= 2 && irFuncs.inst(in.operands[0]).type == ir::Ty::Int48; };
-    auto rhs_int = [&](const ir::Inst &in) { return in.operands.size() >= 2 && irFuncs.inst(in.operands[1]).type == ir::Ty::Int48; };
+    auto lhs_int = [&](const ir::Inst &in) {
+        return in.operands.size() >= 2 && irFuncs.inst(in.operands[0]).type == ir::Ty::Int48;
+    };
+    auto rhs_int = [&](const ir::Inst &in) {
+        return in.operands.size() >= 2 && irFuncs.inst(in.operands[1]).type == ir::Ty::Int48;
+    };
     {
         const uint32_t stack_bound = (uint32_t)irFuncs.insts.size() + 8;
         Label rz_ok = cc.new_label();
@@ -4727,9 +4675,8 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         cc.bind(done);
     };
 
-    // when `skip_tag_check` is true, the IR has proven both operands are statically Int48
+    // Skip each operand's tag check when the IR has proven it is statically Int48.
     auto emit_int_binop = [&](ir::Op op, bool skip_lhs_tag_check = false, bool skip_rhs_tag_check = false) {
-        const bool skip_tag_check = skip_lhs_tag_check && skip_rhs_tag_check;
         asmjit::Label slow = cc.new_label();
         asmjit::Label done = cc.new_label();
         arch::Gp endp = fc.get();
@@ -4774,7 +4721,6 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         cc.bind(done);
     };
     auto emit_int_mul = [&](bool skip_lhs_tag_check = false, bool skip_rhs_tag_check = false) {
-        const bool skip_tag_check = skip_lhs_tag_check && skip_rhs_tag_check;
         Label slow = cc.new_label();
         Label done = cc.new_label();
         arch::Gp endp = fc.get();
@@ -4817,7 +4763,6 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         cc.bind(done);
     };
     auto emit_int_mod = [&](bool skip_lhs_tag_check = false, bool skip_rhs_tag_check = false) {
-        const bool skip_tag_check = skip_lhs_tag_check && skip_rhs_tag_check;
         Label slow = cc.new_label();
         Label done = cc.new_label();
         arch::Gp endp = fc.get();
@@ -5863,7 +5808,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
         if (kJitReport) {
             fprintf(
                 stderr, "[JIT] %-30s BAIL asmjit finalize err=%u (%s)\n",
-                chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(), err,
+                chunk.functions[chunk_idx].name.empty() ? "<anon>" : chunk.functions[chunk_idx].name.c_str(), static_cast<unsigned>(err),
                 asmjit::DebugUtils::error_as_string(err)
             );
             if (jit_dump_asm_enabled()) {

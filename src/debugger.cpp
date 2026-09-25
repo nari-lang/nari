@@ -144,7 +144,10 @@ bool DebugController::should_stop(const bytecode::VM &vm, size_t pc, size_t fram
 
     if (FILE *f = dbg_log()) {
         std::lock_guard<std::mutex> log_lock(g_dbg_log_mu);
-        std::fprintf(f, "[vm] pc=%zu depth=%zu line=%d file='%s' mode=%d\n", pc, frame_depth, cur_line, cur_file.c_str(), this->step_mode);
+        std::fprintf(
+            f, "[vm] pc=%zu depth=%zu line=%d file='%s' mode=%d\n", pc, frame_depth, cur_line, cur_file.c_str(),
+            static_cast<int>(this->step_mode)
+        );
         std::fflush(f);
     }
 
@@ -237,9 +240,6 @@ void DebugController::publish_stop_and_wait(StopSnapshot snap) {
 
     std::unique_lock<std::mutex> lock(this->mtx);
     resume_cv.wait(lock, [&] { return !stopped || exited; });
-}
-
-static void set_step(DebugController *self, StepMode m, size_t anchor_depth) {
 }
 
 void DebugController::cmd_continue() {

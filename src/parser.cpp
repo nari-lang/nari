@@ -2673,9 +2673,6 @@ class Parser {
                         copy_loc(result.get(), binaryExpr);
                         return result;
                     }
-                    if (ri > std::numeric_limits<uint64_t>::max()) {
-                        return expr;
-                    }
                     uint64_t exp = (uint64_t)ri;
                     int64_t base = li;
                     int64_t total = 1;

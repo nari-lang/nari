@@ -3860,7 +3860,6 @@ class NariLspServer {
 
         auto wp = word_at(doc.content, line, col);
         const std::string &word = wp.first;
-        int word_start = wp.second;
         if (word.empty()) {
             send_response(id, nullptr);
             return;

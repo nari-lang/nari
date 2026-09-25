@@ -311,27 +311,24 @@ Value ScriptRuntime::builtin_substr(const Value *argvals, size_t argc, const nar
                 return Value::make_string("");
             }
         }
-        int len = str.size() - start;
+        size_t count = std::string::npos;
         if (argc > 2) {
+            int len;
             if (!coerce_numeric_index(argvals[2], len)) {
                 return Value::make_string("");
             }
+            count = static_cast<size_t>(std::max(len, 0));
         }
 
         if (start < 0) {
             start = 0;
         }
-        if (start >= str.size()) {
+        const size_t pos = static_cast<size_t>(start);
+        if (pos >= str.size()) {
             return Value::make_string("");
         }
-        if (len < 0) {
-            len = 0;
-        }
-        if (start + len > str.size()) {
-            len = str.size() - start;
-        }
 
-        return Value::make_string(str.substr(start, len));
+        return Value::make_string(str.substr(pos, count));
     }
     return Value::make_string("");
 }
@@ -402,7 +399,7 @@ Value ScriptRuntime::builtin_last_index_of(const Value *argvals, size_t argc, co
                     return Value::make_int(-1);
                 }
 
-                size_t pos = fi > str.size() ? str.size() : fi;
+                size_t pos = static_cast<uint64_t>(fi) > str.size() ? str.size() : static_cast<size_t>(fi);
                 return Value::make_int(pos);
             }
             return Value::make_int(str.size());
@@ -419,7 +416,7 @@ Value ScriptRuntime::builtin_last_index_of(const Value *argvals, size_t argc, co
                 from_pos = 0;
             } else {
                 size_t maxpos = (str.size() > 0) ? (str.size() - 1) : 0;
-                from_pos = fi > maxpos ? maxpos : fi;
+                from_pos = static_cast<uint64_t>(fi) > maxpos ? maxpos : static_cast<size_t>(fi);
             }
             have_from = true;
         }

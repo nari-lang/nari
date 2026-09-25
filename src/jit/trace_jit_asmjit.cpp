@@ -379,7 +379,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 
     struct NariErrorHandler : public asmjit::ErrorHandler {
         void handle_error(asmjit::Error err, const char *message, asmjit::BaseEmitter *origin) override {
-            fprintf(stderr, "[TRACE JIT] asmjit error %u: %s\n", err, message);
+            fprintf(stderr, "[TRACE JIT] asmjit error %u: %s\n", static_cast<unsigned>(err), message);
         }
     };
     NariErrorHandler errHandler;
@@ -2014,7 +2014,7 @@ finalize_trace:
     cc.end_func();
     Error finalize_err = cc.finalize();
     if (finalize_err != kErrorOk) {
-        fprintf(stderr, "[TRACE JIT] finalize failed: err=%u\n", finalize_err);
+        fprintf(stderr, "[TRACE JIT] finalize failed: err=%u\n", static_cast<unsigned>(finalize_err));
         return result;
     }
 
@@ -2023,7 +2023,7 @@ finalize_trace:
     CompiledTrace::Fn fn = nullptr;
     Error err = this->rt.add(&fn, &code);
     if (err != kErrorOk || !fn) {
-        fprintf(stderr, "[TRACE JIT] compilation failed: err=%u\n", err);
+        fprintf(stderr, "[TRACE JIT] compilation failed: err=%u\n", static_cast<unsigned>(err));
         return result;
     }
 

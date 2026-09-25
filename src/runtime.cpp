@@ -10,56 +10,6 @@
 
 namespace chrono = std::chrono;
 
-static std::string format_interpolated_value(ScriptRuntime *, const Value &value, const nari::StringInterpolationExpr *expr, size_t index) {
-    if (index >= expr->format_specs.size() || expr->format_specs[index].empty()) {
-        return value.to_string();
-    }
-
-    const std::string &spec = expr->format_specs[index];
-    size_t pos = 0;
-    int precision = -1;
-    if (pos < spec.size() && spec[pos] == '.') {
-        ++pos;
-        if (pos >= spec.size() || !std::isdigit((unsigned char)spec[pos])) {
-            return value.to_string();
-        }
-        precision = 0;
-        while (pos < spec.size() && std::isdigit((unsigned char)spec[pos])) {
-            precision = precision * 10 + (spec[pos] - '0');
-            ++pos;
-        }
-    }
-
-    char presentation = pos < spec.size() ? spec[pos++] : '\0';
-    if (pos != spec.size() || presentation != 'f' || (!value.is_int() && !value.is_float())) {
-        return value.to_string();
-    }
-
-    if (precision > 100) {
-        precision = 100;
-    }
-
-    char fmt[16];
-    if (precision >= 0) {
-        std::snprintf(fmt, sizeof(fmt), "%%.%df", precision);
-    } else {
-        std::snprintf(fmt, sizeof(fmt), "%%f");
-    }
-
-    char stack_buf[128];
-    int needed = std::snprintf(stack_buf, sizeof(stack_buf), fmt, value.as_number());
-    if (needed < 0) {
-        return value.to_string();
-    }
-    if ((size_t)needed < sizeof(stack_buf)) {
-        return std::string(stack_buf, (size_t)needed);
-    }
-
-    std::string out((size_t)needed, '\0');
-    std::snprintf(out.data(), out.size() + 1, fmt, value.as_number());
-    return out;
-}
-
 #ifdef _WIN32
 #include <cstdio>
 #include <cstdlib>
@@ -729,4 +679,3 @@ static const nari::ClassField *find_field_in_hierarchy(const nari::ClassDecl *cl
 
     return nullptr;
 }
-

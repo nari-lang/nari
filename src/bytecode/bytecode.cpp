@@ -2887,7 +2887,6 @@ bool VM::execute_instruction() {
                         std::vector<Value> args(stack.begin() + args_base, stack.end());
                         stack.resize(obj_idx);
                         const std::string &fname = func.get_function().name;
-                        const auto &func_ptr = func.get_function().func_ptr;
 
                         auto bit = builtins.find(fname);
                         if (bit != builtins.end()) {

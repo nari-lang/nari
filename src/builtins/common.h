@@ -34,7 +34,7 @@
 #include "../parser_api.h"
 
 // Returns a human-readable type name for a Value (used in TypeError messages).
-static std::string value_type_name(const Value &val) {
+static inline std::string value_type_name(const Value &val) {
     if (val.is_none()) {
         return "null";
     }
@@ -75,7 +75,7 @@ static std::string value_type_name(const Value &val) {
 #ifndef DISABLE_FFI
 namespace {
 
-bool utf8_to_utf16(const std::string &input, std::u16string &output) {
+inline bool utf8_to_utf16(const std::string &input, std::u16string &output) {
     output.clear();
 
 #ifdef _WIN32
@@ -171,7 +171,7 @@ bool utf8_to_utf16(const std::string &input, std::u16string &output) {
 #endif
 }
 
-bool utf16_to_utf8(const std::u16string &input, std::string &output) {
+inline bool utf16_to_utf8(const std::u16string &input, std::string &output) {
     output.clear();
 
 #ifdef _WIN32

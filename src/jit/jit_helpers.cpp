@@ -1393,7 +1393,6 @@ static void jit_call_impl(VM *vm, uint32_t argc, const Value *receiver = nullptr
 
     auto &fdata = func.get_function();
     const std::string &fname = fdata.name;
-    const auto &func_ptr = fdata.func_ptr;
 
     // fast path: builtin's member-fn pointer is pre-resolved on FunctionData, skips a name-hash lookup
     if (fdata.jit_builtin_id) {
@@ -1778,32 +1777,25 @@ void jit_method_substr(VM *vm, uint32_t argc) {
             // Compute the whole result while the receiver is still rooted on the stack, THEN pop.
             // This keeps the source string alive across the read.
             const std::string &str = recv.get_string();
-            const int slen = static_cast<int>(str.size());
             int start = 0;
-            int len = slen;
+            size_t count = std::string::npos;
             bool ok = true;
             if (argc >= 1) {
                 ok = jit_coerce_index(vm->peek(argc - 1), start);
-                if (ok) {
-                    len = slen - start;
-                }
             }
             if (ok && argc >= 2) {
+                int len = 0;
                 ok = jit_coerce_index(vm->peek(argc - 2), len);
+                count = static_cast<size_t>(std::max(len, 0));
             }
             std::string result; // empty == builtin_substr's bad-arg / OOB result
             if (ok) {
                 if (start < 0) {
                     start = 0;
                 }
-                if (start < slen) {
-                    if (len < 0) {
-                        len = 0;
-                    }
-                    if (start + len > slen) {
-                        len = slen - start;
-                    }
-                    result = str.substr((size_t)start, (size_t)len);
+                const size_t pos = static_cast<size_t>(start);
+                if (pos < str.size()) {
+                    result = str.substr(pos, count);
                 }
             }
             // `result` is an independent std::string copy of the bytes,

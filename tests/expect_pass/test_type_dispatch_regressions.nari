@@ -25,6 +25,20 @@ assert([1, 2, 3].last_index_of(2) == 1, "array last_index_of searched the debug 
 assert("abcabc".last_index_of("b") == 4, "string last_index_of regressed");
 assert("abcabc".last_index_of("b", 2) == 1, "string last_index_of from index regressed");
 assert("abcabc".last_index_of("z") == -1, "string last_index_of absent regressed");
+assert("abcabc".last_index_of("b", -1) == -1, "negative from index should not match");
+assert("abcabc".last_index_of("b", 4294967296) == 4, "large from index should clamp");
+assert("abcabc".last_index_of("", 4294967296) == 6, "empty search should clamp to string length");
+assert("abcabc".last_index_of("", -1) == -1, "empty search with negative from index should not match");
+
+func check_substr_bounds(start, count) {
+    assert("abcdef".substr(start, count) == "bcdef", "substring length should clamp without overflow");
+    assert("abcdef".substr(-2147483648) == "abcdef", "negative substring start should clamp to zero");
+    assert("abcdef".substr(6) == "", "substring at end should be empty");
+    assert("abcdef".substr(1, -1) == "", "negative substring length should be empty");
+}
+for (let i = 0; i < 200; i++) {
+    check_substr_bounds(1, 2147483647);
+}
 
 // Object statics
 // TODO: these only exist for JSRT, they work fine but will absolutely be removed soon.

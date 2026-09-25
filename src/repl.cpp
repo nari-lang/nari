@@ -34,6 +34,7 @@
 // Provided by the generated embedded_stdlib.cpp
 extern std::string nari_std_prelude_source();
 
+#if !defined(DISABLE_REPL) || defined(_WIN32)
 static bool is_identifier_start(char c) {
     unsigned char byte = static_cast<unsigned char>(c);
     return std::isalpha(byte) || c == '_' || byte >= 0x80;
@@ -203,11 +204,6 @@ static bool should_accumulate(const std::string &src) {
         if (src.compare(i, pl, pfx) != 0) {
             return false;
         }
-        size_t after = i + pl;
-        if (after >= src.size()) {
-            return true;
-        }
-        char nc = src[after];
         // for keywords that end with space or '(' we've already included the delimiter,
         // so just do a literal prefix match.
         return true;
@@ -233,12 +229,12 @@ static bool is_tty() {
 #endif
 }
 
+#ifdef _WIN32
 static bool env_equals(const char *name, const char *value) {
     const char *env = std::getenv(name);
     return env && std::strcmp(env, value) == 0;
 }
 
-#ifdef _WIN32
 static bool running_under_wine() {
     HMODULE ntdll = GetModuleHandleA("ntdll.dll");
     return ntdll != nullptr && GetProcAddress(ntdll, "wine_get_version") != nullptr;
@@ -597,8 +593,10 @@ static void run_repl_plain(const std::string &stdlib_src, bool tty, bool use_col
     }
 }
 #endif // _WIN32
+#endif // !DISABLE_REPL || _WIN32
 
 void run_repl(int argc, char **argv) {
+#if !defined(DISABLE_REPL) || defined(_WIN32)
     const std::string stdlib_src = nari_std_prelude_source();
     // declarative inputs from previous iterations
     std::string accumulated;
@@ -740,5 +738,6 @@ void run_repl(int argc, char **argv) {
     if (!history_file.empty()) {
         replxx.history_save(history_file);
     }
+#endif
 #endif
 }
