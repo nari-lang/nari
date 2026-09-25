@@ -280,10 +280,14 @@ static const int64_t VMCapture0RawOff = field_offset(&VM::jit_capture0_raw);
 static const int64_t VMCapture1RawOff = field_offset(&VM::jit_capture1_raw);
 static const int64_t VMCapture2RawOff = field_offset(&VM::jit_capture2_raw);
 static const int64_t VMRuntimeOff = field_offset(&VM::runtime);
+#if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Winvalid-offsetof"
+#endif
 static const int64_t RuntimeTypeofValuesOff = __builtin_offsetof(ScriptRuntime, typeof_values);
+#if defined(__clang__)
 #pragma clang diagnostic pop
+#endif
 
 // VM::stack storage pointers.
 static const int64_t VMStackStartOff = field_offset(&VM::stack) + offsetof(Array, storage_begin);

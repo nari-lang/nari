@@ -126,13 +126,13 @@ struct CompilerContext {
         }
         if (!scope_marks.empty()) {
             auto it = locals.find(name);
-            ShadowedBinding s{
-                .name = name,
-                .prev_slot = (uint16_t)(it != locals.end() ? it->second : 0),
-                .had_prev = it != locals.end(),
-                .prev_const = const_locals.count(name) != 0,
-                .prev_lexical = lexical_bindings.count(name) != 0,
-            };
+            ShadowedBinding s;
+            s.name = name;
+            s.prev_slot = (uint16_t)(it != locals.end() ? it->second : 0);
+            s.had_prev = it != locals.end();
+            s.prev_const = const_locals.count(name) != 0;
+            s.prev_lexical = lexical_bindings.count(name) != 0;
+            
             shadow_stack.push_back(std::move(s));
         }
         uint16_t idx = local_count++;

@@ -23,7 +23,7 @@
 #include "parser_api.h"
 #endif
 
-#include "json.hpp"
+#include "../thirdparty/json.hpp"
 
 using json = nlohmann::json;
 
