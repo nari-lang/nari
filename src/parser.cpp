@@ -4773,7 +4773,7 @@ static void resolve_interp_exprs(std::vector<FunctionPtr> &funcs, std::vector<Pa
     }
 }
 
-static ParseResult parse_impl(const std::string &src, bool create_aggregator, bool recover_mode) {
+static ParseResult parse(const std::string &src, bool create_aggregator, bool recover_mode) {
     std::vector<LexError> lex_errors;
     std::vector<Token> tokens_out = tokenize(src, current_filename, recover_mode ? &lex_errors : nullptr);
     if (!lex_errors.empty()) {
@@ -4793,13 +4793,13 @@ static ParseResult parse_impl(const std::string &src, bool create_aggregator, bo
 
 std::vector<FunctionPtr> parse_program_from_source(const std::string &src, bool create_aggregator) {
     // standard mode: parser calls exit(1) on error, so errors is always empty.
-    auto result = parse_impl(src, create_aggregator, false);
+    auto result = parse(src, create_aggregator, false);
     resolve_interp_exprs(result.functions);
     return std::move(result.functions);
 }
 
 ParseResult parse_program_recovering(const std::string &src, bool create_aggregator) {
-    auto result = parse_impl(src, create_aggregator, true);
+    auto result = parse(src, create_aggregator, true);
     resolve_interp_exprs(result.functions, &result.errors);
     return result;
 }

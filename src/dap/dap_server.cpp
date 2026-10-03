@@ -221,24 +221,17 @@ static bytecode::Chunk *compile_source_for_debug(const std::string &path) {
     std::stringstream ss;
     ss << f.rdbuf();
     const std::string source = ss.str();
-    try {
-        // Set the parser's thread-local filename so every AST node carries the absolute path.
-        Parser::set_source_filename(path);
-        auto funcs = Parser::parse_program_from_source(source);
-        auto *chunk = bytecode::compile_bytecode(funcs);
-        if (g_log && chunk) {
-            log_line("--", "compiled " + std::to_string(chunk->functions.size()) + " functions:");
-            for (const auto &fn : chunk->functions) {
-                log_line(
-                    "  ", std::string("name='") + fn.name + "' source='" + fn.source_file +
-                              "' line_map_size=" + std::to_string(fn.line_map.size())
-                );
-            }
+    // Set the parser's thread-local filename so every AST node carries the absolute path.
+    Parser::set_source_filename(path);
+    auto funcs = Parser::parse_program_from_source(source);
+    auto *chunk = bytecode::compile_bytecode(funcs);
+    if (g_log && chunk) {
+        log_line("--", "compiled " + std::to_string(chunk->functions.size()) + " functions:");
+        for (const auto &fn : chunk->functions) {
+            log_line("  ", std::string("name='") + fn.name + "' source='" + fn.source_file + "' line_map_size=" + std::to_string(fn.line_map.size()));
         }
-        return chunk;
-    } catch (...) {
-        return nullptr;
     }
+    return chunk;
 }
 
 static bytecode::Chunk *load_naric(const std::string &path) {

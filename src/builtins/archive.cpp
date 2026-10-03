@@ -157,19 +157,23 @@ struct ArchiveError {
 };
 
 [[noreturn]] void archive_throw(const std::string &msg) {
-    throw ArchiveError{ msg };
+    throw ArchiveError { msg };
 }
 
 [[noreturn]] void archive_throw_libarchive(struct archive *a, const std::string &prefix) {
     const char *msg = archive_error_string(a);
-    throw ArchiveError{ prefix + ": " + (msg ? msg : "unknown libarchive error") };
+    if (!msg) throw ArchiveError { "unknown libarchive error" };
+    
+    throw ArchiveError { prefix + ": " + msg };
 }
 
 // RAII handle for a libarchive read context
 struct ArchiveReadGuard {
     struct archive *a = nullptr;
+    
     explicit ArchiveReadGuard(struct archive *p) : a(p) {
     }
+    
     ~ArchiveReadGuard() {
         if (a) {
             archive_read_free(a);
