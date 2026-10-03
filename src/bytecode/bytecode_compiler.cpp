@@ -738,9 +738,9 @@ void Compiler::collect_bindings(const Stmt *stmt, std::set<std::string> &binding
 
 // returns true whenever the expression is successfully compiled and emits bytecode,
 // and false if there's an error, or another state where no emission is performed
-bool Compiler::compile_expr(const Expr *expr) {
+void Compiler::compile_expr(const Expr *expr) {
     if (!expr) {
-        return false;
+        return;
     }
 
     if (auto *num = dynamic_cast<const NumberExpr *>(expr)) {
@@ -759,25 +759,25 @@ bool Compiler::compile_expr(const Expr *expr) {
                 ctx->emit_op_short(OpCode::OP_LOAD_CONST, idx);
             }
         }
-        return true;
+        return;
     }
 
     if (auto *str = dynamic_cast<const StringExpr *>(expr)) {
         uint32_t str_idx = chunk->add_string(str->value);
         uint16_t const_idx = ctx->add_constant(Constant::make_string(str_idx));
         ctx->emit_op_short(OpCode::OP_LOAD_CONST, const_idx);
-        return true;
+        return;
     }
 
     if (auto *b = dynamic_cast<const BoolExpr *>(expr)) {
         ctx->emit_op(b->value ? OpCode::OP_LOAD_TRUE : OpCode::OP_LOAD_FALSE);
-        return true;
+        return;
     }
 
     if (auto *n = dynamic_cast<const NullExpr *>(expr)) {
         (void)n; // unused
         ctx->emit_op(OpCode::OP_LOAD_NONE);
-        return true;
+        return;
     }
 
     if (auto *re = dynamic_cast<const RegexLiteralExpr *>(expr)) {
@@ -786,20 +786,20 @@ bool Compiler::compile_expr(const Expr *expr) {
         ctx->emit_op(OpCode::OP_MAKE_REGEX);
         ctx->emit_short(static_cast<uint16_t>(pattern_idx));
         ctx->emit_short(static_cast<uint16_t>(flags_idx));
-        return true;
+        return;
     }
 
     if (auto *var = dynamic_cast<const IdentExpr *>(expr)) {
         uint16_t idx = ctx->resolve_local(var->name);
         if (idx != 0xFFFF) {
             ctx->emit_op_short(OpCode::OP_LOAD_VAR, idx);
-            return true;
+            return;
         }
         // check if it's a captured variable
         auto cap_it = ctx->capture_map.find(var->name);
         if (cap_it != ctx->capture_map.end()) {
             ctx->emit_op_short(OpCode::OP_LOAD_CAPTURE, cap_it->second);
-            return true;
+            return;
         }
         if (Parser::get_registered_type(var->name) || Parser::is_registered_class(var->name)) {
             // registered type names resolve at compile time to a string constant
@@ -812,7 +812,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             uint32_t str_idx = chunk->add_string(var->name);
             ctx->emit_op_short(OpCode::OP_LOAD_GLOBAL, static_cast<uint16_t>(str_idx));
         }
-        return true;
+        return;
     }
 
     if (auto *bin = dynamic_cast<const BinaryExpr *>(expr)) {
@@ -830,7 +830,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             // left was falsy (consumed by jump), push false
             ctx->emit_op(OpCode::OP_LOAD_FALSE);
             ctx->patch_jump(end_jump);
-            return true;
+            return;
         }
         if (bin->op == "||") {
             compile_expr(bin->left.get());
@@ -844,7 +844,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             // left was truthy (consumed by jump), push true
             ctx->emit_op(OpCode::OP_LOAD_TRUE);
             ctx->patch_jump(end_jump);
-            return true;
+            return;
         }
         if (bin->op == "??") {
             compile_expr(bin->left.get());
@@ -856,7 +856,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             ctx->emit_op(OpCode::OP_POP);
             compile_expr(bin->right.get());
             ctx->patch_jump(end_jump);
-            return true;
+            return;
         }
 
         // compile operands for non-short-circuit ops
@@ -907,7 +907,7 @@ bool Compiler::compile_expr(const Expr *expr) {
         } else {
             fprintf(stderr, "unhandled binary op: %s\n", bin->op.c_str());
         }
-        return true;
+        return;
     }
 
     if (auto *unary = dynamic_cast<const UnaryExpr *>(expr)) {
@@ -916,11 +916,11 @@ bool Compiler::compile_expr(const Expr *expr) {
             auto *ident = dynamic_cast<const IdentExpr *>(unary->operand.get());
             if (!ident) {
                 fprintf(stderr, "increment/decrement requires a variable\n");
-                return true;
+                return;
             }
             if (is_const_binding(ident->name)) {
                 emit_const_assignment_error(ident->name);
-                return true;
+                return;
             }
             bool is_increment = (unary->op == "++" || unary->op == "post++");
             bool is_postfix = (unary->op == "post++" || unary->op == "post--");
@@ -973,7 +973,7 @@ bool Compiler::compile_expr(const Expr *expr) {
                 // store new value (leaves new value on stack; this IS the result)
                 emit_store();
             }
-            return true;
+            return;
         }
 
         compile_expr(unary->operand.get());
@@ -987,7 +987,7 @@ bool Compiler::compile_expr(const Expr *expr) {
         } else {
             fprintf(stderr, "unhandled unary op: %s\n", unary->op.c_str());
         }
-        return true;
+        return;
     }
 
     if (auto *arr = dynamic_cast<const ArrayLiteralExpr *>(expr)) {
@@ -1006,14 +1006,14 @@ bool Compiler::compile_expr(const Expr *expr) {
         } else {
             if (arr->elements.size() > 0xFFFF) {
                 fprintf(stderr, "error: array literal too large (max 65535 elements)\n");
-                return true;
+                return;
             }
             for (const auto &elem : arr->elements) {
                 compile_expr(elem.get());
             }
             ctx->emit_op_short(OpCode::OP_MAKE_ARRAY, static_cast<uint16_t>(arr->elements.size()));
         }
-        return true;
+        return;
     }
 
     if (auto *obj = dynamic_cast<const ObjectLiteralExpr *>(expr)) {
@@ -1035,7 +1035,7 @@ bool Compiler::compile_expr(const Expr *expr) {
         } else {
             if (obj->entries.size() > 0xFFFF) {
                 fprintf(stderr, "error: object literal too large (max 65535 entries)\n");
-                return false;
+                return;
             }
             for (const auto &[key, value] : obj->entries) {
                 uint32_t str_idx = chunk->add_string(key);
@@ -1045,7 +1045,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             }
             ctx->emit_op_short(OpCode::OP_MAKE_OBJECT, static_cast<uint16_t>(obj->entries.size()));
         }
-        return true;
+        return;
     }
 
     if (auto *idx = dynamic_cast<const IndexExpr *>(expr)) {
@@ -1063,7 +1063,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             compile_expr(idx->index.get());
             ctx->emit_op(OpCode::OP_GET_INDEX);
         }
-        return true;
+        return;
     }
 
     if (auto *member = dynamic_cast<const MemberExpr *>(expr)) {
@@ -1080,7 +1080,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             uint32_t str_idx = chunk->add_string(member->member);
             ctx->emit_op_short(OpCode::OP_GET_PROPERTY, static_cast<uint16_t>(str_idx));
         }
-        return true;
+        return;
     }
 
     if (auto *call = dynamic_cast<const CallExpr *>(expr)) {
@@ -1095,7 +1095,7 @@ bool Compiler::compile_expr(const Expr *expr) {
                     compile_expr(call->args[1].get());
                     uint32_t label_idx = chunk->add_string("__js_apply_array");
                     ctx->emit_op_short(OpCode::OP_CALL_SPREAD, static_cast<uint16_t>(label_idx));
-                    return true;
+                    return;
                 }
                 if (helper->second == OpCode::OP_JS_SET_PROP_STATIC && call->args.size() == 3) {
                     const auto *key = dynamic_cast<const StringExpr *>(call->args[1].get());
@@ -1104,7 +1104,7 @@ bool Compiler::compile_expr(const Expr *expr) {
                         compile_expr(call->args[2].get());
                         uint32_t key_idx = chunk->add_string(key->value);
                         ctx->emit_op_short(OpCode::OP_JS_SET_PROP_STATIC, static_cast<uint16_t>(key_idx));
-                        return true;
+                        return;
                     }
                 }
                 if (helper->second == OpCode::OP_JS_POSTINC && call->args.size() == 2) {
@@ -1113,7 +1113,7 @@ bool Compiler::compile_expr(const Expr *expr) {
                         compile_expr(call->args[0].get());
                         uint32_t key_idx = chunk->add_string(key->value);
                         ctx->emit_op_short(OpCode::OP_JS_POSTINC, static_cast<uint16_t>(key_idx));
-                        return true;
+                        return;
                     }
                 }
                 if (helper->second == OpCode::OP_JS_GET_PROP_STATIC && call->args.size() == 2) {
@@ -1122,7 +1122,7 @@ bool Compiler::compile_expr(const Expr *expr) {
                         compile_expr(call->args[0].get());
                         uint32_t key_idx = chunk->add_string(key->value);
                         ctx->emit_op_short(OpCode::OP_JS_GET_PROP_STATIC, static_cast<uint16_t>(key_idx));
-                        return true;
+                        return;
                     }
                 }
                 // only the bit and shift helpers lower to an operand-free opcode that consumes exactly its arguments.
@@ -1136,7 +1136,7 @@ bool Compiler::compile_expr(const Expr *expr) {
                         compile_expr(arg.get());
                     }
                     ctx->emit_op(helper->second);
-                    return true;
+                    return;
                 }
             }
         }
@@ -1145,12 +1145,12 @@ bool Compiler::compile_expr(const Expr *expr) {
             compile_expr(call->args[0].get());
             compile_expr(call->args[1].get());
             ctx->emit_op(OpCode::OP_EQ);
-            return true;
+            return;
         }
         if (callee && callee->name == "__js_truthy" && !call->has_spread && !call->optional && call->args.size() == 1) {
             compile_expr(call->args[0].get());
             emit_js_truthy();
-            return true;
+            return;
         }
         if (callee && callee->name == "__js_omitted_has" && !call->has_spread && !call->optional && call->args.size() == 2) {
             compile_expr(call->args[0].get());
@@ -1161,7 +1161,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             ctx->emit_byte(1);
             ctx->emit_op(OpCode::OP_LOAD_ZERO);
             ctx->emit_op(OpCode::OP_GE);
-            return true;
+            return;
         }
         if (callee && callee->name == "__js_set_function_length" && !call->has_spread && !call->optional && call->args.size() == 2) {
             compile_expr(call->args[0].get());
@@ -1170,7 +1170,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             uint32_t length_idx = chunk->add_string("length");
             ctx->emit_op_short(OpCode::OP_SET_PROPERTY, static_cast<uint16_t>(length_idx));
             ctx->emit_op(OpCode::OP_POP);
-            return true;
+            return;
         }
         bool is_js_and = callee && callee->name == "__js_and";
         bool is_js_or = callee && callee->name == "__js_or";
@@ -1186,7 +1186,7 @@ bool Compiler::compile_expr(const Expr *expr) {
                     ctx->emit_op(OpCode::OP_POP);
                     compile_expr(ret->value.get());
                     ctx->patch_jump(keep_left);
-                    return true;
+                    return;
                 }
             }
         }
@@ -1228,7 +1228,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             }
             uint32_t label_idx = chunk->add_string(callee_label(call->callee.get()));
             ctx->emit_op_short(OpCode::OP_CALL_SPREAD, static_cast<uint16_t>(label_idx));
-            return true;
+            return;
         }
 
         // check for method call (obj.method(args))
@@ -1247,7 +1247,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             ctx->emit_op(OpCode::OP_CALL_METHOD);
             ctx->emit_short(static_cast<uint16_t>(prop_idx));
             ctx->emit_byte(static_cast<uint8_t>(call->args.size()));
-            return true;
+            return;
         }
 
         // regular function call
@@ -1272,7 +1272,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             ctx->emit_op_byte(OpCode::OP_CALL, static_cast<uint8_t>(call->args.size()));
             ctx->emit_short(static_cast<uint16_t>(label_idx));
         }
-        return true;
+        return;
     }
 
     if (auto *func_expr = dynamic_cast<const FunctionExpr *>(expr)) {
@@ -1409,7 +1409,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             uint32_t str_idx = chunk->add_string(lambda_name);
             ctx->emit_op_short(OpCode::OP_LOAD_GLOBAL, static_cast<uint16_t>(str_idx));
         }
-        return true;
+        return;
     }
 
     if (auto *ternary = dynamic_cast<const TernaryExpr *>(expr)) {
@@ -1420,7 +1420,7 @@ bool Compiler::compile_expr(const Expr *expr) {
         ctx->patch_jump(else_jump);
         compile_expr(ternary->false_expr.get());
         ctx->patch_jump(end_jump);
-        return true;
+        return;
     }
 
     if (auto *interp = dynamic_cast<const StringInterpolationExpr *>(expr)) {
@@ -1473,7 +1473,7 @@ bool Compiler::compile_expr(const Expr *expr) {
             uint16_t const_idx = ctx->add_constant(Constant::make_string(str_idx));
             ctx->emit_op_short(OpCode::OP_LOAD_CONST, const_idx);
         }
-        return true;
+        return;
     }
 
     if (auto *match = dynamic_cast<const MatchExpr *>(expr)) {
@@ -1605,7 +1605,7 @@ bool Compiler::compile_expr(const Expr *expr) {
         for (size_t j : end_jumps) {
             ctx->patch_jump(j);
         }
-        return true;
+        return;
     }
 
     if (auto *new_expr = dynamic_cast<const NewExpr *>(expr)) {
@@ -1616,12 +1616,12 @@ bool Compiler::compile_expr(const Expr *expr) {
         ctx->emit_op(OpCode::OP_NEW_INSTANCE);
         ctx->emit_short(static_cast<uint16_t>(name_idx));
         ctx->emit_byte(static_cast<uint8_t>(new_expr->args.size()));
-        return true;
+        return;
     }
 
     if (dynamic_cast<const ThisExpr *>(expr)) {
         ctx->emit_op(OpCode::OP_LOAD_THIS);
-        return true;
+        return;
     }
 
     // compiles the body as an anonymous 0-param function and emits OP_SPAWN so the VM runs it asynchronously, returning
@@ -1629,7 +1629,7 @@ bool Compiler::compile_expr(const Expr *expr) {
     if (auto *spawn_expr = dynamic_cast<const SpawnExpr *>(expr)) {
         if (!spawn_expr->body) {
             ctx->emit_op(OpCode::OP_LOAD_NONE);
-            return true;
+            return;
         }
 
         // compile spawn body as a 0-param anonymous function (same pattern as lambda compilation), capturing any
@@ -1674,7 +1674,7 @@ bool Compiler::compile_expr(const Expr *expr) {
         }
         if (captures.size() > UINT16_MAX) {
             printf("spawn captures too many variables! (max 65535)\n");
-            return false;
+            return;
         }
         meta.capture_count = static_cast<uint16_t>(captures.size());
 
@@ -1728,11 +1728,11 @@ bool Compiler::compile_expr(const Expr *expr) {
 
         // OP_SPAWN pops the function value and pushes an async Handle
         ctx->emit_op(OpCode::OP_SPAWN);
-        return true;
+        return;
     }
 
-    fprintf(stderr, "unhandled expression type! expr number: %d\n", (int)expr->kind);
-    return false;
+    fprintf(stderr, "unhandled expression type! expr number: %d @ %s:%d\n", (int)expr->kind, expr->filename.c_str(), expr->line);
+    return;
 }
 
 void Compiler::compile_stmt(const Stmt *stmt) {
