@@ -267,7 +267,7 @@ class Compiler {
     std::unordered_map<std::string, OpCode> extended_jsrt_helpers;
 #endif
 
-    bool compile_expr(const Expr *expr);
+    void compile_expr(const Expr *expr);
     // Ends a loop iteration by dropping the upvalue cells for locals the loop declared,
     // so the next iteration's closures capture fresh cells.
     void emit_close_upvalues_for_loop(uint16_t first_slot) {
