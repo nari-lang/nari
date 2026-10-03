@@ -29,6 +29,10 @@ Value ScriptRuntime::builtin_platform_arch(const Value *, size_t, const nari::Ca
     return Value::make_string("ppc64");
 #elif defined(__ppc__) || defined(__PPC__)
     return Value::make_string("ppc");
+#elif defined(__mips64)
+    return Value::make_string("mips64");
+#elif defined(__mips) || defined(__MIPS__)
+    return Value::make_string("mips");
 #else
     return Value::make_string("unknown");
 #endif
