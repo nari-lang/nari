@@ -3,6 +3,7 @@
 #ifndef _WIN32
 #include <cxxabi.h>
 #endif
+#include <cstdlib>
 #include <cctype>
 #include <memory>
 #include <string>

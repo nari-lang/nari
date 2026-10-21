@@ -237,7 +237,7 @@ static Value delegate_trap(const Value &del, TrapId which) {
             // (re)resolve all four trap slots against this shape
             for (int i = 0; i < 4; i++) {
                 const uint32_t slot = h->shape->slot_of(trap_field_id((TrapId)i));
-                d->trap_slots[i] = slot != ObjectShape::kNoSlot ? (int32_t)slot : -1;
+                d->trap_slots[i] = slot != ObjectShape::NoSlot ? (int32_t)slot : -1;
             }
             d->trap_shape = h->shape;
         }

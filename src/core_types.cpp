@@ -180,7 +180,7 @@ Value *ObjectObj::get_field(const std::string &name) noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     const uint32_t slot = shape->slot_of(intern_field(name));
-    return slot != ObjectShape::kNoSlot ? materialize_lazy_field(slot) : nullptr;
+    return slot != ObjectShape::NoSlot ? materialize_lazy_field(slot) : nullptr;
 }
 
 const Value *ObjectObj::get_field(const std::string &name) const noexcept {
@@ -189,7 +189,7 @@ const Value *ObjectObj::get_field(const std::string &name) const noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     const uint32_t slot = shape->slot_of(intern_field(name));
-    return slot != ObjectShape::kNoSlot ? const_cast<ObjectObj *>(this)->materialize_lazy_field(slot) : nullptr;
+    return slot != ObjectShape::NoSlot ? const_cast<ObjectObj *>(this)->materialize_lazy_field(slot) : nullptr;
 }
 
 const Value *ObjectObj::get_field_by_id(uint32_t fid) const noexcept {
@@ -200,7 +200,7 @@ const Value *ObjectObj::get_field_by_id(uint32_t fid) const noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     const uint32_t slot = shape->slot_of(fid);
-    return slot != ObjectShape::kNoSlot ? const_cast<ObjectObj *>(this)->materialize_lazy_field(slot) : nullptr;
+    return slot != ObjectShape::NoSlot ? const_cast<ObjectObj *>(this)->materialize_lazy_field(slot) : nullptr;
 }
 
 Value *ObjectObj::materialize_lazy_field(uint32_t slot) {
@@ -303,7 +303,7 @@ void ObjectObj::set_field(const std::string &name, Value val) {
         return;
     }
     const uint32_t fid = intern_field(name);
-    if (const uint32_t slot = shape->slot_of(fid); slot != ObjectShape::kNoSlot) {
+    if (const uint32_t slot = shape->slot_of(fid); slot != ObjectShape::NoSlot) {
         clear_lazy_field(slot);
         fields[slot] = std::move(val);
         return;
@@ -336,7 +336,7 @@ Value *ObjectObj::get_field_by_id(uint32_t fid) noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     const uint32_t slot = shape->slot_of(fid);
-    return slot != ObjectShape::kNoSlot ? materialize_lazy_field(slot) : nullptr;
+    return slot != ObjectShape::NoSlot ? materialize_lazy_field(slot) : nullptr;
 }
 
 void ObjectObj::set_field_by_id(uint32_t fid, Value val) {
@@ -349,7 +349,7 @@ void ObjectObj::set_field_by_id(uint32_t fid, Value val) {
         set_field(field_name(fid), std::move(val));
         return;
     }
-    if (const uint32_t slot = shape->slot_of(fid); slot != ObjectShape::kNoSlot) {
+    if (const uint32_t slot = shape->slot_of(fid); slot != ObjectShape::NoSlot) {
         clear_lazy_field(slot);
         fields[slot] = std::move(val);
         return;
@@ -371,7 +371,7 @@ bool ObjectObj::has_field_by_id(uint32_t fid) const noexcept {
     if (dict_mode && dict) {
         return dict->map.count(field_name(fid)) != 0;
     }
-    return shape->slot_of(fid) != ObjectShape::kNoSlot;
+    return shape->slot_of(fid) != ObjectShape::NoSlot;
 }
 
 static const std::unordered_map<std::string, Value> g_empty_dict_fields;

@@ -48,7 +48,6 @@ conan_mbedtls_libdir = [conan_deploy_abs / 'mbedtls' / 'lib']
 conan_zlib_libdir = [conan_deploy_abs / 'zlib' / 'lib']
 conan_curl_libdir = [conan_deploy_abs / 'libcurl' / 'lib']
 conan_ffi_libdir = [conan_deploy_abs / 'libffi' / 'lib']
-conan_replxx_libdir = [conan_deploy_abs / 'replxx' / 'lib']
 conan_libarchive_libdir = [conan_deploy_abs / 'libarchive' / 'lib']
 
 # Probe for replxx early so we can add -DDISABLE_REPL to cpp_args if it is unavailable

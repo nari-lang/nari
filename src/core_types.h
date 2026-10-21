@@ -735,14 +735,14 @@ struct ObjectShape {
     mutable std::unordered_map<uint32_t, const ObjectShape *> transitions;
     uint64_t field_mask = 0;
 
-    static constexpr uint32_t kNoSlot = UINT32_MAX;
+    static constexpr uint32_t NoSlot = UINT32_MAX;
 
     const std::string &name_at(size_t slot) const {
         return field_name(field_ids[slot]);
     }
     NARI_ALWAYS_INLINE uint32_t slot_of(uint32_t fid) const noexcept {
         if ((field_mask & (uint64_t{ 1 } << (fid & 63))) == 0) {
-            return kNoSlot;
+            return NoSlot;
         }
         const size_t n = field_ids.size();
         const uint32_t *ids = field_ids.data();
@@ -751,7 +751,7 @@ struct ObjectShape {
                 return (uint32_t)i;
             }
         }
-        return kNoSlot;
+        return NoSlot;
     }
 };
 
@@ -997,7 +997,7 @@ inline const ObjectShape *ObjectShapeRegistry::extend(const ObjectShape *base, u
     if (!base) {
         base = this->empty;
     }
-    if (base->slot_of(fid) != ObjectShape::kNoSlot) {
+    if (base->slot_of(fid) != ObjectShape::NoSlot) {
         return base;
     }
 

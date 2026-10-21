@@ -34,9 +34,12 @@ static bool jit_dump_asm_enabled() {
 static const std::unordered_map<uint64_t, const char *> &jit_helper_symbols() {
     static const std::unordered_map<uint64_t, const char *> table = [] {
         std::unordered_map<uint64_t, const char *> t;
-        auto add = [&](const void *p, const char *name) { t.emplace(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(p)), name); };
+        
+        auto add = [&](const void *p, const char *name) { 
+            t.emplace(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(p)), name);
+        };
 
-#define NARI_JIT_SYM(fn) add(reinterpret_cast<const void *>(&fn), #fn)
+#define NARI_JIT_SYM(fn) add((const void*)&fn, #fn)
 
         NARI_JIT_SYM(jit_load_const);
         NARI_JIT_SYM(jit_push_int);

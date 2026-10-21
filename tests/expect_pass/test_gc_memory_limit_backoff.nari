@@ -1,15 +1,4 @@
-// Regression: a memory limit BELOW the live heap must not make every
-// allocation run a full mark-and-sweep.
-//
-// The memory-based collection heuristic (gc.cpp, `estimated_memory_usage >
-// memory_target`) has to back off past the live heap after a collection that
-// reclaims nothing, the way the count-based heuristic already does via
-// collection_target. Without that backoff, `trigger_collection` is cleared by
-// reset_allocation_count() but estimated_memory_usage is unchanged, so the very
-// next allocation re-triggers -> O(n^2) whole-heap scans.
-//
-// Asserted on totalCollections (not wall clock) so the check is timing- and
-// load-independent.
+// a memory limit BELOW the live heap must not make every allocation run a full mark-and-sweep.
 
 print("GC memory-limit backoff test\n");
 

@@ -542,15 +542,12 @@ struct Chunk {
 };
 
 struct TryHandler {
-    size_t catch_ip;    // IP offset for catch block
-    size_t finally_ip;  // IP offset for finally block
-    size_t stack_depth; // stack depth when try was entered
-    size_t frame_depth; // frame depth when try was entered
+    size_t catch_ip;
+    size_t finally_ip;
+    size_t stack_depth;
+    size_t frame_depth;
 };
 
-// Frames hold a handful of open upvalue cells at most, so a flat vector with a
-// linear scan beats a hash table: no bucket array, no per-entry node alloc.
-// Kept behind the same unique_ptr so CallFrame's layout and null checks are unchanged.
 typedef std::vector<std::pair<uint16_t, CellRef>> CaptureMap;
 
 struct CallFrame {
@@ -589,11 +586,7 @@ struct CallFrame {
         return cell;
     }
 
-    // Drops open upvalue cells for locals at or above `first_slot`. Emitted at the end of
-    // a loop iteration so the next iteration's closures capture fresh cells: without this,
-    // cells are cached per slot for the whole frame and every iteration shares one cell.
-    // single_capture_cache needs no invalidation here: jit_make_closure/OP_MAKE_CLOSURE
-    // validate it by cell identity, so a reissued fresh cell misses and rebuilds.
+    // Drops open upvalue cells for locals at or above first_slot. 
     void close_upvalues_from(uint16_t first_slot) {
         if (inline_upvalue_idx != UINT16_MAX && inline_upvalue_idx >= first_slot) {
             inline_upvalue_idx = UINT16_MAX;
@@ -622,7 +615,7 @@ struct CallFrame {
         return nullptr;
     }
 
-    // returns the number of open upvalue cells (0 when not allocated).
+    // returns 0 when not allocated
     size_t upvalue_count() const {
         return (inline_upvalue ? 1 : 0) + (open_upvalues ? open_upvalues->size() : 0);
     }
@@ -630,11 +623,8 @@ struct CallFrame {
     uint16_t inline_upvalue_idx;
     CellRef inline_upvalue;
 
-    // lazily-allocated upvalue map, null for the common case (no closures in frame).
+    // lazily-allocated because common case is no closures in frame
     std::unique_ptr<CaptureMap> open_upvalues;
-
-    // Consecutive closures commonly capture the same single cell.
-    // The frame already owns that cell, so it can retain and reuse the environment too.
     CapturesList single_capture_cache;
 };
 
@@ -700,8 +690,7 @@ class VM {
         stack.pop_back();
         return val;
     }
-    // Safe-point usable from JIT helpers: JITted code never re-enters execute_instruction, so allocating helpers poll
-    // here.
+    // safe-point usable from JIT helpers
     void jit_safepoint();
     // Cached object-property read for the method-JIT LoadProperty helper.
     Value jit_lookup_object_property(ObjectObj *oobj, uint16_t name_idx);
@@ -721,18 +710,11 @@ class VM {
 
     // Static class fields initialization helper
     void ensure_static_fields_inited(const std::string &class_name, const nari::ClassDecl *class_decl);
-
-    // indexed globals cache (keyed by bytecode name_idx).
-    // jit_load_global shares this fast path so JITted code skips the get_global hash lookup
   public:
     Array global_cache;
     ByteArray global_cache_valid;
     Value js_undefined_value;
-    // Cached `globals` entry for jsrt's __js_this_cell. __js_invoke reads it on
-    // every JS method call (1.39M times on tsc) and each read was a std::string
-    // hash plus a hashtable probe. unordered_map is node-based, so a pointer to
-    // the mapped Value stays valid across rehash and across set_global's
-    // in-place reassignment, which is what makes caching the pointer safe.
+    // Cached `globals` entry for jsrt's __js_this_cell.
     const Value *js_this_cell_cached = nullptr;
     const Value &js_this_cell();
     JsGetPropStaticICArray js_get_prop_static_ic;
@@ -741,16 +723,7 @@ class VM {
 
   private:
     void rebuild_global_cache();
-
-    // allocator-paced precise collection
-    bool gc_safepoints = false;
     void gc_collect_roots();
-
-    // Opt-in profiling for ranking bytecode that remains in the interpreter.
-    bool profile_interpreter = false;
-    bool interpreter_profile_reported = false;
-    std::vector<uint64_t> interpreted_instruction_counts;
-    void report_interpreter_profile();
 
     // C++ locals that hold heap Values across a *nested* VM execution (e.g. OP_SPAWN running a task, callbacks, etc)
     // are not on the operand stack while that nested code runs,

@@ -159,27 +159,15 @@ VM::VM(int argc, char **argv) : chunk(nullptr) {
 
     register_all_builtins();
 
-    // The precise sweep is the only reclaimer, so safe-points must run during
-    // execution or memory grows unbounded, toggleable for debugging.
-    gc_safepoints = (getenv("NARI_GC_NO_SAFEPOINT") == nullptr);
-    profile_interpreter = (getenv("NARI_INTERPRETER_PROFILE") != nullptr);
-
 #ifdef NARI_MCU
     // collect more aggressively to keep heap pressure low
     GarbageCollector::instance().set_collection_threshold(100);
 #endif
-    // Tunable collection cadence for A/B testing (allocations between collections).
-    if (const char *t = getenv("NARI_GC_THRESHOLD")) {
-        long v = atol(t);
-        if (v > 0) {
-            GarbageCollector::instance().set_collection_threshold((size_t)v);
-        }
-    }
 }
 
 // force a full precise mark-sweep using the complete root set (bytecode-VM roots via external_gc_roots_provider)
 void VM::jit_safepoint() {
-    if (NARI_UNLIKELY(gc_safepoints) && GarbageCollector::instance().should_collect()) {
+    if (GarbageCollector::instance().should_collect()) {
         gc_collect_roots();
     }
 }
@@ -217,7 +205,7 @@ Value VM::jit_lookup_object_property(ObjectObj *oobj, uint16_t name_idx) {
     }
     if (!oobj->dict_mode) {
         const uint32_t sit = oobj->shape->slot_of(field_id_for_name(name_idx));
-        if (sit != ObjectShape::kNoSlot) {
+        if (sit != ObjectShape::NoSlot) {
             ic.shape = oobj->shape;
             ic.name_idx = name_idx;
             ic.slot = sit;
@@ -316,7 +304,6 @@ Value VM::make_object_cached(const uint8_t *site, uint32_t size) {
 }
 
 VM::~VM() {
-    report_interpreter_profile();
     // drop every VM-owned reference first so any still tracked
     // heap object is unreachable by roots then force a final sweep
     stack.clear();
@@ -328,38 +315,6 @@ VM::~VM() {
     global_cache_valid.clear();
     js_undefined_value = Value::none();
     GarbageCollector::instance().force_collect({});
-}
-
-void VM::report_interpreter_profile() {
-    if (!profile_interpreter || interpreter_profile_reported || !chunk || interpreted_instruction_counts.empty()) {
-        return;
-    }
-    interpreter_profile_reported = true;
-
-    std::vector<size_t> ranked(interpreted_instruction_counts.size());
-    for (size_t i = 0; i < ranked.size(); i++) {
-        ranked[i] = i;
-    }
-    std::sort(ranked.begin(), ranked.end(), [&](size_t a, size_t b) {
-        return interpreted_instruction_counts[a] > interpreted_instruction_counts[b];
-    });
-
-    uint64_t total = 0;
-    for (uint64_t count : interpreted_instruction_counts) {
-        total += count;
-    }
-    fprintf(stderr, "[INTERPRETER PROFILE] total=%llu\n", (unsigned long long)total);
-    for (size_t idx : ranked) {
-        const uint64_t count = interpreted_instruction_counts[idx];
-        if (count == 0) {
-            break;
-        }
-        const FunctionMeta &fn = chunk->functions[idx];
-        fprintf(
-            stderr, "%12llu  %6zu  %s  %s\n", (unsigned long long)count, idx,
-            fn.name.empty() ? "<anonymous>" : fn.name.c_str(), fn.source_file.c_str()
-        );
-    }
 }
 
 void VM::set_global(const std::string &name, const Value &val) {
@@ -991,14 +946,10 @@ bool VM::execute_instruction() {
         if (NARI_UNLIKELY(Runtime::g_shutdown_requested.load())) {
             return false;
         }
-        if (NARI_UNLIKELY(gc_safepoints) && GarbageCollector::instance().should_collect()) {
+        if (GarbageCollector::instance().should_collect()) {
             // collect only when the GC has flagged that enough has been allocated.
             // at an instruction boundary the operand stack is at a clean height
             gc_collect_roots();
-        }
-        if (NARI_UNLIKELY(profile_interpreter)) {
-            const size_t func_idx = static_cast<size_t>(current_function()->self_idx);
-            interpreted_instruction_counts[func_idx]++;
         }
 #ifndef DISABLE_JIT
         // save pointer to start of instruction (before any reads) and its PC offset.
@@ -2202,7 +2153,7 @@ bool VM::execute_instruction() {
                         trace_prop_recordable = false;
                         if (!oobj->dict_mode) {
                             const uint32_t sit = oobj->shape->slot_of(field_id_for_name(name_idx));
-                            if (sit != ObjectShape::kNoSlot && sit < oobj->fields.size()) {
+                            if (sit != ObjectShape::NoSlot && sit < oobj->fields.size()) {
                                 trace_prop_slot = (uint32_t)sit;
                                 trace_prop_recordable = true;
                             }
@@ -2216,7 +2167,7 @@ bool VM::execute_instruction() {
                         if (v) {
                             if (!oobj->dict_mode) {
                                 const uint32_t sit = oobj->shape->slot_of(field_id_for_name(name_idx));
-                                if (sit != ObjectShape::kNoSlot) {
+                                if (sit != ObjectShape::NoSlot) {
                                     ic.shape = oobj->shape;
                                     ic.name_idx = name_idx;
                                     ic.slot = sit;
@@ -2394,7 +2345,7 @@ bool VM::execute_instruction() {
                         trace_prop_recordable = false;
                         if (!oobj->dict_mode && !oobj->frozen) {
                             const uint32_t sit = oobj->shape->slot_of(field_id_for_name(name_idx));
-                            if (sit != ObjectShape::kNoSlot && sit < oobj->fields.size()) {
+                            if (sit != ObjectShape::NoSlot && sit < oobj->fields.size()) {
                                 trace_prop_slot = (uint32_t)sit;
                                 trace_prop_recordable = true;
                             }
@@ -2409,7 +2360,7 @@ bool VM::execute_instruction() {
                         oobj->set_field_by_id(field_id_for_name(name_idx), val);
                         if (!oobj->dict_mode) {
                             const uint32_t sit = oobj->shape->slot_of(field_id_for_name(name_idx));
-                            if (sit != ObjectShape::kNoSlot) {
+                            if (sit != ObjectShape::NoSlot) {
                                 ic.shape = oobj->shape;
                                 ic.name_idx = name_idx;
                                 ic.slot = sit;
@@ -2460,20 +2411,6 @@ bool VM::execute_instruction() {
                     VM::push(Value::make_int(0));
                 } else {
                     fprintf(stderr, "bytecode: for-each requires an array or object\n");
-                    if (std::getenv("NARI_TRACE_ITER_ERROR")) {
-                        const auto &active = current_frame();
-                        const size_t pc = static_cast<size_t>(active.ip - active.function->code.data());
-                        fprintf(
-                            stderr, "  function=%s line=%d value=%s type=%zu\n", active.function->name.c_str(),
-                            active.function->resolve_line(pc), iterable.to_string().c_str(), static_cast<size_t>(iterable.tag())
-                        );
-                        for (const auto &trace_frame : frames) {
-                            const size_t trace_pc = static_cast<size_t>(trace_frame.ip - trace_frame.function->code.data());
-                            fprintf(
-                                stderr, "    at %s:%d\n", trace_frame.function->name.c_str(), trace_frame.function->resolve_line(trace_pc)
-                            );
-                        }
-                    }
                     has_error = true;
                     VM::push(Value::make_array()); // dummy empty array
                     VM::push(Value::make_int(0));  // dummy index
@@ -2499,20 +2436,6 @@ bool VM::execute_instruction() {
                     VM::push(Value::make_array(std::move(keys)));
                 } else {
                     fprintf(stderr, "bytecode: for-each requires an array or object\n");
-                    if (std::getenv("NARI_TRACE_ITER_ERROR")) {
-                        const auto &active = current_frame();
-                        const size_t pc = static_cast<size_t>(active.ip - active.function->code.data());
-                        fprintf(
-                            stderr, "  function=%s line=%d value=%s type=%zu\n", active.function->name.c_str(),
-                            active.function->resolve_line(pc), iterable.to_string().c_str(), static_cast<size_t>(iterable.tag())
-                        );
-                        for (const auto &trace_frame : frames) {
-                            const size_t trace_pc = static_cast<size_t>(trace_frame.ip - trace_frame.function->code.data());
-                            fprintf(
-                                stderr, "    at %s:%d\n", trace_frame.function->name.c_str(), trace_frame.function->resolve_line(trace_pc)
-                            );
-                        }
-                    }
                     has_error = true;
                     VM::push(Value::make_array()); // dummy empty array
                 }
@@ -2870,7 +2793,7 @@ bool VM::execute_instruction() {
                         ObjectObj *method_obj = obj_ref.get_obj_ptr();
                         const uint32_t method_slot = method_obj->shape->slot_of(intern_field(method_name));
                         Value lazy_result;
-                        if (!method_obj->dict_mode && method_slot != ObjectShape::kNoSlot &&
+                        if (!method_obj->dict_mode && method_slot != ObjectShape::NoSlot &&
                             method_obj->invoke_lazy_field(method_slot, stack.data() + args_base, argc, lazy_result)) {
                             stack.resize(obj_idx);
                             VM::push(std::move(lazy_result));
@@ -4017,9 +3940,6 @@ bool VM::run(Chunk *compiled_chunk) {
     }
 
     chunk = compiled_chunk;
-    if (profile_interpreter) {
-        interpreted_instruction_counts.assign(chunk->functions.size(), 0);
-    }
 #ifndef DISABLE_JIT
     // The trace JIT has no chunk identity in its cache key (uses (func_idx, anchor_pc))
     // cached traces also bake absolute bytecode IPs from chunk.functions[i].code.data().
@@ -4036,17 +3956,18 @@ bool VM::run(Chunk *compiled_chunk) {
         return call_function_value_sync(func_val, args, receiver);
     };
     // span form used by the hot delegate-trap path (no vector<Value> creation)
-    runtime->external_call_function_value_span = [&](const Value &func_val, const Value *args, size_t argc,
-                                                     const Value *receiver) -> Value {
+    runtime->external_call_function_value_span = [&](const Value &func_val, const Value *args, size_t argc, const Value *receiver) -> Value {
         return call_function_value_span(func_val, args, argc, receiver);
     };
-    runtime->external_catch_function_value = [&](const Value &func_val) -> Value { return call_function_value_catching(func_val); };
-
-    runtime->external_global_lookup = [&](const std::string &name) -> Value { return get_global(name); };
+    runtime->external_catch_function_value = [&](const Value &func_val) -> Value { 
+        return call_function_value_catching(func_val);
+    };
+    runtime->external_global_lookup = [&](const std::string &name) -> Value { 
+        return get_global(name);
+    };
     runtime->external_eval_source = [this](const FuncList &funcs, const std::string &entry_name) -> Value {
         return eval_compile_run(funcs, entry_name);
     };
-    runtime->external_before_exit = [&]() { report_interpreter_profile(); };
 
     // Property and method opcodes can run during __stdlib_init__, so their
     // per-string-table caches must exist before entering that function.
@@ -4111,7 +4032,6 @@ bool VM::run(Chunk *compiled_chunk) {
         }
         if (jmp_val == 1) {
             overflow_jmp = nullptr;
-            report_interpreter_profile();
             return false;
         }
         // jmp_val == 0 (first entry) or 2
@@ -4145,12 +4065,10 @@ bool VM::run(Chunk *compiled_chunk) {
             }
             if (start_jmp_val == 1) {
                 overflow_jmp = nullptr;
-                report_interpreter_profile();
                 return false;
             }
             if (start_jmp_val == 3) {
                 overflow_jmp = nullptr;
-                report_interpreter_profile();
                 return true;
             }
             // start_jmp_val == 0 (first entry) or 2 (caught; resume loop)
@@ -4173,8 +4091,7 @@ bool VM::run(Chunk *compiled_chunk) {
     }
 
     run_timer_loop();
-
-    report_interpreter_profile();
+    
     return !has_error;
 }
 
@@ -4318,7 +4235,7 @@ extern "C" void jit_js_get_prop_static(VM *vm, uint32_t name_idx) {
             if (!object->dict_mode) {
                 const uint32_t getter_slot = object->shape->slot_of(getter_field_id);
                 const uint32_t field_slot = object->shape->slot_of(field_id);
-                const bool plain_field = getter_slot == ObjectShape::kNoSlot && field_slot != ObjectShape::kNoSlot;
+                const bool plain_field = getter_slot == ObjectShape::NoSlot && field_slot != ObjectShape::NoSlot;
                 if (plain_field) {
                     g_prop_stub[prop_stub_hash(object->shape, field_id)] = PropStubEntry{ object->shape, field_id, field_slot };
                 }

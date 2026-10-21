@@ -380,37 +380,24 @@ size_t GarbageCollector::sweep() {
 
 // full collection
 size_t GarbageCollector::collect(const std::vector<const Value *> &roots) {
-    if (!enabled) {
+    if (!this->enabled) {
         return 0;
     }
-    total_collections++;
-    static const bool gc_profile = getenv("NARI_GC_PROFILE") != nullptr;
-    std::chrono::steady_clock::time_point t0, t1, t2;
-    size_t tracked_before = tracked_objects.size();
-    if (gc_profile) t0 = std::chrono::steady_clock::now();
-    marked_closure_environments.clear();
+    this->total_collections++;
+    this->marked_closure_environments.clear();
     for (const Value *root : roots) {
         if (root) {
             mark_value(*root);
         }
     }
-    if (gc_profile) t1 = std::chrono::steady_clock::now();
     // don't retain a pathologically grown worklist across collections (512KB cap)
-    if (mark_stack.capacity() > 65536) {
-        mark_stack.shrink_to_fit();
+    if (this->mark_stack.capacity() > 65536) {
+        this->mark_stack.shrink_to_fit();
     }
     size_t collected = sweep();
-    if (gc_profile) {
-        t2 = std::chrono::steady_clock::now();
-        auto ms = [](std::chrono::steady_clock::time_point a, std::chrono::steady_clock::time_point b) {
-            return std::chrono::duration<double, std::milli>(b - a).count();
-        };
-        fprintf(stderr, "[gcprof] #%zu tracked_before=%zu live=%zu roots=%zu mark=%.2fms sweep=%.2fms\n",
-                (size_t)total_collections, tracked_before, tracked_count, roots.size(), ms(t0, t1), ms(t1, t2));
-    }
-    total_collected += collected;
+    this->total_collected += collected;
     reset_allocation_count();
-    collection_target = tracked_count + std::max(collection_threshold, tracked_count);
+    this->collection_target = this->tracked_count + std::max(this->collection_threshold, this->tracked_count);
     if (memory_limit > 0) {
         memory_target = std::max(memory_limit, estimated_memory_usage * 2);
     }
