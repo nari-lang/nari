@@ -10,6 +10,10 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include "win_funcs.h"
+#endif
+
 // Defined in embedded_stdlib.cpp (global namespace).
 const std::string &nari_std_module_source(const std::string &name);
 

@@ -24,7 +24,7 @@ inline void *dlopen(const char *filename, int) {
     return static_cast<void *>(LoadLibraryA(filename));
 }
 inline void *dlsym(void *handle, const char *symbol) {
-    return reinterpret_cast<void *>(GetProcAddress(static_cast<HMODULE>(handle), symbol);
+    return reinterpret_cast<void *>(GetProcAddress(static_cast<HMODULE>(handle), symbol));
 }
 inline int dlclose(void *handle) {
     return FreeLibrary(static_cast<HMODULE>(handle)) ? 0 : -1;

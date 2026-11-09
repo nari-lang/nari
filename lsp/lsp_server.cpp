@@ -52,6 +52,10 @@ using json = JsonValue;
 #include <unordered_set>
 #include <vector>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <corecrt_io.h>
+#endif
 
 static std::ofstream g_log_file;
 

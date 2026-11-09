@@ -50,7 +50,7 @@ bool is_sep(char ch) {
 }
 
 bool has_drive_prefix(const std::string &path) {
-    return path.size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0]) && path[1] == ':';
+    return path.size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0])) && path[1] == ':';
 }
 
 std::wstring utf8_to_wide(const std::string &value) {

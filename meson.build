@@ -100,6 +100,11 @@ endif
 cpp_args = []
 link_args = []
 
+# MSVC's standard library has its own exception switch
+if cc.get_argument_syntax() == 'msvc' and get_option('cpp_eh') == 'none'
+    cpp_args += ['-D_HAS_EXCEPTIONS=0']
+endif
+
 # link the libc++ runtime statically so the result depends only on glibc + libgcc_s
 if get_option('static_libcxx')
     if not (cc.get_id() == 'clang' and is_linux)
