@@ -70,7 +70,7 @@ typedef SSIZE_T ssize_t;
 #endif
 #define close _close
 #define poll WSAPoll
-#define NARI_CLOSE_SOCKET(fd) ::closesocket(static_cast<SOCKET>(fd)
+#define NARI_CLOSE_SOCKET(fd) ::closesocket(static_cast<SOCKET>(fd))
 using nari_socket_t = SOCKET;
 #define NARI_INVALID_SOCKET INVALID_SOCKET
 #elif defined(NARI_MCU)

@@ -2,7 +2,7 @@
 
 // spawn returns a handle
 let h = spawn { return 42 }
-if (typeof(h) != "handle") { panic("spawn should return a handle, got: " @ typeof(h)) }
+if (typeof(h) != "handle") { panic("spawn should return a handle, got: " + typeof(h)) }
 
 // .await resolves to the return value
 if (h.await != 42) { panic("spawn handle .await should be 42") }

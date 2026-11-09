@@ -519,7 +519,7 @@ Read a line from standard input.
 
 ```nari
 let name = read_line();
-print("Hello, " @ name @ "!");
+print("Hello, " + name + "!");
 ```
 
 **Parameters:** None  
@@ -531,7 +531,7 @@ Read all remaining input from stdin.
 
 ```nari
 let content = read_all();
-print("You entered: " @ content);
+print("You entered: " + content);
 ```
 
 **Parameters:** None  

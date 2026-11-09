@@ -4,10 +4,10 @@ import { assert } from "../lib/assert.nari";
 
 func sig(a, b) {
     let s = "";
-    if (a < b) { s = s @ "1"; } else { s = s @ "0"; }
-    if (a <= b) { s = s @ "1"; } else { s = s @ "0"; }
-    if (a > b) { s = s @ "1"; } else { s = s @ "0"; }
-    if (a >= b) { s = s @ "1"; } else { s = s @ "0"; }
+    if (a < b) { s = s + "1"; } else { s = s + "0"; }
+    if (a <= b) { s = s + "1"; } else { s = s + "0"; }
+    if (a > b) { s = s + "1"; } else { s = s + "0"; }
+    if (a >= b) { s = s + "1"; } else { s = s + "0"; }
     return s;
 }
 
@@ -64,14 +64,14 @@ func start() {
 
     // first pass runs in the interpreter
     for (c in cs) {
-        assert(sig(c[0], c[1]) == c[2], c[3] @ " (cold) got " @ sig(c[0], c[1]) @ " want " @ c[2]);
+        assert(sig(c[0], c[1]) == c[2], c[3] + " (cold) got " + sig(c[0], c[1]) + " want " + c[2]);
     }
 
     // 200 calls per pair pushes sig() past JIT_THRESHOLD (50) into the
     //  function JIT, and the answer must not change
     for (let k = 0; k < 200; k++) {
         for (c in cs) {
-            assert(sig(c[0], c[1]) == c[2], c[3] @ " (warm, k=" @ k @ ")");
+            assert(sig(c[0], c[1]) == c[2], c[3] + " (warm, k=" + k + ")");
         }
     }
 
@@ -80,7 +80,7 @@ func start() {
         let want = 0;
         if (c[2] == LT) { want = 5000; }
         let got = count_lt(c[0], c[1], 5000);
-        assert(got == want, c[3] @ " (traced) got " @ got @ " want " @ want);
+        assert(got == want, c[3] + " (traced) got " + got + " want " + want);
     }
 
     // antisymmetry sweep: for every ordered pair of distinct strings, exactly one
@@ -91,15 +91,15 @@ func start() {
             let lt = x < y;
             let gt = x > y;
             let eq = x == y;
-            assert(!(lt && gt), "both < and > true for '" @ x @ "','" @ y @ "'");
+            assert(!(lt && gt), "both < and > true for '" + x + "','" + y + "'");
             if (eq) {
-                assert(!lt && !gt, "equal strings ordered: '" @ x @ "'");
+                assert(!lt && !gt, "equal strings ordered: '" + x + "'");
             } else {
-                assert(lt || gt, "distinct strings unordered: '" @ x @ "','" @ y @ "'");
+                assert(lt || gt, "distinct strings unordered: '" + x + "','" + y + "'");
             }
             // <= and >= must agree with < / > plus equality
-            assert((x <= y) == (lt || eq), "'<=' disagrees for '" @ x @ "','" @ y @ "'");
-            assert((x >= y) == (gt || eq), "'>=' disagrees for '" @ x @ "','" @ y @ "'");
+            assert((x <= y) == (lt || eq), "'<=' disagrees for '" + x + "','" + y + "'");
+            assert((x >= y) == (gt || eq), "'>=' disagrees for '" + x + "','" + y + "'");
         }
     }
 
@@ -107,12 +107,12 @@ func start() {
     // with the operators now that both are lexicographic
     let arr = ["banana", "apple", "cherry", "Apple"];
     arr.sort();
-    assert(arr[0] == "Apple", "sort: Apple first, got " @ arr[0]);
-    assert(arr[1] == "apple", "sort: apple second, got " @ arr[1]);
-    assert(arr[2] == "banana", "sort: banana third, got " @ arr[2]);
-    assert(arr[3] == "cherry", "sort: cherry fourth, got " @ arr[3]);
+    assert(arr[0] == "Apple", "sort: Apple first, got " + arr[0]);
+    assert(arr[1] == "apple", "sort: apple second, got " + arr[1]);
+    assert(arr[2] == "banana", "sort: banana third, got " + arr[2]);
+    assert(arr[3] == "cherry", "sort: cherry fourth, got " + arr[3]);
     for (let i = 0; i < arr.length() - 1; i++) {
-        assert(arr[i] < arr[i + 1], "sort order disagrees with '<' at " @ i);
+        assert(arr[i] < arr[i + 1], "sort order disagrees with '<' at " + i);
     }
 
     print("string relational compare: OK");

@@ -23,7 +23,7 @@ Nari is a dynamically-typed scripting language designed for rapid development wi
 ```nari
 let x = 42;                          // Variables are never annotated
 func greet(name: string) -> string { // Parameters and return types can be
-    return "Hi " @ name;
+    return "Hi " + name;
 }
 ```
 

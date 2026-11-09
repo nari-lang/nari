@@ -234,15 +234,15 @@ while (count > 0) {
 
 ## String Operators
 
-### Concatenation (@)
+### Concatenation (+)
 
 ```nari
 let first = "Hello";
 let second = "World";
-let result = first @ " " @ second;  // "Hello World"
+let result = first + " " + second;  // "Hello World"
 
 // Chaining
-let msg = "Age: " @ 25 @ " years";  // "Age: 25 years"
+let msg = "Age: " + 25 + " years";  // "Age: 25 years"
 ```
 
 ### Concatenation with +=
@@ -252,7 +252,7 @@ let str = "Hello";
 str += " World";     // "Hello World"
 ```
 
-Note: The `+` operator also works for concatenation but `@` is preferred for clarity.
+The `+` operator concatenates when either operand is a string, converting the other operand to a string. Use parentheses to group numeric addition within a concatenation.
 
 ## Ternary Operator
 
@@ -366,7 +366,7 @@ From highest to lowest:
 3. Unary: `!` `-` `+` `++` `--`
 4. Exponentiation: `**`
 5. Multiplicative: `*` `/` `%`
-6. Additive: `+` `-` `@`
+6. Additive: `+` `-`
 7. Shift: `<<` `>>`
 8. Comparison: `<` `>` `<=` `>=`
 9. Equality: `==` `!=` `===` `!==`
@@ -403,8 +403,8 @@ numeric conversion.
 ### String Concatenation
 
 ```nari
-print("Count: " @ 42);        // "Count: 42"
-print(true @ " or " @ false); // "true or false"
+print("Count: " + 42);        // "Count: 42"
+print(true + " or " + false); // "true or false"
 ```
 
 ## Next Steps

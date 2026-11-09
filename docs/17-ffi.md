@@ -47,8 +47,8 @@ When a library is loaded, you get an object with:
 import libc from "libc.so.6"
 
 if (libc.loaded) {
-    print("Loaded " @ libc.path @ "\n")
-    print("Found " @ libc.__symbols__.length() @ " symbols\n")
+    print("Loaded " + libc.path + "\n")
+    print("Found " + libc.__symbols__.length() + " symbols\n")
 }
 ```
 
@@ -143,7 +143,7 @@ let str_sig = {
 }
 
 let len = __ffi_call(libc, "strlen", str_sig, ["Hello, World!"])
-print("Length: " @ len @ "\n")  // Output: Length: 13
+print("Length: " + len + "\n")  // Output: Length: 13
 ```
 
 ### Math Functions
@@ -155,7 +155,7 @@ let abs_sig = {
 }
 
 let result = __ffi_call(libc, "abs", abs_sig, [-42])
-print("abs(-42) = " @ result @ "\n")  // Output: abs(-42) = 42
+print("abs(-42) = " + result + "\n")  // Output: abs(-42) = 42
 ```
 
 ### Functions with Multiple Parameters
@@ -192,7 +192,7 @@ let time_sig = {
 }
 
 let timestamp = __ffi_call(libc, "time", time_sig, [0])
-print("Unix timestamp: " @ timestamp @ "\n")
+print("Unix timestamp: " + timestamp + "\n")
 ```
 
 ## Complete Example
@@ -209,13 +209,13 @@ let puts_sig = { returns: "int", params: ["string"] }
 let message = "FFI is awesome!"
 let len = __ffi_call(libc, "strlen", str_len_sig, [message])
 
-__ffi_call(libc, "puts", puts_sig, ["Message: " @ message])
-print("Length: " @ len @ "\n")
+__ffi_call(libc, "puts", puts_sig, ["Message: " + message])
+print("Length: " + len + "\n")
 
 let numbers = [-10, -5, 0, 5, 10]
 for (num in numbers) {
     let abs_val = __ffi_call(libc, "abs", abs_sig, [num])
-    print("abs(" @ num @ ") = " @ abs_val @ "\n")
+    print("abs(" + num + ") = " + abs_val + "\n")
 }
 ```
 
@@ -589,7 +589,7 @@ let get_mouse_pos_sig = {
 }
 
 let pos = __ffi_call(raylib, "GetMousePosition", get_mouse_pos_sig, [])
-print("Mouse: " @ pos.x @ ", " @ pos.y @ "\n")
+print("Mouse: " + pos.x + ", " + pos.y + "\n")
 ```
 
 Alternatively, you can manually specify the fields as an array:
@@ -607,7 +607,7 @@ let get_mouse_pos_sig = {
 }
 
 let pos = __ffi_call(raylib, "GetMousePosition", get_mouse_pos_sig, [])
-print("Mouse: " @ pos.x @ ", " @ pos.y @ "\n")
+print("Mouse: " + pos.x + ", " + pos.y + "\n")
 ```
 
 ### How It Works
@@ -653,7 +653,7 @@ Reads a struct from memory and returns it as a Nari object.
 
 ```nari
 let point = __ffi_read_struct(ptr, "Point");
-print("x: " @ to_string(point.x) @ ", y: " @ to_string(point.y));
+print("x: " + to_string(point.x) + ", y: " + to_string(point.y));
 ```
 
 #### `__ffi_write_struct(ptr, typename, object)`
@@ -752,7 +752,7 @@ Use `__ffi_create_callback` to create a native function pointer:
 
 ```nari
 func MyCallback(arg1, arg2, arg3) {
-    print("Called from C with: " @ arg1 @ ", " @ arg2 @ ", " @ arg3 @ "\n");
+    print("Called from C with: " + arg1 + ", " + arg2 + ", " + arg3 + "\n");
     return 42;
 }
 
@@ -966,7 +966,7 @@ Or within Nari itself:
 ```nari
 import libc from "libc.so.6"
 for (symbol in libc.__symbols__) {
-    print(symbol @ "\n")
+    print(symbol + "\n")
 }
 ```
 

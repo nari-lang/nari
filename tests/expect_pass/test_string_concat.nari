@@ -1,0 +1,68 @@
+import { assert } from "../lib/assert.nari";
+
+// Test + string concatenation operator
+
+// Basic concatenation
+let hello = "Hello";
+let world = "World";
+let greeting = hello + " " + world + "!";
+assert(greeting == "Hello World!", "string operands");
+
+// Concatenating different types (should convert to string)
+let num = 42;
+let result = "The answer is " + num;
+assert(result == "The answer is 42", "number conversion");
+
+// Multiple concatenations
+let a = "A";
+let b = "B";
+let c = "C";
+assert(a + b + c == "ABC", "chained variables");
+
+// Empty strings
+assert("" + "text" + "" == "text", "empty strings");
+
+// Numbers
+let x = 10;
+let y = 20;
+assert(x + " + " + y + " = " + (x + y) == "10 + 20 = 30", "string on right and grouped addition");
+
+// With booleans
+let flag = true;
+assert("Flag is: " + flag == "Flag is: true", "boolean conversion");
+
+// Mixed with string interpolation
+let name = "Alice";
+assert("Hello " + name + ", your greeting is " + `Welcome, {name}!` == "Hello Alice, your greeting is Welcome, Alice!", "interpolation");
+
+// Chained operations
+let msg = "First" + " " + "Second" + " " + "Third";
+assert(msg == "First Second Third", "chained literals");
+
+// With object property
+let obj = {name: "Bob", age: 25};
+assert("Name: " + obj.name + ", Age: " + obj["age"] == "Name: Bob, Age: 25", "object properties");
+
+// With array element
+let arr = ["red", "green", "blue"];
+assert("Colors: " + arr[0] + ", " + arr[1] + ", " + arr[2] == "Colors: red, green, blue", "array elements");
+
+// Literal and dynamic operands must use the same number formatting.
+func describe(value) { return "value=" + value; }
+assert("value=" + 0.5 == "value=0.5", "literal float formatting");
+assert(describe(0.5) == "value=0.5", "dynamic float formatting");
+assert(true + " or " + false == "true or false", "boolean on left");
+assert(1 + 2 + " items" == "3 items", "numeric addition before a string");
+assert("count: " + 1 + 2 == "count: 12", "left associativity");
+
+let appended = "seed";
+appended += "!";
+assert(appended == "seed!", "compound assignment");
+
+// @ remains valid text in strings, interpolation literals, and regexes.
+let user = "alice";
+assert(user + "@example.com" == "alice@example.com", "email literal");
+assert(`{user}@example.com` == "alice@example.com", "interpolation literal");
+assert(/@/.test("alice@example.com"), "regex literal");
+
+print("test_string_concat: all passed");

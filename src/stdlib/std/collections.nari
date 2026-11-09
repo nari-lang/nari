@@ -14,18 +14,18 @@ export let Map = {
 
         return {
             set: func(k, v) {
-                let key = "" @ k;
+                let key = "" + k;
                 if (!store.has_key(key)) { order.push(key); }
                 store[key] = v;
             },
             get: func(k) {
-                let key = "" @ k;
+                let key = "" + k;
                 if (!store.has_key(key)) { return null; }
                 return store[key];
             },
-            has: func(k) { return store.has_key("" @ k); },
+            has: func(k) { return store.has_key("" + k); },
             delete: func(k) {
-                let key = "" @ k;
+                let key = "" + k;
                 if (!store.has_key(key)) { return false; }
                 // rebuild store without this key
                 let new_store = {};

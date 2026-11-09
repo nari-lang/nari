@@ -40,7 +40,7 @@ type Person {
 }
 
 func greet(who: string, times: number) -> string {
-    return who @ "!";
+    return who + "!";
 }
 
 class Point {
@@ -307,12 +307,12 @@ print(`Result: {x > 3 ? "big" : "small"}`);
 
 ### String Concatenation
 
-Use the `@` operator to concatenate strings:
+Use the `+` operator to concatenate strings:
 
 ```nari
 let first = "Hello";
 let second = "World";
-let result = first @ " " @ second;  // "Hello World"
+let result = first + " " + second;  // "Hello World"
 ```
 
 ### Escape Sequences

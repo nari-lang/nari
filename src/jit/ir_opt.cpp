@@ -2058,7 +2058,7 @@ uint32_t analyze_frozen_builtin(const nari::bytecode::Chunk &chunk, const char *
     return name_idx;
 }
 
-// fuse `s @ to_string(x)` -> `s @ x`, eliding the throwaway StringObj that builtin_toString allocates
+// Elide a temporary StringObj from to_string(x) consumed only by string interpolation.
 bool fuse_tostring_concat(Func &f, uint32_t tostring_name_idx) {
     if (tostring_name_idx == UINT32_MAX) {
         return false;

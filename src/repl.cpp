@@ -163,8 +163,8 @@ static bool looks_like_assignment(const std::string &src) {
             ++i;
             continue;
         }
-        // Compound assignment: +=  -=  *=  /=  %=  @=
-        if ((c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '@') && i + 1 < src.size() && src[i + 1] == '=') {
+        // Compound assignment: +=  -=  *=  /=  %=
+        if ((c == '+' || c == '-' || c == '*' || c == '/' || c == '%') && i + 1 < src.size() && src[i + 1] == '=') {
             return true;
         }
         // Plain assignment '=' but NOT ==, !=, <=, >=
@@ -321,7 +321,7 @@ static bool compile_and_run(
         // wrap the expression so we can inspect its return value
         full += "let __repl_result__ = (" + new_code + ")\n";
         if (use_color) {
-            full += "print(\"\x1b[2m\x1b[37m\" @ to_string(__repl_result__) @ \"\x1b[0m\")\n";
+            full += "print(\"\x1b[2m\x1b[37m\" + to_string(__repl_result__) + \"\x1b[0m\")\n";
         } else {
             full += "print(__repl_result__)\n";
         }

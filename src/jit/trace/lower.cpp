@@ -365,7 +365,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
         } else {
 #if NARI_JIT_ARM64
             arch::Gp off = cc.new_gp64();
-            cc.mov(off, static_cast<int64_t>((static_cast<int64_t>(lv.slot * ValSize)));
+            cc.mov(off, static_cast<int64_t>(lv.slot * ValSize));
             cc.add(ar, addr0, off);
 #else
             cc.lea(ar, x86::ptr(addr0, static_cast<int32_t>((static_cast<int64_t>(lv.slot * ValSize)))));
@@ -1272,7 +1272,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 #if NARI_JIT_ARM64
                     // ARM64 blr requires a register operand
                     arch::Gp fn_reg = cc.new_gp64("fn_ptr");
-                    cc.mov(fn_reg, static_cast<uint64_t>(fn_ptr));
+                    cc.mov(fn_reg, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(fn_ptr)));
                     cc.invoke(Out(invoke), fn_reg, FuncSignature::build<double, double>());
 #else
                     cc.invoke(Out(invoke), imm(fn_ptr), FuncSignature::build<double, double>());

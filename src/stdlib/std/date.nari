@@ -60,25 +60,25 @@ export let Date = {
             // (strftime's %Y zero-pads to >=4 but not exactly 4 across libc
             // versions for negative years; we don't support BCE here).
             let pad2 = func(n) {
-                if (n < 10) { return "0" @ ("" @ n); }
-                return "" @ n;
+                if (n < 10) { return "0" + ("" + n); }
+                return "" + n;
             };
             let pad3 = func(n) {
-                if (n < 10) { return "00" @ ("" @ n); }
-                if (n < 100) { return "0" @ ("" @ n); }
-                return "" @ n;
+                if (n < 10) { return "00" + ("" + n); }
+                if (n < 100) { return "0" + ("" + n); }
+                return "" + n;
             };
             let pad4 = func(n) {
-                if (n < 10) { return "000" @ ("" @ n); }
-                if (n < 100) { return "00" @ ("" @ n); }
-                if (n < 1000) { return "0" @ ("" @ n); }
-                return "" @ n;
+                if (n < 10) { return "000" + ("" + n); }
+                if (n < 100) { return "00" + ("" + n); }
+                if (n < 1000) { return "0" + ("" + n); }
+                return "" + n;
             };
             let suffix = "";
             if (self.utc) { suffix = "Z"; }
-            return pad4(self.year) @ "-" @ pad2(self.month) @ "-" @ pad2(self.day)
-            @ "T" @ pad2(self.hour) @ ":" @ pad2(self.minute) @ ":" @ pad2(self.second)
-            @ "." @ pad3(self.millis) @ suffix;
+            return pad4(self.year) + "-" + pad2(self.month) + "-" + pad2(self.day)
+            + "T" + pad2(self.hour) + ":" + pad2(self.minute) + ":" + pad2(self.second)
+            + "." + pad3(self.millis) + suffix;
         };
         self.format = func(fmt) {
             return __time_format(self.ms, fmt, self.utc).unwrap();

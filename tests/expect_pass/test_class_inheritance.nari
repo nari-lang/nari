@@ -11,11 +11,11 @@ class Animal {
     }
     
     speak() {
-        print(this.name @ " makes a sound\n");
+        print(this.name + " makes a sound\n");
     }
     
     getInfo() {
-        return this.name @ " is " @ this.age @ " years old";
+        return this.name + " is " + this.age + " years old";
     }
 }
 
@@ -31,7 +31,7 @@ class Dog extends Animal {
     }
     
     speak() {
-        print(this.name @ " barks: Woof!\n");
+        print(this.name + " barks: Woof!\n");
     }
     
     getBreed() {
@@ -50,29 +50,29 @@ class Cat extends Animal {
     }
     
     speak() {
-        print(this.name @ " meows: Meow!\n");
+        print(this.name + " meows: Meow!\n");
     }
 }
 
 // Create instances
 let animal = new Animal("Generic Animal", 5);
 animal.speak();
-print(animal.getInfo() @ "\n");
+print(animal.getInfo() + "\n");
 
 let dog = new Dog("Buddy", 3, "Golden Retriever");
 dog.speak();
-print(dog.getInfo() @ "\n");
-print("Breed: " @ dog.getBreed() @ "\n");
+print(dog.getInfo() + "\n");
+print("Breed: " + dog.getBreed() + "\n");
 
 let cat = new Cat("Whiskers", 2, true);
 cat.speak();
-print(cat.getInfo() @ "\n");
-print("Indoor cat: " @ cat.indoor @ "\n");
+print(cat.getInfo() + "\n");
+print("Indoor cat: " + cat.indoor + "\n");
 
 // Test method inheritance
 print("\nTesting inherited methods:\n");
-print("Dog info: " @ dog.getInfo() @ "\n");
-print("Cat info: " @ cat.getInfo() @ "\n");
+print("Dog info: " + dog.getInfo() + "\n");
+print("Cat info: " + cat.getInfo() + "\n");
 
 // Multi-level inheritance
 class Puppy extends Dog {
@@ -85,14 +85,14 @@ class Puppy extends Dog {
     }
     
     speak() {
-        print(this.name @ " yips: Yip yip!\n");
+        print(this.name + " yips: Yip yip!\n");
     }
 }
 
 let puppy = new Puppy("Max", "Labrador");
 puppy.speak();
-print(puppy.getInfo() @ "\n");
-print("Breed: " @ puppy.getBreed() @ "\n");
-print("Playful: " @ puppy.isPlayful @ "\n");
+print(puppy.getInfo() + "\n");
+print("Breed: " + puppy.getBreed() + "\n");
+print("Playful: " + puppy.isPlayful + "\n");
 
 print("\nAll class inheritance tests passed!\n");

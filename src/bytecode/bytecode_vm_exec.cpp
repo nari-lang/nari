@@ -302,7 +302,7 @@ bool VM::execute_instruction() {
             case OpCode::OP_STR_CONCAT: {
                 Value &b = peek(0);
                 Value &a = peek(1);
-                // `@` must not mutate either operand. `LOAD_VAR` produces aliased `Value`
+                // Concatenation must not mutate either operand. `LOAD_VAR` produces aliased `Value`
                 // copies for heap strings, so in-place append here can corrupt caller
                 // locals across nested function calls.
                 a = Value::make_string(a.to_string() + b.to_string());
@@ -317,7 +317,7 @@ bool VM::execute_instruction() {
                 break;
             }
 
-            // in-place string append to a local variable: slot @= pop(), no copy of slot.
+            // Legacy bytecode: in-place string append to a local variable.
             case OpCode::OP_STR_APPEND_VAR: {
                 uint16_t idx = read_short();
                 Value rhs = pop(); // pop the right-hand side off the stack
@@ -361,13 +361,13 @@ bool VM::execute_instruction() {
                 break;
             }
 
-            // In-place string append to a global variable: globals[name] @= pop()
+            // Legacy bytecode: in-place string append to a global variable.
             case OpCode::OP_STR_APPEND_GLOBAL: {
                 uint16_t name_idx = read_short();
                 const std::string &name = chunk->strings[name_idx];
                 Value rhs = pop();
                 // Pop rhs before taking a reference into globals to avoid aliasing
-                // if the same variable appears on both sides (e.g. x @= x).
+                // if the same variable is also the right-hand side.
                 Value &slot = globals[name];
                 if (slot.is_mutable_heap_string()) {
                     std::string &dst = slot.get_string();

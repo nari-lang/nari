@@ -1,24 +1,10 @@
-// Regression test for the JIT peephole bug in
-// `LOAD_CONST(string) + STR_APPEND_VAR + POP`.
-//
-// In src/jit/asmjit_jit.cpp the peephole emitted
-//   cc.mov(str_ptr_vreg, Imm(stable_ptr));
-// AFTER `arch::invoke_imm(...)` had already created the InvokeNode that
-// consumes str_ptr_vreg. The Compiler IR runs nodes in emission order, so
-// the call argument was loaded from an undefined spill slot before the mov
-// landed -> the appended bytes were garbage (e.g. 8, 99 instead of 13, 10
-// for "\r\n").
-//
-// Repro shape: a tight loop in a compiled function (eager-compile triggers
-// on string-op-in-loop) that appends a small string-constant literal to a
-// variable string with the result reassigned to that same variable.
-//
-// Pre-fix: bytes 10/11 of the result were undefined.
-// Post-fix: bytes 10/11 are 13 (\r) and 10 (\n).
+// Regression coverage for repeated string appends, including CRLF bytes,
+// conversion of non-string operands, and closure-visible assignments.
+// These operations use + after removal of the former concatenation operator.
 
 let assert = func(cond, msg) {
     if (!cond) {
-        panic("assertion failed: " @ msg);
+        panic("assertion failed: " + msg);
     }
 };
 
@@ -27,27 +13,25 @@ func build_crlf_appended(n) {
     let body = "AAAAAAAAAA";  // 10 chars, indices 0..9
     let i = 0;
     while (i < n) {
-        body = body @ crlf;
+        body = body + crlf;
         i++;
     }
     return body;
 }
 
-// Single-iteration variant exercises the exact peephole code path that
-// regressed; repeat counts > 1 also exercise the loop carry of the
-// updated `body` slot.
+// Check both a single append and the loop carry of the updated body.
 let s1 = build_crlf_appended(1);
 assert(s1.length() == 12, "single append length");
-assert(s1.char_code_at(10) == 13, "single append byte 10 == \\r (got " @ s1.char_code_at(10) @ ")");
-assert(s1.char_code_at(11) == 10, "single append byte 11 == \\n (got " @ s1.char_code_at(11) @ ")");
+assert(s1.char_code_at(10) == 13, "single append byte 10 == \\r (got " + s1.char_code_at(10) + ")");
+assert(s1.char_code_at(11) == 10, "single append byte 11 == \\n (got " + s1.char_code_at(11) + ")");
 
 let s3 = build_crlf_appended(3);
 assert(s3.length() == 16, "triple append length");
 let i = 0;
 while (i < 3) {
     let off = 10 + i * 2;
-    assert(s3.char_code_at(off) == 13, "triple append byte " @ off @ " == \\r");
-    assert(s3.char_code_at(off + 1) == 10, "triple append byte " @ (off + 1) @ " == \\n");
+    assert(s3.char_code_at(off) == 13, "triple append byte " + off + " == \\r");
+    assert(s3.char_code_at(off + 1) == 10, "triple append byte " + (off + 1) + " == \\n");
     i++;
 }
 
@@ -58,20 +42,20 @@ func build_with_marker(n) {
     let body = "payload";
     let i = 0;
     while (i < n) {
-        body = body @ marker;
+        body = body + marker;
         i++;
     }
     return body;
 }
 let m = build_with_marker(2);
-assert(m == "payload::END::END", "marker append: got '" @ m @ "'");
+assert(m == "payload::END::END", "marker append: got '" + m + "'");
 
 func exercise_append_conversion(n) {
     let body = "long-enough-seed";
-    body = body @ 7;
+    body = body + 7;
     let i = 0;
     while (i < n) {
-        body = body @ true;
+        body = body + true;
         i++;
     }
     return body;
@@ -79,21 +63,21 @@ func exercise_append_conversion(n) {
 
 func exercise_captured_append(n) {
     let body = "seed";
-    body = body @ 7;
+    body = body + 7;
     let read = func() { return body; };
     let i = 0;
     while (i < n) {
-        body = body @ true;
+        body = body + true;
         i++;
     }
     return [body, read()];
 }
 
 let conversion_result = exercise_append_conversion(2);
-assert(conversion_result == "long-enough-seed7truetrue", "non-string append result: " @ conversion_result);
+assert(conversion_result == "long-enough-seed7truetrue", "non-string append result: " + conversion_result);
 
 let captured_result = exercise_captured_append(2);
-assert(captured_result[0] == "seed7truetrue", "captured append result: " @ captured_result[0]);
-assert(captured_result[1] == captured_result[0], "closure did not observe append: " @ captured_result[1] @ " vs " @ captured_result[0]);
+assert(captured_result[0] == "seed7truetrue", "captured append result: " + captured_result[0]);
+assert(captured_result[1] == captured_result[0], "closure did not observe append: " + captured_result[1] + " vs " + captured_result[0]);
 
 print("test_jit_str_append_var_literal: PASS");

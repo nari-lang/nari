@@ -20,17 +20,17 @@ let collections = after - before;
 
 __gc_set_memory_limit(0);
 
-print("  live objects retained: " @ live.length);
-print("  collections during " @ N @ " live allocations: " @ collections);
+print("  live objects retained: " + live.length);
+print("  collections during " + N + " live allocations: " + collections);
 
 // Nothing is collectable, so the count must stay tiny. Pre-fix this tracked the
 // allocation count (thousands); the doubling backoff keeps it logarithmic.
 if (live.length != N) {
-    print("FAIL: expected " @ N @ " live objects, got " @ live.length);
+    print("FAIL: expected " + N + " live objects, got " + live.length);
     __process_exit(1);
 }
 if (collections > 64) {
-    print("FAIL: " @ collections @ " collections for " @ N @ " live allocations");
+    print("FAIL: " + collections + " collections for " + N + " live allocations");
     print("      memory-limit heuristic is not backing off past the live heap");
     __process_exit(1);
 }

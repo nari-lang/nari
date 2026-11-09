@@ -387,12 +387,12 @@ from_char_code(32);          // " "
 
 ## Concatenation
 
-### Using @ Operator
+### Using + Operator
 
 ```nari
-"Hello" @ " " @ "World";          // "Hello World"
-"Age: " @ 25;                     // "Age: 25"
-"a" @ "b" @ "c";                  // "abc"
+"Hello" + " " + "World";          // "Hello World"
+"Age: " + 25;                     // "Age: 25"
+"a" + "b" + "c";                  // "abc"
 ```
 
 ### Using += Operator
@@ -458,12 +458,12 @@ func buildURL(base, params) {
     let url = base;
     let keys = params.keys(); 
     if (keys.length() > 0) {
-        url = url @ "?";
+        url = url + "?";
         for (let i = 0; i < keys.length(); i++) {
             if (i > 0) {
-                url = url @ "&";
+                url = url + "&";
             }
-            url = url @ keys[i] @ "=" @ params[keys[i]];
+            url = url + keys[i] + "=" + params[keys[i]];
         }
     }
     
@@ -485,7 +485,7 @@ func capitalize(str) {
     
     let first = str.char_at(0).to_upper();
     let rest = str.substr(1);
-    return first @ rest;
+    return first + rest;
 }
 
 print(capitalize("hello"));  // "Hello"
@@ -512,7 +512,7 @@ func truncate(str, max_length) {
     if (str.length() <= max_length) {
         return str;
     }
-    return str.substr(0, max_length - 3) @ "...";
+    return str.substr(0, max_length - 3) + "...";
 }
 
 print(truncate("This is a long string", 10));

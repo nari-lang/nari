@@ -1,6 +1,6 @@
 // length() - already tested with arrays, but let's test with strings
 let text = "Hello World";
-print("Length of '" @ text @ "': " @ text.length());
+print("Length of '" + text + "': " + text.length());
 
 // substr(str, start, length?)
 let message = "The quick brown fox";
@@ -18,7 +18,7 @@ let fruits = "apple,banana,cherry";
 print(`split("{fruits}", ',') -> {fruits.split(",")}`);
 
 let words = "Hello World".split(" ");
-print("split('Hello World', ' ')         -> " @ words);
+print("split('Hello World', ' ')         -> " + words);
 if (words.length() != 2 || words[0] != "Hello" || words[1] != "World") {
     panic("Error in split function! Expected ['Hello', 'World'].");
 }

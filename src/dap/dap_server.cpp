@@ -494,7 +494,7 @@ static void handle_stack_trace(Server &server, int seq, const json &) {
     }
     json body;
     body["stackFrames"] = frames;
-    body["totalFrames"] = frames.size();
+    body["totalFrames"] = static_cast<int64_t>(frames.size());
     send_response(seq, "stackTrace", true, body);
 }
 

@@ -2,7 +2,7 @@
 
 let assert = func(cond, msg) {
   if (!cond) {
-    panic("assertion failed: " @ msg);
+    panic("assertion failed: " + msg);
 }
 };
 

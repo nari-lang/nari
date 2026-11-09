@@ -3,7 +3,7 @@
 import { Regex } from "std/regex";
 
 func check(name, cond) {
-    if (!cond) { panic("Regex test failed: " @ name); }
+    if (!cond) { panic("Regex test failed: " + name); }
 }
 
 // Regex.new + .test method

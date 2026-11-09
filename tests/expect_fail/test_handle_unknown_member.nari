@@ -4,6 +4,6 @@ func start() {
     let h = spawn {
         return 7;
     };
-    print("before: " @ h.value);
+    print("before: " + h.value);
     print("unknown handle member did not stop execution");
 }

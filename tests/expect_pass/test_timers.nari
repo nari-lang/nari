@@ -21,7 +21,7 @@ if (fired != 0) {
 }
 spin(200);
 if (fired != 1) {
-    panic("set_timeout: expected 1 call, got " @ to_string(fired));
+    panic("set_timeout: expected 1 call, got " + to_string(fired));
 }
 
 // 2. set_interval repeats, clear_interval stops it
@@ -35,12 +35,12 @@ iid = set_interval(func() {
 }, 5);
 spin(400);
 if (ticks != 3) {
-    panic("set_interval: expected 3 ticks then clear, got " @ to_string(ticks));
+    panic("set_interval: expected 3 ticks then clear, got " + to_string(ticks));
 }
 let after_clear = ticks;
 spin(200);
 if (ticks != after_clear) {
-    panic("clear_interval did not stop the interval: " @ to_string(ticks));
+    panic("clear_interval did not stop the interval: " + to_string(ticks));
 }
 
 // 3. clear_interval before the first deadline suppresses all ticks
@@ -51,7 +51,7 @@ let nid = set_interval(func() {
 clear_interval(nid);
 spin(300);
 if (never != 0) {
-    panic("cleared interval still fired " @ to_string(never) @ " times");
+    panic("cleared interval still fired " + to_string(never) + " times");
 }
 
 // 4. no spin: only the end-of-program event loop can run these
@@ -67,7 +67,7 @@ did = set_interval(func() {
         // an interval callback may arm a timeout; the loop must still drain it
         set_timeout(func() {
             if (deferred != 2) {
-                panic("nested set_timeout saw bad state: " @ to_string(deferred));
+                panic("nested set_timeout saw bad state: " + to_string(deferred));
             }
             print("test_timers: ok!");
         }, 5);

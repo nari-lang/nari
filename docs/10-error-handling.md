@@ -26,7 +26,7 @@ if (result.is_ok()) {
     let data = result.unwrap();
     print(data);
 } else {
-    print("Parse error: " @ result.unwrap_err());
+    print("Parse error: " + result.unwrap_err());
 }
 ```
 
@@ -44,7 +44,7 @@ func safeDivide(a, b) {
 
 let r = safeDivide(10, 0);
 if (r.is_err()) {
-    print("Error: " @ r.unwrap_err());  // Error: Division by zero
+    print("Error: " + r.unwrap_err());  // Error: Division by zero
 }
 ```
 
@@ -79,7 +79,7 @@ func find(list, target) {
 
 let found = find([1, 2, 3], 2);
 if (found.is_some()) {
-    print("Found: " @ found.unwrap());
+    print("Found: " + found.unwrap());
 }
 ```
 
@@ -120,7 +120,7 @@ func loadConfig(path) {
 
 let cfg = loadConfig("config.json");
 if (cfg.is_err()) {
-    print("Could not load config: " @ cfg.unwrap_err());
+    print("Could not load config: " + cfg.unwrap_err());
 }
 ```
 
@@ -175,7 +175,7 @@ func processRequest(request) {
 let r = processRequest({ method: "DELETE" });
 if (r.is_err()) {
     let e = r.unwrap_err();
-    print(e.type @ ": " @ e.message);
+    print(e.type + ": " + e.message);
 }
 ```
 
@@ -190,7 +190,7 @@ func retry(operation, maxAttempts) {
             return r;
         }
         attempts = attempts + 1;
-        print("Attempt " @ attempts @ " failed: " @ r.unwrap_err());
+        print("Attempt " + attempts + " failed: " + r.unwrap_err());
     }
     return Err("Max retries exceeded");
 }

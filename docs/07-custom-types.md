@@ -98,7 +98,7 @@ func createScore(name: string, points: number) -> Score {
 }
 
 let score = createScore("Alice", 1000);
-print(score.playerName @ ": " @ score.points);
+print(score.playerName + ": " + score.points);
 ```
 
 ### Arrays of Custom Types
@@ -184,7 +184,7 @@ func withdraw(account: BankAccount, amount: number) -> bool {
 }
 
 func getAccountInfo(account: BankAccount) -> string {
-    return account.owner @ "'s account: $" @ to_string(account.balance);
+    return account.owner + "'s account: $" + to_string(account.balance);
 }
 
 // Usage
@@ -248,7 +248,7 @@ let form = {
 let validation = validateForm(form);
 if (!validation.isValid) {
     for (error in validation.errors) {
-        print("Error: " @ error);
+        print("Error: " + error);
     }
 }
 ```
@@ -359,7 +359,7 @@ func isAdmin(user) -> bool {
 
 func processUser(user) {
     if (isAdmin(user)) {
-        print("Admin user with " @ user.permissions.length() @ " permissions");
+        print("Admin user with " + user.permissions.length() + " permissions");
     } else {
         print("Guest user");
     }

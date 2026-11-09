@@ -153,11 +153,11 @@ bool matches_extended_jsrt_helper(const Function *func, OpCode op) {
         const auto *getter_key = as_var_decl(func->body->stmts[0].get());
         const auto *concat = getter_key ? as_binary(getter_key->initializerExpr.get()) : nullptr;
         const auto *prefix = concat ? as_string(concat->left.get()) : nullptr;
-        return getter_key && getter_key->name == "getterKey" && concat && concat->op == "@" && prefix && prefix->value == "__js_getter__" &&
+        return getter_key && getter_key->name == "getterKey" && concat && concat->op == "+" && prefix && prefix->value == "__js_getter__" &&
                is_ident(concat->right.get(), "key");
     }
     if (op == OpCode::OP_JS_SET_PROP_STATIC) {
-        // confirm jsrt's helper still starts by deriving "__js_setter__" @ key, 
+        // confirm jsrt's helper still starts by deriving "__js_setter__" + key,
         // so editing jsrt silently disables the opcode instead of silently changing semantics.
         if (func->params.size() != 3 || func->params[0].name != "obj" || func->params[1].name != "key" || 
             func->params[2].name != "value" || !func->body || func->body->stmts.size() < 2
@@ -167,7 +167,7 @@ bool matches_extended_jsrt_helper(const Function *func, OpCode op) {
         const auto *setter_key = as_var_decl(func->body->stmts[1].get());
         const auto *concat = setter_key ? as_binary(setter_key->initializerExpr.get()) : nullptr;
         const auto *prefix = concat ? as_string(concat->left.get()) : nullptr;
-        return setter_key && setter_key->name == "setterKey" && concat && concat->op == "@" && prefix && prefix->value == "__js_setter__" && is_ident(concat->right.get(), "key");
+        return setter_key && setter_key->name == "setterKey" && concat && concat->op == "+" && prefix && prefix->value == "__js_setter__" && is_ident(concat->right.get(), "key");
     }
     if (op == OpCode::OP_JS_POSTINC) {
         // Gate on jsrt's exact body, same contract as the get/set gates: editing

@@ -71,11 +71,11 @@ assert(gd["x"] == 105, "set trap added after first dispatch is picked up")
 let promo_handler = { get: func(t, k) { return 88 } }
 let pd = Delegate({}, promo_handler)
 assert(pd["k"] == 88, "get trap before handler promotes to dict mode")
-for (let i = 0; i < 40; i++) { promo_handler["p" @ to_string(i)] = i }
+for (let i = 0; i < 40; i++) { promo_handler["p" + to_string(i)] = i }
 assert(pd["k"] == 88, "get trap after handler promotes to dict mode")
 
 let big_handler = { get: func(t, k) { return 77 } }
-for (let i = 0; i < 40; i++) { big_handler["q" @ to_string(i)] = i }
+for (let i = 0; i < 40; i++) { big_handler["q" + to_string(i)] = i }
 let bd = Delegate({}, big_handler)
 assert(bd["whatever"] == 77, "dict-mode handler dispatches get trap")
 
@@ -96,14 +96,14 @@ let N = 2000
 // sum_{i=0}^{N-1}(i + secret) = N*(N-1)/2 + N*secret
 let expect_deleg = (N * (N - 1)) / 2 + N * 10
 assert(delegate_capture_sum(N, 10) == expect_deleg,
-    "delegate capture: got " @ delegate_capture_sum(N, 10) @ " want " @ expect_deleg)
+    "delegate capture: got " + delegate_capture_sum(N, 10) + " want " + expect_deleg)
 
 // nested: each iter adds 42
 assert(nested_delegate_sum(N) == N * 42,
-    "nested delegate: got " @ nested_delegate_sum(N) @ " want " @ (N * 42))
+    "nested delegate: got " + nested_delegate_sum(N) + " want " + (N * 42))
 
 // reduce: each call = 15 + base*5 = 15 + 50 = 65
 assert(reduce_capture(N, 10) == N * 65,
-    "reduce capture: got " @ reduce_capture(N, 10) @ " want " @ (N * 65))
+    "reduce capture: got " + reduce_capture(N, 10) + " want " + (N * 65))
 
 print("test_jit_closure_trap_captures: ok")

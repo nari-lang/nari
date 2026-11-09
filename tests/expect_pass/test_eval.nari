@@ -1,10 +1,10 @@
 import { assert } from "../lib/assert.nari";
 
 // expression form returns the expression's value
-assert(eval("1 + 2") == 3, "arith expr, got " @ eval("1 + 2"));
+assert(eval("1 + 2") == 3, "arith expr, got " + eval("1 + 2"));
 assert(eval("6 * 7") == 42, "int mul");
 assert(eval("(10 + 4) / 2") == 7, "precedence");
-assert(eval("\"foo\" @ \"bar\"") == "foobar", "string concat");
+assert(eval("\"foo\" + \"bar\"") == "foobar", "string concat");
 
 // statement form: value comes from an explicit return
 assert(eval("let x = 40; return x + 2") == 42, "statement form");

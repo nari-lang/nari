@@ -2,10 +2,10 @@
 
 let assert = func(cond, msg) {
     if (!cond) {
-        print("[FAIL] " @ msg);
-        panic("assertion failed: " @ msg);
+        print("[FAIL] " + msg);
+        panic("assertion failed: " + msg);
     }
-    print("[pass] " @ msg);
+    print("[pass] " + msg);
 };
 
 // pad_start

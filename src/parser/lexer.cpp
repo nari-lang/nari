@@ -400,11 +400,6 @@ tokenize(const std::string &src, const std::string &filename, std::vector<LexErr
             advance();
             continue;
         }
-        if (c == '@') {
-            push_tok(TokenKind::TK_AT, "@", line, col);
-            advance();
-            continue;
-        }
         if (c == '=') {
             push_tok(TokenKind::TK_EQUAL, "=", line, col);
             advance();

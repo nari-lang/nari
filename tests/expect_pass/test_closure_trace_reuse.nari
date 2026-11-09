@@ -20,5 +20,5 @@ func run_counter_loop(limit) {
 let first = run_counter_loop(20);
 let second = run_counter_loop(20);
 
-assert(first == 210, "first closure loop should be 210, got " @ first);
-assert(second == 210, "second closure loop should be 210, got " @ second);
+assert(first == 210, "first closure loop should be 210, got " + first);
+assert(second == 210, "second closure loop should be 210, got " + second);

@@ -3,7 +3,7 @@
 import { Random } from "std/random";
 
 func check(name, cond) {
-    if (!cond) { panic("Random test failed: " @ name); }
+    if (!cond) { panic("Random test failed: " + name); }
 }
 
 // Determinism: same seed -> identical sequence
@@ -11,7 +11,7 @@ let a = Random.create(12345);
 let b = Random.create(12345);
 let i = 0;
 while (i < 50) {
-    check("same seed step " @ i, a.next() == b.next());
+    check("same seed step " + i, a.next() == b.next());
     i = i + 1;
 }
 

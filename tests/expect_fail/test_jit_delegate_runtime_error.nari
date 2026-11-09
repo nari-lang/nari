@@ -18,7 +18,7 @@ func start() {
     try {
         read_delegate(invalid);
     } catch (error) {
-        print("delegate runtime error was incorrectly caught: " @ error);
+        print("delegate runtime error was incorrectly caught: " + error);
     }
 
     print("execution continued after delegate runtime error");

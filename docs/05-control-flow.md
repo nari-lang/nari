@@ -99,7 +99,7 @@ for (let i = 0; i < 5; i++) {
 **Loop with let:**
 ```nari
 for (let i = 1; i <= 10; i++) {
-    print("Count: " @ i);
+    print("Count: " + i);
 }
 ```
 
@@ -130,7 +130,7 @@ let numbers = [10, 20, 30];
 let index = 0;
 
 for (num in numbers) {
-    print("Index " @ index @ ": " @ num);
+    print("Index " + index + ": " + num);
     index++;
 }
 ```
@@ -168,7 +168,7 @@ for (let i = 0; i < 3; i++) {
         if (j == 2) {
             break;  // Only breaks inner loop
         }
-        print("i=" @ i @ ", j=" @ j);
+        print("i=" + i + ", j=" + j);
     }
 }
 ```
@@ -337,8 +337,8 @@ print(classify(99));  // "other"
 let result = Ok(42);
 
 let output = match result {
-    Ok(value) => "Success: " @ to_string(value),
-    Err(error) => "Error: " @ error
+    Ok(value) => "Success: " + to_string(value),
+    Err(error) => "Error: " + error
 };
 
 print(output);  // "Success: 42"

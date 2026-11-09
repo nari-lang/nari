@@ -5,7 +5,7 @@ func add(x: number, y: number) {
 
 // Return type annotation
 func greet(name: string) -> string {
-    return "Hello, " @ name;
+    return "Hello, " + name;
 }
 
 // Mixed typed and untyped parameters
@@ -38,7 +38,7 @@ func sum_all(...values: number[]) -> number {
 
 // Function without return type
 func log(msg: string) {
-    print("LOG: " @ msg);
+    print("LOG: " + msg);
 }
 
 // Lambda with type annotations

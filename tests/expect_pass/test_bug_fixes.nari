@@ -2,10 +2,10 @@
 
 let assert = func(cond, msg) {
     if (!cond) {
-        print("[FAIL] " @ msg);
-        panic("assertion failed: " @ msg);
+        print("[FAIL] " + msg);
+        panic("assertion failed: " + msg);
     }
-    print("[pass] " @ msg);
+    print("[pass] " + msg);
 };
 
 // === OP_MOD zero check (was: SIGFPE crash) ===
@@ -142,9 +142,9 @@ assert(result.label == "counter", "closure-captured object label preserved");
 
 // === OP_STR_APPEND_GLOBAL cache invalidation (was: stale read) ===
 let greeting = "Hello";
-greeting = greeting @ " World";
+greeting = greeting + " World";
 assert(greeting == "Hello World", "global string append visible on next read");
-greeting = greeting @ "!";
+greeting = greeting + "!";
 assert(greeting == "Hello World!", "second string append also visible");
 
 // === estimated_memory_usage decreases on collection ===

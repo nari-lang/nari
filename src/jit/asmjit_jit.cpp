@@ -138,7 +138,7 @@ void AsmJITMethodCompiler::reset_for_chunk(const nari::bytecode::Chunk &chunk) {
     }
 
     // One-shot: is the "to_string" builtin unshadowable in this chunk? If so,
-    // fuse_tostring_concat() may rewrite `s @ to_string(x)` -> `s @ x`. UINT32_MAX
+    // fuse_tostring_concat() may elide to_string(x) inside interpolation. UINT32_MAX
     // (the common no-op case) when to_string is absent, user-defined, or ever
     // rebound via OP_STORE_GLOBAL.
     tostring_fuse_name_idx_ = ir::analyze_frozen_builtin(chunk, "to_string");
@@ -367,7 +367,7 @@ AsmJITMethodCompiler::ir_compile(const nari::bytecode::Chunk &chunk, uint32_t ch
     }
     ir::fold_redundant_not(irFuncs);
     ir::fold_branch_not(irFuncs);
-    // fuse `s @ to_string(x)` -> `s @ x`, eliding the throwaway StringObj that builtin_toString allocates
+    // Elide temporary to_string(x) results consumed only by string interpolation.
     ir::fuse_tostring_concat(irFuncs, tostring_fuse_name_idx_);
     // Mark single-use left-associative StrConcat chains for in-place append
     // lowering (avoids O(n^2) prefix copies + per-link StringObj allocs). Runs

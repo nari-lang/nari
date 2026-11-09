@@ -243,7 +243,7 @@ if (atom == 0) {
     if (regErr != ERROR_CLASS_ALREADY_EXISTS) {
         __ffi_free(classNameW);
         __ffi_free_callback(wndProcPtr);
-        panic("RegisterClassExW failed. GetLastError=" @ to_string(regErr));
+        panic("RegisterClassExW failed. GetLastError=" + to_string(regErr));
     }
 }
 
@@ -264,10 +264,10 @@ let hwnd = user32.CreateWindowExW(
 
 if (hwnd == 0) {
     let err = kernel32.GetLastError();
-    panic("CreateWindowExW failed. GetLastError=" @ to_string(err));
+    panic("CreateWindowExW failed. GetLastError=" + to_string(err));
 }
 
-print("Created HWND: " @ to_string(hwnd));
+print("Created HWND: " + to_string(hwnd));
 
 user32.ShowWindow(hwnd, SW_SHOW);
 user32.UpdateWindow(hwnd);
@@ -473,7 +473,7 @@ let hFooter = user32.CreateWindowExW(
 
 if (hHeader == 0 || hSubtitle == 0 || hContentGroup == 0 || hActionGroup == 0 || hFooter == 0) {
     let childErr = kernel32.GetLastError();
-    print("Warning: one or more child controls failed. GetLastError=" @ to_string(childErr));
+    print("Warning: one or more child controls failed. GetLastError=" + to_string(childErr));
 }
 
 gTitleInput = hTitleInput;
@@ -487,16 +487,16 @@ let hkBack = user32.RegisterHotKey(hwnd, HOTKEY_ID_CTRL_BACKSPACE, MOD_CONTROL, 
 let hkUndo = user32.RegisterHotKey(hwnd, HOTKEY_ID_CTRL_Z, MOD_CONTROL, VK_Z);
 let hkRedo = user32.RegisterHotKey(hwnd, HOTKEY_ID_CTRL_SHIFT_Z, MOD_CONTROL | MOD_SHIFT, VK_Z);
 if (!hkA || !hkBack || !hkUndo || !hkRedo) {
-    print("Warning: failed to register one or more hotkeys. GetLastError=" @ to_string(kernel32.GetLastError()));
+    print("Warning: failed to register one or more hotkeys. GetLastError=" + to_string(kernel32.GetLastError()));
 }
 
 kernel32.Sleep(300);
 
 let found = user32.FindWindowW(null, "Nari WinAPI Showcase - Native Controls Demo");
-print("FindWindowW result: " @ to_string(found));
+print("FindWindowW result: " + to_string(found));
 
 let classNameRet = user32.GetClassNameW(hwnd);
-print("Window class name: " @ classNameRet);
+print("Window class name: " + classNameRet);
 
 user32.SetWindowTextW(hwnd, "Nari WinAPI Showcase - Native Controls Demo (live title update)");
 
@@ -504,13 +504,13 @@ user32.BringWindowToTop(hwnd);
 user32.SetForegroundWindow(hwnd);
 
 let visible = user32.IsWindowVisible(hwnd);
-print("IsWindowVisible: " @ to_string(visible));
+print("IsWindowVisible: " + to_string(visible));
 
 let valid = user32.IsWindow(hwnd);
-print("IsWindow: " @ to_string(valid));
+print("IsWindow: " + to_string(valid));
 
 let exitCode = user32.MessageLoop();
-print("Message loop exited with code: " @ to_string(exitCode));
+print("Message loop exited with code: " + to_string(exitCode));
 
 // Clean up resources
 user32.UnregisterClassW(classNameStr, hInstance);

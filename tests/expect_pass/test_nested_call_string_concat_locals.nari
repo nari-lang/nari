@@ -1,5 +1,5 @@
 func suffix(x) {
-    return x @ "/suffix";
+    return x + "/suffix";
 }
 
 func main() {

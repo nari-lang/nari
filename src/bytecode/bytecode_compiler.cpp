@@ -741,8 +741,6 @@ void Compiler::compile_expr(const Expr *expr) {
             ctx->emit_op(OpCode::OP_GT);
         } else if (bin->op == ">=") {
             ctx->emit_op(OpCode::OP_GE);
-        } else if (bin->op == "@") {
-            ctx->emit_op(OpCode::OP_STR_CONCAT);
         } else {
             fprintf(stderr, "unhandled binary op: %s\n", bin->op.c_str());
         }
@@ -1828,37 +1826,6 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             emit_const_assignment_error(assign->target);
             return;
         }
-        // peephole: `v = v @ expr` -> OP_STR_APPEND_VAR / OP_STR_APPEND_GLOBAL
-        // detects the pattern `target = target @ rhs` and emits a single string-append opcode
-        if ((assign->value.get()) != nullptr && (assign->value.get())->kind == ExprKind::Binary) {
-            const auto *bin = static_cast<const BinaryExpr *>(assign->value.get());
-            if (bin->op == "@") {
-                if ((bin->left.get()) != nullptr && (bin->left.get())->kind == ExprKind::Ident) {
-                    const auto *lhs_ident = static_cast<const IdentExpr *>(bin->left.get());
-                    if (lhs_ident->name == assign->target) {
-                        // Local always wins over capture/global (shadowing).
-                        uint16_t idx = ctx->resolve_local(assign->target);
-                        if (idx != 0xFFFF) {
-                            // emit only the RHS, then in-place append
-                            compile_expr(bin->right.get());
-                            ctx->emit_op_short(OpCode::OP_STR_APPEND_VAR, idx);
-                            ctx->emit_op(OpCode::OP_POP);
-                            return;
-                        }
-                        // skip the peephole when captured
-                        if (ctx->capture_map.find(assign->target) == ctx->capture_map.end() && !is_main_scope) {
-                            // global variable
-                            uint32_t str_idx = chunk->add_string(assign->target);
-                            compile_expr(bin->right.get());
-                            ctx->emit_op_short(OpCode::OP_STR_APPEND_GLOBAL, static_cast<uint16_t>(str_idx));
-                            ctx->emit_op(OpCode::OP_POP);
-                            return;
-                        }
-                    }
-                }
-            }
-        }
-
         compile_expr(assign->value.get());
 
         // Locals shadow captures (see IdentExpr handling above).

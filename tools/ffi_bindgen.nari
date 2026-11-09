@@ -19,11 +19,11 @@ func usage() {
 }
 
 func die(message) {
-    panic("ffi_bindgen: " @ message);
+    panic("ffi_bindgen: " + message);
 }
 
 func shellQuote(text) {
-    return "'" @ text.replace_all("'", "'\"'\"'") @ "'"
+    return "'" + text.replace_all("'", "'\"'\"'") + "'"
 }
 
 func compilerBasename(cc) {
@@ -43,9 +43,9 @@ func pathJoin(base, name) {
     if (name == null || name == "") return base
     let last = base.char_at(base.length() - 1)
     if (last == "/" || last == "\\") {
-        return base @ name
+        return base + name
     }
-    return base @ "/" @ name
+    return base + "/" + name
 }
 
 // fs.exists is async (returns a Spawn handle), so always await it.
@@ -113,9 +113,9 @@ func sanitizeIdentifier(text) {
     while (i < text.length()) {
         let ch = text.char_at(i)
         if (isAlnum(ch)) {
-            out = out @ ch
+            out = out + ch
         } else {
-            out = out @ "_"
+            out = out + "_"
         }
         i = i + 1
     }
@@ -123,7 +123,7 @@ func sanitizeIdentifier(text) {
         return "_"
     }
     if (!isAlpha(out.char_at(0))) {
-        out = "_" @ out
+        out = "_" + out
     }
     return out
 }
@@ -147,7 +147,7 @@ func isNariKeyword(word) {
 func safeParamName(name) {
     let ident = sanitizeIdentifier(name)
     if (isNariKeyword(ident)) {
-        return ident @ "_"
+        return ident + "_"
     }
     return ident
 }
@@ -160,7 +160,7 @@ func pascalCaseName(text) {
         if (part == "") continue
         let head = part.char_at(0).to_upper()
         let tail = part.length() > 1 ? part.substr(1) : ""
-        out = out @ head @ tail
+        out = out + head + tail
     }
     return out == "" ? "Bindings" : out
 }
@@ -297,7 +297,7 @@ func joinTokens(tokens, sep) {
     let out = tokens[0]
     let i = 1
     while (i < tokens.length()) {
-        out = out @ sep @ tokens[i]
+        out = out + sep + tokens[i]
         i = i + 1
     }
     return out
@@ -960,7 +960,7 @@ func parseEnumDecl(tokens, globalEnumValues) {
             }
             let explicitValue = evalEnumExpr(exprTokens, scope)
             if (explicitValue == null) {
-                return { kind: "skip", reason: "unsupported enum value for " @ name }
+                return { kind: "skip", reason: "unsupported enum value for " + name }
             }
             value = explicitValue
         } else if (group.length() != 1) {
@@ -1110,8 +1110,8 @@ func macroOriginWanted(origin, wantedDir, inputPath) {
     if (origin == null) return true
     if (origin == inputPath) return true
     if (origin.starts_with("<")) return false
-    if (wantedDir != "" && origin.index_of("/" @ wantedDir @ "/") >= 0) return true
-    if (wantedDir != "" && origin.index_of("\\" @ wantedDir @ "\\") >= 0) return true
+    if (wantedDir != "" && origin.index_of("/" + wantedDir + "/") >= 0) return true
+    if (wantedDir != "" && origin.index_of("\\" + wantedDir + "\\") >= 0) return true
     if (wantedDir != "") return false
     // keep anything that isn't an obvious system path.
     if (origin.starts_with("/usr/")) return false
@@ -1250,10 +1250,10 @@ func renderStructMacroLiteral(typeName, innerTokens, structMap, typeNames, value
     while (i < st.fields.length()) {
         let rendered = renderMacroExprTokens(valueGroups[i], typeNames, valueIdents)
         if (rendered == null) return null
-        parts.push(st.fields[i].name @ ": " @ rendered)
+        parts.push(st.fields[i].name + ": " + rendered)
         i = i + 1
     }
-    return "{ " @ joinTokens(parts, ", ") @ " }"
+    return "{ " + joinTokens(parts, ", ") + " }"
 }
 
 func classifyMacroValue(body, structMap, functionNames, typeNames, valueIdents) {
@@ -1529,7 +1529,7 @@ func toFfiExpr(typeRef, aliases, aggregateNames) {
         if (primitiveName == null) {
             return null
         }
-        return "\"" @ ffiStringForPrimitive(primitiveName) @ "\""
+        return "\"" + ffiStringForPrimitive(primitiveName) + "\""
     }
     if (typeTag(resolved) == "pointer") {
         let targetNorm = normalizeTypeRef(typeValue(resolved))
@@ -1538,7 +1538,7 @@ func toFfiExpr(typeRef, aliases, aggregateNames) {
             if (targetName == null) {
                 return "\"pointer\""
             }
-            return "\"" @ targetName @ "*\""
+            return "\"" + targetName + "*\""
         }
         return "\"pointer\""
     }
@@ -1547,7 +1547,7 @@ func toFfiExpr(typeRef, aliases, aggregateNames) {
         if (structName == null || aggregateNames == null || !aggregateNames.has_key(structName)) {
             return null
         }
-        return "__ffi_membersof(\"" @ structName @ "\")"
+        return "__ffi_membersof(\"" + structName + "\")"
     }
     if (typeTag(resolved) == "named") {
         return null
@@ -1859,7 +1859,7 @@ func parseStructDecl(tokens, abi) {
         if (group.length() == 0) continue
         let parsed = parseFieldDecl(group, abi)
         if (parsed == null) {
-            return { kind: "skip", reason: "unsupported struct field in " @ (tagName == null ? "<anonymous>" : tagName) }
+            return { kind: "skip", reason: "unsupported struct field in " + (tagName == null ? "<anonymous>" : tagName) }
         }
         for (field in parsed) {
             fields.push(field)
@@ -2041,7 +2041,7 @@ func parseFunction(tokens, abi) {
     let returnType = parseTypeSpec(returnTokens, abi)
     returnType = normalizeTypeRef(returnType)
     if (returnType == null || typeTag(returnType) == "unsupported") {
-        return { kind: "skip", reason: "unsupported return type for " @ name }
+        return { kind: "skip", reason: "unsupported return type for " + name }
     }
 
     let paramTokens = []
@@ -2068,7 +2068,7 @@ func parseFunction(tokens, abi) {
             let parsedTag = parsed == null ? null : parsed[0]
             let parsedType = parsed == null || parsedTag != "param" ? null : normalizeTypeRef(parsed[2])
             if (parsed == null || parsedTag == "unsupported" || (parsedTag == "param" && (parsedType == null || typeTag(parsedType) == "unsupported"))) {
-                return { kind: "skip", reason: "unsupported parameter type for " @ name }
+                return { kind: "skip", reason: "unsupported parameter type for " + name }
             }
             if (parsedTag == "param") {
                 params.push(parsedType)
@@ -2098,14 +2098,14 @@ func preprocessHeader(inputPath, ppPath, cc, cppflags) {
             "/D__restrict__=",
         ]
 
-        let cmd = shellQuote(cc) @ " /nologo /TC /EP"
+        let cmd = shellQuote(cc) + " /nologo /TC /EP"
         for (flag in defs) {
-            cmd = cmd @ " " @ shellQuote(flag)
+            cmd = cmd + " " + shellQuote(flag)
         }
         if (cppflags != "") {
-            cmd = cmd @ " " @ cppflags
+            cmd = cmd + " " + cppflags
         }
-        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(ppPath)
+        cmd = cmd + " " + shellQuote(inputPath) + " > " + shellQuote(ppPath)
         return process.exec(cmd)
     } else {
         let defs = [
@@ -2125,14 +2125,14 @@ func preprocessHeader(inputPath, ppPath, cc, cppflags) {
             "-D__restrict__=",
         ]
 
-        let cmd = shellQuote(cc) @ " -E -P"
+        let cmd = shellQuote(cc) + " -E -P"
         for (flag in defs) {
-            cmd = cmd @ " " @ shellQuote(flag)
+            cmd = cmd + " " + shellQuote(flag)
         }
         if (cppflags != "") {
-            cmd = cmd @ " " @ cppflags
+            cmd = cmd + " " + cppflags
         }
-        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(ppPath)
+        cmd = cmd + " " + shellQuote(inputPath) + " > " + shellQuote(ppPath)
 
         return process.exec(cmd)
     }
@@ -2147,14 +2147,14 @@ func preprocessDefines(inputPath, defsPath, cc, cppflags) {
             "/D__restrict__=",
         ]
 
-        let cmd = shellQuote(cc) @ " /nologo /TC /EP /d1PP"
+        let cmd = shellQuote(cc) + " /nologo /TC /EP /d1PP"
         for (flag in defs) {
-            cmd = cmd @ " " @ shellQuote(flag)
+            cmd = cmd + " " + shellQuote(flag)
         }
         if (cppflags != "") {
-            cmd = cmd @ " " @ cppflags
+            cmd = cmd + " " + cppflags
         }
-        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(defsPath)
+        cmd = cmd + " " + shellQuote(inputPath) + " > " + shellQuote(defsPath)
         return process.exec(cmd)
     } else {
         let defs = [
@@ -2176,14 +2176,14 @@ func preprocessDefines(inputPath, defsPath, cc, cppflags) {
 
         // Keep line markers (no -P) so each #define can be attributed to its
         // origin header and system/libc macros can be filtered out.
-        let cmd = shellQuote(cc) @ " -dD -E"
+        let cmd = shellQuote(cc) + " -dD -E"
         for (flag in defs) {
-            cmd = cmd @ " " @ shellQuote(flag)
+            cmd = cmd + " " + shellQuote(flag)
         }
         if (cppflags != "") {
-            cmd = cmd @ " " @ cppflags
+            cmd = cmd + " " + cppflags
         }
-        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(defsPath)
+        cmd = cmd + " " + shellQuote(inputPath) + " > " + shellQuote(defsPath)
 
         return process.exec(cmd)
     }
@@ -2198,14 +2198,14 @@ func dumpClangJsonAst(inputPath, astPath, cc, cppflags) {
             "/D__restrict__=",
         ]
 
-        let cmd = shellQuote(cc) @ " /nologo /TC /Zs /clang:-Xclang /clang:-ast-dump=json"
+        let cmd = shellQuote(cc) + " /nologo /TC /Zs /clang:-Xclang /clang:-ast-dump=json"
         for (flag in defs) {
-            cmd = cmd @ " " @ shellQuote(flag)
+            cmd = cmd + " " + shellQuote(flag)
         }
         if (cppflags != "") {
-            cmd = cmd @ " " @ cppflags
+            cmd = cmd + " " + cppflags
         }
-        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(astPath)
+        cmd = cmd + " " + shellQuote(inputPath) + " > " + shellQuote(astPath)
         return process.exec(cmd)
     } else {
         let defs = [
@@ -2225,14 +2225,14 @@ func dumpClangJsonAst(inputPath, astPath, cc, cppflags) {
             "-D__restrict__=",
         ]
 
-        let cmd = shellQuote(cc) @ " -Xclang -ast-dump=json -fsyntax-only"
+        let cmd = shellQuote(cc) + " -Xclang -ast-dump=json -fsyntax-only"
         for (flag in defs) {
-            cmd = cmd @ " " @ shellQuote(flag)
+            cmd = cmd + " " + shellQuote(flag)
         }
         if (cppflags != "") {
-            cmd = cmd @ " " @ cppflags
+            cmd = cmd + " " + cppflags
         }
-        cmd = cmd @ " " @ shellQuote(inputPath) @ " > " @ shellQuote(astPath)
+        cmd = cmd + " " + shellQuote(inputPath) + " > " + shellQuote(astPath)
 
         return process.exec(cmd)
     }
@@ -2324,9 +2324,9 @@ func buildSignatureName(returnType, paramTypes, variadic, fixedCount, aliases) {
     }
 
     let paramPart = paramCodes.length() == 0 ? "NONE" : joinTokens(paramCodes, "")
-    let name = "SIG_" @ retCode @ "_" @ paramPart
+    let name = "SIG_" + retCode + "_" + paramPart
     if (variadic) {
-        name = name @ "_VAR" @ to_string(fixedCount)
+        name = name + "_VAR" + to_string(fixedCount)
     }
     return name
 }
@@ -2471,7 +2471,7 @@ func parseClangJsonAst(astRoot, abi) {
                 }
             }
             if (!ok) {
-                skipped.push("unsupported struct field in " @ name)
+                skipped.push("unsupported struct field in " + name)
                 continue
             }
             structs.push({ name: name, fields: fields, isUnion: tagUsed == "union" })
@@ -2535,13 +2535,13 @@ func parseClangJsonAst(astRoot, abi) {
             let open = qual.index_of("(")
             let close = qual.last_index_of(")")
             if (open < 0 || close < open) {
-                skipped.push("unsupported function type for " @ name)
+                skipped.push("unsupported function type for " + name)
                 continue
             }
             let returnText = trim(qual.substr(0, open))
             let returnType = parseAstTypeString(returnText, abi)
             if (returnType == null || typeTag(returnType) == "unsupported") {
-                skipped.push("unsupported return type for " @ name)
+                skipped.push("unsupported return type for " + name)
                 continue
             }
 
@@ -2561,7 +2561,7 @@ func parseClangJsonAst(astRoot, abi) {
                 fixedCount = fixedCount + 1
             }
             if (params == null) {
-                skipped.push("unsupported parameter type for " @ name)
+                skipped.push("unsupported parameter type for " + name)
                 continue
             }
             if (qual.index_of("...") >= 0) {
@@ -2622,13 +2622,13 @@ func quoteString(text) {
     while (i < text.length()) {
         let ch = text.char_at(i)
         if (ch == "\\" || ch == "\"") {
-            out = out @ "\\" @ ch
+            out = out + "\\" + ch
         } else {
-            out = out @ ch
+            out = out + ch
         }
         i = i + 1
     }
-    return out @ "\""
+    return out + "\""
 }
 
 func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macros, skipped, exportOut) {
@@ -2646,9 +2646,9 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
         wrapperName = pascalCaseName(moduleBase)
     }
 
-    let loaderName = "load_" @ sanitizeIdentifier(wrapperName)
-    let loaderVar = sanitizeIdentifier(wrapperName) @ "_loader"
-    let callHelperName = sanitizeIdentifier(wrapperName) @ "_call"
+    let loaderName = "load_" + sanitizeIdentifier(wrapperName)
+    let loaderVar = sanitizeIdentifier(wrapperName) + "_loader"
+    let callHelperName = sanitizeIdentifier(wrapperName) + "_call"
 
     // In package mode we emit an `export { ... }` block so the generated
     // module can be consumed via named imports. exportNames collects every
@@ -2675,14 +2675,14 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
         functionNames[fn.name] = true
     }
     lines.push("// Generated by tools/ffi_bindgen.nari")
-    lines.push("// Source header: " @ inputPath)
-    lines.push("// ABI model: " @ abi)
+    lines.push("// Source header: " + inputPath)
+    lines.push("// ABI model: " + abi)
     lines.push("")
 
     if (skipped.length() > 0) {
         lines.push("// Skipped declarations:")
         for (item in skipped) {
-            lines.push("// - " @ item)
+            lines.push("// - " + item)
         }
         lines.push("")
     }
@@ -2691,7 +2691,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
         lines.push("// Struct definitions")
         for (st in structs) {
             let structName = safeName(st, "AnonymousStruct")
-            lines.push((objectProp(st, "isUnion") == true ? "union " : "type ") @ structName @ " {")
+            lines.push((objectProp(st, "isUnion") == true ? "union " : "type ") + structName + " {")
             for (field in st.fields) {
                 let fieldName = safeName(field, "field")
                 let fieldType = toNariTypeName(objectProp(field, "type"), aliases)
@@ -2706,9 +2706,9 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
                 }
                 let fixedArrayCount = objectProp(field, "fixedArrayCount")
                 if (fixedArrayCount != null) {
-                    fieldType = fieldType @ "[" @ to_string(fixedArrayCount) @ "]"
+                    fieldType = fieldType + "[" + to_string(fixedArrayCount) + "]"
                 }
-                lines.push("    " @ fieldName @ ": " @ fieldType @ ";")
+                lines.push("    " + fieldName + ": " + fieldType + ";")
             }
             lines.push("}")
             lines.push("")
@@ -2729,7 +2729,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             }
             let aliasType = toNariTypeName(aliases[name], aliases)
             if (aliasType != null && aliasType != name) {
-                lines.push("type " @ name @ " " @ aliasType @ ";")
+                lines.push("type " + name + " " + aliasType + ";")
             }
         }
         lines.push("")
@@ -2739,7 +2739,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
         lines.push("// Enum constants")
         for (en in enums) {
             for (entry in en.entries) {
-                lines.push("global " @ entry.name @ " = " @ to_string(entry.value) @ ";")
+                lines.push("global " + entry.name + " = " + to_string(entry.value) + ";")
                 exportNames.push(entry.name)
             }
         }
@@ -2820,7 +2820,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             if (macroValueConflicts.has_key(name)) {
                 continue
             }
-            lines.push("global " @ name @ " = " @ macroValueExprs[name] @ ";")
+            lines.push("global " + name + " = " + macroValueExprs[name] + ";")
             exportNames.push(name)
             emittedMacroValues = emittedMacroValues + 1
         }
@@ -2879,7 +2879,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
                 let uniqueName = sigName
                 let suffix = 2
                 while (usedSignatureNames.has_key(uniqueName)) {
-                    uniqueName = sigName @ "_" @ to_string(suffix)
+                    uniqueName = sigName + "_" + to_string(suffix)
                     suffix = suffix + 1
                 }
 
@@ -2903,7 +2903,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
                 if (fnParamNames != null && paramIndex < fnParamNames.length()) {
                     rawName = fnParamNames[paramIndex]
                 }
-                let paramName = safeParamName(rawName == null ? "arg" @ to_string(paramIndex) : rawName)
+                let paramName = safeParamName(rawName == null ? "arg" + to_string(paramIndex) : rawName)
                 paramDecls.push(paramName)
                 argExprs.push(paramName)
                 paramIndex = paramIndex + 1
@@ -2917,26 +2917,26 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             // or multi-lib mode; we fill `callPrefix` / `callSuffix` later.
             let sigVar = signaturePool[key].name
             let wrapperLines = []
-            wrapperLines.push("    " @ fnName @ ": func (" @ joinTokens(paramDecls, ", ") @ ") {")
+            wrapperLines.push("    " + fnName + ": func (" + joinTokens(paramDecls, ", ") + ") {")
             let callTarget = null
             if (libs == null) {
                 // single-lib: direct call.
-                callTarget = "__ffi_call(" @ sanitizeIdentifier(wrapperName) @ "_lib, \"" @ fnName @ "\", " @ sigVar @ ", "
+                callTarget = "__ffi_call(" + sanitizeIdentifier(wrapperName) + "_lib, \"" + fnName + "\", " + sigVar + ", "
             } else {
                 // multi-lib: route through the cached call helper.
-                callTarget = callHelperName @ "(\"" @ fnName @ "\", " @ sigVar @ ", "
+                callTarget = callHelperName + "(\"" + fnName + "\", " + sigVar + ", "
             }
             if (fnVariadic) {
-                wrapperLines.push("        let argList = [" @ joinTokens(argExprs, ", ") @ "]")
+                wrapperLines.push("        let argList = [" + joinTokens(argExprs, ", ") + "]")
                 wrapperLines.push("        if (varargs != null) {")
                 wrapperLines.push("            let len = varargs.length()")
                 wrapperLines.push("            for (let i = 0; i < len; i = i + 1) {")
                 wrapperLines.push("                argList.push(varargs[i])")
                 wrapperLines.push("            }")
                 wrapperLines.push("        }")
-                wrapperLines.push("        return " @ callTarget @ "argList)")
+                wrapperLines.push("        return " + callTarget + "argList)")
             } else {
-                wrapperLines.push("        return " @ callTarget @ "[" @ joinTokens(argExprs, ", ") @ "])")
+                wrapperLines.push("        return " + callTarget + "[" + joinTokens(argExprs, ", ") + "])")
             }
             wrapperLines.push("    },")
             wrapperEntries.push(wrapperLines.join("\n"))
@@ -2945,23 +2945,23 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
         // loader / call helper
         if (libs == null) {
             // single-library path: used when --libs is not passed.
-            let libVar = sanitizeIdentifier(wrapperName) @ "_lib"
-            lines.push("func " @ loaderName @ "() {")
+            let libVar = sanitizeIdentifier(wrapperName) + "_lib"
+            lines.push("func " + loaderName + "() {")
             lines.push("    if (platform.os == \"windows\") {")
-            lines.push("        import lib from \"" @ dylibBase @ ".dll\"")
+            lines.push("        import lib from \"" + dylibBase + ".dll\"")
             lines.push("        return lib;")
             lines.push("    } else if (platform.os == \"macos\") {")
-            lines.push("        import lib from \"lib" @ dylibBase @ ".dylib\"")
+            lines.push("        import lib from \"lib" + dylibBase + ".dylib\"")
             lines.push("        return lib;")
             lines.push("    } else {")
-            lines.push("        import lib from \"lib" @ dylibBase @ ".so\"")
+            lines.push("        import lib from \"lib" + dylibBase + ".so\"")
             lines.push("        return lib;")
             lines.push("    }")
             lines.push("}")
             lines.push("")
-            lines.push("global " @ libVar @ " = " @ loaderName @ "();")
-            lines.push("if (!" @ libVar @ ") {")
-            lines.push("    panic(\"Failed to load shared library: " @ dylibBase @ "\");")
+            lines.push("global " + libVar + " = " + loaderName + "();")
+            lines.push("if (!" + libVar + ") {")
+            lines.push("    panic(\"Failed to load shared library: " + dylibBase + "\");")
             lines.push("}")
             lines.push("")
         } else {
@@ -2970,25 +2970,25 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             let libIdents = []
             let usedIdents = {}
             for (lib in libs) {
-                let baseId = "lib_" @ libBaseName(lib)
+                let baseId = "lib_" + libBaseName(lib)
                 let ident = baseId
                 let counter = 2
                 while (usedIdents.has_key(ident)) {
-                    ident = baseId @ "_" @ to_string(counter)
+                    ident = baseId + "_" + to_string(counter)
                     counter = counter + 1
                 }
                 usedIdents[ident] = true
                 libIdents.push(ident)
             }
 
-            lines.push("func " @ loaderName @ "() {")
+            lines.push("func " + loaderName + "() {")
             lines.push("    let entries = []")
             let li = 0
             while (li < libs.length()) {
                 let libName = libs[li]
                 let ident = libIdents[li]
-                lines.push("    import " @ ident @ " from " @ quoteString(libName))
-                lines.push("    entries.push({ name: " @ quoteString(libName) @ ", lib: " @ ident @ " })")
+                lines.push("    import " + ident + " from " + quoteString(libName))
+                lines.push("    entries.push({ name: " + quoteString(libName) + ", lib: " + ident + " })")
                 li = li + 1
             }
             lines.push("    let loaded = []")
@@ -3002,7 +3002,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             lines.push("        }")
             lines.push("    }")
             lines.push("    if (loaded.length() == 0) {")
-            lines.push("        panic(\"" @ wrapperName @ ": failed to load any native library (tried: \" @ JSON.stringify(failed).unwrap() @ \")\")")
+            lines.push("        panic(\"" + wrapperName + ": failed to load any native library (tried: \" + JSON.stringify(failed).unwrap() + \")\")")
             lines.push("    }")
             lines.push("    return {")
             lines.push("        libs: loaded,")
@@ -3011,20 +3011,20 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
             lines.push("    }")
             lines.push("}")
             lines.push("")
-            lines.push("global " @ loaderVar @ " = " @ loaderName @ "()")
+            lines.push("global " + loaderVar + " = " + loaderName + "()")
             lines.push("")
-            lines.push("func " @ callHelperName @ "(name, sig, args) {")
-            lines.push("    let lib = " @ loaderVar @ ".cache[name]")
+            lines.push("func " + callHelperName + "(name, sig, args) {")
+            lines.push("    let lib = " + loaderVar + ".cache[name]")
             lines.push("    if (lib == null) {")
-            lines.push("        for (entry in " @ loaderVar @ ".libs) {")
+            lines.push("        for (entry in " + loaderVar + ".libs) {")
             lines.push("            if (__ffi_get_symbol(entry.lib, name) != null) {")
             lines.push("                lib = entry.lib")
-            lines.push("                " @ loaderVar @ ".cache[name] = lib")
+            lines.push("                " + loaderVar + ".cache[name] = lib")
             lines.push("                break")
             lines.push("            }")
             lines.push("        }")
             lines.push("        if (lib == null) {")
-            lines.push("            panic(\"" @ wrapperName @ ": symbol '\" @ name @ \"' is not exported by any loaded library\")")
+            lines.push("            panic(\"" + wrapperName + ": symbol '\" + name + \"' is not exported by any loaded library\")")
             lines.push("        }")
             lines.push("    }")
             lines.push("    return __ffi_call(lib, name, sig, args)")
@@ -3035,15 +3035,15 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
         lines.push("// FFI signatures")
         for (key in signatureOrder) {
             let sig = signaturePool[key]
-            let sigLine = "global " @ sig.name @ " = { returns: " @ sig.returns @ ", params: [" @ joinTokens(sig.params, ", ") @ "]"
+            let sigLine = "global " + sig.name + " = { returns: " + sig.returns + ", params: [" + joinTokens(sig.params, ", ") + "]"
             if (sig.variadic) {
-                sigLine = sigLine @ ", variadic: " @ to_string(sig.fixed)
+                sigLine = sigLine + ", variadic: " + to_string(sig.fixed)
             }
-            sigLine = sigLine @ " };"
+            sigLine = sigLine + " };"
             lines.push(sigLine)
         }
         lines.push("")
-        lines.push("global " @ wrapperName @ " = {")
+        lines.push("global " + wrapperName + " = {")
         for (entry in wrapperEntries) {
             lines.push(entry)
         }
@@ -3057,7 +3057,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
                 if (macroFunctionConflicts.has_key(name)) {
                     continue
                 }
-                lines.push("global " @ name @ " = " @ wrapperName @ "." @ macroFunctionTargets[name] @ ";")
+                lines.push("global " + name + " = " + wrapperName + "." + macroFunctionTargets[name] + ";")
                 exportNames.push(name)
                 emittedMacroAliases = emittedMacroAliases + 1
             }
@@ -3083,7 +3083,7 @@ func emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macr
         let idx = 0
         while (idx < uniqueExports.length()) {
             let sep = idx + 1 < uniqueExports.length() ? "," : ""
-            lines.push("    " @ uniqueExports[idx] @ sep)
+            lines.push("    " + uniqueExports[idx] + sep)
             idx = idx + 1
         }
         lines.push("}")
@@ -3120,26 +3120,26 @@ func emitPackage(opts, aliases, enumAliasNames, enums, structs, functions, macro
 
     let exportNames = []
     let moduleText = emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, macros, skipped, exportNames)
-    let modulePath = "src/" @ moduleName @ ".nari"
-    let _wroteModule = fs.write_file(pathJoin(srcDir, moduleName @ ".nari"), moduleText).value
+    let modulePath = "src/" + moduleName + ".nari"
+    let _wroteModule = fs.write_file(pathJoin(srcDir, moduleName + ".nari"), moduleText).value
 
     let manifest = []
     manifest.push("packageFormat = 1")
-    manifest.push("name = " @ quoteString(opts.package_name))
-    manifest.push("version = " @ quoteString(opts.package_version))
+    manifest.push("name = " + quoteString(opts.package_name))
+    manifest.push("version = " + quoteString(opts.package_version))
     manifest.push("")
     manifest.push("[exports]")
-    manifest.push(quoteString(".") @ " = " @ quoteString(modulePath))
+    manifest.push(quoteString(".") + " = " + quoteString(modulePath))
     for (name in exportNames) {
-        manifest.push(quoteString(name) @ " = " @ quoteString(modulePath))
+        manifest.push(quoteString(name) + " = " + quoteString(modulePath))
     }
     manifest.push("")
     let _wroteManifest = fs.write_file(pathJoin(outDir, "nari.toml"), manifest.join("\n")).value
 
-    print("Package written to " @ outDir)
-    print("  manifest: nari.toml (" @ opts.package_name @ "@" @ opts.package_version @ ")")
-    print("  module: " @ modulePath @ " (" @ to_string(exportNames.length()) @ " exports)")
-    print("  structs: " @ to_string(structs.length()) @ ", typedefs: " @ to_string(aliases.keys().length()) @ ", functions: " @ to_string(functions.length()))
+    print("Package written to " + outDir)
+    print("  manifest: nari.toml (" + opts.package_name + "@" + opts.package_version + ")")
+    print("  module: " + modulePath + " (" + to_string(exportNames.length()) + " exports)")
+    print("  structs: " + to_string(structs.length()) + ", typedefs: " + to_string(aliases.keys().length()) + ", functions: " + to_string(functions.length()))
 }
 
 func parseArgs(argv) {
@@ -3221,7 +3221,7 @@ func parseArgs(argv) {
             continue
         }
 
-        die("unknown or incomplete option: " @ arg)
+        die("unknown or incomplete option: " + arg)
     }
 
     if (opts.output == null) {
@@ -3234,10 +3234,10 @@ func parseArgs(argv) {
     }
 
     if (opts.abi != null && opts.abi != "lp64" && opts.abi != "llp64" && opts.abi != "ilp32") {
-        die("unsupported ABI '" @ opts.abi @ "'")
+        die("unsupported ABI '" + opts.abi + "'")
     }
     if (opts.backend != "legacy" && opts.backend != "clang-json") {
-        die("unsupported backend '" @ opts.backend @ "'")
+        die("unsupported backend '" + opts.backend + "'")
     }
 
     return opts
@@ -3256,16 +3256,16 @@ func main() {
         intermediatePrefix = pathJoin(opts.output, ".bindgen")
     }
 
-    let ppPath = intermediatePrefix @ ".pp"
-    let defsPath = intermediatePrefix @ ".defs"
-    let astPath = intermediatePrefix @ ".ast.json"
+    let ppPath = intermediatePrefix + ".pp"
+    let defsPath = intermediatePrefix + ".defs"
+    let astPath = intermediatePrefix + ".ast.json"
 
     if (opts.abi == null) {
         opts.abi = platform.os == "windows" ? "llp64" : "lp64"
     }
     let rawHeader = fs.read_file(opts.input).await.unwrap();
     if (rawHeader == null || rawHeader == "") {
-        die("input header is empty: " @ opts.input)
+        die("input header is empty: " + opts.input)
     }
     let rawMacros = collectObjectMacros(rawHeader)
 
@@ -3276,7 +3276,7 @@ func main() {
         // in package mode we want every macro the preprocessor saw, including ones from transitively-included headers
         let defsRc = preprocessDefines(opts.input, defsPath, opts.cc, opts.cppflags)
         if (defsRc != 0) {
-            die("macro preprocessor pass failed with exit code " @ to_string(defsRc))
+            die("macro preprocessor pass failed with exit code " + to_string(defsRc))
         }
         let defsText = fs.read_file(defsPath).await.unwrap()
         if (defsText != null && defsText != "") {
@@ -3288,7 +3288,7 @@ func main() {
         //     then keep only the ones that survived preprocessing.
         let defsRc = preprocessDefines(opts.input, defsPath, opts.cc, opts.cppflags)
         if (defsRc != 0) {
-            die("macro preprocessor pass failed with exit code " @ to_string(defsRc))
+            die("macro preprocessor pass failed with exit code " + to_string(defsRc))
         }
         let defsText = fs.read_file(defsPath).await.unwrap()
         if (defsText != null && defsText != "") {
@@ -3319,11 +3319,11 @@ func main() {
     if (opts.backend == "clang-json") {
         let astRc = dumpClangJsonAst(opts.input, astPath, opts.cc, opts.cppflags)
         if (astRc != 0) {
-            die("clang JSON AST dump failed with exit code " @ to_string(astRc) @ " (use clang or clang-cl in --cc)")
+            die("clang JSON AST dump failed with exit code " + to_string(astRc) + " (use clang or clang-cl in --cc)")
         }
         let astText = fs.read_file(astPath).await.unwrap()
         if (astText == null || astText == "") {
-            die("clang JSON AST output is empty: " @ astPath)
+            die("clang JSON AST output is empty: " + astPath)
         }
         let astRoot = JSON.parse(astText).unwrap()
         let parsedAst = parseClangJsonAst(astRoot, opts.abi)
@@ -3336,12 +3336,12 @@ func main() {
     } else {
         let rc = preprocessHeader(opts.input, ppPath, opts.cc, opts.cppflags)
         if (rc != 0) {
-            die("preprocessor failed with exit code " @ to_string(rc))
+            die("preprocessor failed with exit code " + to_string(rc))
         }
 
         let pp = fs.read_file(ppPath).await.unwrap()
         if (pp == null || pp == "") {
-            die("preprocessed output is empty: " @ ppPath)
+            die("preprocessed output is empty: " + ppPath)
         }
 
         let declarations = collectDeclarations(pp)
@@ -3365,7 +3365,7 @@ func main() {
                         continue
                     }
                     if (parsedEnum.kind == "skip") {
-                        skipped.push(parsedEnum.reason @ ": " @ decl)
+                        skipped.push(parsedEnum.reason + ": " + decl)
                         continue
                     }
                     if (parsedEnum.kind == "enum") {
@@ -3400,13 +3400,13 @@ func main() {
                 }
 
                 if (parsed.kind == "skip") {
-                    skipped.push(parsed.reason @ ": " @ decl)
+                    skipped.push(parsed.reason + ": " + decl)
                     continue
                 }
 
                 if (parsed.kind == "struct") {
                     if (parsed.name == null) {
-                        skipped.push("struct without name: " @ decl)
+                        skipped.push("struct without name: " + decl)
                         continue
                     }
                     structs.push({ name: parsed.name, fields: parsed.fields, isUnion: parsed.isUnion })
@@ -3457,7 +3457,7 @@ func main() {
                 let parsedEnum = parseEnumDecl(tokens, enumValues)
                 if (parsedEnum == null) continue
                 if (parsedEnum.kind == "skip") {
-                    skipped.push(parsedEnum.reason @ ": " @ decl)
+                    skipped.push(parsedEnum.reason + ": " + decl)
                     continue
                 }
                 if (parsedEnum.kind == "enum") {
@@ -3481,12 +3481,12 @@ func main() {
                 let parsed = parseStructDecl(tokens, opts.abi)
                 if (parsed == null) continue
                 if (parsed.kind == "skip") {
-                    skipped.push(parsed.reason @ ": " @ decl)
+                    skipped.push(parsed.reason + ": " + decl)
                     continue
                 }
                 if (parsed.kind == "struct") {
                     if (parsed.name == null) {
-                        skipped.push("struct without name: " @ decl)
+                        skipped.push("struct without name: " + decl)
                         continue
                     }
                     structs.push({ name: parsed.name, fields: parsed.fields, isUnion: parsed.isUnion })
@@ -3496,7 +3496,7 @@ func main() {
             }
 
             if (decl.index_of("{") >= 0) {
-                skipped.push("definition body skipped: " @ decl)
+                skipped.push("definition body skipped: " + decl)
                 continue
             }
 
@@ -3504,7 +3504,7 @@ func main() {
                 let parsedFn = parseFunction(tokens, opts.abi)
                 if (parsedFn != null) {
                     if (parsedFn.kind == "skip") {
-                        skipped.push(parsedFn.reason @ ": " @ decl)
+                        skipped.push(parsedFn.reason + ": " + decl)
                     } else if (parsedFn.kind == "function") {
                         functions.push(parsedFn)
                     }
@@ -3519,8 +3519,8 @@ func main() {
     } else {
         let output = emitBindings(opts, aliases, enumAliasNames, enums, structs, functions, activeMacros, skipped, null)
         let _ = fs.write_file(opts.output, output).await.unwrap()
-        print("Generated " @ opts.output)
-        print("Structs: " @ to_string(structs.length()) @ ", typedefs: " @ to_string(aliases.keys().length()) @ ", functions: " @ to_string(functions.length()))
+        print("Generated " + opts.output)
+        print("Structs: " + to_string(structs.length()) + ", typedefs: " + to_string(aliases.keys().length()) + ", functions: " + to_string(functions.length()))
     }
 
     if (!opts.keep_pp && pathExists(ppPath)) {

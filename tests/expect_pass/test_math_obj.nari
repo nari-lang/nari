@@ -1,8 +1,8 @@
 print("Math Tests\n");
-print("math.pow(5, 3) = " @ math.pow(5, 3));
-print("math.square(7) = " @ math.square(7));
-print("math.sqrt(4) = " @ math.sqrt(4));
-print("math.abs(-5) = " @ math.abs(-5));
+print("math.pow(5, 3) = " + math.pow(5, 3));
+print("math.square(7) = " + math.square(7));
+print("math.sqrt(4) = " + math.sqrt(4));
+print("math.abs(-5) = " + math.abs(-5));
 
 // Function expressions in variable assignments
 let double = func(x) {
@@ -10,11 +10,11 @@ let double = func(x) {
 };
 
 let greet = func(name) {
-    return "Hello, " @ name @ "!";
+    return "Hello, " + name + "!";
 };
 
 print("Variable Assignment Tests\n");
-print("double(9) = " @ double(9));
+print("double(9) = " + double(9));
 print(greet("World"));
 
 // Higher-order functions - passing functions as parameters
@@ -27,8 +27,8 @@ let increment = func(n) {
 };
 
 print("Higher-Order Function Tests\n");
-print("apply_twice(increment, 5) = " @ apply_twice(increment, 5));
-print("apply_twice(double, 3) = " @ apply_twice(double, 3));
+print("apply_twice(increment, 5) = " + apply_twice(increment, 5));
+print("apply_twice(double, 3) = " + apply_twice(double, 3));
 
 // Functions returning functions
 func make_adder(n) {
@@ -40,8 +40,8 @@ func make_adder(n) {
 print("Function Factory Tests\n");
 let add_10 = make_adder(10);
 let add_5 = make_adder(5);
-print("add_10(7) = " @ add_10(7));
-print("add_5(3) = " @ add_5(3));
+print("add_10(7) = " + add_10(7));
+print("add_5(3) = " + add_5(3));
 
 // Complex nested object with function expressions
 let calculator = {
@@ -71,10 +71,10 @@ let calculator = {
 };
 
 print("Nested Object Method Tests\n");
-print("calculator.operations.basic.add(8, 2) = " @ calculator.operations.basic.add(8, 2));
-print("calculator.operations.basic.subtract(8, 2) = " @ calculator.operations.basic.subtract(8, 2));
-print("calculator.operations.advanced.power(2, 3) = " @ calculator.operations.advanced.power(2, 3));
-print("calculator.apply_op(calculator.operations.basic.add, 15, 25) = " @ calculator.apply_op(calculator.operations.basic.add, 15, 25));
+print("calculator.operations.basic.add(8, 2) = " + calculator.operations.basic.add(8, 2));
+print("calculator.operations.basic.subtract(8, 2) = " + calculator.operations.basic.subtract(8, 2));
+print("calculator.operations.advanced.power(2, 3) = " + calculator.operations.advanced.power(2, 3));
+print("calculator.apply_op(calculator.operations.basic.add, 15, 25) = " + calculator.apply_op(calculator.operations.basic.add, 15, 25));
 
 // Array of functions
 let operations = [
@@ -84,8 +84,8 @@ let operations = [
 ];
 
 print("Array of Functions Tests\n");
-print("operations[0](5) = " @ operations[0](5)); // increment
-print("operations[1](5) = " @ operations[1](5)); // double
-print("operations[2](5) = " @ operations[2](5)); // square
+print("operations[0](5) = " + operations[0](5)); // increment
+print("operations[1](5) = " + operations[1](5)); // double
+print("operations[2](5) = " + operations[2](5)); // square
 
 print("All pass!");

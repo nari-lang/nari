@@ -18,7 +18,7 @@ let appended = fs.read_file("__test_temp__.txt")
 if (appended == "test content appended") {
     print("Append successful")
 } else {
-    print("Append failed: got " @ appended)
+    print("Append failed: got " + appended)
     panic(`Append failed: got {appended}`);
 }
 

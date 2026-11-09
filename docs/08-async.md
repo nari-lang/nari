@@ -37,7 +37,7 @@ let handle = spawn {
 
 print("Request started...");
 let status = handle.await;
-print("Status code: " @ to_string(status));
+print("Status code: " + to_string(status));
 ```
 
 ### Multiple Concurrent Operations
@@ -73,7 +73,7 @@ let handles = Spawn.map(urls, func(url) {
     return http.fetch(url);
 });
 
-print("Created " @ to_string(handles.length()) @ " handles");
+print("Created " + to_string(handles.length()) + " handles");
 ```
 
 ### Spawn.all
@@ -91,9 +91,9 @@ let results = Spawn.all(handles);
 
 for (result in results) {
     if (result.is_ok()) {
-        print("Status: " @ to_string(result.unwrap().status_code));
+        print("Status: " + to_string(result.unwrap().status_code));
     } else {
-        print("Failed: " @ to_string(result.unwrap_err()));
+        print("Failed: " + to_string(result.unwrap_err()));
     }
 }
 ```
@@ -116,9 +116,9 @@ let handles = Spawn.map(urls, func(url) {
 });
 
 let winner = Spawn.race(handles);
-print("Fastest URL index: " @ to_string(winner.index));
-print("Duration: " @ to_string(winner.duration) @ "ms");
-print("Status: " @ to_string(winner.value.unwrap().status_code));
+print("Fastest URL index: " + to_string(winner.index));
+print("Duration: " + to_string(winner.duration) + "ms");
+print("Status: " + to_string(winner.value.unwrap().status_code));
 ```
 
 `winner.value` is a plain object field here, not a handle member, so it does
@@ -135,7 +135,7 @@ let handles = Spawn.map(urls, func(url) {
 });
 
 let firstSuccess = Spawn.any(handles);
-print("First successful: " @ urls[firstSuccess.index]);
+print("First successful: " + urls[firstSuccess.index]);
 ```
 
 ## Timers and Scheduling
@@ -164,7 +164,7 @@ let count = 0;
 
 let intervalId = set_interval(func() {
     count = count + 1;
-    print("Tick " @ count);
+    print("Tick " + count);
     
     if (count >= 5) {
         clear_interval(intervalId);
@@ -253,11 +253,11 @@ response object `{ status_code, body, headers }`:
 ```nari
 let result = http.fetch("https://api.example.com/data").await;
 if (result.is_err()) {
-    print("Request failed: " @ to_string(result.unwrap_err()));
+    print("Request failed: " + to_string(result.unwrap_err()));
 } else {
     let response = result.unwrap();
-    print("Status: " @ to_string(response.status_code));
-    print("Body: " @ response.body);
+    print("Status: " + to_string(response.status_code));
+    print("Body: " + response.body);
 }
 ```
 
@@ -275,7 +275,7 @@ let result = http.fetch("https://api.example.com/users", {
     }).unwrap()
 }).await;
 
-print("Status: " @ to_string(result.unwrap().status_code));
+print("Status: " + to_string(result.unwrap().status_code));
 ```
 
 `JSON.stringify` gives a `Result`, so unwrap it before passing it as the body.
@@ -292,12 +292,12 @@ methods. `net.write(conn, data)` takes two arguments and returns a handle.
 func on_connection(conn) {
     net.read(conn, func(err, data) {
         if (err != null) {
-            print("Read error: " @ to_string(err));
+            print("Read error: " + to_string(err));
             net.close(conn);
             return;
         }
 
-        print("Received: " @ data);
+        print("Received: " + data);
 
         net.write(conn, "Hello from server!").await;
         net.close(conn);
@@ -319,9 +319,9 @@ func handleRequest(conn) {
         }
 
         let response = "HTTP/1.1 200 OK\r\n";
-        response = response @ "Content-Type: text/html\r\n";
-        response = response @ "Connection: close\r\n\r\n";
-        response = response @ "<h1>Hello from Nari!</h1>";
+        response = response + "Content-Type: text/html\r\n";
+        response = response + "Connection: close\r\n\r\n";
+        response = response + "<h1>Hello from Nari!</h1>";
 
         net.write(conn, response).await;
         net.close(conn);
@@ -348,7 +348,7 @@ func fetchData(url) {
 
 let dataHandle = fetchData("https://api.example.com/data");
 let result = dataHandle.await;          // the Result from http.fetch
-print("Got data: " @ result.unwrap().body);
+print("Got data: " + result.unwrap().body);
 ```
 
 ### Parallel Processing
@@ -375,7 +375,7 @@ func processItem(item) {
 let handle = spawn {
     let result = http.fetch("https://invalid-url.com").await;   // a Result
     if (result.is_err()) {
-        print("Request failed: " @ to_string(result.unwrap_err()));
+        print("Request failed: " + to_string(result.unwrap_err()));
         return null;
     }
     return result.unwrap();
@@ -429,12 +429,12 @@ spawn {
 
 ```nari
 func riskyOperation() { return Err("something broke"); }
-func handleResult(v) { print("got " @ to_string(v)); }
+func handleResult(v) { print("got " + to_string(v)); }
 
 spawn {
     let result = riskyOperation();   // returns Result
     if (result.is_err()) {
-        print("Error: " @ result.unwrap_err());
+        print("Error: " + result.unwrap_err());
         return;
     }
     handleResult(result.unwrap());

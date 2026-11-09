@@ -1,0 +1,2 @@
+// The former concatenation operator is no longer valid syntax.
+let result = "hello" @ "world";

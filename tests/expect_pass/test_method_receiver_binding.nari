@@ -1,6 +1,6 @@
 let assert = func(condition, message) {
     if (!condition) {
-        panic("method receiver assertion failed: " @ message);
+        panic("method receiver assertion failed: " + message);
     }
 };
 

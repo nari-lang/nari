@@ -350,7 +350,6 @@ Parser::Precedence Parser::token_precedence(const Token &t) {
             return PREC_SHIFT;
         case TokenKind::TK_PLUS:
         case TokenKind::TK_MINUS:
-        case TokenKind::TK_AT:
             return PREC_TERM;
         case TokenKind::TK_STAR:
         case TokenKind::TK_SLASH:
@@ -437,9 +436,6 @@ ExprPtr Parser::parse_precedence(Precedence min_prec) {
                 break;
             case TokenKind::TK_STAR:
                 opname = "*";
-                break;
-            case TokenKind::TK_AT:
-                opname = "@";
                 break;
             case TokenKind::TK_SLASH:
                 opname = "/";

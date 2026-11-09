@@ -14,7 +14,7 @@ for (let i = 0; i < 1000; i = i + 1) {
 
 let after1 = __gc_stats();
 print("  Allocated: 1000+");
-print("  Still tracked: " @ after1.tracked);
+print("  Still tracked: " + after1.tracked);
 print("  Note: If tracked is low, unreachable objects were collected (GOOD)");
 
 // Test 2: Circular references need GC.
@@ -30,12 +30,12 @@ for (let i = 0; i < 100; i = i + 1) {
 
 let after2 = __gc_stats();
 print("  Created: 200 objects in 100 cycles");
-print("  Before GC tracked: " @ after2.tracked);
+print("  Before GC tracked: " + after2.tracked);
 
 // Force collection
 let collectResult = __gc_collect();
-print("  Circular refs collected: " @ collectResult.collected);
-print("  After GC tracked: " @ collectResult.tracked);
+print("  Circular refs collected: " + collectResult.collected);
+print("  After GC tracked: " + collectResult.tracked);
 
 // Test 3: Memory behavior comparison
 print("\n[Test 3] GC vs non-GC allocations");
@@ -49,7 +49,7 @@ let stats3b = __gc_stats();
 let autoFreed = stats3b.tracked - stats3a.tracked;
 
 print("  After 5000 non-circular allocations:");
-print("  Tracked increase: " @ autoFreed);
+print("  Tracked increase: " + autoFreed);
 print("  Expected: low after safe-point collection");
 
 // Create circular references
@@ -62,12 +62,12 @@ let stats3d = __gc_stats();
 let cycleIncrease = stats3d.tracked - stats3c.tracked;
 
 print("\n  After 100 circular allocations:");
-print("  Tracked increase: " @ cycleIncrease);
+print("  Tracked increase: " + cycleIncrease);
 print("  Expected: ~100 (cycles need GC)");
 
 // Collect cycles
 let final = __gc_collect();
 print("\n  After GC collection:");
-print("  Cycles collected: " @ final.collected);
+print("  Cycles collected: " + final.collected);
 
 print("\ntest complete!");

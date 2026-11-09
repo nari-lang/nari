@@ -4,7 +4,7 @@ func start() {
     try {
         not_a_function();
     } catch (error) {
-        print("non-function runtime panic was incorrectly caught: " @ error);
+        print("non-function runtime panic was incorrectly caught: " + error);
     }
 
     print("execution continued after non-function runtime panic");

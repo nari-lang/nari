@@ -33,7 +33,7 @@ class Book {
         if (!this.available) {
             status = "Checked Out";
         }
-        return this.title @ " by " @ this.author @ " [" @ status @ "]";
+        return this.title + " by " + this.author + " [" + status + "]";
     }
 }
 
@@ -50,16 +50,16 @@ class Library {
     public addBook(book: object) {
         this.books.push(book);
         this.bookCount = this.bookCount + 1;
-        print("Added book to library: " @ book.title);
+        print("Added book to library: " + book.title);
     }
 
     public listBooks() {
-        print("\n" @ this.name @ " Library");
-        print("Total Books: " @ to_string(this.bookCount));
+        print("\n" + this.name + " Library");
+        print("Total Books: " + to_string(this.bookCount));
         print("\nBook Collection:");
 
         for (book in this.books) {
-            print("  - " @ book.getInfo());
+            print("  - " + book.getInfo());
         }
     }
 
@@ -76,14 +76,14 @@ class Library {
         let book = this.findBook(title);
         if (book != null) {
             if (book.checkout()) {
-                print("Checked out: " @ title);
+                print("Checked out: " + title);
                 return true;
             } else {
-                print("Book already checked out: " @ title);
+                print("Book already checked out: " + title);
                 return false;
             }
         }
-        print("Book not found: " @ title);
+        print("Book not found: " + title);
         return false;
     }
 
@@ -91,10 +91,10 @@ class Library {
         let book = this.findBook(title);
         if (book != null) {
             book.returnBook();
-            print("Returned: " @ title);
+            print("Returned: " + title);
             return true;
         }
-        print("Book not found: " @ title);
+        print("Book not found: " + title);
         return false;
     }
 
@@ -111,9 +111,9 @@ class Library {
         }
 
         print("\nLibrary Statistics");
-        print("Total Books: " @ to_string(this.bookCount));
-        print("Available: " @ to_string(available));
-        print("Checked Out: " @ to_string(checkedOut));
+        print("Total Books: " + to_string(this.bookCount));
+        print("Available: " + to_string(available));
+        print("Checked Out: " + to_string(checkedOut));
     }
 }
 

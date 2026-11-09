@@ -130,7 +130,7 @@ print(obj_keys);  // ["name", "age", "city"]
 
 // Iterate over keys
 for (key in obj_keys) {
-    print(key @ ": " @ obj[key]);
+    print(key + ": " + obj[key]);
 }
 // name: Alice
 // age: 30
@@ -197,7 +197,7 @@ print(pairs);  // [["a", 1], ["b", "hello"], ["c", true]]
 
 // Iterate over key-value pairs
 for (entry in obj.entries()) {
-    print(entry[0] @ " = " @ entry[1]);
+    print(entry[0] + " = " + entry[1]);
 }
 // a = 1
 // b = hello
@@ -279,7 +279,7 @@ obj.length();  // 3
 let person = { name: "Alice", age: 30, city: "Boston" };
 
 for (key in person.keys()) {
-    print(key @ ": " @ person[key]);
+    print(key + ": " + person[key]);
 }
 ```
 

@@ -172,7 +172,7 @@ Call a function for each element. Returns `null`.
 ```nari
 let numbers = [1, 2, 3];
 numbers.for_each(func(n, i) {
-    print(i @ ": " @ n);
+    print(i + ": " + n);
 });
 ```
 

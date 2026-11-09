@@ -74,7 +74,6 @@ bool is_binary_op(TokenKind k) {
         case TokenKind::TK_CARET:
         case TokenKind::TK_LSHIFT:
         case TokenKind::TK_RSHIFT:
-        case TokenKind::TK_AT:
         case TokenKind::TK_NULLISHCOALESCE:
         case TokenKind::TK_EQUAL:
         case TokenKind::TK_PLUSEQ:

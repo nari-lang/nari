@@ -1,0 +1,2 @@
+// Expressions inside interpolation also reject the former operator.
+let result = `hello {"a" @ "b"}`;

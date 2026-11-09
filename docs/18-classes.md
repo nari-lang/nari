@@ -17,7 +17,7 @@ class Person {
     }
     
     public greet() -> string {
-        return "Hello, I'm " @ this.name;
+        return "Hello, I'm " + this.name;
     }
 }
 ```
@@ -141,7 +141,7 @@ class Person {
     
     public birthday() {
         this.incrementAge();
-        print(this.name @ " is now " @ to_string(this.age));
+        print(this.name + " is now " + to_string(this.age));
     }
 }
 ```
@@ -246,11 +246,11 @@ class Animal {
     }
     
     speak() {
-        print(this.name @ " makes a sound");
+        print(this.name + " makes a sound");
     }
     
     getInfo() {
-        return this.name @ " is " @ this.age @ " years old";
+        return this.name + " is " + this.age + " years old";
     }
 }
 
@@ -267,7 +267,7 @@ class Dog extends Animal {
     
     // Override parent method
     speak() {
-        print(this.name @ " barks: Woof!");
+        print(this.name + " barks: Woof!");
     }
     
     // New method specific to Dog
@@ -299,7 +299,7 @@ class Shape {
     }
     
     describe() {
-        print("This is a " @ this.name);
+        print("This is a " + this.name);
     }
 }
 
@@ -337,7 +337,7 @@ class Animal {
     }
     
     move() {
-        print(this.name @ " moves");
+        print(this.name + " moves");
     }
 }
 
@@ -365,7 +365,7 @@ class Puppy extends Dog {
     
     // Override move from Animal
     move() {
-        print(this.name @ " bounces playfully");
+        print(this.name + " bounces playfully");
     }
 }
 
@@ -490,7 +490,7 @@ class BankAccount {
     }
     
     private log(message: string) {
-        print("[" @ this.accountNumber @ "] " @ message);
+        print("[" + this.accountNumber + "] " + message);
     }
 }
 

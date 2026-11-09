@@ -2,7 +2,9 @@ project(
     'nari',
     'cpp',
     'c',
-    default_options: ['cpp_std=c++17', 'c_std=c11'],
+    # The codebase is exception-free. Let Meson select the compiler-specific
+    # flags, including /EHs-c- for MSVC and -fno-exceptions for GCC/Clang.
+    default_options: ['cpp_std=c++17', 'c_std=c11', 'cpp_eh=none'],
     version: '0.0.1',
 )
 
@@ -145,11 +147,6 @@ if windows_win7_compat
         '-DNTDDI_VERSION=0x06010000',
     ]
 endif
-
-# The codebase is exception-free by policy (allocation failure aborts via the
-# new_handler installed in main); disable C++ exceptions so any future throw
-# fails the build instead of silently relying on unwinding.
-cpp_args += ['-fno-exceptions']
 
 # Link-time optimization for release builds. ThinLTO is the default: it links
 # several times faster than full LTO at equal runtime performance and binary

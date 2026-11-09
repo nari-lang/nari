@@ -1,0 +1,2 @@
+// eval uses the same syntax rules as ordinary source files.
+eval("\"hello\" @ \"world\"");

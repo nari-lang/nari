@@ -50,7 +50,7 @@ type Person {
 }
 
 func greet(person: Person) {
-    print("Hello, " @ person.name @ "!");
+    print("Hello, " + person.name + "!");
 }
 ```
 

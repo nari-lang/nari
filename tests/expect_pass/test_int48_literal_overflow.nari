@@ -46,9 +46,9 @@ assert(under < INT48_MIN, "literal one past int48 min must compare less than the
 assert(id(under) == under, "folded and materialized negative value must agree");
 
 // stringification must not depend on whether the folder got there first.
-assert(("" @ 0.5) == ("" @ id(0.5)), "folded and runtime float text must agree");
-assert(("" @ 2.0) == ("" @ id(2.0)), "folded and runtime whole-float text must agree");
-assert(("" @ huge) == ("" @ id(huge)), "folded and runtime large-literal text must agree");
+assert(("" + 0.5) == ("" + id(0.5)), "folded and runtime float text must agree");
+assert(("" + 2.0) == ("" + id(2.0)), "folded and runtime whole-float text must agree");
+assert(("" + huge) == ("" + id(huge)), "folded and runtime large-literal text must agree");
 
 // test if it still works at every JIT tier
 let i = 0;

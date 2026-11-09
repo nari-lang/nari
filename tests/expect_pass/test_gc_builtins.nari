@@ -3,11 +3,11 @@
 // get initial stats
 let stats = __gc_stats();
 print("Initial GC stats:");
-print("  Tracked: " @ stats.tracked);
-print("  Allocation count: " @ stats.allocationCount);
-print("  Total collections: " @ stats.totalCollections);
-print("  Threshold: " @ stats.threshold);
-print("  Enabled: " @ stats.enabled);
+print("  Tracked: " + stats.tracked);
+print("  Allocation count: " + stats.allocationCount);
+print("  Total collections: " + stats.totalCollections);
+print("  Threshold: " + stats.threshold);
+print("  Enabled: " + stats.enabled);
 
 // create some allocations
 let objects = [];
@@ -19,26 +19,26 @@ for (let i = 0; i < 500; i = i + 1) {
 // force a collection
 let collectResult = __gc_collect();
 print("\nAfter forced collection:");
-print("  Collected objects: " @ collectResult.collected);
-print("  Tracked: " @ collectResult.tracked);
-print("  Total collections: " @ collectResult.totalCollections);
+print("  Collected objects: " + collectResult.collected);
+print("  Tracked: " + collectResult.tracked);
+print("  Total collections: " + collectResult.totalCollections);
 
 // test enabling/disabling
 let enableResult = __gc_enable(false);
-print("\nDisabled GC: " @ enableResult);
+print("\nDisabled GC: " + enableResult);
 
 let statsAfterDisable = __gc_stats();
-print("GC enabled status: " @ statsAfterDisable.enabled);
+print("GC enabled status: " + statsAfterDisable.enabled);
 
 enableResult = __gc_enable(true);
-print("Re-enabled GC: " @ enableResult);
+print("Re-enabled GC: " + enableResult);
 
 // test threshold setting
 let thresholdResult = __gc_set_threshold(2000);
-print("\nSet threshold to 2000: " @ thresholdResult);
+print("\nSet threshold to 2000: " + thresholdResult);
 
 let statsAfterThreshold = __gc_stats();
-print("New threshold: " @ statsAfterThreshold.threshold);
+print("New threshold: " + statsAfterThreshold.threshold);
 
 // reset threshold
 __gc_set_threshold(1000);

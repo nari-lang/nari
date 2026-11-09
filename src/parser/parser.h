@@ -177,7 +177,7 @@ class Parser {
         PREC_EQUALITY = 8,      // == != === !==
         PREC_COMPARISON = 9,    // < > <= >=
         PREC_SHIFT = 10,        // << >>
-        PREC_TERM = 11,         // + - @
+        PREC_TERM = 11,         // + -
         PREC_FACTOR = 12,       // * / %
         PREC_EXPONENT = 13,     // **
         PREC_UNARY = 14,        // unary + - ! ~

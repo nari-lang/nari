@@ -26,5 +26,5 @@ for (let i = 0; i < 200; i++) {
     exercise_index_semantics(i);
 }
 
-assert(result == 1018, "JIT array push/index result was " @ result);
+assert(result == 1018, "JIT array push/index result was " + result);
 print("JIT array storage ok");

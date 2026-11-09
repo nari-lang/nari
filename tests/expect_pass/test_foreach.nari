@@ -5,11 +5,11 @@ func start() {
     for (item in arr) {
         total = total + item;
     }
-    print("sum = " @ to_string(total));
+    print("sum = " + to_string(total));
 
     let out = "";
     for (ch in ["a", "b", "c"]) {
-        out = out @ ch;
+        out = out + ch;
     }
-    print("out = " @ out);
+    print("out = " + out);
 }

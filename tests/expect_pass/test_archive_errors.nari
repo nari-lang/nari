@@ -6,7 +6,7 @@ let errs = 0;
 let r1 = Archive.list("/no/such/archive.tar.gz");
 if (r1.is_err()) {
     errs = errs + 1;
-    print("err list: " @ to_string(r1.unwrap_err()));
+    print("err list: " + to_string(r1.unwrap_err()));
 } else {
     print("FAIL: list did not return Err");
 }
@@ -15,7 +15,7 @@ if (r1.is_err()) {
 let r2 = Archive.extract("/no/such/archive.tar.gz", "/tmp/__nari_archive_err_test__");
 if (r2.is_err()) {
     errs = errs + 1;
-    print("err extract: " @ to_string(r2.unwrap_err()));
+    print("err extract: " + to_string(r2.unwrap_err()));
 } else {
     print("FAIL: extract did not return Err");
 }
@@ -24,7 +24,7 @@ if (r2.is_err()) {
 let r3 = Archive.create("/tmp/__nari_archive_err_test__.bogus", ["/etc/hostname"]);
 if (r3.is_err()) {
     errs = errs + 1;
-    print("err create: " @ to_string(r3.unwrap_err()));
+    print("err create: " + to_string(r3.unwrap_err()));
 } else {
     print("FAIL: create did not return Err");
 }
@@ -33,7 +33,7 @@ if (r3.is_err()) {
 let r4 = Archive.create("/tmp/__nari_archive_err_test__.tar", ["/no/such/source/file"]);
 if (r4.is_err()) {
     errs = errs + 1;
-    print("err create-missing-src: " @ to_string(r4.unwrap_err()));
+    print("err create-missing-src: " + to_string(r4.unwrap_err()));
 } else {
     print("FAIL: create-missing-src did not return Err");
 }

@@ -34,8 +34,8 @@ if (m_null != null) { panic("exec should return null on no match"); }
 // simple match (no capture groups)
 let m1 = /\d+/.exec("abc 42 def");
 if (m1 == null)       { panic("exec should find digits"); }
-if (m1.value != "42") { panic("exec value should be '42', got: " @ m1.value); }
-if (m1.index != 4)    { panic("exec index should be 4, got: " @ m1.index); }
+if (m1.value != "42") { panic("exec value should be '42', got: " + m1.value); }
+if (m1.index != 4)    { panic("exec index should be 4, got: " + m1.index); }
 if (m1.groups.length() != 1) { panic("groups should have 1 entry (full match only)"); }
 if (m1.groups[0] != "42") { panic("groups[0] should be full match '42'"); }
 
@@ -69,10 +69,10 @@ if (validate_email("not-an-email"))      { panic("invalid email should fail"); }
 
 // -- string coercion --
 
-let re_str = "" @ /\d+/;
-if (re_str != "/\\d+/") { panic("regex to-string should give '/\\d+/', got: " @ re_str); }
+let re_str = "" + /\d+/;
+if (re_str != "/\\d+/") { panic("regex to-string should give '/\\d+/', got: " + re_str); }
 
-let re_flags_str = "" @ /foo/gi;
+let re_flags_str = "" + /foo/gi;
 if (re_flags_str != "/foo/gi") { panic("regex with flags to-string should give '/foo/gi'"); }
 
 // -- division disambiguation --

@@ -11,13 +11,13 @@ func op(x) {
 
 func agree(folded, runtime, label) {
     if (folded != runtime) {
-        panic("fold/runtime disagree on " @ label @ ": folded=" @ to_string(folded) @ " runtime=" @ to_string(runtime));
+        panic("fold/runtime disagree on " + label + ": folded=" + to_string(folded) + " runtime=" + to_string(runtime));
     }
 }
 
 func expect(actual, want, label) {
     if (actual != want) {
-        panic(label @ ": expected " @ to_string(want) @ ", got " @ to_string(actual));
+        panic(label + ": expected " + to_string(want) + ", got " + to_string(actual));
     }
 }
 
@@ -92,10 +92,10 @@ while (n < 120000) {
     n = n + 1;
 }
 if (mixed_true != 0) {
-    panic("JIT says 1 == \"1\" is true, " @ to_string(mixed_true) @ " times");
+    panic("JIT says 1 == \"1\" is true, " + to_string(mixed_true) + " times");
 }
 if (string_true != 120000) {
-    panic("JIT says \"1\" == \"1\" is false; true count " @ to_string(string_true));
+    panic("JIT says \"1\" == \"1\" is false; true count " + to_string(string_true));
 }
 
 print("test_eq_fold_agreement: ok!");

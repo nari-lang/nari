@@ -5,23 +5,23 @@ print("Testing list_dir Array Return\n");
 let files = fs.list_dir("tests").await;
 
 print("Type check:");
-print("\ttypeof(files) = " @ typeof(files));
-print("\tIs array? " @ (typeof(files) == "array"));
+print("\ttypeof(files) = " + typeof(files));
+print("\tIs array? " + (typeof(files) == "array"));
 print("");
 
 print("Array operations now work directly:");
-print("\tFiles found: " @ files.length());
+print("\tFiles found: " + files.length());
 print("");
 
 print("Can iterate with for-each:");
 for (file in files) {
-    print("\t- " @ file);
+    print("\t- " + file);
 }
 print("");
 
 print("Can use array methods:");
-print("\tFirst: " @ files[0]);
+print("\tFirst: " + files[0]);
 if (files.length() > 1) {
-    print("\tLast:  " @ files[files.length() - 1]);
+    print("\tLast:  " + files[files.length() - 1]);
 }
 print("");

@@ -126,7 +126,7 @@ func calculateDistance(x1, y1, x2, y2) {
 }
 
 let dist = calculateDistance(0, 0, 3, 4);
-print("Distance: " @ dist);  // 5
+print("Distance: " + dist);  // 5
 ```
 
 ## fs Module
@@ -262,7 +262,7 @@ Read everything until end of input.
 
 ```nari
 let input = process.stdin.read();
-print("You entered: " @ input);
+print("You entered: " + input);
 ```
 
 **Returns:** String
@@ -274,7 +274,7 @@ Read one line, without the newline.
 ```nari
 print("Enter your name: ");
 let name = process.stdin.read_line();
-print("Hello, " @ name @ "!");
+print("Hello, " + name + "!");
 ```
 
 **Returns:** String
@@ -292,11 +292,11 @@ func processLogFile(filename) {
     let content = (await fs.read_file(filename)).unwrap();
     let lines = content.split("\n");
 
-    print("Processing " @ to_string(lines.length()) @ " lines");
+    print("Processing " + to_string(lines.length()) + " lines");
 
     for (line in lines) {
         if (line.index_of("ERROR") != -1) {
-            fs.append_file("errors.log", line @ "\n").await;
+            fs.append_file("errors.log", line + "\n").await;
         }
     }
 }
@@ -315,7 +315,7 @@ Information about the host platform.
 - `platform.getenv(name)` - Read an environment variable (returns `null` if unset).
 
 ```nari
-print(platform.os @ "/" @ platform.arch);
+print(platform.os + "/" + platform.arch);
 let home = platform.getenv("HOME");
 ```
 
@@ -358,13 +358,13 @@ response object, which has `status_code`, `body` and `headers`.
 ```nari
 let result = await http.fetch("https://api.example.com/data");
 if (result.is_err()) {
-    print("Request failed: " @ to_string(result.unwrap_err()));
+    print("Request failed: " + to_string(result.unwrap_err()));
     return;
 }
 
 let response = result.unwrap();
-print("Status: " @ to_string(response.status_code));
-print("Body: " @ response.body);
+print("Status: " + to_string(response.status_code));
+print("Body: " + response.body);
 ```
 
 `JSON.stringify` also gives a `Result`, so unwrap it before you use it as a body:
@@ -389,25 +389,25 @@ let posted = (await http.fetch("https://api.example.com/items", {
 
 ```nari
 func fetchUser(userId) {
-    let url = "https://api.example.com/users/" @ to_string(userId);
+    let url = "https://api.example.com/users/" + to_string(userId);
 
     let result = await http.fetch(url);
     if (result.is_err()) {
-        return Err("Request failed: " @ to_string(result.unwrap_err()));
+        return Err("Request failed: " + to_string(result.unwrap_err()));
     }
 
     let response = result.unwrap();
     if (response.status_code == 200) {
         return Ok(response.body);
     }
-    return Err("Failed to fetch user: " @ to_string(response.status_code));
+    return Err("Failed to fetch user: " + to_string(response.status_code));
 }
 
 let userData = fetchUser(123);
 if (userData.is_ok()) {
-    print("User data: " @ userData.unwrap());
+    print("User data: " + userData.unwrap());
 } else {
-    print("Error: " @ userData.unwrap_err());
+    print("Error: " + userData.unwrap_err());
 }
 ```
 
@@ -451,14 +451,14 @@ connection object is plain data (`{ fd, ip, port }`) and has no methods.
 func handleConnection(conn) {
     net.read(conn, func(err, data) {
         if (err != null) {
-            print("Read error: " @ to_string(err));
+            print("Read error: " + to_string(err));
             net.close(conn);
             return;
         }
 
-        print("Received: " @ data);
+        print("Received: " + data);
 
-        net.write(conn, "Echo: " @ data).await;
+        net.write(conn, "Echo: " + data).await;
         net.close(conn);
     });
 }
@@ -481,12 +481,12 @@ Use the module functions `net.read(conn, cb)`, `net.write(conn, data)` and
 func on_connection(conn) {
     net.read(conn, func(err, data) {
         if (err != null) {
-            print("Read error: " @ to_string(err));
+            print("Read error: " + to_string(err));
             net.close(conn);
             return;
         }
 
-        net.write(conn, "Echo: " @ data).await;
+        net.write(conn, "Echo: " + data).await;
         net.close(conn);
     });
 }
@@ -592,21 +592,21 @@ func longTask() {
 
 ```nari
 // Math operations
-print("sqrt(16) = " @ to_string(math.sqrt(16)));
-print("5^2 = " @ to_string(math.pow(5, 2)));
+print("sqrt(16) = " + to_string(math.sqrt(16)));
+print("5^2 = " + to_string(math.pow(5, 2)));
 
 // File I/O. fs calls are async, and most of them give a Result.
 if (await fs.file_exists("data.txt")) {
     let data = (await fs.read_file("data.txt")).unwrap();
     let lines = data.split("\n");
-    print("File has " @ to_string(lines.length()) @ " lines");
+    print("File has " + to_string(lines.length()) + " lines");
 }
 
 // HTTP request (async)
 spawn {
     let result = await http.fetch("https://api.example.com/status");
     if (result.is_ok()) {
-        print("API Status: " @ to_string(result.unwrap().status_code));
+        print("API Status: " + to_string(result.unwrap().status_code));
     }
 };
 

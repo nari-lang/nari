@@ -14,7 +14,7 @@ func op(x) {
 }
 
 func fail(label, i, j) {
-    panic(label @ " failed for pair (" @ to_string(i) @ ", " @ to_string(j) @ ")");
+    panic(label + " failed for pair (" + to_string(i) + ", " + to_string(j) + ")");
 }
 
 let tiny = 1.0 / 10000000000000.0;
@@ -146,13 +146,13 @@ while (k < 120000) {
     k = k + 1;
 }
 if (mixed_lt != 0) {
-    panic("JIT says 1 < \"2\" is true, " @ to_string(mixed_lt) @ " times");
+    panic("JIT says 1 < \"2\" is true, " + to_string(mixed_lt) + " times");
 }
 if (mixed_ge != 0) {
-    panic("JIT says 1 >= \"1\" is true, " @ to_string(mixed_ge) @ " times");
+    panic("JIT says 1 >= \"1\" is true, " + to_string(mixed_ge) + " times");
 }
 if (num_lt != 120000) {
-    panic("JIT says 1 < 2 is false; true count " @ to_string(num_lt));
+    panic("JIT says 1 < 2 is false; true count " + to_string(num_lt));
 }
 
 print("test_comparison_coherence: ok!");

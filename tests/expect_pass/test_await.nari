@@ -6,7 +6,7 @@ if (h.await != 42) { panic("await on stored handle: expected 42") }
 
 // 2. await on an inline spawn
 let r = spawn { return 10 + 20 }.await
-if (r != 30) { panic("await on inline spawn: expected 30, got " @ string(r)) }
+if (r != 30) { panic("await on inline spawn: expected 30, got " + string(r)) }
 
 // 3. await chains correctly with following operators (handle is on the left)
 let h2 = spawn { return "hello" }

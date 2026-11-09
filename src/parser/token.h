@@ -44,8 +44,6 @@ enum class TokenKind {
     TK_QUESTION,
     // ?.
     TK_QUESTIONDOT,
-    // @
-    TK_AT,
     // +
     TK_PLUS,
     // -

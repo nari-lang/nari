@@ -19,7 +19,7 @@ nari fmt --stdin < file.nari  # read stdin, write stdout (editor integration)
 - **Blank lines**: runs of blank lines collapse to at most one; no leading blank
   lines; the file ends with exactly one newline.
 - **Operators**: spaces around binary operators and assignments
-  (`a + b`, `x ?? y`, `s @ t`, `->`, `=>`); no spaces around unary operators
+  (`a + b`, `x ?? y`, `s + t`, `->`, `=>`); no spaces around unary operators
   (`-x`, `!flag`), member access (`a.b`, `a?.b`, `m::n`), or postfix `++`/`--`.
 - **Calls and indexing**: `foo(a, b)`, `arr[0]`, no space before `(`/`[`,
   one space after each comma. Control keywords get a space: `if (x)`, `return (x)`.

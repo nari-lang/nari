@@ -35,7 +35,7 @@ export let Logger = {
 
         let fmt = func(level_name, msg) {
             let line = "";
-            if (use_ts) { line = "[" + ("" @ __math_floor(time())) + "] "; }
+            if (use_ts) { line = "[" + ("" + __math_floor(time())) + "] "; }
             line = line + "[" + level_name + "]";
             if (name != "") { line = line + " [" + name + "]"; }
             return line + " " + msg;

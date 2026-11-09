@@ -66,7 +66,7 @@ bool mark_inplace_concat(Func &f);
 // "to_string".
 uint32_t analyze_frozen_builtin(const nari::bytecode::Chunk &chunk, const char *name);
 
-// Combines `s @ to_string(x)` into `s @ x` and removes the temporary StringObj.
+// Removes a temporary to_string(x) result consumed only by string interpolation.
 bool fuse_tostring_concat(Func &f, uint32_t tostring_name_idx);
 
 // Prints the redundant expressions that a global CSE pass could remove. Set

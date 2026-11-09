@@ -5,7 +5,7 @@ func test_closure_writes_outer_reads() {
     let x = 0;
     let set_x = func() { x = 77; };
     set_x();
-    assert(x == 77, "outer should see closure write, got " @ x);
+    assert(x == 77, "outer should see closure write, got " + x);
 }
 test_closure_writes_outer_reads();
 
@@ -15,7 +15,7 @@ func test_outer_mutates_closure_reads() {
     let get_x = func() { return x; };
     x = 42;
     let r = get_x();
-    assert(r == 42, "closure should see outer mutation, got " @ r);
+    assert(r == 42, "closure should see outer mutation, got " + r);
 }
 test_outer_mutates_closure_reads();
 
@@ -36,7 +36,7 @@ func test_two_closures_shared_var() {
     let get = func() { return count; };
     inc(); inc(); inc();
     let r = get();
-    assert(r == 3, "shared count should be 3, got " @ r);
+    assert(r == 3, "shared count should be 3, got " + r);
 }
 test_two_closures_shared_var();
 
@@ -46,7 +46,7 @@ func test_pass_through() {
     let count = 0;
     let inc = func() { count = count + 1; };
     call_it(inc);
-    assert(count == 3, "pass-through count should be 3, got " @ count);
+    assert(count == 3, "pass-through count should be 3, got " + count);
 }
 test_pass_through();
 
@@ -59,7 +59,7 @@ func test_nested_closures() {
         inner_fn();
     };
     outer_fn();
-    assert(x == 2, "nested closure should update x to 2, got " @ x);
+    assert(x == 2, "nested closure should update x to 2, got " + x);
 }
 test_nested_closures();
 
@@ -73,7 +73,7 @@ func make_counter() {
 }
 let c = make_counter();
 c.inc(); c.inc(); c.inc();
-assert(c.get() == 3, "counter should be 3, got " @ c.get());
+assert(c.get() == 3, "counter should be 3, got " + c.get());
 
 // returned closure retains its own independent state
 func make_adder(base) {
@@ -92,8 +92,8 @@ func test_combined() {
     x = 100;
     let r1 = bump();
     let r2 = bump();
-    assert(r1 == 101, "first bump should be 101, got " @ r1);
-    assert(r2 == 102, "second bump should be 102, got " @ r2);
-    assert(x == 102, "outer x should be 102 after two bumps, got " @ x);
+    assert(r1 == 101, "first bump should be 101, got " + r1);
+    assert(r2 == 102, "second bump should be 102, got " + r2);
+    assert(x == 102, "outer x should be 102 after two bumps, got " + x);
 }
 test_combined();

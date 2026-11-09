@@ -238,6 +238,6 @@ inline bool utf16_to_utf8(const std::u16string &input, std::string &output) {
 } // namespace
 #endif
 
-#define STDLIB_VERSION "0.0.4"
+#define STDLIB_VERSION "0.4.0"
 
 // Builtin implementations are split across src/builtins/*.cpp and share this common prelude header.

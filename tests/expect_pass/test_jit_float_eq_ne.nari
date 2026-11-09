@@ -56,12 +56,12 @@ while (i < ITERS) {
     i = i + 1;
 }
 
-assert(c_eq_nan == 0,      "nan == nan must be false every iter, got: " @ c_eq_nan);
-assert(c_ne_nan == ITERS,  "nan != nan must be true every iter, got: " @ c_ne_nan);
-assert(c_eq_fin_t == ITERS, "a == a must be true every iter, got: " @ c_eq_fin_t);
-assert(c_eq_fin_f == 0,     "a == b must be false every iter, got: " @ c_eq_fin_f);
-assert(c_ne_fin_t == ITERS, "a != b must be true every iter, got: " @ c_ne_fin_t);
-assert(c_ne_fin_f == 0,     "a != a must be false every iter, got: " @ c_ne_fin_f);
+assert(c_eq_nan == 0,      "nan == nan must be false every iter, got: " + c_eq_nan);
+assert(c_ne_nan == ITERS,  "nan != nan must be true every iter, got: " + c_ne_nan);
+assert(c_eq_fin_t == ITERS, "a == a must be true every iter, got: " + c_eq_fin_t);
+assert(c_eq_fin_f == 0,     "a == b must be false every iter, got: " + c_eq_fin_f);
+assert(c_ne_fin_t == ITERS, "a != b must be true every iter, got: " + c_ne_fin_t);
+assert(c_ne_fin_f == 0,     "a != a must be false every iter, got: " + c_ne_fin_f);
 
 // Float != as a loop-exit condition (CondExitIfFalse consumer, finite operands).
 // Counts to a known bound; verifies the loop terminates at exactly the right step.
@@ -71,7 +71,7 @@ while (x != 1000.0) {
     x = x + 1.0;
     steps = steps + 1;
 }
-assert(steps == 1000, "float != loop must run exactly 1000 times, got: " @ steps);
+assert(steps == 1000, "float != loop must run exactly 1000 times, got: " + steps);
 
 // Float == used to detect a hit while scanning (recorded-false guard, then a
 // single recorded-true iteration at the match). Exercises FloatEq in a loop.
@@ -83,6 +83,6 @@ while (k < ITERS) {
     y = y + 1.0;
     k = k + 1;
 }
-assert(hit_at == 500, "float == should detect match at step 500, got: " @ hit_at);
+assert(hit_at == 500, "float == should detect match at step 500, got: " + hit_at);
 
 print("PASS: trace-JIT float ==/!= NaN-correct and finite-correct");

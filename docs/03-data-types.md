@@ -158,7 +158,7 @@ let add = func(a, b) {
 };
 
 let greet = func(name) {
-    return "Hello, " @ name;
+    return "Hello, " + name;
 };
 
 print(typeof(add));  // "function"
@@ -303,8 +303,8 @@ print(5 + "3");         // "53"
 // Arithmetic coerces to number
 print(true + 1);        // 2 (true -> 1)
 
-// String concatenation with @
-print(42 @ " items");   // "42 items"
+// String concatenation with +
+print(42 + " items");   // "42 items"
 ```
 
 ### Comparison

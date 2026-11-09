@@ -92,7 +92,7 @@ global UserModule = {
     },
     
     to_string: func(user) {
-        return user.name @ " <" @ user.email @ ">";
+        return user.name + " <" + user.email + ">";
     }
 };
 ```
@@ -122,7 +122,7 @@ global DEBUG = true;
 // main.nari
 import "config.nari";
 
-print(APP_NAME @ " v" @ APP_VERSION);
+print(APP_NAME + " v" + APP_VERSION);
 if (DEBUG) {
     print("Debug mode enabled");
 }
@@ -209,7 +209,7 @@ The standard library is automatically imported:
 // - Ok, Err, Some, None
 
 print(math.sqrt(16));        // 4
-print(stdlib_version);       // "0.0.4"
+print(stdlib_version);       // "0.4.0"
 ```
 
 There is no `system` module and no `io` module. Standard input lives on
@@ -234,13 +234,13 @@ global StringUtils = {
         if (str.length() == 0) return str;
         let first = str.char_at(0);
         let rest = str.substr(1, str.length());
-        return first.to_upper() @ rest;
+        return first.to_upper() + rest;
     },
     
     reverse: func(str) {
         let result = "";
         for (let i = str.length() - 1; i >= 0; i--) {
-            result = result @ str.char_at(i);
+            result = result + str.char_at(i);
         }
         return result;
     },
@@ -249,7 +249,7 @@ global StringUtils = {
         if (str.length() <= maxLen) {
             return str;
         }
-        return str.substr(0, maxLen - 3) @ "...";
+        return str.substr(0, maxLen - 3) + "...";
     }
 };
 ```
@@ -350,7 +350,7 @@ global Logger = (func() {
                     logs: [],
                     log: func(message) {
                         instance.logs.push(message);
-                        print("[LOG] " @ message);
+                        print("[LOG] " + message);
                     },
                     getLogs: func() {
                         return instance.logs;

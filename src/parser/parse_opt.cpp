@@ -983,19 +983,6 @@ ExprPtr Parser::fold_expr(ExprPtr expr) {
             }
         }
 
-        // Never fold a concat with a float operand: literal_to_string() formats floats
-        // with std::to_string (printf "%f", 6 fixed decimals) while the runtime uses a
-        // shortest-round-trip formatter, so folding changed the program's output
-        // ("x" @ 0.5 folded to "x0.500000" but produced "x0.5" at runtime). Leaving the
-        // float to the runtime keeps one formatter instead of two that must agree.
-        if (op == "@" && !lfloat && !rfloat && literal_any(binaryExpr->left.get()) && literal_any(binaryExpr->right.get()) &&
-            (lstr || rstr)) {
-            std::string out = literal_to_string(binaryExpr->left.get()) + literal_to_string(binaryExpr->right.get());
-            auto result = std::make_unique<nari::StringExpr>(out);
-            copy_loc(result.get(), binaryExpr);
-            return result;
-        }
-
         // Only fold pairs of the same type class. Value::values_equal() reports a
         // string and a number as not equal, so folding a mixed pair through
         // literal_to_string() made `1 == "1"` true here but false at run time.

@@ -6,7 +6,7 @@
 
 func test(label, expected, actual) {
     if (expected != actual) {
-        print("FAIL " @ label @ ": expected=" @ expected @ " actual=" @ actual);
+        print("FAIL " + label + ": expected=" + expected + " actual=" + actual);
         return false;
     }
     return true;
@@ -37,8 +37,8 @@ func plain(re, str, repl) {
     let out = ""; let rest = str;
     while (true) {
         let m = re.exec(rest);
-        if (m == null) { return out @ rest; }
-        out = out @ rest.substr(0, m.index) @ repl;
+        if (m == null) { return out + rest; }
+        out = out + rest.substr(0, m.index) + repl;
         rest = rest.substr(m.index + m.value.length());
     }
 }

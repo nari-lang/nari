@@ -50,6 +50,7 @@ namespace bytecode {
     X(POW, 0, false)                                                                                                                       \
     X(NEG, 0, false)                                                                                                                       \
     X(STR_CONCAT, 0, false)                                                                                                                \
+    /* Retained for compatibility with existing bytecode files. */                                                                         \
     X(STR_APPEND_VAR, 2, false)                                                                                                            \
     X(STR_APPEND_GLOBAL, 2, false)                                                                                                         \
     X(BIT_AND, 0, false)                                                                                                                   \

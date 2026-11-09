@@ -6,7 +6,7 @@
 
 ```nari
 func greet(name) {
-    print("Hello, " @ name @ "!");
+    print("Hello, " + name + "!");
 }
 
 greet("Alice");  // Hello, Alice!
@@ -30,7 +30,7 @@ func multiply(x: number, y: number) -> number {
 }
 
 func formatName(first: string, last: string) -> string {
-    return first @ " " @ last;
+    return first + " " + last;
 }
 ```
 
@@ -40,7 +40,7 @@ func formatName(first: string, last: string) -> string {
 
 ```nari
 func greet(name, greeting = "Hello") {
-    print(greeting @ ", " @ name @ "!");
+    print(greeting + ", " + name + "!");
 }
 
 greet("Alice");              // Hello, Alice!
@@ -69,7 +69,7 @@ print(sum(5, 10, 15, 20));  // 50
 func format(prefix, ...items) {
     let result = prefix;
     for (item in items) {
-        result = result @ " " @ item;
+        result = result + " " + item;
     }
     return result;
 }
@@ -149,7 +149,7 @@ print(double(4));      // 8
 **Block body** (explicit return):
 ```nari
 let greet = (name) => {
-    let message = "Hello, " @ name @ "!";
+    let message = "Hello, " + name + "!";
     return message;
 };
 
@@ -180,7 +180,7 @@ let max = (a, b) => a > b ? a : b;
 
 ```nari
 let greet = (name, greeting = "Hello") => {
-    return greeting @ ", " @ name @ "!";
+    return greeting + ", " + name + "!";
 };
 
 print(greet("Alice"));           // Hello, Alice!
@@ -539,7 +539,7 @@ func calculateTotal(items) {
 }
 
 func formatCurrency(amount) {
-    return "$" @ to_string(amount);
+    return "$" + to_string(amount);
 }
 
 // Usage

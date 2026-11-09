@@ -107,8 +107,8 @@ enum Message {
 let msg = Image("photo.png", 640, 480);
 
 match msg {
-    Text(data)  => print("text: " @ data.content),
-    Image(data) => print("image: " @ data.url @ " " @ to_string(data.width))
+    Text(data)  => print("text: " + data.content),
+    Image(data) => print("image: " + data.url + " " + to_string(data.width))
 }
 ```
 
@@ -189,8 +189,8 @@ Match and destructure enum variants:
 let result = Ok(42);
 
 match result {
-    Ok(value) => print("Success: " @ to_string(value)),
-    Err(error) => print("Error: " @ error)
+    Ok(value) => print("Success: " + to_string(value)),
+    Err(error) => print("Error: " + error)
 }
 // Prints: "Success: 42"
 ```
@@ -223,7 +223,7 @@ Bind any value to a variable:
 let x = 42;
 
 match x {
-    value => print("The value is: " @ to_string(value))
+    value => print("The value is: " + to_string(value))
 }
 // Prints: "The value is: 42"
 ```
@@ -288,7 +288,7 @@ let numbers = [1, 2, 3, 4, 5];
 let found = find(numbers, func(x) { return x > 3; });
 
 match found {
-    Some(value) => print("Found: " @ to_string(value)),
+    Some(value) => print("Found: " + to_string(value)),
     None => print("Not found")
 }
 // Prints: "Found: 4"
@@ -319,8 +319,8 @@ func safeDivide(a, b) {
 let result = safeDivide(10, 2);
 
 match result {
-    Ok(value) => print("Result: " @ to_string(value)),
-    Err(error) => print("Error: " @ error)
+    Ok(value) => print("Result: " + to_string(value)),
+    Err(error) => print("Error: " + error)
 }
 // Prints: "Result: 5"
 ```
@@ -380,8 +380,8 @@ func processInput(input) {
 
 let result = processInput("42");
 match result {
-    Ok(n) => print("Valid: " @ to_string(n)),
-    Err(e) => print("Invalid: " @ e)
+    Ok(n) => print("Valid: " + to_string(n)),
+    Err(e) => print("Invalid: " + e)
 }
 ```
 
@@ -400,7 +400,7 @@ let numbers = [10, 20, 30];
 let item = at(numbers, 1);
 
 match item {
-    Some(value) => print("Item: " @ to_string(value)),
+    Some(value) => print("Item: " + to_string(value)),
     None => print("Index out of bounds")
 }
 // Prints: "Item: 20"
@@ -414,7 +414,7 @@ func readConfig(filename) {
     
     return match fileResult {
         Ok(content) => parseConfig(content),
-        Err(error) => Err("Failed to read: " @ error)
+        Err(error) => Err("Failed to read: " + error)
     };
 }
 

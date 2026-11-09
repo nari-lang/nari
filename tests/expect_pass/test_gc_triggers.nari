@@ -7,17 +7,17 @@ print("=== GC Trigger Tests ===\n");
 // Helpers
 let assert = func(cond, msg) {
     if (!cond) {
-        print("[FAIL] " @ msg);
-        panic("assertion failed: " @ msg);
+        print("[FAIL] " + msg);
+        panic("assertion failed: " + msg);
     }
-    print("[pass] " @ msg);
+    print("[pass] " + msg);
 };
 let assertGe = func(a, b, msg) {
     if (a < b) {
-        print("[FAIL] " @ msg @ " (got " @ a @ ", expected >= " @ b @ ")");
-        panic("assertion failed: " @ msg);
+        print("[FAIL] " + msg + " (got " + a + ", expected >= " + b + ")");
+        panic("assertion failed: " + msg);
     }
-    print("[pass] " @ msg @ " (" @ a @ " >= " @ b @ ")");
+    print("[pass] " + msg + " (" + a + " >= " + b + ")");
 };
 
 // These tests use lower-bound collection assertions so they remain stable when
@@ -579,6 +579,6 @@ print("");
 // Summary
 let final = __gc_stats();
 print("=== All GC trigger tests passed! ===");
-print("Total GC collections this run: " @ final.totalCollections);
-print("Total objects ever collected by GC: " @ final.totalCollected);
-print("Peak tracked: " @ final.peakTracked);
+print("Total GC collections this run: " + final.totalCollections);
+print("Total objects ever collected by GC: " + final.totalCollected);
+print("Peak tracked: " + final.peakTracked);

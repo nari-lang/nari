@@ -11,7 +11,7 @@ let server = net.listen(0)
     .await
     .unwrap();
 if (server == null) { panic("net.listen returned null"); }
-if (server.port <= 0) { panic("expected ephemeral port > 0, got " @ server.port); }
+if (server.port <= 0) { panic("expected ephemeral port > 0, got " + server.port); }
 
 // Issue accept now (returns immediately with a handle, IO worker starts polling).
 let accept_h = net.accept(server);
@@ -22,7 +22,7 @@ let client = net.connect("127.0.0.1", server.port)
     .unwrap();
 
 if (client == null) { panic("connect returned null"); }
-if (client.fd <= 0) { panic("expected client.fd > 0, got " @ client.fd); }
+if (client.fd <= 0) { panic("expected client.fd > 0, got " + client.fd); }
 
 // Now drain the accept handle, the connect above unblocks it.
 let conn = accept_h
@@ -30,7 +30,7 @@ let conn = accept_h
     .unwrap();
 
 if (conn == null) { panic("accept returned null"); }
-if (conn.ip != "127.0.0.1") { panic("accept got unexpected ip: " @ conn.ip); }
+if (conn.ip != "127.0.0.1") { panic("accept got unexpected ip: " + conn.ip); }
 
 // Client sends, server reads.
 net.write(client, "hello tcp")
@@ -39,13 +39,13 @@ net.write(client, "hello tcp")
 
 let server_received = null;
 net.read(conn, func(err, data) {
-    if (err != null) { panic("server read err: " @ err); }
+    if (err != null) { panic("server read err: " + err); }
     server_received = data;
 });
 while (server_received == null) { __yield(); }
 
 if (server_received != "hello tcp") {
-    panic("server saw wrong payload: '" @ server_received @ "'");
+    panic("server saw wrong payload: '" + server_received + "'");
 }
 
 // server echoes back uppercased.
@@ -56,13 +56,13 @@ net.write(conn, server_received.to_upper())
 // Client reads reply.
 let reply = null;
 net.read(client, func(err, data) {
-    if (err != null) { panic("client read err: " @ err); }
+    if (err != null) { panic("client read err: " + err); }
     reply = data;
 });
 while (reply == null) { __yield(); }
 
 if (reply != "HELLO TCP") {
-    panic("tcp echo mismatch: expected 'HELLO TCP', got '" @ reply @ "'");
+    panic("tcp echo mismatch: expected 'HELLO TCP', got '" + reply + "'");
 }
 
 net.close(client);
@@ -99,7 +99,7 @@ let pkt = recv_h
 
 if (pkt == null) { panic("udp server recv timed out"); }
 if (pkt.data != "ping") {
-    panic("udp server got wrong payload: '" @ pkt.data @ "'");
+    panic("udp server got wrong payload: '" + pkt.data + "'");
 }
 
 // Server replies; client receives.
@@ -115,7 +115,7 @@ let resp = client_recv_h
     
 if (resp == null) { panic("udp client recv timed out"); }
 if (resp.data != "pong") {
-    panic("udp client got wrong reply: '" @ resp.data @ "'");
+    panic("udp client got wrong reply: '" + resp.data + "'");
 }
 
 net.udp_close(udp_client);

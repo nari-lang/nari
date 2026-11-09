@@ -12,7 +12,7 @@ func start() {
     try {
         find_slash(null);
     } catch (error) {
-        print("builtin runtime error was incorrectly caught: " @ error);
+        print("builtin runtime error was incorrectly caught: " + error);
     }
 
     print("execution continued after builtin runtime error");

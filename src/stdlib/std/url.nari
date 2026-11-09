@@ -113,11 +113,11 @@ export let URL = {
                 if (is_array(v)) {
                     let j = 0;
                     while (j < v.length()) {
-                        parts.push(ek @ "=" @ __url_encode("" @ v[j], "component"));
+                        parts.push(ek + "=" + __url_encode("" + v[j], "component"));
                         j = j + 1;
                     }
                 } else {
-                    parts.push(ek @ "=" @ __url_encode("" @ v, "component"));
+                    parts.push(ek + "=" + __url_encode("" + v, "component"));
                 }
             }
             i = i + 1;
@@ -154,7 +154,7 @@ export let URL = {
         let protocol = "";
         let ci = rest.index_of(":");
         if (ci < 0) {
-            return Err("URLError: missing scheme in '" @ s @ "'");
+            return Err("URLError: missing scheme in '" + s + "'");
         }
         protocol = rest.substr(0, ci);
         rest = rest.substr(ci + 1);
@@ -191,7 +191,7 @@ export let URL = {
             if (authority.length() > 0 && authority.char_at(0) == "[") {
                 let close = authority.index_of("]");
                 if (close < 0) {
-                    return Err("URLError: unterminated IPv6 host in '" @ s @ "'");
+                    return Err("URLError: unterminated IPv6 host in '" + s + "'");
                 }
                 host = authority.substr(0, close + 1);
                 if (close + 1 < authority.length() && authority.char_at(close + 1) == ":") {
@@ -252,30 +252,30 @@ export let URL = {
         if (parts == null) { return ""; }
         let proto = "";
         if (parts.protocol != null) { proto = parts.protocol; }
-        let out = proto @ ":";
+        let out = proto + ":";
         let has_host = (parts.host != null && parts.host != "");
         if (has_host) {
-            out = out @ "//";
+            out = out + "//";
             if (parts.username != null && parts.username != "") {
-                out = out @ __url_encode(parts.username, "component");
+                out = out + __url_encode(parts.username, "component");
                 if (parts.password != null && parts.password != "") {
-                    out = out @ ":" @ __url_encode(parts.password, "component");
+                    out = out + ":" + __url_encode(parts.password, "component");
                 }
-                out = out @ "@";
+                out = out + "@";
             }
-            out = out @ parts.host;
+            out = out + parts.host;
             if (parts.port != null && parts.port != "") {
-                out = out @ ":" @ ("" @ parts.port);
+                out = out + ":" + ("" + parts.port);
             }
         }
         if (parts.pathname != null && parts.pathname != "") {
-            out = out @ parts.pathname;
+            out = out + parts.pathname;
         }
         if (parts.search != null && parts.search != "") {
-            out = out @ "?" @ parts.search;
+            out = out + "?" + parts.search;
         }
         if (parts.hash != null && parts.hash != "") {
-            out = out @ "#" @ parts.hash;
+            out = out + "#" + parts.hash;
         }
         return out;
     }

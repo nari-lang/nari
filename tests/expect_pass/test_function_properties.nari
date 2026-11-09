@@ -1,6 +1,6 @@
 let assert = func(condition, message) {
     if (!condition) {
-        panic("function property assertion failed: " @ message);
+        panic("function property assertion failed: " + message);
     }
 };
 
