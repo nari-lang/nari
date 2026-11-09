@@ -1,4 +1,5 @@
 #include "common.h"
+#include "stdio_utils.h"
 
 Value ScriptRuntime::builtin_module_import_namespace(Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
     if (argc != 1 || !argvals[0].is_string()) {
@@ -87,20 +88,9 @@ Value ScriptRuntime::builtin_module_import_named(Value *argvals, size_t argc, co
 #ifndef NARI_ESP_IDF
 // I/O builtins
 Value ScriptRuntime::builtin_readLine(Value *, size_t, const nari::CallExpr *) {
-    char *line_buf = nullptr;
-    size_t buf_size = 0;
-    ssize_t len = getline(&line_buf, &buf_size, stdin);
-    if (len > 0) {
-        if (len > 0 && line_buf[len - 1] == '\n') {
-            line_buf[len - 1] = '\0';
-            len--;
-        }
-        std::string result(line_buf, len);
-        free(line_buf);
-        return Value::make_string(result);
-    }
-    free(line_buf);
-    return Value::make_string("");
+    std::string line;
+    nari::read_line(stdin, line);
+    return Value::make_string(std::move(line));
 }
 
 #ifdef _WIN32
@@ -117,11 +107,8 @@ Value ScriptRuntime::builtin_readAll(Value *, size_t, const nari::CallExpr *) {
     bool is_tty = (NARI_ATTY_FUNC(NARI_FILENO_FUNC(stdin)) != 0);
     if (is_tty) {
         std::string line;
-        char ch;
-        while ((ch = static_cast<char>(fgetc(stdin))) != EOF && ch != '\n') {
-            line += ch;
-        }
-        return Value::make_string(line);
+        nari::read_line(stdin, line);
+        return Value::make_string(std::move(line));
     }
     std::string result;
     char buf[4096];

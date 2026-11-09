@@ -4,6 +4,7 @@
 */
 
 #include "parser/parser.h"
+#include "stdio_utils.h"
 
 namespace Parser {
 
@@ -766,50 +767,7 @@ void Parser::error_and_exit(const std::string &msg) {
     fprintf(stderr, "Exception at %s:%d:%d\n", use_fname.c_str(), line, col);
     fprintf(stderr, "  %s %s:%d:%d\n", msg.c_str(), use_fname.c_str(), line, col);
 
-    auto print_source_context = [&](const std::string &file, int lno, int cno) {
-#ifndef NARI_ESP_IDF
-        if (file.empty() || file[0] == '<' || lno <= 0) {
-            return;
-        }
-        FILE *fp = fopen(file.c_str(), "r");
-        if (!fp) {
-            return;
-        }
-
-        char *line_buffer = nullptr;
-        size_t buffer_size = 0;
-        std::string line_text;
-
-        for (int i = 1; i <= lno; ++i) {
-            ssize_t line_length = getline(&line_buffer, &buffer_size, fp);
-            if (line_length == -1) {
-                free(line_buffer);
-                fclose(fp);
-                return;
-            }
-            if (i == lno) {
-                line_text = line_buffer;
-                // remove trailing newline if present
-                if (!line_text.empty() && line_text.back() == '\n') {
-                    line_text.pop_back();
-                }
-            }
-        }
-        free(line_buffer);
-        fclose(fp);
-
-        fprintf(stderr, "  %s\n", line_text.c_str());
-        int caret_pos = cno > 0 ? cno - 1 : 0;
-        std::string caret_line(caret_pos, ' ');
-        caret_line.push_back('^');
-        fprintf(stderr, "  %s\n", caret_line.c_str());
-#else
-        // ESP-IDF does not support getline, so we just print the filename and line number.
-        fprintf(stderr, "  (source context not available on this platform!)\n");
-#endif
-    };
-
-    print_source_context(use_fname, line, col);
+    nari::print_source_context(use_fname, line, col);
 
     // print chain if we have more than one error context
     if (!error_contexts.empty()) {

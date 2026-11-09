@@ -21,7 +21,6 @@
 // Transport + logging (defined in lsp_server.cpp).
 void lsp_log(const std::string &msg);
 void init_logger();
-std::string read_lsp_message();
 void write_lsp_message(const std::string &body);
 
 class NariLspServer {

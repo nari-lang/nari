@@ -197,7 +197,6 @@ This creates a WebAssembly build suitable for running in web browsers.
 ```bash
 ./run_tests.sh  # release build, default bytecode VM path
 ./run_tests.sh --debug  # debug build
-./run_tests.sh --tree-walk
 ```
 
 ## Implementation Details

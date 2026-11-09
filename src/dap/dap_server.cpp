@@ -9,6 +9,7 @@
 #include "runtime.h"
 
 #include "json_dom.h"
+#include "protocol_io.h"
 
 #include <climits>
 #include <cstdint>
@@ -114,32 +115,6 @@ void send_output(const std::string &category, const std::string &text) {
     body["category"] = category;
     body["output"] = text;
     send_event("output", body);
-}
-
-bool read_message(std::string &out_body) {
-    std::string line;
-    size_t content_length = 0;
-    while (true) {
-        if (!std::getline(std::cin, line)) {
-            return false;
-        }
-        if (!line.empty() && line.back() == '\r') {
-            line.pop_back();
-        }
-        if (line.empty()) {
-            break;
-        }
-        static const std::string cl = "Content-Length:";
-        if (line.size() > cl.size() && line.compare(0, cl.size(), cl) == 0) {
-            content_length = static_cast<size_t>(std::strtoull(line.c_str() + cl.size(), nullptr, 10));
-        }
-    }
-    if (content_length == 0) {
-        return false;
-    }
-    out_body.resize(content_length);
-    std::cin.read(&out_body[0], static_cast<std::streamsize>(content_length));
-    return static_cast<size_t>(std::cin.gcount()) == content_length;
 }
 
 // DAP runtime state
@@ -1070,13 +1045,14 @@ static void dispatch(Server &server, const json &msg) {
 } // namespace
 
 int run_dap_server(std::string initial_script, std::vector<std::string> argv) {
+    protocol::use_binary_stdio();
     log_init();
     Server server;
     server.script_path = std::move(initial_script);
     server.argv = std::move(argv);
 
     std::string body;
-    while (read_message(body)) {
+    while (protocol::read_message(std::cin, body)) {
         log_line("<<", body);
         // allow_exceptions=false: malformed input yields a discarded value
         // instead of throwing, which this codebase does not use.

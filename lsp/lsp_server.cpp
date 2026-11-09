@@ -24,6 +24,7 @@
 #endif
 
 #include "json_dom.h"
+#include "protocol_io.h"
 
 using json = JsonValue;
 
@@ -52,11 +53,6 @@ using json = JsonValue;
 #include <unordered_set>
 #include <vector>
 
-#ifdef _WIN32
-#include <fcntl.h>
-#include <corecrt_io.h>
-#endif
-
 static std::ofstream g_log_file;
 
 void lsp_log(const std::string &msg) {
@@ -84,28 +80,6 @@ void init_logger() {
         }
     }
     lsp_log("=== nari-lsp started ===");
-}
-
-std::string read_lsp_message() {
-    size_t content_length = 0;
-    std::string hdr;
-    while (std::getline(std::cin, hdr)) {
-        if (!hdr.empty() && hdr.back() == '\r') {
-            hdr.pop_back();
-        }
-        if (hdr.empty()) {
-            break; // blank line ends headers
-        }
-        if (hdr.rfind("Content-Length:", 0) == 0) {
-            content_length = static_cast<size_t>(std::stoull(hdr.substr(16)));
-        }
-    }
-    if (content_length == 0 || !std::cin.good()) {
-        return {};
-    }
-    std::string body(content_length, '\0');
-    std::cin.read(body.data(), (std::streamsize)content_length);
-    return body;
 }
 
 // needed to make calling send_response and send_notification thread safe
@@ -148,12 +122,9 @@ void write_lsp_message(const std::string &body) {
         parse_thread = std::thread([this]() { parse_thread_func(); });
         lsp_log("run: entering main loop");
         while (!this->exit) {
-            std::string body = read_lsp_message();
-            if (body.empty()) {
-                if (std::cin.eof()) {
-                    break;
-                }
-                continue;
+            std::string body;
+            if (!nari::protocol::read_message(std::cin, body)) {
+                break;
             }
             json msg = json::parse(body);
             if (msg.is_object()) {
@@ -231,10 +202,7 @@ void write_lsp_message(const std::string &body) {
     }
 
 int main(int, char **) {
-#ifdef _WIN32
-    _setmode(_fileno(stdin), _O_BINARY);
-    _setmode(_fileno(stdout), _O_BINARY);
-#endif
+    nari::protocol::use_binary_stdio();
     // Disable stdio sync for maximum throughput on the LSP pipe
     std::ios::sync_with_stdio(false);
     std::cin.tie(nullptr);

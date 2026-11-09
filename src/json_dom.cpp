@@ -1,6 +1,5 @@
 #include "json_dom.h"
 
-#include <cerrno>
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
@@ -14,8 +13,6 @@ struct JsonParser {
     const char *end;
     int depth = 0;
     static constexpr int max_depth = 512;
-
-    bool fail = false;
 
     void skip_ws() {
         while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) {
@@ -77,6 +74,9 @@ struct JsonParser {
         while (p < end) {
             const char *run = p;
             while (p < end && *p != '"' && *p != '\\') {
+                if (static_cast<unsigned char>(*p) < 0x20) {
+                    return false;
+                }
                 p++;
             }
             if (p > run) {
@@ -155,67 +155,78 @@ struct JsonParser {
 
     bool parse_number(JsonValue &out) {
         const char *start = p;
-        bool negative = false;
-        if (p < end && *p == '-') {
-            negative = true;
-            p++;
+        const bool negative = p < end && *p == '-';
+        if (negative) {
+            ++p;
         }
-        bool is_float = false;
-        bool have_digit = false;
-        bool int_overflow = false;
-        uint64_t magnitude = 0;
-        const uint64_t max_magnitude = negative ? uint64_t(INT64_MAX) + 1 : uint64_t(INT64_MAX);
-        while (p < end) {
-            char c = *p;
-            if (c >= '0' && c <= '9') {
-                have_digit = true;
-                if (!is_float && !int_overflow) {
-                    const uint64_t digit = static_cast<uint64_t>(c - '0');
-                    if (magnitude > (max_magnitude - digit) / 10) {
-                        int_overflow = true;
-                    } else {
-                        magnitude = magnitude * 10 + digit;
-                    }
-                }
-                p++;
-            } else if (c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') {
-                is_float = true;
-                p++;
-            } else {
-                break;
-            }
-        }
-        if (!have_digit || p == start || (p == start + 1 && negative)) {
+        auto is_digit = [&] { return p < end && *p >= '0' && *p <= '9'; };
+        if (!is_digit()) {
             return false;
         }
-        if (!is_float && !int_overflow) {
+        if (*p == '0') {
+            ++p;
+            if (is_digit()) {
+                return false; // JSON does not permit leading zeroes.
+            }
+        } else {
+            do {
+                ++p;
+            } while (is_digit());
+        }
+
+        bool is_float = false;
+        if (p < end && *p == '.') {
+            is_float = true;
+            ++p;
+            if (!is_digit()) {
+                return false;
+            }
+            do {
+                ++p;
+            } while (is_digit());
+        }
+        if (p < end && (*p == 'e' || *p == 'E')) {
+            is_float = true;
+            ++p;
+            if (p < end && (*p == '+' || *p == '-')) {
+                ++p;
+            }
+            if (!is_digit()) {
+                return false;
+            }
+            do {
+                ++p;
+            } while (is_digit());
+        }
+
+        if (!is_float) {
             if (negative) {
-                if (magnitude == uint64_t(INT64_MAX) + 1) {
-                    out = JsonValue(INT64_MIN);
-                } else {
-                    out = JsonValue(-static_cast<int64_t>(magnitude));
+                int64_t value;
+                const auto result = std::from_chars(start, p, value);
+                if (result.ec == std::errc()) {
+                    out = JsonValue(value);
+                    return true;
                 }
             } else {
-                out = JsonValue(
-                    static_cast<uint64_t>(magnitude) <= uint64_t(INT64_MAX) ? JsonValue(static_cast<int64_t>(magnitude))
-                                                                            : JsonValue(magnitude)
-                );
+                uint64_t value;
+                const auto result = std::from_chars(start, p, value);
+                if (result.ec == std::errc()) {
+                    out = value <= uint64_t(INT64_MAX) ? JsonValue(static_cast<int64_t>(value)) : JsonValue(value);
+                    return true;
+                }
             }
-            return true;
         }
-        std::string num(start, static_cast<size_t>(p - start));
-        if (is_float) {
-            out = JsonValue(std::strtod(num.c_str(), nullptr));
-            return true;
+
+        // Integers beyond the DOM's integer range use the floating representation.
+        // Validate conversion too: a malformed suffix or infinity must not become
+        // an apparently successful JSON value.
+        const std::string number(start, static_cast<size_t>(p - start));
+        char *parsed_end = nullptr;
+        const double value = std::strtod(number.c_str(), &parsed_end);
+        if (parsed_end != number.c_str() + number.size() || !std::isfinite(value)) {
+            return false;
         }
-        errno = 0;
-        char *endp = nullptr;
-        long long iv = std::strtoll(num.c_str(), &endp, 10);
-        if (errno == ERANGE || endp != num.c_str() + num.size()) {
-            out = JsonValue(std::strtod(num.c_str(), nullptr));
-        } else {
-            out = JsonValue(static_cast<int64_t>(iv));
-        }
+        out = JsonValue(value);
         return true;
     }
 
@@ -554,9 +565,7 @@ JsonValue JsonValue::parse(const std::string &text) {
     if (!jp.parse_value(out)) {
         return JsonValue::discarded();
     }
-    while (jp.p != jp.end && (*jp.p == ' ' || *jp.p == '\t' || *jp.p == '\n' || *jp.p == '\r' || *jp.p == '\0')) {
-        jp.p++;
-    }
+    jp.skip_ws();
     if (jp.p != jp.end) {
         return JsonValue::discarded();
     }

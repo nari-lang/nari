@@ -3,56 +3,13 @@
 #include "int_overflow.h"
 #include "nari_ffi.h"
 #include "parser_api.h"
+#include "stdio_utils.h"
 #include "util.h"
 
 #include <cmath>
 #include <stdexcept>
 
 namespace chrono = std::chrono;
-
-#ifdef _WIN32
-#include <cstdio>
-#include <cstdlib>
-// Windows doesn't have getline..
-static ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
-    if (!lineptr || !n || !stream) {
-        return -1;
-    }
-
-    size_t pos = 0;
-    int c;
-
-    if (*lineptr == nullptr || *n == 0) {
-        *n = 128;
-        *lineptr = static_cast<char *>(realloc(*lineptr, *n));
-        if (!*lineptr) {
-            return -1;
-        }
-    }
-
-    while ((c = fgetc(stream)) != EOF) {
-        if (pos + 1 >= *n) {
-            size_t new_size = *n * 2;
-            char *new_ptr = static_cast<char *>(realloc(*lineptr, new_size));
-            if (!new_ptr) {
-                return -1;
-            }
-            *lineptr = new_ptr;
-            *n = new_size;
-        }
-        (*lineptr)[pos++] = c;
-        if (c == '\n') {
-            break;
-        }
-    }
-
-    if (pos == 0 && c == EOF) {
-        return -1;
-    }
-    (*lineptr)[pos] = '\0';
-    return pos;
-}
-#endif
 
 std::string nari_std_prelude_source();
 
@@ -95,42 +52,7 @@ Value runtime_fatal(const std::string &msg, const nari::ASTNode *node) {
     fprintf(stderr, "Runtime error at %s:%d:%d\n", fname.c_str(), l, c);
     fprintf(stderr, "  %s\n", msg.c_str());
 
-#ifndef NARI_ESP_IDF
-    if (!fname.empty() && fname[0] != '<' && l > 0) {
-        FILE *fp = fopen(fname.c_str(), "r");
-        if (fp) {
-            char *line_buffer = nullptr;
-            size_t buffer_size = 0;
-            std::string line_text;
-
-            for (int i = 1; i <= l; ++i) {
-                ssize_t line_length = getline(&line_buffer, &buffer_size, fp);
-                if (line_length == -1) {
-                    break;
-                }
-                if (i == l) {
-                    line_text = line_buffer;
-                    if (!line_text.empty() && line_text.back() == '\n') {
-                        line_text.pop_back();
-                    }
-                }
-            }
-            free(line_buffer);
-            fclose(fp);
-
-            if (!line_text.empty()) {
-                fprintf(stderr, "  %s\n", line_text.c_str());
-                int caret_pos = c > 0 ? c - 1 : 0;
-                std::string caret_line(caret_pos, ' ');
-                caret_line.push_back('^');
-                fprintf(stderr, "  %s\n", caret_line.c_str());
-            }
-        }
-    }
-#else
-    // ESP-IDF does not support getline, just print the filename and line number
-    fprintf(stderr, "  (source context not available on this platform!)\n");
-#endif
+    nari::print_source_context(fname, l, c);
 
     Runtime::g_runtime_error_occurred.store(true);
     return Value::none();

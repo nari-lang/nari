@@ -3,16 +3,13 @@
 #include "nari_fs.h"
 #include "parser_api.h"
 #include "parser_internal.h"
+#include "stdio_utils.h"
 #include "token.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <vector>
-
-#ifdef _WIN32
-#include "win_funcs.h"
-#endif
 
 // Defined in embedded_stdlib.cpp (global namespace).
 const std::string &nari_std_module_source(const std::string &name);
@@ -121,46 +118,7 @@ void fatal_error(const std::string &msg, const Token *tok) {
     fprintf(stderr, "Exception at %s:%d:%d\n", fname.c_str(), l, c);
     fprintf(stderr, "  %s\n", msg.c_str());
 
-    auto print_source_context = [&](const std::string &file, int line, int col) {
-#ifndef NARI_ESP_IDF
-        if (file.empty() || file[0] == '<' || line <= 0)
-            return;
-        FILE *fp = fopen(file.c_str(), "r");
-        if (!fp)
-            return;
-
-        char *line_buffer = nullptr;
-        size_t buffer_size = 0;
-        std::string line_text;
-
-        for (int i = 1; i <= line; ++i) {
-            ssize_t line_length = getline(&line_buffer, &buffer_size, fp);
-            if (line_length == -1) {
-                free(line_buffer);
-                fclose(fp);
-                return;
-            }
-            if (i == line) {
-                line_text = line_buffer;
-                if (!line_text.empty() && line_text.back() == '\n') {
-                    line_text.pop_back();
-                }
-            }
-        }
-        free(line_buffer);
-        fclose(fp);
-
-        fprintf(stderr, "  %s\n", line_text.c_str());
-        int caret_pos = col > 0 ? col - 1 : 0;
-        std::string caret_line(caret_pos, ' ');
-        caret_line.push_back('^');
-        fprintf(stderr, "  %s\n", caret_line.c_str());
-#else
-        fprintf(stderr, "  (source context not available on this platform!)\n");
-#endif
-    };
-
-    print_source_context(fname, l, c);
+    nari::print_source_context(fname, l, c);
 
     // prints out a trace of included files up to this point
     if (!error_contexts.empty()) {

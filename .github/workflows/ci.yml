@@ -47,7 +47,7 @@ jobs:
             arch: x86_64
             msvc_arch: x64
             exe_suffix: .exe
-            conan_extra: -s compiler.cppstd=17
+            conan_extra: -s compiler.cppstd=17 -c:a tools.cmake.cmaketoolchain:generator=Ninja
             experimental: true
           # Experimental: uses the patched mbedtls recipe (conan/recipes/mbedtls)
           # to build under MSVC/ARM64. continue-on-error keeps it from blocking.
@@ -56,7 +56,7 @@ jobs:
             arch: arm64
             msvc_arch: arm64
             exe_suffix: .exe
-            conan_extra: -s compiler.cppstd=17
+            conan_extra: -s compiler.cppstd=17 -c:a tools.cmake.cmaketoolchain:generator=Ninja
             experimental: true
 
     steps:
@@ -152,7 +152,7 @@ jobs:
       - name: Run tests
         if: matrix.os_label != 'windows'
         run: SKIP_BUILD=1 SKIP_NETWORK_TESTS=1 ./run_tests.sh
-        
+
       # package
       #
       # Extracted layout (both formats):

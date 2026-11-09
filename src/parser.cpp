@@ -30,10 +30,6 @@
 #include <unordered_set>
 #include <vector>
 
-#if defined(_WIN32)
-#include "win_funcs.h"
-#endif
-
 #ifdef __linux__
 #include <elf.h>
 #endif

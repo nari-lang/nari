@@ -66,10 +66,6 @@ static inline std::string value_type_name(const Value &val) {
     return "unknown";
 }
 
-#ifdef _WIN32
-#include "win_funcs.h"
-#endif
-
 #ifndef DISABLE_FFI
 namespace {
 
