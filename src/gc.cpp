@@ -8,7 +8,7 @@
 #ifdef __linux__
 #include <malloc.h>
 #endif
-#if _MSC_VER
+#ifdef _MSC_VER
 #include <intrin.h>
 #endif
 
@@ -234,12 +234,14 @@ void GarbageCollector::mark_value(const Value &root) {
     }
 }
 
-#if __GNUC__ || __clang__
+#if defined(__GNUC__) || defined(__clang__)
 #define NARI_PREFETCH(addr) __builtin_prefetch(addr, 1, 1)
-#elif _MSC_VER
-#define NARI_PREFETCH(addr) _m_prefetchw(addr)
+#elif defined(_MSC_VER) && (defined(_M_ARM64) || defined(_M_ARM))
+#define NARI_PREFETCH(addr) __prefetch(addr)
+#elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+#define NARI_PREFETCH(addr) _mm_prefetch(reinterpret_cast<const char *>(addr), _MM_HINT_T0)
 #else
-#define NARI_PREFETCH(addr) (void)addr
+#define NARI_PREFETCH(addr) ((void)(addr))
 #endif
 
 // sweep phase: collect cycle garbage.
