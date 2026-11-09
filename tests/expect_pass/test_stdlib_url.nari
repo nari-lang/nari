@@ -6,7 +6,7 @@ import { URL } from "std/url";
 
 import { assert } from "../lib/assert.nari";
 
-// -- encode / decode ---------------------------------------------------------
+// encode / decode
 assert(URL.encode("hello world") == "hello%20world", "encode space");
 assert(URL.encode("a/b:c@d") == "a%2Fb%3Ac%40d", "encode strict component");
 assert(URL.encode_path("/api/v1/users:1") == "/api/v1/users:1", "encode_path keeps reserved");
@@ -24,11 +24,11 @@ assert(URL.decode("a+b").unwrap() == "a+b", "strict decode keeps '+'");
 assert(URL.decode_form("a+b").unwrap() == "a b", "form decode treats '+' as space");
 assert(URL.decode("100%25").unwrap() == "100%", "decode percent literal");
 
-// Error cases - both must return Err(URLError)
+// both must return an error
 assert(URL.decode("%2").is_err(), "truncated percent escape is Err");
 assert(URL.decode("%ZZ").is_err(), "invalid hex in percent escape is Err");
 
-// -- parse_query / parse_query_all / format_query --------------------------------
+// parse_query / parse_query_all / format_query
 let q = URL.parse_query("a=1&b=hello%20world&c=&d");
 assert(q.a == "1", "query a=1");
 assert(q.b == "hello world", "query decoded");
@@ -64,13 +64,13 @@ assert(URL.format_query({}) == "", "format_query({}) is empty");
 let qs = URL.format_query({ a: 1, b: "hi there", c: true, d: ["x", "y"], skipMe: null });
 assert(qs == "a=1&b=hi%20there&c=true&d=x&d=y", "format_query serializes mixed types");
 
-// Round-trip parse_query <- format_query
+// round-trip parse_query <-> format_query
 let original = { name: "Jane Doe", role: "admin" };
 let rt = URL.parse_query(URL.format_query(original));
 assert(rt.name == "Jane Doe", "round-trip name");
 assert(rt.role == "admin", "round-trip role");
 
-// -- parse: full URL ---------------------------------------------------------
+// full URL
 let u = URL.parse("https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top").unwrap();
 assert(u.protocol == "https", "protocol");
 assert(u.username == "alice", "username");
@@ -84,31 +84,30 @@ assert(u.params.x == "1", "auto-parsed params.x");
 assert(u.params.y == "2", "auto-parsed params.y");
 
 // Round-trip
-assert(u.to_string() == "https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top",
-       "full URL round-trip");
+assert(u.to_string() == "https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top", "full URL round-trip");
 
-// -- parse: simple http ------------------------------------------------------
+// simple http
 let s = URL.parse("http://example.com/path").unwrap();
 assert(s.protocol == "http" && s.host == "example.com", "simple http");
 assert(s.username == "" && s.password == "" && s.port == "", "simple has no userinfo/port");
 assert(s.to_string() == "http://example.com/path", "simple round-trip");
 
-// -- parse: no path ----------------------------------------------------------
+// no path
 let np = URL.parse("https://example.com").unwrap();
 assert(np.pathname == "", "no path");
 assert(np.to_string() == "https://example.com", "no path round-trip");
 
-// -- parse: query only, no path ----------------------------------------------
+// query only, no path
 let qonly = URL.parse("https://example.com?foo=bar").unwrap();
 assert(qonly.search == "foo=bar", "query without path");
 assert(qonly.params.foo == "bar", "params parsed");
 
-// -- parse: fragment with '?' inside -----------------------------------------
+// fragment with '?' inside
 let frag = URL.parse("https://example.com/x?a=1#h?z=2").unwrap();
 assert(frag.search == "a=1", "search before fragment");
 assert(frag.hash == "h?z=2", "fragment keeps '?'");
 
-// -- parse: IPv6 host --------------------------------------------------------
+// IPv6 host
 let v6 = URL.parse("http://[::1]:8080/x").unwrap();
 assert(v6.host == "[::1]", "IPv6 host kept bracketed");
 assert(v6.port == "8080", "IPv6 port");
@@ -118,30 +117,30 @@ let v6np = URL.parse("http://[2001:db8::1]/api").unwrap();
 assert(v6np.host == "[2001:db8::1]", "longer IPv6");
 assert(v6np.port == "", "IPv6 without port");
 
-// -- parse: file:// (empty host) ---------------------------------------------
+// file:// (empty host)
 let f = URL.parse("file:///etc/hosts").unwrap();
 assert(f.protocol == "file", "file scheme");
 assert(f.host == "", "file empty host");
 assert(f.pathname == "/etc/hosts", "file path");
 
-// -- parse: opaque URI (no authority) ----------------------------------------
+// opaque URI (no authority)
 let m = URL.parse("mailto:bob@example.com").unwrap();
 assert(m.protocol == "mailto", "mailto scheme");
 assert(m.host == "", "mailto no host");
 assert(m.pathname == "bob@example.com", "mailto path holds address");
 
-// -- parse: username only (no password) --------------------------------------
+// username only (no password)
 let uo = URL.parse("ftp://anon@ftp.example.org/pub").unwrap();
 assert(uo.username == "anon", "ftp username only");
 assert(uo.password == "", "ftp no password");
 assert(uo.host == "ftp.example.org", "ftp host");
 
-// -- parse: percent-encoded userinfo decoded ---------------------------------
+// percent-encoded userinfo decoded
 let enc2 = URL.parse("https://us%40er:p%26ss@example.com/").unwrap();
 assert(enc2.username == "us@er", "username decoded");
 assert(enc2.password == "p&ss", "password decoded");
 
-// -- .with() patches ---------------------------------------------------------
+// .with() patches
 let base = URL.parse("https://example.com/old?q=1").unwrap();
 let next = base.with({ pathname: "/new", search: "q=2" });
 assert(next.pathname == "/new", "with pathname");
@@ -152,7 +151,7 @@ assert(next.to_string() == "https://example.com/new?q=2", "with round-trip");
 assert(base.pathname == "/old", "base pathname untouched");
 assert(base.search == "q=1", "base search untouched");
 
-// -- parse: error cases -----------------------------------------------------
+// error cases
 assert(URL.parse("just a string").is_err(), "no scheme is Err");
 assert(URL.parse("http://[::1/x").is_err(), "unterminated IPv6 is Err");
 

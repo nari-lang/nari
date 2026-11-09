@@ -1,0 +1,46 @@
+import { assert } from "../lib/assert.nari";
+
+func count_original_pairs() {
+    let values = [3, 0, 5, 0, 7, 0];
+    let limit = values.length();
+    values.push(11);
+    let sum = 0;
+    let pc = 0;
+    while (pc < limit) {
+        sum = sum + values[pc];
+        pc = pc + 2;
+    }
+    return sum;
+}
+
+func count_after_mutation() {
+    let values = [3, 0, 5, 0, 7, 0];
+    values.push(11);
+    let limit = values.length();
+    let sum = 0;
+    let pc = 0;
+    while (pc < limit) {
+        sum = sum + values[pc];
+        pc = pc + 2;
+    }
+    return sum;
+}
+
+func bounded_remainder_add() {
+    let value = 12345;
+    return (value % 1000) + 1;
+}
+
+func start() {
+    let original = null;
+    let changed = null;
+    let remainder = null;
+    for (let i = 0; i < 200; i++) {
+        original = count_original_pairs();
+        changed = count_after_mutation();
+        remainder = bounded_remainder_add();
+    }
+    assert(original == 15, "length captured before mutation changed");
+    assert(changed == 26, "length captured after mutation changed");
+    assert(typeof(remainder) == "int" && remainder == 346, "bounded remainder addition changed");
+}

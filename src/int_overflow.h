@@ -11,12 +11,12 @@
 // portable overflow-checked 64-bit arithmetic
 // returns true if the operation overflowed; *out holds the result otherwise
 
-// since `(int64_t)double` is UB in C++ when NaN, (+-)Inf, or has magnitude >= 2^63, we map them to 0 to avoid UB.
+// since `static_cast<int64_t>(double` is UB in C++ when NaN, (+-)Inf, or has magnitude >= 2^63, we map them to 0 to avoid UB.
 inline int64_t safe_double_to_i64(double dbl) noexcept {
     // 2^63 is exactly representable; any value
     // >= 2^63 or <= -2^63 - 1 would overflow on conversion.
     if (NARI_LIKELY(std::isfinite(dbl) && dbl >= -9223372036854775808.0 && dbl < 9223372036854775808.0)) {
-        return (int64_t)dbl;
+        return static_cast<int64_t>(dbl);
     }
     return 0;
 }
@@ -75,22 +75,22 @@ inline bool mul_overflow_i48(int64_t a, int64_t b, void *out) {
 #if COMPILER_IS_REAL_MSVC
 #if !__ARM_ARCH
     low = _mul128(a, b, &high);
-    _addcarry_u64(_addcarry_u64(0, low, 0x800000000000ull, &adc_low), high, 0, (uint64_t *)&high);
+    _addcarry_u64(_addcarry_u64(0, low, 0x800000000000ull, &adc_low), high, 0, reinterpret_cast<uint64_t *>(&high));
 #else
-    low = (uint64_t)a * (uint64_t)b;
+    low = static_cast<uint64_t>(a) * static_cast<uint64_t>(b);
     high = __mulh(a, b);
     adc_low = low + 0x800000000000ull;
     high += adc_low < low;
 #endif
 #else
-    high = (int64_t)__builtin_smulll_overflow(a, b, (long long *)&low);
-    high += (int64_t)__builtin_add_overflow(low, 0x8000'0000'0000ull, &adc_low);
+    high = static_cast<int64_t>(__builtin_smulll_overflow(a, b, reinterpret_cast<long long *>(&low)));
+    high += static_cast<int64_t>(__builtin_add_overflow(low, 0x8000'0000'0000ull, &adc_low));
 #endif
     if (NARI_EXPECT(!(adc_low >> 48 | high), true)) {
-        *(int64_t *)out = low;
+        *static_cast<int64_t *>(out) = low;
         return false;
     } else {
-        *(double *)out = (double)a * (double)b;
+        *static_cast<double *>(out) = static_cast<double>(a) * static_cast<double>(b);
         return true;
     }
 }

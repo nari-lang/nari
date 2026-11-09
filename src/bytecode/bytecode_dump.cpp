@@ -1,20 +1,25 @@
 #include "bytecode.h"
+#include <algorithm>
 #include <cstdio>
 
 namespace nari {
 namespace bytecode {
 
-void dump_chunk(const Chunk &chunk) {
+static void dump_chunk_impl(const Chunk &chunk, int64_t selected_func, size_t begin_pc, size_t end_pc) {
 
-    printf("=== Nari Bytecode Dump ===\n");
-    printf("Strings: %zu\n", chunk.strings.size());
-    for (size_t i = 0; i < chunk.strings.size(); i++) {
-        printf("  [%zu] \"%s\"\n", i, chunk.strings[i].c_str());
+    if (selected_func < 0) {
+        printf("=== Nari Bytecode Dump ===\n");
+        printf("Strings: %zu\n", chunk.strings.size());
+        for (size_t i = 0; i < chunk.strings.size(); i++) {
+            printf("  [%zu] \"%s\"\n", i, chunk.strings[i].c_str());
+        }
+        printf("\nFunctions: %zu (main = #%u)\n", chunk.functions.size(), chunk.main_func_idx);
     }
 
-    printf("\nFunctions: %zu (main = #%u)\n", chunk.functions.size(), chunk.main_func_idx);
-
     for (size_t func_idx = 0; func_idx < chunk.functions.size(); func_idx++) {
+        if (selected_func >= 0 && static_cast<size_t>(selected_func) != func_idx) {
+            continue;
+        }
         const auto &func = chunk.functions[func_idx];
         printf("\n--- Function #%zu: %s ---\n", func_idx, func.name.c_str());
         printf(
@@ -61,11 +66,13 @@ void dump_chunk(const Chunk &chunk) {
             }
         }
 
-        printf("  code: %zu bytes\n", func.code.size());
-        size_t ip = 0;
-        while (ip < func.code.size()) {
+        size_t first_pc = selected_func >= 0 ? std::min(begin_pc, func.code.size()) : 0;
+        size_t last_pc = selected_func >= 0 ? std::min(end_pc, func.code.size()) : func.code.size();
+        printf("  code: %zu bytes (showing %zu..%zu)\n", func.code.size(), first_pc, last_pc);
+        size_t ip = first_pc;
+        while (ip < last_pc) {
             printf("  %04zu  ", ip);
-            OpCode op = (OpCode)func.code[ip++];
+            OpCode op = static_cast<OpCode>(func.code[ip++]);
             int operand_size = opcode_operand_size(op);
 
             if (op == OpCode::OP_MAKE_CLOSURE) {
@@ -92,9 +99,9 @@ void dump_chunk(const Chunk &chunk) {
                 // for jumps, show signed offset
                 if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE ||
                     op == OpCode::OP_JUMP_IF_NONE) {
-                    int16_t sval = (int16_t)val;
+                    int16_t sval = static_cast<int16_t>(val);
                     printf("%-16s %+d (-> %04zu)\n", opcode_name(op), sval, ip + sval);
-                } else if (op == OpCode::OP_LOAD_GLOBAL || op == OpCode::OP_STORE_GLOBAL) {
+                } else if (op == OpCode::OP_LOAD_GLOBAL || op == OpCode::OP_STORE_GLOBAL || op == OpCode::OP_MODULE_ENTRY) {
                     printf("%-16s #%u", opcode_name(op), val);
                     if (val < chunk.strings.size()) {
                         printf(" (\"%s\")", chunk.strings[val].c_str());
@@ -155,6 +162,17 @@ void dump_chunk(const Chunk &chunk) {
             }
         }
     }
+}
+
+void dump_chunk(const Chunk &chunk) {
+    dump_chunk_impl(chunk, -1, 0, 0);
+}
+
+void dump_function_range(const Chunk &chunk, uint32_t func_idx, size_t begin_pc, size_t end_pc) {
+    if (func_idx >= chunk.functions.size()) {
+        return;
+    }
+    dump_chunk_impl(chunk, func_idx, begin_pc, end_pc);
 }
 
 } // namespace bytecode

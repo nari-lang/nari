@@ -8,7 +8,7 @@ let assert = func(cond, msg) {
     print("[pass] " @ msg);
 };
 
-// --- entries -----------------------------------------------------------------
+// .entries()
 
 let obj1 = { a: 1, b: "hello", c: true };
 let entries = obj1.entries();
@@ -24,7 +24,7 @@ assert(entries[2][1] == true, "entries[2] value is true");
 let emptyEntries = {}.entries();
 assert(emptyEntries.length() == 0, "entries of empty object is empty");
 
-// --- assign ------------------------------------------------------------------
+// .assign()
 
 // basic assign
 let target = { x: 1 };
@@ -51,7 +51,7 @@ assert(multi.base == 0, "multi assign preserves base");
 assert(multi.a == 1, "multi assign first source");
 assert(multi.b == 2, "multi assign second source");
 
-// --- freeze ------------------------------------------------------------------
+// .freeze()
 
 let frozen = { val: 42, name: "immutable" };
 assert(frozen.is_frozen() == false, "not frozen initially");
@@ -74,7 +74,7 @@ let unfrozen = { x: 1 };
 unfrozen.x = 2;
 assert(unfrozen.x == 2, "unfrozen object still modifiable");
 
-// --- is_frozen ----------------------------------------------------------------
+// .is_frozen()
 
 let obj2 = { a: 1 };
 assert(obj2.is_frozen() == false, "is_frozen false for normal object");

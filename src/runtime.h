@@ -13,15 +13,24 @@
 #include <malloc.h>
 #endif
 
+#include "nari_platform.h"
+
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
-using namespace nari;
+// Only the nari names this header uses unqualified. Do not add a blanket
+// using-directive here: it leaks into every translation unit including this
+// header. Prefer explicit qualification at use sites instead.
+using nari::CallExpr;
+using nari::Function;
 
 // forward declaration for friend class
 namespace nari {
@@ -51,7 +60,6 @@ inline void reset_runtime_error_flag() {
     g_runtime_error_occurred.store(false);
 }
 
-
 bool runtime_trace_enabled();
 void set_runtime_trace_level(TraceLevel level);
 TraceLevel get_runtime_trace_level();
@@ -59,219 +67,7 @@ void runtime_log(TraceLevel level, const std::string &msg);
 
 } // namespace Runtime
 
-// conditional builtin lists based on feature availability
-#ifndef DISABLE_HTTP
-#define BUILTIN_HTTP_LIST(X)                                                                                                               \
-    X("__net_createServer", builtin_net_createServer)                                                                                      \
-    X("__net_conn_read", builtin_net_conn_read)                                                                                            \
-    X("__net_conn_write", builtin_net_conn_write)                                                                                          \
-    X("__net_conn_close", builtin_net_conn_close)                                                                                          \
-    X("__net_connect", builtin_net_connect)                                                                                                \
-    X("__net_listen", builtin_net_listen)                                                                                                  \
-    X("__net_accept", builtin_net_accept)                                                                                                  \
-    X("__net_server_close", builtin_net_server_close)                                                                                      \
-    X("__udp_bind", builtin_udp_bind)                                                                                                      \
-    X("__udp_send", builtin_udp_send)                                                                                                      \
-    X("__udp_recv", builtin_udp_recv)                                                                                                      \
-    X("__udp_close", builtin_udp_close)                                                                                                    \
-    X("__http_fetch", builtin_http_fetch)
-#else
-#define BUILTIN_HTTP_LIST(X)
-#endif
-
-#ifndef NARI_ESP_IDF
-#define BUILTIN_READLINE_LIST(X)                                                                                                           \
-    X("read_line", builtin_readLine)                                                                                                       \
-    X("read_all", builtin_readAll)
-#else
-#define BUILTIN_READLINE_LIST(X)
-#endif
-
-#ifndef DISABLE_FFI
-#define BUILTIN_FFI_LIST(X)                                                                                                                \
-    X("__ffi_load_library", builtin_ffi_load_library)                                                                                      \
-    X("__ffi_get_symbol", builtin_ffi_get_symbol)                                                                                          \
-    X("__ffi_call", builtin_ffi_call)                                                                                                      \
-    X("__ffi_membersof", builtin_ffi_membersof)                                                                                            \
-    X("__ffi_alloc", builtin_ffi_alloc)                                                                                                    \
-    X("__ffi_alloc_struct", builtin_ffi_alloc_struct)                                                                                      \
-    X("__ffi_managed_struct", builtin_ffi_managed_struct)                                                                                  \
-    X("__ffi_read_struct", builtin_ffi_read_struct)                                                                                        \
-    X("__ffi_write_struct", builtin_ffi_write_struct)                                                                                      \
-    X("__ffi_sizeof", builtin_ffi_sizeof)                                                                                                  \
-    X("__ffi_utf16", builtin_ffi_utf16)                                                                                                    \
-    X("__ffi_utf16_read", builtin_ffi_utf16_read)                                                                                          \
-    X("__ffi_free", builtin_ffi_free)                                                                                                      \
-    X("__ffi_create_callback", builtin_ffi_create_callback)                                                                                \
-    X("__ffi_free_callback", builtin_ffi_free_callback)
-#else
-#define BUILTIN_FFI_LIST(X)
-#endif
-
-#define BUILTIN_FUNCTIONS(X)                                                                                                               \
-    X("__process_exec", builtin_process_exec)                                                                                              \
-    X("eval", builtin_eval)                                                                                                                \
-    X("print", builtin_print)                                                                                                              \
-    X("__write_stdout", builtin_write_stdout)                                                                                              \
-    X("__write_stderr", builtin_write_stderr)                                                                                              \
-    X("panic", builtin_panic)                                                                                                              \
-    X("__nari_catch", builtin_nari_catch)                                                                                                  \
-    X("__nari_invoke_with_this", builtin_nari_invoke_with_this)                                                                            \
-    X("set_timeout", builtin_setTimeout)                                                                                                   \
-    X("__math_floor", builtin_math_floor)                                                                                                  \
-    X("__math_ceil", builtin_math_ceil)                                                                                                    \
-    X("__math_sqrt", builtin_math_sqrt)                                                                                                    \
-    X("__math_rand", builtin_math_rand)                                                                                                    \
-    X("__math_sin", builtin_math_sin)                                                                                                      \
-    X("__math_cos", builtin_math_cos)                                                                                                      \
-    X("__math_tan", builtin_math_tan)                                                                                                      \
-    X("__math_log", builtin_math_log)                                                                                                      \
-    X("__math_exp", builtin_math_exp)                                                                                                      \
-    X("__math_atan", builtin_math_atan)                                                                                                    \
-    X("__math_atan2", builtin_math_atan2)                                                                                                  \
-    X("__fs_readFile", builtin_fs_readFile)                                                                                                \
-    X("__fs_writeFile", builtin_fs_writeFile)                                                                                              \
-    X("__fs_appendFile", builtin_fs_appendFile)                                                                                            \
-    X("__fs_fileExists", builtin_fs_fileExists)                                                                                            \
-    X("__fs_isDirectory", builtin_fs_isDirectory)                                                                                          \
-    X("__fs_mkdirAll", builtin_fs_mkdirAll)                                                                                                \
-    X("__fs_deleteFile", builtin_fs_deleteFile)                                                                                            \
-    X("__fs_listDir", builtin_fs_listDir)                                                                                                  \
-    X("__platform_arch", builtin_platform_arch)                                                                                            \
-    X("__platform_os", builtin_platform_os)                                                                                                \
-    X("__platform_endianness", builtin_platform_endianness)                                                                                \
-    X("__platform_hostname", builtin_platform_hostname)                                                                                    \
-    X("__platform_getenv", builtin_platform_getenv)                                                                                        \
-    X("__platform_environ", builtin_platform_environ)                                                                                      \
-    X("__platform_cwd", builtin_platform_cwd)                                                                                              \
-    X("__platform_isatty", builtin_platform_isatty)                                                                                        \
-    X("__process_exit", builtin_process_exit)                                                                                              \
-    X("__process_argc", builtin_process_argc)                                                                                              \
-    X("__process_argv", builtin_process_argv)                                                                                              \
-    X("set_interval", builtin_setInterval)                                                                                                 \
-    X("clear_interval", builtin_clearInterval)                                                                                             \
-    BUILTIN_READLINE_LIST(X)                                                                                                               \
-    BUILTIN_HTTP_LIST(X)                                                                                                                   \
-    X("__yield", builtin_yield)                                                                                                            \
-    X("__shutdown_requested", builtin_shutdown_requested)                                                                                  \
-    X("typeof", builtin_typeof)                                                                                                            \
-    X("__js_to_number", builtin_js_toNumber)                                                                                               \
-    X("keys", builtin_keys)                                                                                                                \
-    X("to_number", builtin_toNumber)                                                                                                       \
-    X("to_string", builtin_toString)                                                                                                       \
-    X("__format_value", builtin_formatValue)                                                                                               \
-    X("to_bool", builtin_toBool)                                                                                                           \
-    X("is_number", builtin_isNumber)                                                                                                       \
-    X("is_string", builtin_isString)                                                                                                       \
-    X("is_bool", builtin_isBool)                                                                                                           \
-    X("is_array", builtin_isArray)                                                                                                         \
-    X("is_object", builtin_isObject)                                                                                                       \
-    X("is_function", builtin_isFunction)                                                                                                   \
-    X("Delegate", builtin_delegate_new)                                                                                                    \
-    X("is_delegate", builtin_isDelegate)                                                                                                   \
-    X("delegate_target", builtin_delegateTarget)                                                                                           \
-    X("delegate_handler", builtin_delegateHandler)                                                                                         \
-    X("time", builtin_time)                                                                                                                \
-    BUILTIN_FFI_LIST(X)                                                                                                                    \
-    X("__gc_collect", builtin_gc_collect)                                                                                                  \
-    X("__gc_stats", builtin_gc_stats)                                                                                                      \
-    X("__gc_enable", builtin_gc_enable)                                                                                                    \
-    X("__gc_set_threshold", builtin_gc_set_threshold)                                                                                      \
-    X("__gc_set_memory_limit", builtin_gc_set_memory_limit)                                                                                \
-    X("__gc_get_memory_usage", builtin_gc_get_memory_usage)                                                                                \
-    X("parse_int", builtin_parseInt)                                                                                                       \
-    X("parse_float", builtin_parseFloat)                                                                                                   \
-    X("random", builtin_random)                                                                                                            \
-    X("range", builtin_range)                                                                                                              \
-    X("contains", builtin_contains)                                                                                                        \
-    X("__json_parse", builtin_json_parse)                                                                                                  \
-    X("__json_stringify", builtin_json_stringify)                                                                                          \
-    X("__hash_sha1", builtin_hash_sha1)                                                                                                    \
-    X("__hash_sha256", builtin_hash_sha256)                                                                                                \
-    X("__hash_sha256_file", builtin_hash_sha256_file)                                                                                      \
-    X("__archive_list", builtin_archive_list)                                                                                              \
-    X("__archive_extract", builtin_archive_extract)                                                                                        \
-    X("__archive_create", builtin_archive_create)                                                                                          \
-    X("__module_import_namespace", builtin_module_import_namespace)                                                                        \
-    X("__module_import_named", builtin_module_import_named)                                                                                \
-    X("from_char_code", builtin_from_char_code)                                                                                              \
-    X("__hex_encode", builtin_hex_encode)                                                                                                  \
-    X("__hex_decode", builtin_hex_decode)                                                                                                  \
-    X("__base64_encode", builtin_base64_encode)                                                                                            \
-    X("__base64_decode", builtin_base64_decode)                                                                                            \
-    X("__regex_new", builtin_regex_new)                                                                                                    \
-    X("__time_now_ms", builtin_time_now_ms)                                                                                                \
-    X("__time_components", builtin_time_components)                                                                                        \
-    X("__time_from_components", builtin_time_from_components)                                                                              \
-    X("__time_format", builtin_time_format)                                                                                                \
-    X("__time_parse_iso", builtin_time_parse_iso)                                                                                          \
-    X("__url_encode", builtin_url_encode)                                                                                                  \
-    X("__url_decode", builtin_url_decode)
-
-// methods that are only accessible via type.method() syntax
-#define string_methods(X)                                                                                                                  \
-    X("substr", builtin_substr)                                                                                                            \
-    X("last_index_of", builtin_last_index_of)                                                                                                \
-    X("split", builtin_split)                                                                                                              \
-    X("replace", builtin_replace)                                                                                                          \
-    X("replace_all", builtin_replace_all)                                                                                                   \
-    X("trim", builtin_trim)                                                                                                                \
-    X("trim_start", builtin_trim_start)                                                                                                     \
-    X("trim_end", builtin_trim_end)                                                                                                         \
-    X("to_upper", builtin_to_upper)                                                                                                         \
-    X("to_lower", builtin_to_lower)                                                                                                         \
-    X("starts_with", builtin_starts_with)                                                                                                   \
-    X("ends_with", builtin_ends_with)                                                                                                       \
-    X("char_at", builtin_char_at)                                                                                                           \
-    X("char_code_at", builtin_char_code_at)                                                                                                  \
-    X("pad_start", builtin_pad_start)                                                                                                       \
-    X("pad_end", builtin_pad_end)                                                                                                           \
-    X("repeat", builtin_repeat)                                                                                                            \
-    X("at", builtin_string_at)                                                                                                             \
-    X("to_char_array", builtin_to_char_array)
-
-#define array_methods(X)                                                                                                                   \
-    X("push", builtin_push)                                                                                                                \
-    X("pop", builtin_pop)                                                                                                                  \
-    X("slice", builtin_slice)                                                                                                              \
-    X("concat", builtin_concat)                                                                                                            \
-    X("join", builtin_join)                                                                                                                \
-    X("sort", builtin_sort)                                                                                                                \
-    X("map", builtin_map)                                                                                                                  \
-    X("filter", builtin_filter)                                                                                                            \
-    X("reduce", builtin_reduce)                                                                                                            \
-    X("find", builtin_find)                                                                                                                \
-    X("find_index", builtin_find_index)                                                                                                     \
-    X("reverse", builtin_reverse)                                                                                                          \
-    X("every", builtin_every)                                                                                                              \
-    X("some", builtin_some)                                                                                                                \
-    X("for_each", builtin_for_each)                                                                                                         \
-    X("splice", builtin_splice)                                                                                                            \
-    X("fill", builtin_fill)                                                                                                                \
-    X("flat", builtin_flat)                                                                                                                \
-    X("flat_map", builtin_flat_map)
-
-#define object_methods(X)                                                                                                                  \
-    X("keys", builtin_keys)                                                                                                                \
-    X("values", builtin_values)                                                                                                            \
-    X("has_key", builtin_has_key)                                                                                                           \
-    X("entries", builtin_entries)                                                                                                          \
-    X("assign", builtin_assign)                                                                                                            \
-    X("freeze", builtin_freeze)                                                                                                            \
-    X("is_frozen", builtin_is_frozen)
-
-#define regex_methods(X)                                                                                                                   \
-    X("test", builtin_regex_test)                                                                                                          \
-    X("exec", builtin_regex_exec)
-
-// methods that work on multiple types
-#define universal_methods(X)                                                                                                               \
-    X("length", builtin_length)                                                                                                            \
-    X("includes", builtin_includes)                                                                                                        \
-    X("index_of", builtin_index_of)
-
-// combined method table
-#define METHOD_ONLY_BUILTINS(X) string_methods(X) array_methods(X) object_methods(X) regex_methods(X) universal_methods(X)
+#include "builtins/builtin_lists.h"
 
 class ScriptRuntime {
     friend class nari::bytecode::VM;
@@ -321,7 +117,7 @@ class ScriptRuntime {
     // Persistent GC roots that outlive any single async op.
     // A TCP server's handler function is held by a long-lived accept thread, so it must stay alive for the server's lifetime.
     std::vector<Value> gc_persistent_roots;
-    
+
     enum TypeofIdx : size_t {
         TY_NULL = 0,
         TY_INT,
@@ -339,20 +135,36 @@ class ScriptRuntime {
 
     Value typeof_value(const Value &v) const {
         const uint16_t tag = v.tag_word();
-        if (tag == Value::TAG_NONE) return typeof_values[TY_NULL];
-        if (tag == Value::TAG_INT) return typeof_values[TY_INT];
-        if (tag == Value::TAG_BOOL) return typeof_values[TY_BOOL];
+        if (tag == Value::TAG_NONE) {
+            return typeof_values[TY_NULL];
+        }
+        if (tag == Value::TAG_INT) {
+            return typeof_values[TY_INT];
+        }
+        if (tag == Value::TAG_BOOL) {
+            return typeof_values[TY_BOOL];
+        }
         // is_float() is defined as exactly "not HEAP/INT/BOOL/NONE".
-        if (tag != Value::TAG_HEAP) return typeof_values[TY_FLOAT];
+        if (tag != Value::TAG_HEAP) {
+            return typeof_values[TY_FLOAT];
+        }
         switch (v.heap_ptr()->type_tag) {
-            case ValueTag::String: return typeof_values[TY_STRING];
-            case ValueTag::Array: return typeof_values[TY_ARRAY];
-            case ValueTag::Object: return typeof_values[TY_OBJECT];
-            case ValueTag::Function: return typeof_values[TY_FUNCTION];
-            case ValueTag::Regex: return typeof_values[TY_REGEX];
-            case ValueTag::Handle: return typeof_values[TY_HANDLE];
-            case ValueTag::ClassInstance: return Value::make_string(v.get_class_instance()->class_name);
-            default: return typeof_values[TY_NULL];
+            case ValueTag::String:
+                return typeof_values[TY_STRING];
+            case ValueTag::Array:
+                return typeof_values[TY_ARRAY];
+            case ValueTag::Object:
+                return typeof_values[TY_OBJECT];
+            case ValueTag::Function:
+                return typeof_values[TY_FUNCTION];
+            case ValueTag::Regex:
+                return typeof_values[TY_REGEX];
+            case ValueTag::Handle:
+                return typeof_values[TY_HANDLE];
+            case ValueTag::ClassInstance:
+                return Value::make_string(v.get_class_instance()->class_name);
+            default:
+                return typeof_values[TY_NULL];
         }
     }
     void persistent_root_add(const Value &v) {
@@ -387,10 +199,8 @@ class ScriptRuntime {
     }
 
     ScriptRuntime(int argc = 0, char **argv = nullptr) : process_argc(argc) {
-        static constexpr const char *type_names[] = { 
-            "null", "int", "float", "string", "bool",
-            "array", "object", "function", "regex", "handle"
-        };
+        static constexpr const char *type_names[] = { "null",  "int",    "float",    "string", "bool",
+                                                      "array", "object", "function", "regex",  "handle" };
         static_assert(sizeof(type_names) / sizeof(type_names[0]) == TY_COUNT, "type_names must match TypeofIdx");
         for (size_t i = 0; i < typeof_values.size(); ++i) {
             typeof_values[i] = Value::make_const_string(type_names[i]);
@@ -403,7 +213,6 @@ class ScriptRuntime {
 #ifndef NO_THREADS
         io_pool = std::make_unique<IOThreadPool>(4);
 #endif
-
     }
 
     ~ScriptRuntime() {
@@ -428,7 +237,6 @@ class ScriptRuntime {
         accept_threads.clear();
 #endif
     }
-
 
     // call a function Value (for FFI callbacks)
     Value call_function_value(const Value &func_val, const std::vector<Value> &args, const Value *receiver = nullptr) {
@@ -519,9 +327,11 @@ class ScriptRuntime {
 
     Value construct_result_variant(const char *variant, const Value &payload, const Value &constructor);
     bool initialize_result_template(ResultConstructorTmpl &cache, const Value &constructor, const Value &result, const Value &payload);
-    Value instantiate_result_template(const ResultConstructorTmpl &cache, const Value &payload);
-    static Value make_result_method(void *context, ObjectObj *obj, uint32_t slot);
-    static bool invoke_result_method(void *context, ObjectObj *obj, uint32_t slot, const Value *args, size_t argc, Value &result);
+    // `cache` must outlive the returned object (a runtime-owned template); its
+    // address is retained as the instance's lazy-field context (read as const).
+    Value instantiate_result_template(ResultConstructorTmpl &cache, const Value &payload);
+    static Value make_result_method(void *context, const ObjectObj *obj, uint32_t slot);
+    static bool invoke_result_method(void *context, const ObjectObj *obj, uint32_t slot, const Value *args, size_t argc, Value &result);
 
     Value construct_variant(const char *variant, const char *enum_name, std::vector<Value> args, bool has_data) {
         Value ctor = resolve_global(variant);
@@ -557,9 +367,8 @@ class ScriptRuntime {
     Value invoke_trap(const Value &trap, const Value &a0, const Value &a1, const Value &a2);
     // default (no-trap) behavior against the wrapped target, also used directly by the trap dispatchers.
     Value delegate_default_get(const Value &target, const Value &key);
-    void delegate_default_set(const Value &target, const Value &key, const Value &val);
+    void delegate_default_set(Value &target, const Value &key, const Value &val);
     bool delegate_default_has(const Value &target, const Value &key);
-
 
     void collect_garbage();
     std::vector<const Value *> collect_gc_roots() const;
@@ -572,7 +381,7 @@ class ScriptRuntime {
     }
 
     // Pointer to a builtin member function. Public so the VM can cache resolved builtins per call site
-    using BuiltinFn = Value (ScriptRuntime::*)(const Value *, size_t, const CallExpr *);
+    using BuiltinFn = Value (ScriptRuntime::*)(Value *, size_t, const CallExpr *);
 
     // Resolve a builtin name to its member-function pointer (global table first, then method-only table).
     // Returns nullptr if `name` is not a member builtin (e.g. an extension builtin).
@@ -591,7 +400,7 @@ class ScriptRuntime {
     }
 
     // invoke a previously-resolved builtin member pointer directly.
-    Value call_builtin_member(BuiltinFn fn, const Value *argv, size_t argc, const CallExpr *callExpr) {
+    Value call_builtin_member(BuiltinFn fn, Value *argv, size_t argc, const CallExpr *callExpr) {
         return (this->*fn)(argv, argc, callExpr);
     }
 
@@ -602,7 +411,7 @@ class ScriptRuntime {
     static uint16_t intern_jit_builtin(BuiltinFn fn) {
         auto &t = jit_builtin_table();
         t.push_back(fn);
-        return (uint16_t)(t.size() - 1);
+        return static_cast<uint16_t>((t.size() - 1));
     }
 
   private:
@@ -649,7 +458,7 @@ class ScriptRuntime {
 
     // check if a method is valid for a given value type
     // call_builtin: raw pointer + count, zero heap allocation.
-    Value call_builtin(const std::string &name, const Value *argv, size_t argc, const CallExpr *callExpr) {
+    Value call_builtin(const std::string &name, Value *argv, size_t argc, const CallExpr *callExpr) {
         auto &globals_tbl = get_global_builtin_table();
         auto it = globals_tbl.find(name);
         if (it != globals_tbl.end()) {
@@ -672,10 +481,8 @@ class ScriptRuntime {
         return Value::none();
     }
 
-    // Backward-compat wrapper for AST interpreter call sites.
-    Value call_builtin(const std::string &name, const std::vector<Value> &argvals, const CallExpr *callExpr) {
-        return call_builtin(name, argvals.data(), argvals.size(), callExpr);
-    }
+    // NOTE: there is intentionally no const-vector overload. All callers pass
+    // mutable storage (VM stack slots, stack arrays, local vectors).
 
     std::unordered_map<std::string, std::unique_ptr<Function>> functions;
     std::map<std::string, Value> globals;
@@ -740,222 +547,213 @@ class ScriptRuntime {
         }
     }
 
-    Value builtin_eval(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_print(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_write_stdout(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_write_stderr(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_panic(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_nari_catch(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_nari_invoke_with_this(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_setTimeout(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_setInterval(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_clearInterval(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_eval(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_print(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_write_stdout(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_write_stderr(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_panic(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_nari_catch(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_nari_invoke_with_this(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_setTimeout(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_setInterval(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_clearInterval(Value *argvals, size_t argc, const CallExpr *);
 
-    Value builtin_math_floor(const Value *, size_t, const CallExpr *);
-    Value builtin_math_ceil(const Value *, size_t, const CallExpr *);
-    Value builtin_math_sqrt(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_math_rand(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_math_sin(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_math_cos(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_math_tan(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_math_log(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_math_exp(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_math_atan(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_math_atan2(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_fs_readFile(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_fs_writeFile(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_fs_appendFile(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_fs_fileExists(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_fs_isDirectory(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_fs_mkdirAll(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_fs_deleteFile(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_fs_listDir(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_math_floor(Value *, size_t, const CallExpr *);
+    Value builtin_math_ceil(Value *, size_t, const CallExpr *);
+    Value builtin_math_sqrt(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_math_rand(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_math_sin(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_math_cos(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_math_tan(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_math_log(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_math_exp(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_math_atan(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_math_atan2(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_readFile(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_writeFile(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_appendFile(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_fileExists(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_isDirectory(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_mkdirAll(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_deleteFile(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_listDir(Value *argvals, size_t argc, const CallExpr *);
 
 #ifndef DISABLE_HTTP
-    Value builtin_net_createServer(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_net_conn_read(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_net_conn_write(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_net_conn_close(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_net_connect(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_net_listen(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_net_accept(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_net_server_close(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_udp_bind(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_udp_send(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_udp_recv(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_udp_close(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_http_get(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_http_fetch(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_net_createServer(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_net_conn_read(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_net_conn_write(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_net_conn_close(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_net_connect(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_net_listen(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_net_accept(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_net_server_close(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_udp_bind(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_udp_send(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_udp_recv(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_udp_close(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_http_get(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_http_fetch(Value *argvals, size_t argc, const CallExpr *);
 #endif
-    Value builtin_push(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_pop(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_length(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_slice(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_concat(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_sort(const Value *, size_t, const CallExpr *);
-    Value builtin_map(const Value *, size_t, const CallExpr *);
-    Value builtin_filter(const Value *, size_t, const CallExpr *);
-    Value builtin_reduce(const Value *, size_t, const CallExpr *);
-    Value builtin_find(const Value *, size_t, const CallExpr *);
-    Value builtin_find_index(const Value *, size_t, const CallExpr *);
-    Value builtin_reverse(const Value *, size_t, const CallExpr *);
-    Value builtin_includes(const Value *, size_t, const CallExpr *);
-    Value builtin_every(const Value *, size_t, const CallExpr *);
-    Value builtin_some(const Value *, size_t, const CallExpr *);
-    Value builtin_for_each(const Value *, size_t, const CallExpr *);
-    Value builtin_splice(const Value *, size_t, const CallExpr *);
-    Value builtin_fill(const Value *, size_t, const CallExpr *);
-    Value builtin_flat(const Value *, size_t, const CallExpr *);
-    Value builtin_flat_map(const Value *, size_t, const CallExpr *);
-    Value builtin_keys(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_values(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_has_key(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_entries(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_assign(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_freeze(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_is_frozen(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_yield(const Value *, size_t, const CallExpr *);
-    Value builtin_shutdown_requested(const Value *, size_t, const CallExpr *);
-    Value builtin_substr(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_index_of(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_last_index_of(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_split(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_replace(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_replace_all(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_trim(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_to_upper(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_to_lower(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_starts_with(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ends_with(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_char_at(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_char_code_at(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_pad_start(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_pad_end(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_repeat(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_trim_start(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_trim_end(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_string_at(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_to_char_array(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_from_char_code(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_hex_encode(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_hex_decode(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_base64_encode(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_base64_decode(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_join(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_typeof(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_regex_test(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_regex_exec(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_regex_new(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_toNumber(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_js_toNumber(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_toString(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_formatValue(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_toBool(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_isNumber(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_isString(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_isBool(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_isArray(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_isObject(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_isFunction(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_delegate_new(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_isDelegate(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_delegateTarget(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_delegateHandler(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_module_import_namespace(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_module_import_named(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_push(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_pop(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_length(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_slice(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_concat(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_sort(Value *, size_t, const CallExpr *);
+    Value builtin_map(Value *, size_t, const CallExpr *);
+    Value builtin_filter(Value *, size_t, const CallExpr *);
+    Value builtin_reduce(Value *, size_t, const CallExpr *);
+    Value builtin_find(Value *, size_t, const CallExpr *);
+    Value builtin_find_index(Value *, size_t, const CallExpr *);
+    Value builtin_reverse(Value *, size_t, const CallExpr *);
+    Value builtin_includes(Value *, size_t, const CallExpr *);
+    Value builtin_every(Value *, size_t, const CallExpr *);
+    Value builtin_some(Value *, size_t, const CallExpr *);
+    Value builtin_for_each(Value *, size_t, const CallExpr *);
+    Value builtin_splice(Value *, size_t, const CallExpr *);
+    Value builtin_fill(Value *, size_t, const CallExpr *);
+    Value builtin_flat(Value *, size_t, const CallExpr *);
+    Value builtin_flat_map(Value *, size_t, const CallExpr *);
+    Value builtin_keys(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_values(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_has_key(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_entries(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_assign(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_freeze(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_is_frozen(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_yield(Value *, size_t, const CallExpr *);
+    Value builtin_shutdown_requested(Value *, size_t, const CallExpr *);
+    Value builtin_substr(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_index_of(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_last_index_of(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_split(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_replace(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_replace_all(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_trim(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_to_upper(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_to_lower(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_starts_with(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ends_with(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_char_at(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_char_code_at(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_pad_start(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_pad_end(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_repeat(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_trim_start(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_trim_end(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_string_at(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_to_char_array(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_from_char_code(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_hex_encode(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_hex_decode(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_base64_encode(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_base64_decode(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_join(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_typeof(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_regex_test(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_regex_exec(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_regex_new(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_toNumber(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_js_toNumber(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_toString(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_formatValue(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_toBool(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_isNumber(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_isString(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_isBool(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_isArray(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_isObject(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_isFunction(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_delegate_new(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_isDelegate(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_delegateTarget(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_delegateHandler(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_module_import_namespace(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_module_import_named(Value *argvals, size_t argc, const CallExpr *);
 #ifndef NARI_ESP_IDF
-    Value builtin_readLine(const Value *, size_t, const CallExpr *);
-    Value builtin_readAll(const Value *, size_t, const CallExpr *);
+    Value builtin_readLine(Value *, size_t, const CallExpr *);
+    Value builtin_readAll(Value *, size_t, const CallExpr *);
 #endif
-    Value builtin_time(const Value *, size_t, const CallExpr *);
-    Value builtin_time_now_ms(const Value *, size_t, const CallExpr *);
-    Value builtin_time_components(const Value *, size_t, const CallExpr *);
-    Value builtin_time_from_components(const Value *, size_t, const CallExpr *);
-    Value builtin_time_format(const Value *, size_t, const CallExpr *);
-    Value builtin_time_parse_iso(const Value *, size_t, const CallExpr *);
-    Value builtin_url_encode(const Value *, size_t, const CallExpr *);
-    Value builtin_url_decode(const Value *, size_t, const CallExpr *);
+    Value builtin_time(Value *, size_t, const CallExpr *);
+    Value builtin_time_now_ms(Value *, size_t, const CallExpr *);
+    Value builtin_time_components(Value *, size_t, const CallExpr *);
+    Value builtin_time_from_components(Value *, size_t, const CallExpr *);
+    Value builtin_time_format(Value *, size_t, const CallExpr *);
+    Value builtin_time_parse_iso(Value *, size_t, const CallExpr *);
+    Value builtin_url_encode(Value *, size_t, const CallExpr *);
+    Value builtin_url_decode(Value *, size_t, const CallExpr *);
 
 #ifndef DISABLE_FFI
-    Value builtin_ffi_load_library(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_get_symbol(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_call(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_membersof(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_alloc(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_alloc_struct(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_managed_struct(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_read_struct(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_write_struct(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_sizeof(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_utf16(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_utf16_read(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_free(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_create_callback(const Value *argvals, size_t argc, const CallExpr *);
-    Value builtin_ffi_free_callback(const Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_load_library(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_get_symbol(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_call(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_membersof(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_alloc(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_alloc_struct(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_managed_struct(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_read_struct(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_write_struct(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_sizeof(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_utf16(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_utf16_read(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_free(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_create_callback(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_ffi_free_callback(Value *argvals, size_t argc, const CallExpr *);
 #endif
 
-    Value builtin_platform_arch(const Value *, size_t, const CallExpr *);
-    Value builtin_platform_os(const Value *, size_t, const CallExpr *);
-    Value builtin_platform_endianness(const Value *, size_t, const CallExpr *);
-    Value builtin_platform_hostname(const Value *, size_t, const CallExpr *);
-    Value builtin_platform_getenv(const Value *, size_t, const CallExpr *);
-    Value builtin_platform_environ(const Value *, size_t, const CallExpr *);
-    Value builtin_platform_cwd(const Value *, size_t, const CallExpr *);
-    Value builtin_platform_isatty(const Value *, size_t, const CallExpr *);
+    Value builtin_platform_arch(Value *, size_t, const CallExpr *);
+    Value builtin_platform_os(Value *, size_t, const CallExpr *);
+    Value builtin_platform_endianness(Value *, size_t, const CallExpr *);
+    Value builtin_platform_hostname(Value *, size_t, const CallExpr *);
+    Value builtin_platform_getenv(Value *, size_t, const CallExpr *);
+    Value builtin_platform_environ(Value *, size_t, const CallExpr *);
+    Value builtin_platform_cwd(Value *, size_t, const CallExpr *);
+    Value builtin_platform_isatty(Value *, size_t, const CallExpr *);
 
-    Value builtin_process_argc(const Value *, size_t, const CallExpr *);
-    Value builtin_process_argv(const Value *, size_t, const CallExpr *);
-    Value builtin_process_exec(const Value *, size_t, const CallExpr *);
-    Value builtin_process_exit(const Value *, size_t, const CallExpr *);
+    Value builtin_process_argc(Value *, size_t, const CallExpr *);
+    Value builtin_process_argv(Value *, size_t, const CallExpr *);
+    Value builtin_process_exec(Value *, size_t, const CallExpr *);
+    Value builtin_process_exit(Value *, size_t, const CallExpr *);
 
-    Value builtin_gc_collect(const Value *, size_t, const CallExpr *);
-    Value builtin_gc_stats(const Value *, size_t, const CallExpr *);
-    Value builtin_gc_enable(const Value *, size_t, const CallExpr *);
-    Value builtin_gc_set_threshold(const Value *, size_t, const CallExpr *);
-    Value builtin_gc_set_memory_limit(const Value *, size_t, const CallExpr *);
-    Value builtin_gc_get_memory_usage(const Value *, size_t, const CallExpr *);
+    Value builtin_gc_collect(Value *, size_t, const CallExpr *);
+    Value builtin_gc_stats(Value *, size_t, const CallExpr *);
+    Value builtin_gc_enable(Value *, size_t, const CallExpr *);
+    Value builtin_gc_set_threshold(Value *, size_t, const CallExpr *);
+    Value builtin_gc_set_memory_limit(Value *, size_t, const CallExpr *);
+    Value builtin_gc_get_memory_usage(Value *, size_t, const CallExpr *);
 
     // utility builtins (shared by AST interpreter and bytecode VM)
 
-    Value builtin_parseInt(const Value *, size_t, const CallExpr *);
-    Value builtin_parseFloat(const Value *, size_t, const CallExpr *);
-    Value builtin_random(const Value *, size_t, const CallExpr *);
-    Value builtin_range(const Value *, size_t, const CallExpr *);
-    Value builtin_contains(const Value *, size_t, const CallExpr *);
-    Value builtin_json_parse(const Value *, size_t, const CallExpr *);
-    Value builtin_json_stringify(const Value *, size_t, const CallExpr *);
+    Value builtin_parse_int(Value *, size_t, const CallExpr *);
+    Value builtin_parse_float(Value *, size_t, const CallExpr *);
+    Value builtin_random(Value *, size_t, const CallExpr *);
+    Value builtin_range(Value *, size_t, const CallExpr *);
+    Value builtin_contains(Value *, size_t, const CallExpr *);
+    Value builtin_json_parse(Value *, size_t, const CallExpr *);
+    Value builtin_json_stringify(Value *, size_t, const CallExpr *);
 
     // cryptographic hashes (mbedtls-backed); see src/builtins/hash.cpp
-    Value builtin_hash_sha1(const Value *, size_t, const CallExpr *);
-    Value builtin_hash_sha256(const Value *, size_t, const CallExpr *);
-    Value builtin_hash_sha256_file(const Value *, size_t, const CallExpr *);
+    Value builtin_hash_sha1(Value *, size_t, const CallExpr *);
+    Value builtin_hash_sha256(Value *, size_t, const CallExpr *);
+    Value builtin_hash_sha256_file(Value *, size_t, const CallExpr *);
 
     // archive read/write (libarchive-backed); see src/builtins/archive.cpp
-    Value builtin_archive_list(const Value *, size_t, const CallExpr *);
-    Value builtin_archive_extract(const Value *, size_t, const CallExpr *);
-    Value builtin_archive_create(const Value *, size_t, const CallExpr *);
+    Value builtin_archive_list(Value *, size_t, const CallExpr *);
+    Value builtin_archive_extract(Value *, size_t, const CallExpr *);
+    Value builtin_archive_create(Value *, size_t, const CallExpr *);
 };
 
 constexpr size_t MAX_CALL_DEPTH = 1000;
 
-// custom exception for runtime errors
-class RuntimeError : public std::runtime_error {
-  public:
-    RuntimeError(const std::string &msg, const std::string &fname = "", int line = 0, int col = 0)
-        : std::runtime_error(msg), filename(fname), line_no(line), col_no(col) {
-        // Set global flag to signal runtime should halt execution
-        Runtime::g_runtime_error_occurred.store(true);
-    }
-
-    std::string filename;
-    int line_no;
-    int col_no;
-};
-
-void runtime_fatal(const std::string &msg, const nari::ASTNode *node = nullptr);
-inline void bytecode_runtime_fatal(const std::string &msg, const std::string &fname, int line = 0, int col = 0) {
+// Fatal runtime errors use status returns, not exceptions. Both helpers below
+// print the diagnostic, latch Runtime::g_runtime_error_occurred, and return
+// Value::none(). Callers must `return` the result immediately; the VM
+// converts the latched flag into has_error at the next builtin boundary.
+Value runtime_fatal(const std::string &msg, const nari::ASTNode *node = nullptr);
+inline Value bytecode_runtime_fatal(const std::string &msg, const std::string &fname, int line = 0, int col = 0) {
     fprintf(stderr, "Runtime error: %s\n", fname.c_str());
     fprintf(stderr, "  %s\n", msg.c_str());
 
-    throw RuntimeError(msg, fname, line, col);
+    Runtime::g_runtime_error_occurred.store(true);
+    return Value::none();
 }

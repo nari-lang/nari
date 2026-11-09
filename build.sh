@@ -25,9 +25,8 @@ for arg in "$@"; do
   if [ "$arg" = "--release" ]; then
   echo "Building as release..."
   BUILD_TYPE=release
-  # b_lto: whole-program optimization. b_ndebug: compile out asserts (Meson's
-  # 'release' buildtype does NOT do this automatically).
-  EXTRA_ARGS="$EXTRA_ARGS -Db_lto=true -Db_ndebug=true"
+  # b_ndebug: compile out asserts (Meson's 'release' buildtype does NOT do this automatically).
+  EXTRA_ARGS="$EXTRA_ARGS -Db_ndebug=true"
   elif [ "$arg" = "--reconfigure" ]; then
   echo "Forcing reconfigure..."
   RECONFIGURE=true

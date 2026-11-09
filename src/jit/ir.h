@@ -48,7 +48,10 @@ enum class Op : uint16_t {
     NConst,    // constant None
     LoadConst, // imm_u32 = constant pool index -> Value (strings/functions/etc.)
 
-    // integer arithmetic (Int48 in, result may overflow: see Ty/guards)
+    // Checked integer arithmetic: Int48 operands; add/sub/mul produce Number
+    // because an out-of-range result promotes to Float. A range-proven
+    // instruction may keep an Int48 result. Other lowering needs a helper or
+    // an overflow path.
     IAdd,
     ISub,
     IMul,
@@ -180,6 +183,9 @@ struct Inst {
     BlockId target0 = InvalidBlock;
     BlockId target1 = InvalidBlock;
     size_t bytecode_pc = 0; // provenance, for debugging/side-exit ip
+    bool proven_int48 = false; // arithmetic result is range-proven to stay Int48
+    bool proven_inbounds = false; // LoadIndex receiver and index are proven valid on every path
+    bool proven_array_receiver = false; // indexed store receiver is a private initialized array on this path
 };
 
 struct Block {
@@ -190,6 +196,7 @@ struct Block {
     std::vector<BlockId> preds;
     std::vector<BlockId> succs;
     size_t start_pc = 0; // bytecode offset of this block's first instruction
+    bool short_bounded_loop = false; // every trip through this guard advances a counter; at most 16 trips
 };
 
 struct Func {
@@ -202,7 +209,7 @@ struct Func {
     const bytecode::FunctionMeta *meta = nullptr;
 
     ValueId add_inst(Inst in) {
-        ValueId id = (ValueId)insts.size();
+        ValueId id = static_cast<ValueId>(insts.size());
         in.result = (in.op == Op::StoreSlot || in.op == Op::Jump || in.op == Op::Branch || in.op == Op::SelfTailCall ||
                      in.op == Op::Return || in.op == Op::StoreGlobal || in.op == Op::StoreCapture || in.op == Op::Pop ||
                      in.op == Op::StoreImmSlot || in.op == Op::CloseUpvalues || in.op == Op::StoreBImmSlot || in.op == Op::StoreNSlot ||
@@ -213,7 +220,7 @@ struct Func {
         return id;
     }
     BlockId add_block(size_t start_pc) {
-        BlockId id = (BlockId)blocks.size();
+        BlockId id = static_cast<BlockId>(blocks.size());
         Block b;
         b.id = id;
         b.start_pc = start_pc;
@@ -229,6 +236,9 @@ struct Func {
 };
 
 const char *op_name(Op op);
+// Validate the type and bytecode provenance required by checked integer
+// lowering. A failed check makes the method fall back to the interpreter.
+bool verify_checked_arithmetic(const Func &f);
 // Debug dump (gated by callers behind an env flag).
 std::string dump(const Func &f);
 

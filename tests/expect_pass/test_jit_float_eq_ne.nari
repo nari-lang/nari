@@ -24,9 +24,20 @@ let nan_val = 0.0 / 0.0; // NaN
 let a = 3.5;
 let b = 7.25;
 
-// Counters driven by float ==/!= inside a hot loop. Each `if` becomes a
-// side-exit guard, exercising both the SideExitIfFalse (recorded-true) and
-// SideExitIfTrue (recorded-false) consumers of the new non-lazy Bool.
+// Put the NaN comparison in a separate function so it remains dynamic and
+// the trace recorder can execute this loop before other top-level hot loops.
+func trace_float_nan_comparisons(nan) {
+    let value = 0.0;
+    while (value != 1000.0) {
+        if (nan == nan) { value = value + 10000.0; }
+        if (nan != nan) { value = value + 1.0; }
+    }
+    return value;
+}
+assert(trace_float_nan_comparisons(nan_val) == 1000.0, "NaN trace comparisons changed the loop result");
+
+// These counters check all comparison outcomes independently of the traced
+// function above. The traced function exercises both recorded branch paths.
 let c_eq_nan = 0;   // (nan == nan) -> always false -> 0
 let c_ne_nan = 0;   // (nan != nan) -> always true  -> ITERS
 let c_eq_fin_t = 0; // (a == a)     -> always true  -> ITERS

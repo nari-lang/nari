@@ -24,20 +24,20 @@
 #endif
 #include <cstring>
 
-typedef std::unordered_map<FFISignature, FFICaller::CIFCache, FFISignatureHash> FFISigMap;
+typedef std::unordered_map<nari::FFISignature, nari::FFICaller::CIFCache, nari::FFISignatureHash> FFISigMap;
 
 namespace nari {
 
 // static caches for prepared CIF structures
 
-FFISigMap FFICaller::cif_cache;
-FFISigMap FFICaller::cif_variadic_cache;
+FFISigMap nari::FFICaller::cif_cache;
+FFISigMap nari::FFICaller::cif_variadic_cache;
 
-void *managed_struct_pointer(const Value &value) {
+void *managed_struct_pointer(Value &value) {
     if (!value.is_object()) {
         return nullptr;
     }
-    const ObjectObj *owner = value.get_obj_ptr();
+    ObjectObj *owner = value.get_obj_ptr();
     if (!owner->is_managed_native_struct()) {
         return nullptr;
     }
@@ -46,10 +46,10 @@ void *managed_struct_pointer(const Value &value) {
         fprintf(stderr, "ERROR: Managed FFI struct type or size is invalid\n");
         return nullptr;
     }
-    return const_cast<uint8_t *>(owner->native_struct_storage.data());
+    return owner->native_struct_storage.data();
 }
 
-void FFILibrary::enumerate_symbols() {
+void nari::FFILibrary::enumerate_symbols() {
     if (!handle) {
         return;
     }
@@ -195,35 +195,35 @@ void FFILibrary::enumerate_symbols() {
 #endif // _WIN32
 }
 
-static ffi_type *get_ffi_type(FFIType type) {
+static ffi_type *get_ffi_type(nari::FFIType type) {
     switch (type) {
-        case FFIType::Void:
+        case nari::FFIType::Void:
             return &ffi_type_void;
-        case FFIType::Int8:
+        case nari::FFIType::Int8:
             return &ffi_type_sint8;
-        case FFIType::UInt8:
+        case nari::FFIType::UInt8:
             return &ffi_type_uint8;
-        case FFIType::Int16:
+        case nari::FFIType::Int16:
             return &ffi_type_sint16;
-        case FFIType::UInt16:
+        case nari::FFIType::UInt16:
             return &ffi_type_uint16;
-        case FFIType::Int32:
+        case nari::FFIType::Int32:
             return &ffi_type_sint32;
-        case FFIType::Int64:
+        case nari::FFIType::Int64:
             return &ffi_type_sint64;
-        case FFIType::UInt32:
+        case nari::FFIType::UInt32:
             return &ffi_type_uint32;
-        case FFIType::UInt64:
+        case nari::FFIType::UInt64:
             return &ffi_type_uint64;
-        case FFIType::Float:
+        case nari::FFIType::Float:
             return &ffi_type_float;
-        case FFIType::Double:
+        case nari::FFIType::Double:
             return &ffi_type_double;
-        case FFIType::Bool:
+        case nari::FFIType::Bool:
             return &ffi_type_uchar;
-        case FFIType::Pointer:
+        case nari::FFIType::Pointer:
             return &ffi_type_pointer;
-        case FFIType::Struct:
+        case nari::FFIType::Struct:
             return nullptr; // structs need custom handling
         default:
             return &ffi_type_void;
@@ -316,64 +316,64 @@ static ffi_type *get_ffi_struct_type(FFIStructDef *struct_def) {
     return ffi_struct;
 }
 
-static Value read_ffi_scalar(const char *ptr, FFIType type) {
+static Value read_ffi_scalar(const char *ptr, nari::FFIType type) {
     switch (type) {
-        case FFIType::Int8: {
+        case nari::FFIType::Int8: {
             int8_t val;
             memcpy(&val, ptr, sizeof(val));
             return Value::make_int(val);
         }
-        case FFIType::UInt8: {
+        case nari::FFIType::UInt8: {
             uint8_t val;
             memcpy(&val, ptr, sizeof(val));
             return Value::make_int(val);
         }
-        case FFIType::Int16: {
+        case nari::FFIType::Int16: {
             int16_t val;
             memcpy(&val, ptr, sizeof(val));
             return Value::make_int(val);
         }
-        case FFIType::UInt16: {
+        case nari::FFIType::UInt16: {
             uint16_t val;
             memcpy(&val, ptr, sizeof(val));
             return Value::make_int(val);
         }
-        case FFIType::Int32: {
+        case nari::FFIType::Int32: {
             int32_t val;
             memcpy(&val, ptr, sizeof(val));
             return Value::make_int(val);
         }
-        case FFIType::UInt32: {
+        case nari::FFIType::UInt32: {
             uint32_t v;
             memcpy(&v, ptr, sizeof(v));
             return Value::make_int(v);
         }
-        case FFIType::Int64: {
+        case nari::FFIType::Int64: {
             int64_t val;
             memcpy(&val, ptr, sizeof(val));
             return Value::make_int(val);
         }
-        case FFIType::UInt64: {
+        case nari::FFIType::UInt64: {
             uint64_t val;
             memcpy(&val, ptr, sizeof(val));
-            return Value::make_int((int64_t)val);
+            return Value::make_int(static_cast<int64_t>(val));
         }
-        case FFIType::Float: {
+        case nari::FFIType::Float: {
             float val;
             memcpy(&val, ptr, sizeof(val));
             return Value::make_float(val);
         }
-        case FFIType::Double: {
+        case nari::FFIType::Double: {
             double val;
             memcpy(&val, ptr, sizeof(val));
             return Value::make_float(val);
         }
-        case FFIType::Bool: {
+        case nari::FFIType::Bool: {
             uint8_t val;
             memcpy(&val, ptr, sizeof(val));
             return Value::make_bool(val != 0);
         }
-        case FFIType::Pointer: {
+        case nari::FFIType::Pointer: {
             void *val;
             memcpy(&val, ptr, sizeof(val));
             return Value::make_int(reinterpret_cast<int64_t>(val));
@@ -383,7 +383,8 @@ static Value read_ffi_scalar(const char *ptr, FFIType type) {
     }
 }
 
-template <typename T> static bool try_float_to_int(double value, T &result) {
+template <typename T>
+static bool try_float_to_int(double value, T &result) {
     static_assert(std::is_integral_v<T>);
 
     if (!std::isfinite(value)) {
@@ -393,7 +394,7 @@ template <typename T> static bool try_float_to_int(double value, T &result) {
     value = std::trunc(value);
 
     // [0, 2^digits) for unsigned T, [-2^digits, 2^digits) for signed T.
-    const double upper_exclusive = (double)std::numeric_limits<T>::max() + 1.0;
+    const double upper_exclusive = static_cast<double>(std::numeric_limits<T>::max()) + 1.0;
 
     if constexpr (std::is_unsigned_v<T>) {
         if (value < 0.0 || value >= upper_exclusive) {
@@ -401,77 +402,83 @@ template <typename T> static bool try_float_to_int(double value, T &result) {
         }
     } else {
         // min() is always an exact power of two for signed T
-        const double lower = (double)std::numeric_limits<T>::min();
+        const double lower = static_cast<double>(std::numeric_limits<T>::min());
 
         if (value < lower || value >= upper_exclusive) {
             return false;
         }
     }
 
-    result = (T)value;
+    result = static_cast<T>(value);
     return true;
 }
 
-static const char *ffi_scalar_type_name(FFIType type) {
+static const char *ffi_scalar_type_name(nari::FFIType type) {
     switch (type) {
-        case FFIType::Int8:
+        case nari::FFIType::Int8:
             return "int8";
-        case FFIType::UInt8:
+        case nari::FFIType::UInt8:
             return "uint8";
-        case FFIType::Int16:
+        case nari::FFIType::Int16:
             return "int16";
-        case FFIType::UInt16:
+        case nari::FFIType::UInt16:
             return "uint16";
-        case FFIType::Int32:
+        case nari::FFIType::Int32:
             return "int32";
-        case FFIType::Int64:
+        case nari::FFIType::Int64:
             return "int64";
-        case FFIType::UInt32:
+        case nari::FFIType::UInt32:
             return "uint32";
-        case FFIType::UInt64:
+        case nari::FFIType::UInt64:
             return "uint64";
-        case FFIType::Float:
+        case nari::FFIType::Float:
             return "float";
-        case FFIType::Double:
+        case nari::FFIType::Double:
             return "double";
-        case FFIType::Bool:
+        case nari::FFIType::Bool:
             return "bool";
-        case FFIType::Pointer:
+        case nari::FFIType::Pointer:
             return "pointer";
         default:
             return "unknown";
     }
 }
 
-static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::deque<std::string> *strings = nullptr) {
-    const auto range_error = [&]() {
-        runtime_fatal("RangeError: float value " + std::to_string(value.get_float()) + " cannot be represented as " +
-                      ffi_scalar_type_name(type));
+static bool write_ffi_scalar(char *ptr, nari::FFIType type, const Value &value, std::deque<std::string> *strings = nullptr) {
+    const auto range_error = [&]() -> bool {
+        runtime_fatal(
+            "RangeError: float value " + std::to_string(value.get_float()) + " cannot be represented as " + ffi_scalar_type_name(type)
+        );
+        return false;
     };
 
     switch (type) {
-        case FFIType::Int8: {
+        case nari::FFIType::Int8: {
             int8_t val = 0;
 
             if (value.is_int()) {
-                val = (int8_t)value.get_int();
+                val = static_cast<int8_t>(value.get_int());
             } else if (value.is_float()) {
                 if (!try_float_to_int(value.get_float(), val)) {
-                    range_error();
+                    if (!range_error()) {
+                        return false;
+                    }
                 }
             }
 
             memcpy(ptr, &val, sizeof(val));
             break;
         }
-        case FFIType::UInt8: {
+        case nari::FFIType::UInt8: {
             uint8_t val = 0;
 
             if (value.is_int()) {
                 val = value.get_int();
             } else if (value.is_float()) {
                 if (!try_float_to_int(value.get_float(), val)) {
-                    range_error();
+                    if (!range_error()) {
+                        return false;
+                    }
                 }
             } else if (value.is_bool()) {
                 val = value.get_bool();
@@ -480,14 +487,16 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             memcpy(ptr, &val, sizeof(val));
             break;
         }
-        case FFIType::Int16: {
+        case nari::FFIType::Int16: {
             int16_t val = 0;
 
             if (value.is_int()) {
                 val = value.get_int();
             } else if (value.is_float()) {
                 if (!try_float_to_int(value.get_float(), val)) {
-                    range_error();
+                    if (!range_error()) {
+                        return false;
+                    }
                 }
             }
 
@@ -495,14 +504,16 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             break;
         }
 
-        case FFIType::UInt16: {
+        case nari::FFIType::UInt16: {
             uint16_t val = 0;
 
             if (value.is_int()) {
                 val = value.get_int();
             } else if (value.is_float()) {
                 if (!try_float_to_int(value.get_float(), val)) {
-                    range_error();
+                    if (!range_error()) {
+                        return false;
+                    }
                 }
             } else if (value.is_bool()) {
                 val = value.get_bool();
@@ -512,14 +523,16 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             break;
         }
 
-        case FFIType::Int32: {
+        case nari::FFIType::Int32: {
             int32_t val = 0;
 
             if (value.is_int()) {
                 val = value.get_int();
             } else if (value.is_float()) {
                 if (!try_float_to_int(value.get_float(), val)) {
-                    range_error();
+                    if (!range_error()) {
+                        return false;
+                    }
                 }
             }
 
@@ -527,14 +540,16 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             break;
         }
 
-        case FFIType::Int64: {
+        case nari::FFIType::Int64: {
             int64_t val = 0;
 
             if (value.is_int()) {
                 val = value.get_int();
             } else if (value.is_float()) {
                 if (!try_float_to_int(value.get_float(), val)) {
-                    range_error();
+                    if (!range_error()) {
+                        return false;
+                    }
                 }
             }
 
@@ -542,14 +557,16 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             break;
         }
 
-        case FFIType::UInt32: {
+        case nari::FFIType::UInt32: {
             uint32_t val = 0;
 
             if (value.is_int()) {
                 val = value.get_int();
             } else if (value.is_float()) {
                 if (!try_float_to_int(value.get_float(), val)) {
-                    range_error();
+                    if (!range_error()) {
+                        return false;
+                    }
                 }
             } else if (value.is_bool()) {
                 val = value.get_bool();
@@ -559,14 +576,16 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             break;
         }
 
-        case FFIType::UInt64: {
+        case nari::FFIType::UInt64: {
             uint64_t val = 0;
 
             if (value.is_int()) {
                 val = value.get_int();
             } else if (value.is_float()) {
                 if (!try_float_to_int(value.get_float(), val)) {
-                    range_error();
+                    if (!range_error()) {
+                        return false;
+                    }
                 }
             } else if (value.is_bool()) {
                 val = value.get_bool();
@@ -576,7 +595,7 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             break;
         }
 
-        case FFIType::Float: {
+        case nari::FFIType::Float: {
             float val = 0;
 
             if (value.is_float()) {
@@ -589,7 +608,7 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             break;
         }
 
-        case FFIType::Double: {
+        case nari::FFIType::Double: {
             double val = 0;
 
             if (value.is_float()) {
@@ -602,7 +621,7 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             break;
         }
 
-        case FFIType::Bool: {
+        case nari::FFIType::Bool: {
             uint8_t val = 0;
 
             if (value.is_bool()) {
@@ -614,15 +633,16 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
             memcpy(ptr, &val, sizeof(val));
             break;
         }
-        case FFIType::Pointer: {
+        case nari::FFIType::Pointer: {
             void *val = nullptr;
             if (value.is_string() && strings) {
                 strings->push_back(value.get_string());
-                val = const_cast<char *>(strings->back().c_str());
+                val = strings->back().data();
             } else if (value.is_int()) {
                 val = value.get_ptr();
             } else {
-                val = managed_struct_pointer(value);
+                Value value_copy = value;
+                val = managed_struct_pointer(value_copy);
             }
             memcpy(ptr, &val, sizeof(val));
             break;
@@ -630,6 +650,7 @@ static void write_ffi_scalar(char *ptr, FFIType type, const Value &value, std::d
         default:
             break;
     }
+    return true;
 }
 
 static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value &object, std::deque<std::string> *strings = nullptr) {
@@ -661,7 +682,9 @@ static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value 
                     return false;
                 }
             } else {
-                write_ffi_scalar(buffer + def.ffi_field_offsets[field_index], field.type, *field_value, strings);
+                if (!write_ffi_scalar(buffer + def.ffi_field_offsets[field_index], field.type, *field_value, strings)) {
+                    return false;
+                }
             }
             continue;
         }
@@ -673,7 +696,9 @@ static bool write_ffi_struct(char *buffer, const FFIStructDef &def, const Value 
                     return false;
                 }
             } else {
-                write_ffi_scalar(element, field.type, values[i], strings);
+                if (!write_ffi_scalar(element, field.type, values[i], strings)) {
+                    return false;
+                }
             }
         }
     }
@@ -688,9 +713,10 @@ static Value read_ffi_struct(const char *buffer, const FFIStructDef &def) {
         ffi_type *element_type = field.aggregate_def ? get_ffi_struct_type(field.aggregate_def.get()) : get_ffi_type(field.type);
         const size_t stride = element_type ? element_type->size : 0;
         if (field.count == 1) {
-            obj->set_field(field.name, field.aggregate_def
-                                           ? read_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def)
-                                           : read_ffi_scalar(buffer + def.ffi_field_offsets[field_index], field.type));
+            obj->set_field(
+                field.name, field.aggregate_def ? read_ffi_struct(buffer + def.ffi_field_offsets[field_index], *field.aggregate_def)
+                                                : read_ffi_scalar(buffer + def.ffi_field_offsets[field_index], field.type)
+            );
             continue;
         }
         std::vector<Value> values;
@@ -704,7 +730,7 @@ static Value read_ffi_struct(const char *buffer, const FFIStructDef &def) {
     return result;
 }
 
-FFICaller::CIFCache &FFICaller::get_or_create_cif(const FFISignature &sig) {
+nari::FFICaller::CIFCache &nari::FFICaller::get_or_create_cif(const nari::FFISignature &sig) {
     auto it = cif_cache.find(sig);
     if (it != cif_cache.end()) {
         return it->second;
@@ -714,8 +740,8 @@ FFICaller::CIFCache &FFICaller::get_or_create_cif(const FFISignature &sig) {
     CIFCache cache;
     cache.param_types.reserve(sig.param_types.size());
     for (size_t i = 0; i < sig.param_types.size(); i++) {
-        FFIType type = sig.param_types[i];
-        if (type == FFIType::Struct && i < sig.param_struct_defs.size()) {
+        nari::FFIType type = sig.param_types[i];
+        if (type == nari::FFIType::Struct && i < sig.param_struct_defs.size()) {
             cache.param_types.push_back(get_ffi_struct_type(sig.param_struct_defs[i].get()));
         } else {
             cache.param_types.push_back(get_ffi_type(type));
@@ -723,7 +749,7 @@ FFICaller::CIFCache &FFICaller::get_or_create_cif(const FFISignature &sig) {
     }
 
     ffi_type *return_type;
-    if (sig.return_type == FFIType::Struct && sig.return_struct_def) {
+    if (sig.return_type == nari::FFIType::Struct && sig.return_struct_def) {
         return_type = get_ffi_struct_type(sig.return_struct_def.get());
     } else {
         return_type = get_ffi_type(sig.return_type);
@@ -740,7 +766,7 @@ FFICaller::CIFCache &FFICaller::get_or_create_cif(const FFISignature &sig) {
     return cif_cache.emplace(sig, std::move(cache)).first->second;
 }
 
-FFICaller::CIFCache &FFICaller::get_or_create_cif_variadic(const FFISignature &sig) {
+nari::FFICaller::CIFCache &nari::FFICaller::get_or_create_cif_variadic(const nari::FFISignature &sig) {
     auto it = cif_variadic_cache.find(sig);
     if (it != cif_variadic_cache.end()) {
         return it->second;
@@ -748,13 +774,14 @@ FFICaller::CIFCache &FFICaller::get_or_create_cif_variadic(const FFISignature &s
 
     CIFCache cache;
     cache.param_types.reserve(sig.param_types.size());
-    for (FFIType type : sig.param_types) {
+    for (nari::FFIType type : sig.param_types) {
         cache.param_types.push_back(get_ffi_type(type));
     }
 
     ffi_type *return_type = get_ffi_type(sig.return_type);
-    ffi_status status = ffi_prep_cif_var(&cache.cif, FFI_DEFAULT_ABI, sig.fixed_param_count, cache.param_types.size(), return_type,
-                                         cache.param_types.data());
+    ffi_status status = ffi_prep_cif_var(
+        &cache.cif, FFI_DEFAULT_ABI, sig.fixed_param_count, cache.param_types.size(), return_type, cache.param_types.data()
+    );
 
     if (status != FFI_OK) {
         static CIFCache error_cache;
@@ -768,9 +795,9 @@ FFICaller::CIFCache &FFICaller::get_or_create_cif_variadic(const FFISignature &s
 // Direct call fast path
 // Eliminates libffi overhead for non-variadic, non-struct signatures with <= 6 params.
 
-static intptr_t value_to_gp(const Value &v, FFIType t) {
+static intptr_t value_to_gp(const Value &v, nari::FFIType t) {
     switch (t) {
-        case FFIType::Bool:
+        case nari::FFIType::Bool:
             if (v.is_bool()) {
                 return v.get_bool() ? 1 : 0;
             }
@@ -778,25 +805,27 @@ static intptr_t value_to_gp(const Value &v, FFIType t) {
                 return v.get_int() != 0 ? 1 : 0;
             }
             return 0;
-        case FFIType::Pointer:
-            return v.is_int() ? (intptr_t)v.get_ptr_bits()
-                              : reinterpret_cast<intptr_t>(managed_struct_pointer(v)); // strings handled by caller
-        default:                                                                       // all integer types
+        case nari::FFIType::Pointer: {
+            Value v_copy = v;
+            return v_copy.is_int() ? (intptr_t)v_copy.get_ptr_bits()
+                                   : reinterpret_cast<intptr_t>(managed_struct_pointer(v_copy)); // strings handled by caller
+        }
+        default: // all integer types
             return v.is_int() ? v.get_int() : (intptr_t)v.get_float();
     }
 }
 
 static float value_to_f32(const Value &v) {
-    return v.is_float() ? (float)v.get_float() : (float)v.get_int();
+    return v.is_float() ? static_cast<float>(v.get_float()) : static_cast<float>(v.get_int());
 }
 
-static int classify_return(FFIType t) {
+static int classify_return(nari::FFIType t) {
     switch (t) {
-        case FFIType::Void:
+        case nari::FFIType::Void:
             return 0;
-        case FFIType::Float:
+        case nari::FFIType::Float:
             return 2;
-        case FFIType::Bool:
+        case nari::FFIType::Bool:
             return 3;
         default:
             return 1; // all integer/pointer types -> make_int
@@ -815,9 +844,9 @@ static Value dc_call(void *fp, int rk, const int *ak, const intptr_t *gp, const 
                 reinterpret_cast<void (*)(Acc...)>(fp)(a...);
                 return Value::none();
             case 1: // int/pointer -> make_int
-                return Value::make_int((int64_t)reinterpret_cast<intptr_t (*)(Acc...)>(fp)(a...));
+                return Value::make_int(static_cast<int64_t>(reinterpret_cast<intptr_t (*)(Acc...)>(fp)(a...)));
             case 2: // float -> make_float
-                return Value::make_float((double)reinterpret_cast<float (*)(Acc...)>(fp)(a...));
+                return Value::make_float(static_cast<double>(reinterpret_cast<float (*)(Acc...)>(fp)(a...)));
             case 3: // bool -> make_bool
                 return Value::make_bool(reinterpret_cast<intptr_t (*)(Acc...)>(fp)(a...) != 0);
             default:
@@ -832,12 +861,12 @@ static Value dc_call(void *fp, int rk, const int *ak, const intptr_t *gp, const 
     }
 }
 
-static bool try_direct_call(void *func_ptr, const FFISignature &sig, const std::vector<Value> &args, Value &out) {
+static bool try_direct_call(void *func_ptr, const nari::FFISignature &sig, const std::vector<Value> &args, Value &out) {
     size_t n = sig.param_types.size();
     if (n > 6) {
         return false;
     }
-    if (sig.return_type == FFIType::Struct || sig.return_type == FFIType::Double) {
+    if (sig.return_type == nari::FFIType::Struct || sig.return_type == nari::FFIType::Double) {
         return false;
     }
 
@@ -847,15 +876,15 @@ static bool try_direct_call(void *func_ptr, const FFISignature &sig, const std::
     std::string str_keep[6]; // prevent string temporaries from dying
 
     for (size_t i = 0; i < n; i++) {
-        FFIType t = sig.param_types[i];
-        if (t == FFIType::Float) {
+        nari::FFIType t = sig.param_types[i];
+        if (t == nari::FFIType::Float) {
             ak[i] = 1;
             fv[i] = value_to_f32(args[i]);
-        } else if (t == FFIType::Double || t == FFIType::Struct) {
+        } else if (t == nari::FFIType::Double || t == nari::FFIType::Struct) {
             return false; // unsupported, fall back to libffi
         } else {
             ak[i] = 0;
-            if (t == FFIType::Pointer && i < args.size() && args[i].is_string()) {
+            if (t == nari::FFIType::Pointer && i < args.size() && args[i].is_string()) {
                 str_keep[i] = args[i].get_string();
                 gp[i] = (intptr_t)str_keep[i].c_str();
             } else {
@@ -900,115 +929,142 @@ static bool contains_union(const std::shared_ptr<FFIStructDef> &def) {
     if (def->is_union) {
         return true;
     }
-    return std::any_of(def->fields.begin(), def->fields.end(),
-                       [](const FFIStructField &field) { return contains_union(field.aggregate_def); });
+    return std::any_of(def->fields.begin(), def->fields.end(), [](const FFIStructField &field) {
+        return contains_union(field.aggregate_def);
+    });
 }
 
-template <typename T> static void store_ffi_argument(std::vector<T> &values, std::vector<void *> &arg_pointers, T value) {
+template <typename T>
+static void store_ffi_argument(std::vector<T> &values, std::vector<void *> &arg_pointers, T value) {
     values.push_back(value);
     arg_pointers.push_back(&values.back());
 }
 
-static bool marshal_ffi_scalar_argument(FFIArgStorage &storage, FFIType type, const Value &arg) {
+static bool marshal_ffi_scalar_argument(FFIArgStorage &storage, nari::FFIType type, const Value &arg) {
     switch (type) {
-        case FFIType::Int8:
-            store_ffi_argument(storage.int8_storage, storage.arg_pointers,
-                               arg.is_int()     ? (int8_t)arg.get_int()
-                               : arg.is_float() ? (int8_t)arg.get_float()
-                                                : (int8_t)0);
+        case nari::FFIType::Int8:
+            store_ffi_argument(
+                storage.int8_storage, storage.arg_pointers,
+                arg.is_int()     ? static_cast<int8_t>(arg.get_int())
+                : arg.is_float() ? static_cast<int8_t>(arg.get_float())
+                                 : (int8_t)0
+            );
             return true;
-        case FFIType::UInt8:
-            store_ffi_argument(storage.uint8_storage, storage.arg_pointers,
-                               arg.is_int()     ? (uint8_t)arg.get_int()
-                               : arg.is_float() ? (uint8_t)arg.get_float()
-                               : arg.is_bool()  ? (uint8_t)(arg.get_bool() ? 1 : 0)
-                                                : (uint8_t)0);
+        case nari::FFIType::UInt8:
+            store_ffi_argument(
+                storage.uint8_storage, storage.arg_pointers,
+                arg.is_int()     ? static_cast<uint8_t>(arg.get_int())
+                : arg.is_float() ? static_cast<uint8_t>(arg.get_float())
+                : arg.is_bool()  ? static_cast<uint8_t>((arg.get_bool() ? 1 : 0))
+                                 : (uint8_t)0
+            );
             return true;
-        case FFIType::Int16:
-            store_ffi_argument(storage.int16_storage, storage.arg_pointers,
-                               arg.is_int()     ? (int16_t)arg.get_int()
-                               : arg.is_float() ? (int16_t)arg.get_float()
-                                                : (int16_t)0);
+        case nari::FFIType::Int16:
+            store_ffi_argument(
+                storage.int16_storage, storage.arg_pointers,
+                arg.is_int()     ? static_cast<int16_t>(arg.get_int())
+                : arg.is_float() ? static_cast<int16_t>(arg.get_float())
+                                 : (int16_t)0
+            );
             return true;
-        case FFIType::UInt16:
-            store_ffi_argument(storage.uint16_storage, storage.arg_pointers,
-                               arg.is_int()     ? (uint16_t)arg.get_int()
-                               : arg.is_float() ? (uint16_t)arg.get_float()
-                               : arg.is_bool()  ? (uint16_t)(arg.get_bool() ? 1 : 0)
-                                                : (uint16_t)0);
+        case nari::FFIType::UInt16:
+            store_ffi_argument(
+                storage.uint16_storage, storage.arg_pointers,
+                arg.is_int()     ? static_cast<uint16_t>(arg.get_int())
+                : arg.is_float() ? static_cast<uint16_t>(arg.get_float())
+                : arg.is_bool()  ? static_cast<uint16_t>((arg.get_bool() ? 1 : 0))
+                                 : (uint16_t)0
+            );
             return true;
-        case FFIType::Int32:
-            store_ffi_argument(storage.int32_storage, storage.arg_pointers,
-                               arg.is_int()     ? (int32_t)arg.get_int()
-                               : arg.is_float() ? (int32_t)arg.get_float()
-                                                : (int32_t)0);
+        case nari::FFIType::Int32:
+            store_ffi_argument(
+                storage.int32_storage, storage.arg_pointers,
+                arg.is_int()     ? static_cast<int32_t>(arg.get_int())
+                : arg.is_float() ? static_cast<int32_t>(arg.get_float())
+                                 : (int32_t)0
+            );
             return true;
-        case FFIType::Int64:
-            store_ffi_argument(storage.int64_storage, storage.arg_pointers,
-                               arg.is_int()     ? arg.get_int()
-                               : arg.is_float() ? (int64_t)(arg.get_float())
-                                                : (int64_t)0);
+        case nari::FFIType::Int64:
+            store_ffi_argument(
+                storage.int64_storage, storage.arg_pointers,
+                arg.is_int()     ? arg.get_int()
+                : arg.is_float() ? static_cast<int64_t>((arg.get_float()))
+                                 : static_cast<int64_t>(0)
+            );
             return true;
-        case FFIType::UInt32:
-            store_ffi_argument(storage.uint32_storage, storage.arg_pointers,
-                               arg.is_int()     ? (uint32_t)arg.get_int()
-                               : arg.is_float() ? (uint32_t)arg.get_float()
-                               : arg.is_bool()  ? (uint32_t)(arg.get_bool() ? 1 : 0)
-                                                : (uint32_t)0);
+        case nari::FFIType::UInt32:
+            store_ffi_argument(
+                storage.uint32_storage, storage.arg_pointers,
+                arg.is_int()     ? static_cast<uint32_t>(arg.get_int())
+                : arg.is_float() ? static_cast<uint32_t>(arg.get_float())
+                : arg.is_bool()  ? static_cast<uint32_t>((arg.get_bool() ? 1 : 0))
+                                 : static_cast<uint32_t>(0)
+            );
             return true;
-        case FFIType::UInt64:
-            store_ffi_argument(storage.uint64_storage, storage.arg_pointers,
-                               arg.is_int()     ? (uint64_t)arg.get_int()
-                               : arg.is_float() ? (uint64_t)arg.get_float()
-                               : arg.is_bool()  ? (uint64_t)(arg.get_bool() ? 1 : 0)
-                                                : (uint64_t)0);
+        case nari::FFIType::UInt64:
+            store_ffi_argument(
+                storage.uint64_storage, storage.arg_pointers,
+                arg.is_int()     ? static_cast<uint64_t>(arg.get_int())
+                : arg.is_float() ? static_cast<uint64_t>(arg.get_float())
+                : arg.is_bool()  ? static_cast<uint64_t>((arg.get_bool() ? 1 : 0))
+                                 : static_cast<uint64_t>(0)
+            );
             return true;
-        case FFIType::Float:
-            store_ffi_argument(storage.float_storage, storage.arg_pointers,
-                               arg.is_float() ? (float)arg.get_float()
-                               : arg.is_int() ? (float)arg.get_int()
-                                              : 0.0f);
+        case nari::FFIType::Float:
+            store_ffi_argument(
+                storage.float_storage, storage.arg_pointers,
+                arg.is_float() ? static_cast<float>(arg.get_float())
+                : arg.is_int() ? static_cast<float>(arg.get_int())
+                               : 0.0f
+            );
             return true;
-        case FFIType::Double:
-            store_ffi_argument(storage.double_storage, storage.arg_pointers,
-                               arg.is_float() ? arg.get_float()
-                               : arg.is_int() ? (double)arg.get_int()
-                                              : 0.0);
+        case nari::FFIType::Double:
+            store_ffi_argument(
+                storage.double_storage, storage.arg_pointers,
+                arg.is_float() ? arg.get_float()
+                : arg.is_int() ? static_cast<double>(arg.get_int())
+                               : 0.0
+            );
             return true;
-        case FFIType::Bool:
-            store_ffi_argument(storage.bool_storage, storage.arg_pointers,
-                               arg.is_bool()  ? (uint8_t)(arg.get_bool() ? 1 : 0)
-                               : arg.is_int() ? (uint8_t)(arg.get_int() != 0 ? 1 : 0)
-                                              : (uint8_t)0);
+        case nari::FFIType::Bool:
+            store_ffi_argument(
+                storage.bool_storage, storage.arg_pointers,
+                arg.is_bool()  ? static_cast<uint8_t>((arg.get_bool() ? 1 : 0))
+                : arg.is_int() ? static_cast<uint8_t>((arg.get_int() != 0 ? 1 : 0))
+                               : (uint8_t)0
+            );
             return true;
-        case FFIType::Pointer: {
+        case nari::FFIType::Pointer: {
             void *ptr = nullptr;
             if (arg.is_string()) {
                 storage.string_storage.push_back(arg.get_string());
-                ptr = const_cast<char *>(storage.string_storage.back().c_str());
+                ptr = storage.string_storage.back().data();
             } else if (arg.is_int()) {
                 ptr = arg.get_ptr();
             } else {
-                ptr = managed_struct_pointer(arg);
+                Value arg_copy = arg;
+                ptr = managed_struct_pointer(arg_copy);
             }
             store_ffi_argument(storage.pointer_storage, storage.arg_pointers, ptr);
             return true;
         }
-        case FFIType::Struct:
-        case FFIType::Void:
+        case nari::FFIType::Struct:
+        case nari::FFIType::Void:
             return false;
     }
     return false;
 }
 
-Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const std::vector<Value> &args) {
+Value nari::FFICaller::call_function(void *func_ptr, const nari::FFISignature &sig, const std::vector<Value> &args) {
     if (!func_ptr) {
         return Value::none();
     }
     if (contains_union(sig.return_struct_def) ||
         std::any_of(sig.param_struct_defs.begin(), sig.param_struct_defs.end(), [](const auto &def) { return contains_union(def); })) {
-        fprintf(stderr, "ERROR: Passing unions or aggregates containing unions by value is not supported portably; "
-                        "pass a pointer instead\n");
+        fprintf(
+            stderr, "ERROR: Passing unions or aggregates containing unions by value is not supported portably; "
+                    "pass a pointer instead\n"
+        );
         return Value::none();
     }
 
@@ -1031,13 +1087,13 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
 
     for (size_t i = 0; i < args.size() && i < sig.param_types.size(); i++) {
         const Value &arg = args[i];
-        FFIType type = sig.param_types[i];
+        nari::FFIType type = sig.param_types[i];
 
         if (marshal_ffi_scalar_argument(storage, type, arg)) {
             continue;
         }
         switch (type) {
-            case FFIType::Struct: {
+            case nari::FFIType::Struct: {
                 // marshal struct from Nari object
                 if (i >= sig.param_struct_defs.size() || !sig.param_struct_defs[i]) {
                     fprintf(stderr, "ERROR: No struct definition for parameter %zu\n", i);
@@ -1066,7 +1122,7 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
                 storage.arg_pointers.push_back(struct_buf);
                 break;
             }
-            case FFIType::Void:
+            case nari::FFIType::Void:
                 break;
             default:
                 break;
@@ -1090,7 +1146,7 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
 
     std::vector<char> struct_return_storage;
     void *return_ptr = &return_value;
-    if (sig.return_type == FFIType::Struct) {
+    if (sig.return_type == nari::FFIType::Struct) {
         ffi_type *ffi_struct = get_ffi_struct_type(sig.return_struct_def.get());
         if (!ffi_struct || ffi_struct->size == 0) {
             return Value::none();
@@ -1107,33 +1163,33 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
     ffi_call(&cache.cif, FFI_FN(func_ptr), return_ptr, storage.arg_pointers.data());
 
     switch (sig.return_type) {
-        case FFIType::Void:
+        case nari::FFIType::Void:
             return Value::none();
-        case FFIType::Int8:
+        case nari::FFIType::Int8:
             return Value::make_int(return_value.i8);
-        case FFIType::UInt8:
-            return Value::make_int((int64_t)return_value.u8_int);
-        case FFIType::Int16:
+        case nari::FFIType::UInt8:
+            return Value::make_int(static_cast<int64_t>(return_value.u8_int));
+        case nari::FFIType::Int16:
             return Value::make_int(return_value.i16);
-        case FFIType::UInt16:
-            return Value::make_int((int64_t)return_value.u16);
-        case FFIType::Int32:
+        case nari::FFIType::UInt16:
+            return Value::make_int(static_cast<int64_t>(return_value.u16));
+        case nari::FFIType::Int32:
             return Value::make_int(return_value.i32);
-        case FFIType::Int64:
+        case nari::FFIType::Int64:
             return Value::make_int(return_value.i64);
-        case FFIType::UInt32:
-            return Value::make_int((int64_t)return_value.u32);
-        case FFIType::UInt64:
-            return Value::make_int((int64_t)return_value.u64);
-        case FFIType::Float:
+        case nari::FFIType::UInt32:
+            return Value::make_int(static_cast<int64_t>(return_value.u32));
+        case nari::FFIType::UInt64:
+            return Value::make_int(static_cast<int64_t>(return_value.u64));
+        case nari::FFIType::Float:
             return Value::make_float(return_value.f32);
-        case FFIType::Double:
+        case nari::FFIType::Double:
             return Value::make_float(return_value.f64);
-        case FFIType::Bool:
+        case nari::FFIType::Bool:
             return Value::make_bool(return_value.u8 != 0);
-        case FFIType::Pointer:
-            return Value::make_int((int64_t)return_value.ptr);
-        case FFIType::Struct: {
+        case nari::FFIType::Pointer:
+            return Value::make_int(static_cast<int64_t>(reinterpret_cast<intptr_t>(return_value.ptr)));
+        case nari::FFIType::Struct: {
             if (!sig.return_struct_def) {
                 return Value::none();
             }
@@ -1144,18 +1200,20 @@ Value FFICaller::call_function(void *func_ptr, const FFISignature &sig, const st
     return Value::none();
 }
 
-Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig, const std::vector<Value> &args) {
+Value nari::FFICaller::call_function_variadic(void *func_ptr, const nari::FFISignature &sig, const std::vector<Value> &args) {
     if (!func_ptr) {
         return Value::none();
     }
     if (contains_union(sig.return_struct_def) ||
         std::any_of(sig.param_struct_defs.begin(), sig.param_struct_defs.end(), [](const auto &def) { return contains_union(def); })) {
-        fprintf(stderr, "ERROR: Passing unions or aggregates containing unions by value is not supported portably; "
-                        "pass a pointer instead\n");
+        fprintf(
+            stderr, "ERROR: Passing unions or aggregates containing unions by value is not supported portably; "
+                    "pass a pointer instead\n"
+        );
         return Value::none();
     }
-    if (sig.return_type == FFIType::Struct ||
-        std::find(sig.param_types.begin(), sig.param_types.end(), FFIType::Struct) != sig.param_types.end()) {
+    if (sig.return_type == nari::FFIType::Struct ||
+        std::find(sig.param_types.begin(), sig.param_types.end(), nari::FFIType::Struct) != sig.param_types.end()) {
         fprintf(stderr, "ERROR: Struct parameters and returns are not supported in variadic FFI calls\n");
         return Value::none();
     }
@@ -1200,37 +1258,37 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
     ffi_call(&cache.cif, FFI_FN(func_ptr), &return_value, storage_v.arg_pointers.data());
 
     switch (sig.return_type) {
-        case FFIType::Void:
+        case nari::FFIType::Void:
             return Value::none();
-        case FFIType::Int8:
+        case nari::FFIType::Int8:
             return Value::make_int(return_value.i8);
-        case FFIType::UInt8:
-            return Value::make_int((int64_t)return_value.u8_int);
-        case FFIType::Int16:
+        case nari::FFIType::UInt8:
+            return Value::make_int(static_cast<int64_t>(return_value.u8_int));
+        case nari::FFIType::Int16:
             return Value::make_int(return_value.i16);
-        case FFIType::UInt16:
-            return Value::make_int((int64_t)return_value.u16);
-        case FFIType::Int32:
+        case nari::FFIType::UInt16:
+            return Value::make_int(static_cast<int64_t>(return_value.u16));
+        case nari::FFIType::Int32:
             return Value::make_int(return_value.i32);
-        case FFIType::Int64:
+        case nari::FFIType::Int64:
             return Value::make_int(return_value.i64);
-        case FFIType::UInt32:
-            return Value::make_int((int64_t)return_value.u32);
-        case FFIType::UInt64:
-            return Value::make_int((int64_t)return_value.u64);
-        case FFIType::Float:
+        case nari::FFIType::UInt32:
+            return Value::make_int(static_cast<int64_t>(return_value.u32));
+        case nari::FFIType::UInt64:
+            return Value::make_int(static_cast<int64_t>(return_value.u64));
+        case nari::FFIType::Float:
             return Value::make_float(return_value.f32);
-        case FFIType::Double:
+        case nari::FFIType::Double:
             return Value::make_float(return_value.f64);
-        case FFIType::Bool:
+        case nari::FFIType::Bool:
             return Value::make_bool(return_value.u8 != 0);
-        case FFIType::Pointer:
+        case nari::FFIType::Pointer:
             if (return_value.ptr != nullptr) {
-                const char *str = (const char *)return_value.ptr;
+                const char *str = static_cast<const char *>(return_value.ptr);
                 return Value::make_string(std::string(str));
             }
             return Value::make_int(0);
-        case FFIType::Struct: {
+        case nari::FFIType::Struct: {
             // structs returned from variadic functions (unlikely but handle anyway)
             if (!sig.return_struct_def) {
                 return Value::none();
@@ -1242,87 +1300,87 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
 
             for (const auto &field : sig.return_struct_def->fields) {
                 switch (field.type) {
-                    case FFIType::Int8: {
+                    case nari::FFIType::Int8: {
                         int8_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(int8_t));
                         result_oobj2->set_field(field.name, Value::make_int(val));
                         offset += sizeof(int8_t);
                         break;
                     }
-                    case FFIType::UInt8: {
+                    case nari::FFIType::UInt8: {
                         uint8_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(uint8_t));
-                        result_oobj2->set_field(field.name, Value::make_int((int64_t)val));
+                        result_oobj2->set_field(field.name, Value::make_int(static_cast<int64_t>(val)));
                         offset += sizeof(uint8_t);
                         break;
                     }
-                    case FFIType::Int16: {
+                    case nari::FFIType::Int16: {
                         int16_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(int16_t));
                         result_oobj2->set_field(field.name, Value::make_int(val));
                         offset += sizeof(int16_t);
                         break;
                     }
-                    case FFIType::UInt16: {
+                    case nari::FFIType::UInt16: {
                         uint16_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(uint16_t));
-                        result_oobj2->set_field(field.name, Value::make_int((int64_t)val));
+                        result_oobj2->set_field(field.name, Value::make_int(static_cast<int64_t>(val)));
                         offset += sizeof(uint16_t);
                         break;
                     }
-                    case FFIType::Int32: {
+                    case nari::FFIType::Int32: {
                         int32_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(int32_t));
                         result_oobj2->set_field(field.name, Value::make_int(val));
                         offset += sizeof(int32_t);
                         break;
                     }
-                    case FFIType::Int64: {
+                    case nari::FFIType::Int64: {
                         int64_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(int64_t));
                         result_oobj2->set_field(field.name, Value::make_int(val));
                         offset += sizeof(int64_t);
                         break;
                     }
-                    case FFIType::UInt32: {
+                    case nari::FFIType::UInt32: {
                         uint32_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(uint32_t));
-                        result_oobj2->set_field(field.name, Value::make_int((int64_t)val));
+                        result_oobj2->set_field(field.name, Value::make_int(static_cast<int64_t>(val)));
                         offset += sizeof(uint32_t);
                         break;
                     }
-                    case FFIType::UInt64: {
+                    case nari::FFIType::UInt64: {
                         uint64_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(uint64_t));
-                        result_oobj2->set_field(field.name, Value::make_int((int64_t)val));
+                        result_oobj2->set_field(field.name, Value::make_int(static_cast<int64_t>(val)));
                         offset += sizeof(uint64_t);
                         break;
                     }
-                    case FFIType::Float: {
+                    case nari::FFIType::Float: {
                         float val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(float));
                         result_oobj2->set_field(field.name, Value::make_float(val));
                         offset += sizeof(float);
                         break;
                     }
-                    case FFIType::Double: {
+                    case nari::FFIType::Double: {
                         double val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(double));
                         result_oobj2->set_field(field.name, Value::make_float(val));
                         offset += sizeof(double);
                         break;
                     }
-                    case FFIType::Bool: {
+                    case nari::FFIType::Bool: {
                         uint8_t val;
                         memcpy(&val, return_value.struct_buf + offset, sizeof(uint8_t));
                         result_oobj2->set_field(field.name, Value::make_bool(val != 0));
                         offset += sizeof(uint8_t);
                         break;
                     }
-                    case FFIType::Pointer: {
+                    case nari::FFIType::Pointer: {
                         void *ptr;
                         memcpy(&ptr, return_value.struct_buf + offset, sizeof(void *));
-                        result_oobj2->set_field(field.name, Value::make_int((int64_t)ptr));
+                        result_oobj2->set_field(field.name, Value::make_int(static_cast<int64_t>(reinterpret_cast<intptr_t>(ptr))));
                         offset += sizeof(void *);
                         break;
                     }
@@ -1338,7 +1396,7 @@ Value FFICaller::call_function_variadic(void *func_ptr, const FFISignature &sig,
     return Value::none();
 }
 
-std::shared_ptr<FFILibrary> FFIRegistry::get_library(const std::string &path) {
+std::shared_ptr<nari::FFILibrary> nari::FFIRegistry::get_library(const std::string &path) {
     auto it = libraries.find(path);
     if (it != libraries.end()) {
         return it->second;
@@ -1346,7 +1404,7 @@ std::shared_ptr<FFILibrary> FFIRegistry::get_library(const std::string &path) {
     return nullptr;
 }
 
-std::shared_ptr<FFILibrary> FFIRegistry::load_library(const std::string &path) {
+std::shared_ptr<nari::FFILibrary> nari::FFIRegistry::load_library(const std::string &path) {
     auto it = libraries.find(path);
     if (it != libraries.end()) {
         return it->second;
@@ -1358,7 +1416,7 @@ std::shared_ptr<FFILibrary> FFIRegistry::load_library(const std::string &path) {
         resolved_path = path;
     }
 
-    auto lib = std::make_shared<FFILibrary>(resolved_path);
+    auto lib = std::make_shared<nari::FFILibrary>(resolved_path);
     if (lib->is_loaded()) {
         libraries[path] = lib;
         return lib;
@@ -1449,7 +1507,7 @@ void push_macos_search_paths(std::vector<std::string> &paths) {
     get_path_at_env("DYLD_FALLBACK_LIBRARY_PATH");
 }
 
-std::string FFIRegistry::find_library(const std::string &name) {
+std::string nari::FFIRegistry::find_library(const std::string &name) {
     std::vector<std::string> search_paths;
 
 #if defined(__APPLE__) && defined(__MACH__)
@@ -1520,44 +1578,44 @@ std::shared_ptr<FFIStructDef> create_struct_def_from_type(const std::string &typ
         resolving.push_back(resolved_decl->name);
 
         // nari type -> ffi type
-        auto map_type_to_ffi = [](const std::string &nari_type) -> FFIType {
+        auto map_type_to_ffi = [](const std::string &nari_type) -> nari::FFIType {
             if (nari_type == "f32" || nari_type == "float") {
-                return FFIType::Float;
+                return nari::FFIType::Float;
             }
             if (nari_type == "f64" || nari_type == "double") {
-                return FFIType::Double;
+                return nari::FFIType::Double;
             }
             if (nari_type == "i8") {
-                return FFIType::Int8;
+                return nari::FFIType::Int8;
             }
             if (nari_type == "u8") {
-                return FFIType::UInt8;
+                return nari::FFIType::UInt8;
             }
             if (nari_type == "i16") {
-                return FFIType::Int16;
+                return nari::FFIType::Int16;
             }
             if (nari_type == "u16") {
-                return FFIType::UInt16;
+                return nari::FFIType::UInt16;
             }
             if (nari_type == "i32" || nari_type == "int") {
-                return FFIType::Int32;
+                return nari::FFIType::Int32;
             }
             if (nari_type == "i64" || nari_type == "long") {
-                return FFIType::Int64;
+                return nari::FFIType::Int64;
             }
             if (nari_type == "u32" || nari_type == "uint") {
-                return FFIType::UInt32;
+                return nari::FFIType::UInt32;
             }
             if (nari_type == "u64" || nari_type == "ulong") {
-                return FFIType::UInt64;
+                return nari::FFIType::UInt64;
             }
             if (nari_type == "bool" || nari_type == "boolean") {
-                return FFIType::Bool;
+                return nari::FFIType::Bool;
             }
             if (nari_type == "string" || nari_type == "pointer") {
-                return FFIType::Pointer;
+                return nari::FFIType::Pointer;
             }
-            return FFIType::Int32;
+            return nari::FFIType::Int32;
         };
 
         std::vector<FFIStructField> fields;
@@ -1592,7 +1650,7 @@ std::shared_ptr<FFIStructDef> create_struct_def_from_type(const std::string &typ
                     resolving.pop_back();
                     return nullptr;
                 }
-                fields.emplace_back(field.name, FFIType::Struct, count);
+                fields.emplace_back(field.name, nari::FFIType::Struct, count);
                 fields.back().aggregate_def = std::move(nested_def);
             } else {
                 fields.emplace_back(field.name, map_type_to_ffi(resolved_field_name), count);
@@ -1653,7 +1711,7 @@ Value read_struct_from_memory(void *ptr, const std::string &type_name) {
         return Value::none();
     }
 
-    return read_ffi_struct((const char *)ptr, *struct_def);
+    return read_ffi_struct(static_cast<const char *>(ptr), *struct_def);
 }
 
 bool write_struct_to_memory(void *ptr, const std::string &type_name, const Value &obj) {
@@ -1679,7 +1737,7 @@ bool write_struct_to_memory(void *ptr, const std::string &type_name, const Value
         return false;
     }
 
-    return write_ffi_struct((char *)ptr, *struct_def, obj);
+    return write_ffi_struct(static_cast<char *>(ptr), *struct_def, obj);
 }
 
 FFICallback::~FFICallback() {
@@ -1700,7 +1758,7 @@ extern "C" int ffi_reentry_depth() {
 
 // trampoline function that gets called from C and dispatches to Nari
 void FFICallbackManager::callback_trampoline(ffi_cif *cif, void *ret, void **args, void *user_data) {
-    auto *callback = (FFICallback *)user_data;
+    auto *callback = static_cast<FFICallback *>(user_data);
     if (!callback || !callback->runtime) {
         fprintf(stderr, "ERROR: Invalid callback data in trampoline\n");
         return;
@@ -1710,48 +1768,48 @@ void FFICallbackManager::callback_trampoline(ffi_cif *cif, void *ret, void **arg
     nari_args.reserve(callback->signature.param_types.size());
 
     for (size_t i = 0; i < callback->signature.param_types.size(); i++) {
-        FFIType param_type = callback->signature.param_types[i];
+        nari::FFIType param_type = callback->signature.param_types[i];
         void *arg_ptr = args[i];
 
         switch (param_type) {
-            case FFIType::Void:
+            case nari::FFIType::Void:
                 nari_args.push_back(Value::none());
                 break;
-            case FFIType::Int8:
-                nari_args.push_back(Value::make_int(*(int8_t *)arg_ptr));
+            case nari::FFIType::Int8:
+                nari_args.push_back(Value::make_int(*static_cast<int8_t *>(arg_ptr)));
                 break;
-            case FFIType::UInt8:
-                nari_args.push_back(Value::make_int(*(uint8_t *)arg_ptr));
+            case nari::FFIType::UInt8:
+                nari_args.push_back(Value::make_int(*static_cast<uint8_t *>(arg_ptr)));
                 break;
-            case FFIType::Int16:
-                nari_args.push_back(Value::make_int(*(int16_t *)arg_ptr));
+            case nari::FFIType::Int16:
+                nari_args.push_back(Value::make_int(*static_cast<int16_t *>(arg_ptr)));
                 break;
-            case FFIType::UInt16:
-                nari_args.push_back(Value::make_int(*(uint16_t *)arg_ptr));
+            case nari::FFIType::UInt16:
+                nari_args.push_back(Value::make_int(*static_cast<uint16_t *>(arg_ptr)));
                 break;
-            case FFIType::Int32:
-                nari_args.push_back(Value::make_int(*(int32_t *)arg_ptr));
+            case nari::FFIType::Int32:
+                nari_args.push_back(Value::make_int(*static_cast<int32_t *>(arg_ptr)));
                 break;
-            case FFIType::Int64:
-                nari_args.push_back(Value::make_int(*(int64_t *)arg_ptr));
+            case nari::FFIType::Int64:
+                nari_args.push_back(Value::make_int(*static_cast<int64_t *>(arg_ptr)));
                 break;
-            case FFIType::UInt32:
-                nari_args.push_back(Value::make_int(*(uint32_t *)arg_ptr));
+            case nari::FFIType::UInt32:
+                nari_args.push_back(Value::make_int(*static_cast<uint32_t *>(arg_ptr)));
                 break;
-            case FFIType::UInt64:
-                nari_args.push_back(Value::make_int((int64_t)(*(uint64_t *)arg_ptr)));
+            case nari::FFIType::UInt64:
+                nari_args.push_back(Value::make_int(static_cast<int64_t>(*static_cast<uint64_t *>(arg_ptr))));
                 break;
-            case FFIType::Float:
-                nari_args.push_back(Value::make_float(*(float *)arg_ptr));
+            case nari::FFIType::Float:
+                nari_args.push_back(Value::make_float(*static_cast<float *>(arg_ptr)));
                 break;
-            case FFIType::Double:
-                nari_args.push_back(Value::make_float(*(double *)arg_ptr));
+            case nari::FFIType::Double:
+                nari_args.push_back(Value::make_float(*static_cast<double *>(arg_ptr)));
                 break;
-            case FFIType::Bool:
-                nari_args.push_back(Value::make_bool(*(uint8_t *)arg_ptr != 0));
+            case nari::FFIType::Bool:
+                nari_args.push_back(Value::make_bool(*static_cast<uint8_t *>(arg_ptr) != 0));
                 break;
-            case FFIType::Pointer: {
-                void *ptr = *(void **)arg_ptr;
+            case nari::FFIType::Pointer: {
+                void *ptr = *static_cast<void **>(arg_ptr);
                 nari_args.push_back(Value::make_int(reinterpret_cast<int64_t>(ptr)));
                 break;
             }
@@ -1778,64 +1836,64 @@ void FFICallbackManager::callback_trampoline(ffi_cif *cif, void *ret, void **arg
     g_ffi_reentry_depth--;
 
     switch (callback->signature.return_type) {
-        case FFIType::Void:
+        case nari::FFIType::Void:
             break;
-        case FFIType::Int8:
-            *(int8_t *)ret = result.is_int() ? (int8_t)result.get_int() : 0;
+        case nari::FFIType::Int8:
+            *static_cast<int8_t *>(ret) = result.is_int() ? static_cast<int8_t>(result.get_int()) : 0;
             break;
-        case FFIType::UInt8:
-            *(uint8_t *)ret = result.is_int() ? (uint8_t)result.get_int() : 0;
+        case nari::FFIType::UInt8:
+            *static_cast<uint8_t *>(ret) = result.is_int() ? static_cast<uint8_t>(result.get_int()) : 0;
             break;
-        case FFIType::Int16:
-            *(int16_t *)ret = result.is_int() ? (int16_t)result.get_int() : 0;
+        case nari::FFIType::Int16:
+            *static_cast<int16_t *>(ret) = result.is_int() ? static_cast<int16_t>(result.get_int()) : 0;
             break;
-        case FFIType::UInt16:
-            *(uint16_t *)ret = result.is_int() ? (uint16_t)result.get_int() : 0;
+        case nari::FFIType::UInt16:
+            *static_cast<uint16_t *>(ret) = result.is_int() ? static_cast<uint16_t>(result.get_int()) : 0;
             break;
-        case FFIType::Int32:
-            *(int32_t *)ret = result.is_int() ? (int32_t)result.get_int() : 0;
+        case nari::FFIType::Int32:
+            *static_cast<int32_t *>(ret) = result.is_int() ? static_cast<int32_t>(result.get_int()) : 0;
             break;
-        case FFIType::Int64:
-            *(int64_t *)ret = result.is_int() ? result.get_int() : 0;
+        case nari::FFIType::Int64:
+            *static_cast<int64_t *>(ret) = result.is_int() ? result.get_int() : 0;
             break;
-        case FFIType::UInt32:
-            *(uint32_t *)ret = result.is_int() ? (uint32_t)result.get_int() : 0;
+        case nari::FFIType::UInt32:
+            *static_cast<uint32_t *>(ret) = result.is_int() ? static_cast<uint32_t>(result.get_int()) : 0;
             break;
-        case FFIType::UInt64:
-            *(uint64_t *)ret = result.is_int() ? (uint64_t)result.get_int() : 0;
+        case nari::FFIType::UInt64:
+            *static_cast<uint64_t *>(ret) = result.is_int() ? static_cast<uint64_t>(result.get_int()) : 0;
             break;
-        case FFIType::Float:
+        case nari::FFIType::Float:
             if (result.is_float()) {
-                *(float *)ret = (float)result.get_float();
+                *static_cast<float *>(ret) = static_cast<float>(result.get_float());
             } else if (result.is_int()) {
-                *(float *)ret = (float)result.get_int();
+                *static_cast<float *>(ret) = static_cast<float>(result.get_int());
             } else {
-                *(float *)ret = 0.0f;
+                *static_cast<float *>(ret) = 0.0f;
             }
             break;
-        case FFIType::Double:
+        case nari::FFIType::Double:
             if (result.is_float()) {
-                *(double *)ret = result.get_float();
+                *static_cast<double *>(ret) = result.get_float();
             } else if (result.is_int()) {
-                *(double *)ret = (double)result.get_int();
+                *static_cast<double *>(ret) = static_cast<double>(result.get_int());
             } else {
-                *(double *)ret = 0.0;
+                *static_cast<double *>(ret) = 0.0;
             }
             break;
-        case FFIType::Bool:
+        case nari::FFIType::Bool:
             if (result.is_bool()) {
-                *(uint8_t *)ret = result.get_bool() ? 1 : 0;
+                *static_cast<uint8_t *>(ret) = result.get_bool() ? 1 : 0;
             } else if (result.is_int()) {
-                *(uint8_t *)ret = result.get_int() != 0 ? 1 : 0;
+                *static_cast<uint8_t *>(ret) = result.get_int() != 0 ? 1 : 0;
             } else {
-                *(uint8_t *)ret = 0;
+                *static_cast<uint8_t *>(ret) = 0;
             }
             break;
-        case FFIType::Pointer:
+        case nari::FFIType::Pointer:
             if (result.is_int()) {
-                *(void **)ret = result.get_ptr();
+                *static_cast<void **>(ret) = result.get_ptr();
             } else {
-                *(void **)ret = managed_struct_pointer(result);
+                *static_cast<void **>(ret) = managed_struct_pointer(result);
             }
             break;
         default:
@@ -1843,40 +1901,40 @@ void FFICallbackManager::callback_trampoline(ffi_cif *cif, void *ret, void **arg
     }
 }
 
-static ffi_type *get_ffi_type_ptr(FFIType type) {
+static ffi_type *get_ffi_type_ptr(nari::FFIType type) {
     switch (type) {
-        case FFIType::Void:
+        case nari::FFIType::Void:
             return &ffi_type_void;
-        case FFIType::Int8:
+        case nari::FFIType::Int8:
             return &ffi_type_sint8;
-        case FFIType::UInt8:
+        case nari::FFIType::UInt8:
             return &ffi_type_uint8;
-        case FFIType::Int16:
+        case nari::FFIType::Int16:
             return &ffi_type_sint16;
-        case FFIType::UInt16:
+        case nari::FFIType::UInt16:
             return &ffi_type_uint16;
-        case FFIType::Int32:
+        case nari::FFIType::Int32:
             return &ffi_type_sint32;
-        case FFIType::Int64:
+        case nari::FFIType::Int64:
             return &ffi_type_sint64;
-        case FFIType::UInt32:
+        case nari::FFIType::UInt32:
             return &ffi_type_uint32;
-        case FFIType::UInt64:
+        case nari::FFIType::UInt64:
             return &ffi_type_uint64;
-        case FFIType::Float:
+        case nari::FFIType::Float:
             return &ffi_type_float;
-        case FFIType::Double:
+        case nari::FFIType::Double:
             return &ffi_type_double;
-        case FFIType::Bool:
+        case nari::FFIType::Bool:
             return &ffi_type_uint8;
-        case FFIType::Pointer:
+        case nari::FFIType::Pointer:
             return &ffi_type_pointer;
         default:
             return &ffi_type_void;
     }
 }
 
-void *FFICallbackManager::create_callback(const FFISignature &sig, const Value &nari_func, ScriptRuntime *runtime) {
+void *FFICallbackManager::create_callback(const nari::FFISignature &sig, const Value &nari_func, ScriptRuntime *runtime) {
     if (!nari_func.is_function() || !runtime) {
         fprintf(stderr, "ERROR: Invalid arguments to create_callback\n");
         return nullptr;
@@ -1893,23 +1951,26 @@ void *FFICallbackManager::create_callback(const FFISignature &sig, const Value &
     }
 
     ffi_type *return_type = get_ffi_type_ptr(sig.return_type);
-    ffi_status status =
-        ffi_prep_cif(&callback->cif, FFI_DEFAULT_ABI, (unsigned int)sig.param_types.size(), return_type, callback->param_types.data());
+    ffi_status status = ffi_prep_cif(
+        &callback->cif, FFI_DEFAULT_ABI, static_cast<unsigned int>(sig.param_types.size()), return_type, callback->param_types.data()
+    );
 
     if (status != FFI_OK) {
         fprintf(stderr, "ERROR: ffi_prep_cif failed with status %d\n", status);
         return nullptr;
     }
 
-    callback->closure = (ffi_closure *)ffi_closure_alloc(sizeof(ffi_closure), &callback->executable_code);
+    callback->closure = static_cast<ffi_closure *>(ffi_closure_alloc(sizeof(ffi_closure), &callback->executable_code));
     if (!callback->closure) {
         fprintf(stderr, "ERROR: ffi_closure_alloc failed\n");
         return nullptr;
     }
 
-    status = ffi_prep_closure_loc(callback->closure, &callback->cif, &callback_trampoline,
-                                  callback.get(), // user_data passed to trampoline
-                                  callback->executable_code);
+    status = ffi_prep_closure_loc(
+        callback->closure, &callback->cif, &callback_trampoline,
+        callback.get(), // user_data passed to trampoline
+        callback->executable_code
+    );
 
     if (status != FFI_OK) {
         fprintf(stderr, "ERROR: ffi_prep_closure_loc failed with status %d\n", status);

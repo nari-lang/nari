@@ -33,9 +33,9 @@ std::string sha256_to_hex(const unsigned char (&digest)[SHA256_DIGEST_SIZE]) {
 
 } // namespace
 
-Value ScriptRuntime::builtin_hash_sha1(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_hash_sha1(Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc != 1 || !argvals[0].is_string()) {
-        runtime_fatal("Hash.sha1 expects a single string argument", call);
+        return runtime_fatal("Hash.sha1 expects a single string argument", call);
     }
 
     const std::string &input = argvals[0].get_string();
@@ -45,29 +45,29 @@ Value ScriptRuntime::builtin_hash_sha1(const Value *argvals, size_t argc, const 
 
     if (mbedtls_sha1_starts(&ctx) != 0) {
         mbedtls_sha1_free(&ctx);
-        runtime_fatal("Hash.sha1: mbedtls_sha1_starts failed", call);
+        return runtime_fatal("Hash.sha1: mbedtls_sha1_starts failed", call);
     }
 
     if (!input.empty()) {
         if (mbedtls_sha1_update(&ctx, reinterpret_cast<const unsigned char *>(input.data()), input.size()) != 0) {
             mbedtls_sha1_free(&ctx);
-            runtime_fatal("Hash.sha1: mbedtls_sha1_update failed", call);
+            return runtime_fatal("Hash.sha1: mbedtls_sha1_update failed", call);
         }
     }
 
     unsigned char digest[SHA1_DIGEST_SIZE];
     if (mbedtls_sha1_finish(&ctx, digest) != 0) {
         mbedtls_sha1_free(&ctx);
-        runtime_fatal("Hash.sha1: mbedtls_sha1_finish failed", call);
+        return runtime_fatal("Hash.sha1: mbedtls_sha1_finish failed", call);
     }
 
     mbedtls_sha1_free(&ctx);
     return Value::make_string(digest_to_hex(digest, SHA1_DIGEST_SIZE));
 }
 
-Value ScriptRuntime::builtin_hash_sha256(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_hash_sha256(Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc != 1 || !argvals[0].is_string()) {
-        runtime_fatal("Hash.sha256 expects a single string argument", call);
+        return runtime_fatal("Hash.sha256 expects a single string argument", call);
     }
 
     const std::string &input = argvals[0].get_string();
@@ -78,29 +78,29 @@ Value ScriptRuntime::builtin_hash_sha256(const Value *argvals, size_t argc, cons
     // Second arg = 0 selects SHA-256 (1 would select the legacy SHA-224).
     if (mbedtls_sha256_starts(&ctx, 0) != 0) {
         mbedtls_sha256_free(&ctx);
-        runtime_fatal("Hash.sha256: mbedtls_sha256_starts failed", call);
+        return runtime_fatal("Hash.sha256: mbedtls_sha256_starts failed", call);
     }
 
     if (!input.empty()) {
         if (mbedtls_sha256_update(&ctx, reinterpret_cast<const unsigned char *>(input.data()), input.size()) != 0) {
             mbedtls_sha256_free(&ctx);
-            runtime_fatal("Hash.sha256: mbedtls_sha256_update failed", call);
+            return runtime_fatal("Hash.sha256: mbedtls_sha256_update failed", call);
         }
     }
 
     unsigned char digest[SHA256_DIGEST_SIZE];
     if (mbedtls_sha256_finish(&ctx, digest) != 0) {
         mbedtls_sha256_free(&ctx);
-        runtime_fatal("Hash.sha256: mbedtls_sha256_finish failed", call);
+        return runtime_fatal("Hash.sha256: mbedtls_sha256_finish failed", call);
     }
 
     mbedtls_sha256_free(&ctx);
     return Value::make_string(sha256_to_hex(digest));
 }
 
-Value ScriptRuntime::builtin_hash_sha256_file(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_hash_sha256_file(Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc != 1 || !argvals[0].is_string()) {
-        runtime_fatal("Hash.sha256_file expects a single path string argument", call);
+        return runtime_fatal("Hash.sha256_file expects a single path string argument", call);
     }
 
     const std::string &path = argvals[0].get_string();
@@ -108,7 +108,7 @@ Value ScriptRuntime::builtin_hash_sha256_file(const Value *argvals, size_t argc,
     // binary mode is used to avoid text-mode translation on Windows
     FILE *fp = std::fopen(path.c_str(), "rb");
     if (fp == nullptr) {
-        runtime_fatal("Hash.sha256_file: cannot open '" + path + "': " + std::strerror(errno), call);
+        return runtime_fatal("Hash.sha256_file: cannot open '" + path + "': " + std::strerror(errno), call);
     }
 
     mbedtls_sha256_context ctx;
@@ -117,7 +117,7 @@ Value ScriptRuntime::builtin_hash_sha256_file(const Value *argvals, size_t argc,
     if (mbedtls_sha256_starts(&ctx, 0) != 0) {
         mbedtls_sha256_free(&ctx);
         std::fclose(fp);
-        runtime_fatal("Hash.sha256_file: mbedtls_sha256_starts failed", call);
+        return runtime_fatal("Hash.sha256_file: mbedtls_sha256_starts failed", call);
     }
 
     std::array<unsigned char, 64 * 1024> buf;
@@ -127,7 +127,7 @@ Value ScriptRuntime::builtin_hash_sha256_file(const Value *argvals, size_t argc,
             if (mbedtls_sha256_update(&ctx, buf.data(), n) != 0) {
                 mbedtls_sha256_free(&ctx);
                 std::fclose(fp);
-                runtime_fatal("Hash.sha256_file: mbedtls_sha256_update failed", call);
+                return runtime_fatal("Hash.sha256_file: mbedtls_sha256_update failed", call);
             }
         }
         if (n < buf.size()) {
@@ -135,7 +135,7 @@ Value ScriptRuntime::builtin_hash_sha256_file(const Value *argvals, size_t argc,
                 int saved = errno;
                 mbedtls_sha256_free(&ctx);
                 std::fclose(fp);
-                runtime_fatal("Hash.sha256_file: read error on '" + path + "': " + std::strerror(saved), call);
+                return runtime_fatal("Hash.sha256_file: read error on '" + path + "': " + std::strerror(saved), call);
             }
             break; // EOF
         }
@@ -146,7 +146,7 @@ Value ScriptRuntime::builtin_hash_sha256_file(const Value *argvals, size_t argc,
     unsigned char digest[SHA256_DIGEST_SIZE];
     if (mbedtls_sha256_finish(&ctx, digest) != 0) {
         mbedtls_sha256_free(&ctx);
-        runtime_fatal("Hash.sha256_file: mbedtls_sha256_finish failed", call);
+        return runtime_fatal("Hash.sha256_file: mbedtls_sha256_finish failed", call);
     }
 
     mbedtls_sha256_free(&ctx);

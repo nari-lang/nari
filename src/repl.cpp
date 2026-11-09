@@ -7,10 +7,6 @@
 #include "bytecode.h"
 #include "parser_api.h"
 #include "runtime.h"
-#ifndef DISABLE_JIT
-#include "asmjit_jit.h"
-#include "trace_jit.h"
-#endif
 
 #include <cctype>
 #include <cerrno>
@@ -18,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <string>
 
 #ifdef _WIN32
@@ -128,7 +125,7 @@ static int count_unmatched(const std::string &s) {
 static bool looks_like_assignment(const std::string &src) {
     // walk past any leading whitespace.
     size_t i = 0;
-    while (i < src.size() && std::isspace((unsigned char)src[i])) {
+    while (i < src.size() && std::isspace(static_cast<unsigned char>(src[i]))) {
         ++i;
     }
     if (i >= src.size()) {
@@ -307,8 +304,10 @@ static bool supports_ansi_output() {
 
   returns true on clean execution, false on parse / compile / runtime error.
 */
-static bool compile_and_run(const std::string &stdlib_src, const std::string &accumulated, const std::string &new_code, bool auto_print,
-                            bool use_color, int argc, char **argv) {
+static bool compile_and_run(
+    const std::string &stdlib_src, const std::string &accumulated, const std::string &new_code, bool auto_print, bool use_color, int argc,
+    char **argv
+) {
     // build source that will be compiled in
     std::string full;
     if (!accumulated.empty()) {
@@ -378,8 +377,8 @@ static bool compile_and_run(const std::string &stdlib_src, const std::string &ac
         combined.push_back(std::move(f));
     }
 
-    // Compile to bytecode.
-    nari::bytecode::Chunk *chunk = nari::bytecode::compile_bytecode(combined);
+    // Compile to bytecode. Owned here; VM borrows it for run().
+    std::unique_ptr<nari::bytecode::Chunk> chunk(nari::bytecode::compile_bytecode(combined));
     if (!chunk) {
         if (auto_print) {
             return compile_and_run(stdlib_src, accumulated, new_code, false, use_color, argc, argv);
@@ -398,8 +397,7 @@ static bool compile_and_run(const std::string &stdlib_src, const std::string &ac
     // The JIT compiler is reset automatically on chunk change
 #endif
     nari::bytecode::VM vm(argc, argv);
-    bool ok = vm.run(chunk);
-    delete chunk;
+    bool ok = vm.run(chunk.get());
     return ok;
 }
 
@@ -410,10 +408,9 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
 
     replxx::Replxx::colors_t byte_colors(ctx.size(), Color::DEFAULT);
 
-    static constexpr const char *KEYWORDS[] = { 
-        "func", "async", "await", "let", "global", "return", "if", "else",
-        "for", "while", "in", "break", "continue", "class", "type", "enum",
-        "new", "import", "export", "true", "false", "not" };
+    static constexpr const char *KEYWORDS[] = { "func", "async",  "await",  "let",   "global",   "return", "if",   "else",
+                                                "for",  "while",  "in",     "break", "continue", "class",  "type", "enum",
+                                                "new",  "import", "export", "true",  "false",    "not" };
 
     size_t i = 0;
     while (i < ctx.size()) {
@@ -486,10 +483,11 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
         }
 
         // numeric literals (integer / float / hex)
-        if (std::isdigit((unsigned char)c) || (c == '.' && i + 1 < ctx.size() && std::isdigit((unsigned char)ctx[i + 1]))) {
+        if (std::isdigit(static_cast<unsigned char>(c)) ||
+            (c == '.' && i + 1 < ctx.size() && std::isdigit(static_cast<unsigned char>(ctx[i + 1])))) {
             while (i < ctx.size()) {
                 char d = ctx[i];
-                if (!std::isdigit((unsigned char)d) && d != '.' && d != 'x' && d != 'X' &&
+                if (!std::isdigit(static_cast<unsigned char>(d)) && d != '.' && d != 'x' && d != 'X' &&
                     !((d >= 'a' && d <= 'f') || (d >= 'A' && d <= 'F'))) {
                     break;
                 }

@@ -21,8 +21,8 @@
 namespace nari {
 struct Function;
 namespace jit {
-class MethodJITBase;
 class AsmJITMethodCompiler;
+class JitSession;
 } // namespace jit
 } // namespace nari
 
@@ -120,7 +120,9 @@ namespace bytecode {
     X(JS_POSTINC, 2, false)                                                                                                                \
     /* CLOSE_UPVALUES <first_slot>: drop this frame's open upvalue cells for locals   */                                                   \
     /* at or above first_slot */                                                                                                           \
-    X(CLOSE_UPVALUES, 2, false)
+    X(CLOSE_UPVALUES, 2, false)                                                                                                           \
+    /* Marker for a source module whose statements are folded into <main>. */                                                              \
+    X(MODULE_ENTRY, 2, false)
 
 enum class OpCode : uint8_t {
 #define X(name, operands, variable) OP_##name,
@@ -141,7 +143,7 @@ inline constexpr OpcodeInfo OPCODE_INFO[] = {
 };
 
 inline constexpr const OpcodeInfo *opcode_info(OpCode op) {
-    size_t index = (size_t)op;
+    size_t index = static_cast<size_t>(op);
     return index < sizeof(OPCODE_INFO) / sizeof(OPCODE_INFO[0]) ? &OPCODE_INFO[index] : nullptr;
 }
 
@@ -319,19 +321,19 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
     if (func_meta.strict_mode) {
         size_t pc = 0;
         while (pc + 11 <= func_code.size()) {
-            if ((OpCode)func_code[pc] != OpCode::OP_LOAD_VAR) {
+            if (static_cast<OpCode>(func_code[pc]) != OpCode::OP_LOAD_VAR) {
                 break;
             }
-            if ((OpCode)func_code[pc + 3] != OpCode::OP_CHECK_TYPE) {
+            if (static_cast<OpCode>(func_code[pc + 3]) != OpCode::OP_CHECK_TYPE) {
                 break;
             }
             if (func_code[pc + 6] != 0) {
                 break; // ctx=0
             }
-            if ((OpCode)func_code[pc + 7] != OpCode::OP_STORE_VAR) {
+            if (static_cast<OpCode>(func_code[pc + 7]) != OpCode::OP_STORE_VAR) {
                 break;
             }
-            if ((OpCode)func_code[pc + 10] != OpCode::OP_POP) {
+            if (static_cast<OpCode>(func_code[pc + 10]) != OpCode::OP_POP) {
                 break;
             }
             pc += 11;
@@ -345,28 +347,28 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
         if (end_off >= func_code.size()) {
             return false;
         }
-        if ((OpCode)func_code[end_off] == OpCode::OP_RETURN) {
+        if (static_cast<OpCode>(func_code[end_off]) == OpCode::OP_RETURN) {
             return true;
         }
-        if (end_off + 4 < func_code.size() && (OpCode)func_code[end_off] == OpCode::OP_CHECK_TYPE &&
+        if (end_off + 4 < func_code.size() && static_cast<OpCode>(func_code[end_off]) == OpCode::OP_CHECK_TYPE &&
             func_code[end_off + 3] == 1 && // ctx=1 = return check
-            (OpCode)func_code[end_off + 4] == OpCode::OP_RETURN) {
+            static_cast<OpCode>(func_code[end_off + 4]) == OpCode::OP_RETURN) {
             return true;
         }
         return false;
     };
 
     // 0-arg closure getter: LOAD_CAPTURE(0) [CHECK_TYPE] RETURN.
-    if (func_meta.param_count == 0 && base + 3 < func_code.size() && (OpCode)func_code[base] == OpCode::OP_LOAD_CAPTURE &&
+    if (func_meta.param_count == 0 && base + 3 < func_code.size() && static_cast<OpCode>(func_code[base]) == OpCode::OP_LOAD_CAPTURE &&
         func_code[base + 1] == 0 && func_code[base + 2] == 0 && is_return_end(base + 3)) {
         return { JitInlineKind::Capture0, 0 };
     }
 
     // 2-arg body: LOAD_VAR(0) LOAD_VAR(1) op [CHECK_TYPE] RETURN
-    if (base + 7 <= func_code.size() && (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR && func_code[base + 1] == 0 &&
-        func_code[base + 2] == 0 && (OpCode)func_code[base + 3] == OpCode::OP_LOAD_VAR && func_code[base + 4] == 0 &&
+    if (base + 7 <= func_code.size() && static_cast<OpCode>(func_code[base + 0]) == OpCode::OP_LOAD_VAR && func_code[base + 1] == 0 &&
+        func_code[base + 2] == 0 && static_cast<OpCode>(func_code[base + 3]) == OpCode::OP_LOAD_VAR && func_code[base + 4] == 0 &&
         func_code[base + 5] == 1 && is_return_end(base + 7)) {
-        switch ((OpCode)func_code[base + 6]) {
+        switch (static_cast<OpCode>(func_code[base + 6])) {
             case OpCode::OP_ADD:
                 return { JitInlineKind::IntAdd, 0 };
             case OpCode::OP_SUB:
@@ -390,12 +392,12 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
         }
     }
     // 1-arg const: LOAD_VAR(0) LOAD_CONST(k) op [CHECK_TYPE] RETURN
-    if (base + 7 <= func_code.size() && (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR && func_code[base + 1] == 0 &&
-        func_code[base + 2] == 0 && (OpCode)func_code[base + 3] == OpCode::OP_LOAD_CONST && is_return_end(base + 7)) {
+    if (base + 7 <= func_code.size() && static_cast<OpCode>(func_code[base + 0]) == OpCode::OP_LOAD_VAR && func_code[base + 1] == 0 &&
+        func_code[base + 2] == 0 && static_cast<OpCode>(func_code[base + 3]) == OpCode::OP_LOAD_CONST && is_return_end(base + 7)) {
         uint16_t cidx = (uint16_t(func_code[base + 4]) << 8) | func_code[base + 5];
         if (cidx < func_meta.constants.size() && func_meta.constants[cidx].type == Constant::Type::INT) {
             int64_t imm = func_meta.constants[cidx].as_int;
-            switch ((OpCode)func_code[base + 6]) {
+            switch (static_cast<OpCode>(func_code[base + 6])) {
                 case OpCode::OP_MUL:
                     return { JitInlineKind::MulConst, imm };
                 case OpCode::OP_ADD:
@@ -408,13 +410,13 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
         }
     }
     // 1-arg const (commutative): LOAD_CONST(k) LOAD_VAR(0) op [CHECK_TYPE] RETURN
-    if (base + 7 <= func_code.size() && (OpCode)func_code[base + 0] == OpCode::OP_LOAD_CONST &&
-        (OpCode)func_code[base + 3] == OpCode::OP_LOAD_VAR && func_code[base + 4] == 0 && func_code[base + 5] == 0 &&
+    if (base + 7 <= func_code.size() && static_cast<OpCode>(func_code[base + 0]) == OpCode::OP_LOAD_CONST &&
+        static_cast<OpCode>(func_code[base + 3]) == OpCode::OP_LOAD_VAR && func_code[base + 4] == 0 && func_code[base + 5] == 0 &&
         is_return_end(base + 7)) {
         uint16_t cidx = (uint16_t(func_code[base + 1]) << 8) | func_code[base + 2];
         if (cidx < func_meta.constants.size() && func_meta.constants[cidx].type == Constant::Type::INT) {
             int64_t imm = func_meta.constants[cidx].as_int;
-            switch ((OpCode)func_code[base + 6]) {
+            switch (static_cast<OpCode>(func_code[base + 6])) {
                 case OpCode::OP_MUL:
                     return { JitInlineKind::MulConst, imm };
                 case OpCode::OP_ADD:
@@ -429,34 +431,34 @@ inline InlineClassification jit_classify_inline(const FunctionMeta &func_meta) {
     //  LOAD_CAPTURE(0) [CHECK_TYPE(ctx=1)] RETURN
     // (13 or 17 bytes; bytecode compiler may append LOAD_NONE+RETURN as
     // unreachable)
-    if (func_code.size() >= 13 && (OpCode)func_code[0] == OpCode::OP_LOAD_CAPTURE && func_code[1] == 0 && func_code[2] == 0 &&
-        (OpCode)func_code[3] == OpCode::OP_LOAD_ONE && (OpCode)func_code[4] == OpCode::OP_ADD &&
-        (OpCode)func_code[5] == OpCode::OP_STORE_CAPTURE && func_code[6] == 0 && func_code[7] == 0 &&
-        (OpCode)func_code[8] == OpCode::OP_POP && (OpCode)func_code[9] == OpCode::OP_LOAD_CAPTURE && func_code[10] == 0 &&
-        func_code[11] == 0 && is_return_end(12)) {
+    if (func_code.size() >= 13 && static_cast<OpCode>(func_code[0]) == OpCode::OP_LOAD_CAPTURE && func_code[1] == 0 && func_code[2] == 0 &&
+        static_cast<OpCode>(func_code[3]) == OpCode::OP_LOAD_ONE && static_cast<OpCode>(func_code[4]) == OpCode::OP_ADD &&
+        static_cast<OpCode>(func_code[5]) == OpCode::OP_STORE_CAPTURE && func_code[6] == 0 && func_code[7] == 0 &&
+        static_cast<OpCode>(func_code[8]) == OpCode::OP_POP && static_cast<OpCode>(func_code[9]) == OpCode::OP_LOAD_CAPTURE &&
+        func_code[10] == 0 && func_code[11] == 0 && is_return_end(12)) {
         return { JitInlineKind::ClosureInc, 1 };
     }
     // 0-arg closure that adds a constant to capture[0] and returns it.
     // Matches: LOAD_CAPTURE(0) LOAD_CONST(k) ADD STORE_CAPTURE(0) POP
     //  LOAD_CAPTURE(0) [CHECK_TYPE(ctx=1)] RETURN
-    if (func_code.size() >= 15 && (OpCode)func_code[0] == OpCode::OP_LOAD_CAPTURE && func_code[1] == 0 && func_code[2] == 0 &&
-        (OpCode)func_code[3] == OpCode::OP_LOAD_CONST && (OpCode)func_code[6] == OpCode::OP_ADD &&
-        (OpCode)func_code[7] == OpCode::OP_STORE_CAPTURE && func_code[8] == 0 && func_code[9] == 0 &&
-        (OpCode)func_code[10] == OpCode::OP_POP && (OpCode)func_code[11] == OpCode::OP_LOAD_CAPTURE && func_code[12] == 0 &&
-        func_code[13] == 0 && is_return_end(14)) {
+    if (func_code.size() >= 15 && static_cast<OpCode>(func_code[0]) == OpCode::OP_LOAD_CAPTURE && func_code[1] == 0 && func_code[2] == 0 &&
+        static_cast<OpCode>(func_code[3]) == OpCode::OP_LOAD_CONST && static_cast<OpCode>(func_code[6]) == OpCode::OP_ADD &&
+        static_cast<OpCode>(func_code[7]) == OpCode::OP_STORE_CAPTURE && func_code[8] == 0 && func_code[9] == 0 &&
+        static_cast<OpCode>(func_code[10]) == OpCode::OP_POP && static_cast<OpCode>(func_code[11]) == OpCode::OP_LOAD_CAPTURE &&
+        func_code[12] == 0 && func_code[13] == 0 && is_return_end(14)) {
         uint16_t cidx = (uint16_t(func_code[4]) << 8) | func_code[5];
         if (cidx < func_meta.constants.size() && func_meta.constants[cidx].type == Constant::Type::INT) {
             return { JitInlineKind::ClosureAddConst, func_meta.constants[cidx].as_int };
         }
     }
     // 1-arg identity: LOAD_VAR(0) [CHECK_TYPE] RETURN  (4+ bytes)
-    if (base + 3 < func_code.size() && (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR && func_code[base + 1] == 0 &&
+    if (base + 3 < func_code.size() && static_cast<OpCode>(func_code[base + 0]) == OpCode::OP_LOAD_VAR && func_code[base + 1] == 0 &&
         func_code[base + 2] == 0 && is_return_end(base + 3)) {
         return { JitInlineKind::Identity, 0 };
     }
     // 1-arg negate: LOAD_VAR(0) NEG [CHECK_TYPE] RETURN
-    if (base + 4 < func_code.size() && (OpCode)func_code[base + 0] == OpCode::OP_LOAD_VAR && func_code[base + 1] == 0 &&
-        func_code[base + 2] == 0 && (OpCode)func_code[base + 3] == OpCode::OP_NEG && is_return_end(base + 4)) {
+    if (base + 4 < func_code.size() && static_cast<OpCode>(func_code[base + 0]) == OpCode::OP_LOAD_VAR && func_code[base + 1] == 0 &&
+        func_code[base + 2] == 0 && static_cast<OpCode>(func_code[base + 3]) == OpCode::OP_NEG && is_return_end(base + 4)) {
         return { JitInlineKind::Negate, 0 };
     }
     return { JitInlineKind::None, 0 };
@@ -506,15 +508,15 @@ struct Chunk {
     // Lazily-materialized shared immutable Value for each string-table entry, so a
     // string-literal LOAD_CONST in a loop reuses one StringObj instead of
     // re-allocating + copying every iteration. Indexed by string-table index.
-    std::vector<Value> const_string_cache;
-    std::vector<uint8_t> const_string_valid;
+    mutable std::vector<Value> const_string_cache;
+    mutable std::vector<uint8_t> const_string_valid;
 
     Chunk() : main_func_idx(0) {
     }
 
     // Shared immutable Value for string-table entry `sidx` (lazily materialized).
     // LOAD_CONST of a string literal reuses this instead of re-allocating.
-    const Value &get_const_string(uint32_t sidx) {
+    const Value &get_const_string(uint32_t sidx) const {
         if (const_string_valid.size() != strings.size()) {
             const_string_cache.assign(strings.size(), Value());
             const_string_valid.assign(strings.size(), 0);
@@ -586,7 +588,7 @@ struct CallFrame {
         return cell;
     }
 
-    // Drops open upvalue cells for locals at or above first_slot. 
+    // Drops open upvalue cells for locals at or above first_slot.
     void close_upvalues_from(uint16_t first_slot) {
         if (inline_upvalue_idx != UINT16_MAX && inline_upvalue_idx >= first_slot) {
             inline_upvalue_idx = UINT16_MAX;
@@ -646,12 +648,14 @@ static_assert(std::is_standard_layout<JsGetPropStaticICArray>::value, "JsGetProp
 class VM {
 #ifndef DISABLE_JIT
     friend class nari::jit::AsmJITMethodCompiler;
+    friend class nari::jit::JitSession;
 #endif
     // JIT helpers and internal code access stack/frame directly
   public:
     Array stack;
     FrameArray frames;
     Chunk *chunk;
+    bool gdb_nari_active = false;
     CallFrame &current_frame() {
         return frames.back();
     }
@@ -710,6 +714,7 @@ class VM {
 
     // Static class fields initialization helper
     void ensure_static_fields_inited(const std::string &class_name, const nari::ClassDecl *class_decl);
+
   public:
     Array global_cache;
     ByteArray global_cache_valid;
@@ -768,7 +773,6 @@ class VM {
     void note_jit_callee(uint32_t func_idx);
 
     // True if `func_idx` has a compiled trace running a profitable (long-running) loop
-    bool has_profitable_trace(uint32_t func_idx) const;
 
   private:
     // Property inline cache
@@ -786,6 +790,7 @@ class VM {
 
 #ifndef DISABLE_JIT
     // Method JIT compilation tracking
+    std::unique_ptr<jit::JitSession> jit_session;
     std::unordered_map<uint32_t, uint32_t> call_counts;
     // Tuned on the tsc workload (1280 JITted functions, startup-dominated):
     // interpretation is far more expensive per call than compilation, so compiling
@@ -794,15 +799,13 @@ class VM {
     // T=120 48.25B, T=200 48.80B, T=1000 56.6B, T=5000 79.7B, T=20000 122.6B.
     // 35..75 is a flat optimum; 50 sits mid-plateau rather than on its edge.
     static constexpr uint32_t JIT_THRESHOLD = 50;
-    // Tracing JIT state
+    // Recording observes interpreter values and property/index scratch state.
     jit::TraceRecording trace_recorder;
-    // Trace profitability measurement: a compiled trace writes the number of loop
-    // iterations it ran into trace_last_iters before returning.
+    // A compiled trace writes the number of loop iterations it ran here.
   public:
     uint64_t trace_last_iters = 0;
 
   private:
-    std::unordered_map<uint64_t, std::pair<uint64_t, uint32_t>> trace_iter_stats_;
     // scratch populated during OP_GET_PROPERTY / OP_SET_PROPERTY execution while a trace is recording.
     uint32_t trace_prop_slot = 0;
     bool trace_prop_recordable = false;
@@ -810,9 +813,7 @@ class VM {
     void *trace_arr_ptr = nullptr;
     size_t trace_arr_size_bytes = 0;
     bool trace_arr_recordable = false;
-    std::unordered_map<uint64_t, uint32_t> edge_heat_;
-    static constexpr uint32_t TRACE_HOT_THRESHOLD = 8;
-    void trace_record_step(OpCode op, uint8_t *insn_base);
+    void trace_record_step(OpCode op, const uint8_t *insn_base, size_t insn_pc, uint32_t func_idx);
 #endif
 
   public:
@@ -889,9 +890,8 @@ class VM {
 
     // execution
     bool execute_instruction();
-    Value call_builtin(const std::string &name, const std::vector<Value> &args);
-    Value call_builtin(const std::string &name, const Value *argv, size_t argc);
-    Value call_builtin_member(ScriptRuntime::BuiltinFn fn, const Value *argv, size_t argc);
+    Value call_builtin(const std::string &name, Value *argv, size_t argc);
+    Value call_builtin_member(ScriptRuntime::BuiltinFn fn, Value *argv, size_t argc);
     // pushes a builtin's return value, but first promotes any pending
     // ScriptRuntime throw_flag into a bytecode-VM throw via dispatch_throw, false when the throw is uncaught.
     bool push_builtin_result(Value result);
@@ -910,15 +910,18 @@ class VM {
     );
 
   public:
-    VM(int argc = 0, char **argv = nullptr);
+    VM(int argc = 0, char **argv = nullptr, bool enable_jit = true);
     ~VM();
+#ifndef DISABLE_JIT
+    jit::JitSession *jit() const { return jit_session.get(); }
+#endif
 
     // run a compiled chunk
     bool run(Chunk *compiled_chunk);
 
     // synchronously execute a function to completion
     Value call_function_value_sync(const Value &func_val, const std::vector<Value> &args, const Value *receiver = nullptr);
-    // span variant: same semantics without making a vector
+    // span variant: same concept but without making a vector
     Value call_function_value_span(const Value &func_val, const Value *args, size_t argc, const Value *receiver = nullptr);
     // synchronously run a compiled class function (field/ctor init, method, static init) to completion
     Value call_class_function_sync(uint32_t func_idx, const Value *args, size_t argc, const Value *receiver = nullptr);
@@ -949,6 +952,7 @@ Chunk *compile_bytecode(const FuncList &functions);
 struct AppendedCode {
     uint32_t entry_idx = UINT32_MAX;     // function to run, or UINT32_MAX for declarations-only
     std::vector<uint32_t> toplevel_idxs; // module top-levels from eval'd imports, in source order
+    bool ok = true;                      // false when compilation failed (no exceptions thrown)
 };
 
 // Compile extra functions into an already-running chunk, for eval().
@@ -958,6 +962,8 @@ AppendedCode compile_bytecode_append(Chunk *existing, const FuncList &functions,
 // Print a full disassembly of a compiled chunk (used by naric --dump and the
 // NARI_DUMP_CHUNK runtime debug hook).
 void dump_chunk(const Chunk &chunk);
+// Print one function or a module's bytecode range within <main>.
+void dump_function_range(const Chunk &chunk, uint32_t func_idx, size_t begin_pc, size_t end_pc);
 
 // collect all fields in MRO order, parent fields, then child fields.
 inline void bc_collect_all_fields(const nari::ClassDecl *class_decl, std::vector<const nari::ClassField *> &all_fields) {
@@ -998,9 +1004,8 @@ inline const nari::ClassMethod *bc_find_method(const nari::ClassDecl *class_decl
 }
 
 // Shared VM op bodies. These live here, not in jit_helpers.h, because the interpreter needs them in EVERY build config
-extern "C" {
 
-// Defined at the bottom of bytecode.cpp (not jit_helpers.cpp -- the interpreter
+// Defined in bytecode_jit_stubs.cpp (not jit_helpers.cpp -- the interpreter
 // runs these opcodes in every build config, including -Ddisable_jit=true).
 void jit_js_get_prop_static(VM *vm, uint32_t name_idx);
 void jit_js_set_prop_static(VM *vm, uint32_t name_idx);
@@ -1117,8 +1122,6 @@ inline bool jit_format_value_body(VM *vm, uint32_t spec_idx) {
     vm->push(vm->call_builtin("__format_value", args, 2));
     return true;
 }
-
-} // extern "C"
 
 } // namespace bytecode
 } // namespace nari

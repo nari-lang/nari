@@ -1,0 +1,75 @@
+import { assert } from "../lib/assert.nari";
+
+func grid_sum() {
+    let grid = [];
+    for (let i = 0; i < 12; i++) { grid.push(i % 2); }
+    let sum = 0;
+    for (let row = 0; row < 3; row++) {
+        for (let column = 0; column < 4; column++) {
+            let checked_row = row;
+            let checked_column = column;
+            if (checked_row >= 0 && checked_row < 3 && checked_column >= 0 && checked_column < 4) {
+                sum = sum + grid[checked_row * 4 + checked_column];
+            }
+        }
+    }
+    return sum;
+}
+
+func filled_write() {
+    let values = [];
+    for (let i = 0; i < 12; i++) { values.push(0); }
+    for (let i = 0; i < 12; i++) { values[i] = i; }
+    return values[11];
+}
+
+func incomplete_fill() {
+    let values = [];
+    for (let i = 0; i < 12; i++) {
+        if (i < 11) { values.push(i); }
+    }
+    return values[11];
+}
+
+func alias_shrink() {
+    let values = [];
+    for (let i = 0; i < 12; i++) { values.push(i); }
+    let alias = values;
+    alias.pop();
+    return values[11];
+}
+
+func changed_after_check() {
+    let values = [];
+    for (let i = 0; i < 12; i++) { values.push(i); }
+    let row = 0;
+    let last = 0;
+    while (row < 3) {
+        let column = row % 4;
+        if (row >= 0 && row < 3 && column >= 0 && column < 4) {
+            row = row + 1;
+            last = values[row * 4 + column];
+        }
+    }
+    return last;
+}
+
+func start() {
+    let sum = 0;
+    let missing = 0;
+    let shrunk = 0;
+    let changed = 0;
+    let written = 0;
+    for (let i = 0; i < 200; i++) {
+        sum = grid_sum();
+        missing = incomplete_fill();
+        shrunk = alias_shrink();
+        changed = changed_after_check();
+        written = filled_write();
+    }
+    assert(sum == 6, "guarded grid read changed");
+    assert(missing == null, "incomplete fill read must return null");
+    assert(shrunk == null, "aliased shrink read must return null");
+    assert(changed == null, "write after coordinate check must return null");
+    assert(written == 11, "filled array indexed write changed");
+}

@@ -72,6 +72,7 @@ OP_MAKE_CLOSURE
 The verifier currently checks:
 
 - `main_func_idx` is in range.
+- Function bodies contain at least one instruction.
 - Constant table references point to valid strings/functions.
 - Every opcode is known.
 - Operand bytes are not truncated.

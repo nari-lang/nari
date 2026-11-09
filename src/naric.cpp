@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -25,8 +26,8 @@ static std::string read_file_to_string(const std::string &path) {
         fclose(f);
         return {};
     }
-    std::string buf((size_t)sz, '\0');
-    size_t n = fread(&buf[0], 1, (size_t)sz, f);
+    std::string buf(static_cast<size_t>(sz), '\0');
+    size_t n = fread(&buf[0], 1, static_cast<size_t>(sz), f);
     fclose(f);
     buf.resize(n);
     return buf;
@@ -53,6 +54,8 @@ static void print_usage(const char *prog) {
 }
 
 int main(int argc, char **argv) {
+    // Heap exhaustion is unrecoverable: abort instead of throwing std::bad_alloc.
+    std::set_new_handler([] { nari_oom_abort("heap allocation failed"); });
     std::string input_path;
     std::string output_path;
     bool dump_mode = false;
@@ -130,7 +133,7 @@ int main(int argc, char **argv) {
         combined.push_back(std::move(f));
     }
 
-    bytecode::Chunk *chunk = bytecode::compile_bytecode(combined);
+    std::unique_ptr<nari::bytecode::Chunk> chunk(nari::bytecode::compile_bytecode(combined));
     if (!chunk) {
         fprintf(stderr, "Error: bytecode compilation failed\n");
         return 4;
@@ -138,12 +141,10 @@ int main(int argc, char **argv) {
 
     if (dump_mode) {
         nari::bytecode::dump_chunk(*chunk);
-        delete chunk;
         return 0;
     }
 
-    auto bytes = bytecode::BytecodeSerializer::serialize(*chunk);
-    delete chunk;
+    auto bytes = nari::bytecode::BytecodeSerializer::serialize(*chunk);
 
     if (!write_file(output_path, bytes.data(), bytes.size())) {
         fprintf(stderr, "Error: failed to write '%s'\n", output_path.c_str());

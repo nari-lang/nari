@@ -490,7 +490,7 @@ readGlobal();
 
 > [!IMPORTANT]
 > Assigning to a scalar global from **inside** a function does not update the
-> global — it creates a function-local variable that shadows it. To mutate
+> global, it creates a function-local variable that shadows it. To mutate
 > shared state from a function, wrap it in an object or array:
 >
 > ```nari

@@ -1,0 +1,34 @@
+import { assert } from "../lib/assert.nari";
+
+func multiply(a, b) {
+    return a * b;
+}
+
+func add(a, b) {
+    return a + b;
+}
+
+func subtract(a, b) {
+    return a - b;
+}
+
+func start() {
+    let positive = null;
+    let negative = null;
+    let sum = null;
+    let difference = null;
+    for (let i = 0; i < 200; i++) {
+        positive = multiply(1099511627776, 16777216);
+        negative = multiply(-1099511627776, 16777216);
+        sum = add(140737488355327, 1);
+        difference = subtract(-140737488355328, 1);
+    }
+    assert(typeof(positive) == "float", "positive overflow must promote to float");
+    assert(positive == 18446744073709551616.0, "positive overflow produced the wrong value");
+    assert(typeof(negative) == "float", "negative overflow must promote to float");
+    assert(negative == -18446744073709551616.0, "negative overflow produced the wrong value");
+    assert(typeof(sum) == "float", "addition overflow must promote to float");
+    assert(sum == 140737488355328.0, "addition overflow produced the wrong value");
+    assert(typeof(difference) == "float", "subtraction overflow must promote to float");
+    assert(difference == -140737488355329.0, "subtraction overflow produced the wrong value");
+}

@@ -24,7 +24,7 @@ static ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
 
     if (*lineptr == nullptr || *n == 0) {
         *n = 128;
-        *lineptr = (char *)realloc(*lineptr, *n);
+        *lineptr = static_cast<char *>(realloc(*lineptr, *n));
         if (!*lineptr) {
             return -1;
         }
@@ -33,7 +33,7 @@ static ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
     while ((c = fgetc(stream)) != EOF) {
         if (pos + 1 >= *n) {
             size_t new_size = *n * 2;
-            char *new_ptr = (char *)realloc(*lineptr, new_size);
+            char *new_ptr = static_cast<char *>(realloc(*lineptr, new_size));
             if (!new_ptr) {
                 return -1;
             }
@@ -65,21 +65,23 @@ bool runtime_trace_enabled() {
     return g_trace_enabled;
 }
 void set_runtime_trace_level(TraceLevel level) {
-    g_trace_level = (int)level;
+    g_trace_level = static_cast<int>(level);
     g_trace_enabled = (g_trace_level > 0);
 }
 TraceLevel get_runtime_trace_level() {
-    return (TraceLevel)g_trace_level;
+    return static_cast<TraceLevel>(g_trace_level);
 }
 void runtime_log(TraceLevel level, const std::string &msg) {
-    if (g_trace_enabled && (int)level <= g_trace_level) {
+    if (g_trace_enabled && static_cast<int>(level) <= g_trace_level) {
         fprintf(stderr, "%s\n", msg.c_str());
     }
 }
 } // namespace Runtime
 
-// report fatal runtime error with source location
-void runtime_fatal(const std::string &msg, const nari::ASTNode *node) {
+// report fatal runtime error with source location.
+// Status-return style: prints the diagnostic, latches the global error flag,
+// and returns none. Callers must return this value immediately.
+Value runtime_fatal(const std::string &msg, const nari::ASTNode *node) {
     std::string fname = "<runtime>";
     int l = 0, c = 0;
     if (node) {
@@ -130,7 +132,8 @@ void runtime_fatal(const std::string &msg, const nari::ASTNode *node) {
     fprintf(stderr, "  (source context not available on this platform!)\n");
 #endif
 
-    throw RuntimeError(msg, fname, l, c);
+    Runtime::g_runtime_error_occurred.store(true);
+    return Value::none();
 }
 
 using namespace nari;
@@ -146,7 +149,7 @@ Value ScriptRuntime::delegate_default_get(const Value &target, const Value &key)
         const auto &arr = target.get_array();
         if (key.is_int()) {
             int64_t idx = key.get_int();
-            if (idx >= 0 && idx < (int64_t)arr.size()) {
+            if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
                 return arr[idx];
             }
         }
@@ -159,16 +162,16 @@ Value ScriptRuntime::delegate_default_get(const Value &target, const Value &key)
     return Value::none();
 }
 
-void ScriptRuntime::delegate_default_set(const Value &target, const Value &key, const Value &val) {
+void ScriptRuntime::delegate_default_set(Value &target, const Value &key, const Value &val) {
     if (target.is_object()) {
-        const_cast<Value &>(target).get_obj_ptr()->set_field(key.to_string(), val);
+        target.get_obj_ptr()->set_field(key.to_string(), val);
         return;
     }
     if (target.is_array()) {
         if (key.is_int()) {
-            auto &arr = const_cast<Value &>(target).get_array();
+            auto &arr = target.get_array();
             int64_t idx = key.get_int();
-            if (idx >= 0 && idx < (int64_t)arr.size()) {
+            if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
                 arr[idx] = val;
             }
         }
@@ -195,7 +198,7 @@ bool ScriptRuntime::delegate_default_has(const Value &target, const Value &key) 
     if (target.is_array()) {
         if (key.is_int()) {
             int64_t idx = key.get_int();
-            return idx >= 0 && idx < (int64_t)target.get_array().size();
+            return idx >= 0 && idx < static_cast<int64_t>(target.get_array().size());
         }
         return false;
     }
@@ -221,7 +224,7 @@ static uint32_t trap_field_id(TrapId which) {
         intern_field("has"),
         intern_field("call"),
     };
-    return ids[(int)which];
+    return ids[static_cast<size_t>(which)];
 }
 
 // Look up a trap on the handler object, returns a function Value or none.
@@ -236,16 +239,16 @@ static Value delegate_trap(const Value &del, TrapId which) {
         if (NARI_UNLIKELY(h->shape != d->trap_shape)) {
             // (re)resolve all four trap slots against this shape
             for (int i = 0; i < 4; i++) {
-                const uint32_t slot = h->shape->slot_of(trap_field_id((TrapId)i));
-                d->trap_slots[i] = slot != ObjectShape::NoSlot ? (int32_t)slot : -1;
+                const uint32_t slot = h->shape->slot_of(trap_field_id(static_cast<TrapId>(i)));
+                d->trap_slots[i] = slot != ObjectShape::NoSlot ? static_cast<int32_t>(slot) : -1;
             }
             d->trap_shape = h->shape;
         }
-        int32_t slot = d->trap_slots[(int)which];
-        if (slot < 0 || (size_t)slot >= h->fields.size()) {
+        int32_t slot = d->trap_slots[static_cast<size_t>(which)];
+        if (slot < 0 || static_cast<size_t>(slot) >= h->fields.size()) {
             return Value::none();
         }
-        const Value &t = h->fields[(size_t)slot];
+        const Value &t = h->fields[static_cast<size_t>(slot)];
         return t.is_function() ? t : Value::none();
     }
     // dict-mode or pending-lazy handler: full id lookup
@@ -387,8 +390,9 @@ Value ScriptRuntime::construct_result_variant(const char *variant, const Value &
     return result;
 }
 
-bool ScriptRuntime::initialize_result_template(ResultConstructorTmpl &cache, const Value &constructor, const Value &result,
-                                               const Value &payload) {
+bool ScriptRuntime::initialize_result_template(
+    ResultConstructorTmpl &cache, const Value &constructor, const Value &result, const Value &payload
+) {
     cache.initialized = true;
     cache.constructor = constructor;
     if (!result.is_object()) {
@@ -431,16 +435,17 @@ bool ScriptRuntime::initialize_result_template(ResultConstructorTmpl &cache, con
             cache.methods.clear();
             return false;
         }
-        cache.methods.push_back(ResultMethodTmpl{ slot, fn.name, fn.jit_func_idx, fn.jit_locals_count, fn.jit_meta, fn.jit_inline_kind,
-                                                  fn.jit_native_kind, fn.jit_inline_imm, fn.jit_param_count,
-                                                  fn.jit_rest_param_index, fn.jit_js_undefined_params });
+        cache.methods.push_back(
+            ResultMethodTmpl{ slot, fn.name, fn.jit_func_idx, fn.jit_locals_count, fn.jit_meta, fn.jit_inline_kind, fn.jit_native_kind,
+                              fn.jit_inline_imm, fn.jit_param_count, fn.jit_rest_param_index, fn.jit_js_undefined_params }
+        );
         cache.fields[slot] = Value::none();
     }
     cache.usable = found_data && !cache.methods.empty();
     return cache.usable;
 }
 
-Value ScriptRuntime::instantiate_result_template(const ResultConstructorTmpl &cache, const Value &payload) {
+Value ScriptRuntime::instantiate_result_template(ResultConstructorTmpl &cache, const Value &payload) {
     Value result = Value::make_object();
     ObjectObj *obj = result.get_obj_ptr();
     obj->shape = cache.shape;
@@ -454,15 +459,15 @@ Value ScriptRuntime::instantiate_result_template(const ResultConstructorTmpl &ca
             obj->lazy_field_mask |= uint64_t{ 1 } << method.slot;
         }
     }
-    obj->lazy_field_context = const_cast<ResultConstructorTmpl *>(&cache);
+    obj->lazy_field_context = &cache;
     obj->lazy_field_factory = &ScriptRuntime::make_result_method;
     obj->lazy_field_invoker = &ScriptRuntime::invoke_result_method;
     obj->lazy_payload = payload;
     return result;
 }
 
-Value ScriptRuntime::make_result_method(void *context, ObjectObj *obj, uint32_t slot) {
-    const auto *cache = (const ResultConstructorTmpl *)context;
+Value ScriptRuntime::make_result_method(void *context, const ObjectObj *obj, uint32_t slot) {
+    const auto *cache = static_cast<const ResultConstructorTmpl *>(context);
     const ResultMethodTmpl *method = nullptr;
     for (const ResultMethodTmpl &candidate : cache->methods) {
         if (candidate.slot == slot) {
@@ -494,11 +499,11 @@ Value ScriptRuntime::make_result_method(void *context, ObjectObj *obj, uint32_t 
     return closure;
 }
 
-bool ScriptRuntime::invoke_result_method(void *context, ObjectObj *obj, uint32_t slot, const Value *, size_t argc, Value &result) {
+bool ScriptRuntime::invoke_result_method(void *context, const ObjectObj *obj, uint32_t slot, const Value *, size_t argc, Value &result) {
     if (argc != 0) {
         return false;
     }
-    const auto *cache = (const ResultConstructorTmpl *)context;
+    const auto *cache = static_cast<const ResultConstructorTmpl *>(context);
     if (cache->unwrap_returns_payload && slot < cache->shape->field_ids.size() && cache->shape->name_at(slot) == "unwrap") {
         result = obj->lazy_payload;
         return true;
@@ -609,8 +614,10 @@ void ScriptRuntime::collect_garbage() {
     size_t collected = gc.collect(roots);
 
     if (Runtime::runtime_trace_enabled()) {
-        Runtime::runtime_log(Runtime::TraceLevel::Debug, "GC: Collected " + std::to_string(collected) + " unreachable objects. " +
-                                                             "Tracked objects: " + std::to_string(gc.get_tracked_count()));
+        Runtime::runtime_log(
+            Runtime::TraceLevel::Debug, "GC: Collected " + std::to_string(collected) + " unreachable objects. " +
+                                            "Tracked objects: " + std::to_string(gc.get_tracked_count())
+        );
     }
 }
 

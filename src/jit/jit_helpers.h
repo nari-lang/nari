@@ -9,10 +9,10 @@
 
 // helper function definitions for asmjit
 
-using namespace nari::bytecode;
+using nari::bytecode::VM;
 
 extern "C" {
-#ifdef NARI_ENABLE_GDB_JIT
+#ifndef NARI_DISABLE_GDB_JIT
 void nari_jit_initial_load_complete();
 #endif
 void jit_load_const(VM *, uint32_t);

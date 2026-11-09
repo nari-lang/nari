@@ -1,8 +1,8 @@
 #include "common.h"
 
-Value ScriptRuntime::builtin_module_import_namespace(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
+Value ScriptRuntime::builtin_module_import_namespace(Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
     if (argc != 1 || !argvals[0].is_string()) {
-        runtime_fatal("__module_import_namespace expects a single module-path string argument", callExpr);
+        return runtime_fatal("__module_import_namespace expects a single module-path string argument", callExpr);
     }
 
     const std::string module_name = argvals[0].get_string();
@@ -48,7 +48,7 @@ Value ScriptRuntime::builtin_module_import_namespace(const Value *argvals, size_
         }
 
         if (!found) {
-            runtime_fatal(
+            return runtime_fatal(
                 "Module export '" + binding.export_name + "' was declared but no binding named '" + binding.local_name +
                     "' exists in module '" + module_name + "'",
                 callExpr
@@ -61,25 +61,32 @@ Value ScriptRuntime::builtin_module_import_namespace(const Value *argvals, size_
     return result_ns;
 }
 
-Value ScriptRuntime::builtin_module_import_named(const Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
+Value ScriptRuntime::builtin_module_import_named(Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
     if (argc != 2 || !argvals[0].is_string() || !argvals[1].is_string()) {
-        runtime_fatal("__module_import_named expects a module-path string and an export-name string", callExpr);
+        return runtime_fatal("__module_import_named expects a module-path string and an export-name string", callExpr);
     }
 
     const std::string module_name = argvals[0].get_string();
     const std::string export_name = argvals[1].get_string();
     Value namespace_obj = builtin_module_import_namespace(argvals, 1, callExpr);
-    const Value *exp_v = namespace_obj.get_obj_ptr()->get_field(export_name);
-    if (!exp_v) {
-        runtime_fatal("Module '" + module_name + "' does not export '" + export_name + "'", callExpr);
+    if (Runtime::g_runtime_error_occurred.load()) {
+        return Value::none();
+    }
+    const ObjectObj *ns_oobj = namespace_obj.get_obj_ptr();
+    if (!ns_oobj) {
+        return Value::none();
+    }
+    const Value *export_val = ns_oobj->get_field(export_name);
+    if (!export_val) {
+        return runtime_fatal("Module '" + module_name + "' does not export '" + export_name + "'", callExpr);
     }
 
-    return *exp_v;
+    return *export_val;
 }
 
 #ifndef NARI_ESP_IDF
 // I/O builtins
-Value ScriptRuntime::builtin_readLine(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_readLine(Value *, size_t, const nari::CallExpr *) {
     char *line_buf = nullptr;
     size_t buf_size = 0;
     ssize_t len = getline(&line_buf, &buf_size, stdin);
@@ -104,7 +111,7 @@ Value ScriptRuntime::builtin_readLine(const Value *, size_t, const nari::CallExp
 #define NARI_FILENO_FUNC fileno
 #endif
 
-Value ScriptRuntime::builtin_readAll(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_readAll(Value *, size_t, const nari::CallExpr *) {
     // when stdin is a terminal, reading until EOF requires Ctrl+D and blocks indefinitely after the user presses Enter.
     // this *should* detect that and fall back to reading a single line instead.
     bool is_tty = (NARI_ATTY_FUNC(NARI_FILENO_FUNC(stdin)) != 0);
@@ -126,7 +133,7 @@ Value ScriptRuntime::builtin_readAll(const Value *, size_t, const nari::CallExpr
 }
 #endif
 
-Value ScriptRuntime::builtin_time(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_time(Value *, size_t, const nari::CallExpr *) {
     using namespace chrono;
 
     auto now = high_resolution_clock::now();
@@ -213,21 +220,19 @@ bool get_int_field(const ObjectObj *o, const std::string &name, int64_t &out, in
 
 } // namespace
 
-Value ScriptRuntime::builtin_time_now_ms(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_time_now_ms(Value *, size_t, const nari::CallExpr *) {
     using namespace chrono;
     auto now = system_clock::now();
     int64_t ms = duration_cast<milliseconds>(now.time_since_epoch()).count();
     return Value::make_int(ms);
 }
 
-Value ScriptRuntime::builtin_time_components(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_time_components(Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 1 || argc > 2) {
-        runtime_fatal("DateError: __time_components(ms, utc=true) expects 1..2 args", call);
-        return Value::none();
+        return runtime_fatal("DateError: __time_components(ms, utc=true) expects 1..2 args", call);
     }
     if (!argvals[0].is_int() && !argvals[0].is_float()) {
-        runtime_fatal("DateError: ms must be a number", call);
-        return Value::none();
+        return runtime_fatal("DateError: ms must be a number", call);
     }
     int64_t ms = argvals[0].is_int() ? argvals[0].get_int() : static_cast<int64_t>(argvals[0].get_float());
     bool utc = (argc < 2) ? true : argvals[1].is_bool() ? argvals[1].get_bool() : true;
@@ -251,14 +256,12 @@ Value ScriptRuntime::builtin_time_components(const Value *argvals, size_t argc, 
     return make_ok(obj);
 }
 
-Value ScriptRuntime::builtin_time_from_components(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_time_from_components(Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 1 || argc > 2) {
-        runtime_fatal("DateError: __time_from_components expects 1..2 args", call);
-        return Value::none();
+        return runtime_fatal("DateError: __time_from_components expects 1..2 args", call);
     }
     if (!argvals[0].is_object()) {
-        runtime_fatal("DateError: first arg must be an object with date fields", call);
-        return Value::none();
+        return runtime_fatal("DateError: first arg must be an object with date fields", call);
     }
     const ObjectObj *o = argvals[0].get_obj_ptr();
     bool utc = (argc < 2) ? true : argvals[1].is_bool() ? argvals[1].get_bool() : true;
@@ -266,8 +269,7 @@ Value ScriptRuntime::builtin_time_from_components(const Value *argvals, size_t a
     if (!get_int_field(o, "year", year, 1970) || !get_int_field(o, "month", month, 1) || !get_int_field(o, "day", day, 1) ||
         !get_int_field(o, "hour", hour, 0) || !get_int_field(o, "minute", minute, 0) || !get_int_field(o, "second", second, 0) ||
         !get_int_field(o, "ms", sub_ms, 0)) {
-        runtime_fatal("DateError: date fields must be numbers", call);
-        return Value::none();
+        return runtime_fatal("DateError: date fields must be numbers", call);
     }
     std::tm tm{};
     tm.tm_year = static_cast<int>(year - 1900);
@@ -285,18 +287,15 @@ Value ScriptRuntime::builtin_time_from_components(const Value *argvals, size_t a
     return make_ok(Value::make_int(ms));
 }
 
-Value ScriptRuntime::builtin_time_format(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_time_format(Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 2 || argc > 3) {
-        runtime_fatal("DateError: __time_format(ms, fmt, utc=true) expects 2..3 args", call);
-        return Value::none();
+        return runtime_fatal("DateError: __time_format(ms, fmt, utc=true) expects 2..3 args", call);
     }
     if (!argvals[0].is_int() && !argvals[0].is_float()) {
-        runtime_fatal("DateError: ms must be a number", call);
-        return Value::none();
+        return runtime_fatal("DateError: ms must be a number", call);
     }
     if (!argvals[1].is_string()) {
-        runtime_fatal("DateError: fmt must be a string", call);
-        return Value::none();
+        return runtime_fatal("DateError: fmt must be a string", call);
     }
     int64_t ms = argvals[0].is_int() ? argvals[0].get_int() : static_cast<int64_t>(argvals[0].get_float());
     std::string fmt = argvals[1].get_string();
@@ -339,10 +338,9 @@ Value ScriptRuntime::builtin_time_format(const Value *argvals, size_t argc, cons
     return make_ok(Value::make_string(""));
 }
 
-Value ScriptRuntime::builtin_time_parse_iso(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_time_parse_iso(Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc != 1 || !argvals[0].is_string()) {
-        runtime_fatal("DateError: __time_parse_iso(s) expects 1 string arg", call);
-        return Value::none();
+        return runtime_fatal("DateError: __time_parse_iso(s) expects 1 string arg", call);
     }
     const std::string &s = argvals[0].get_string();
     // Accept:  YYYY-MM-DD
@@ -503,10 +501,9 @@ bool url_is_path_safe(unsigned char c) {
 
 } // namespace
 
-Value ScriptRuntime::builtin_url_encode(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_url_encode(Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 1 || !argvals[0].is_string()) {
-        runtime_fatal("URLError: __url_encode(s, mode='component') expects a string", call);
-        return Value::none();
+        return runtime_fatal("URLError: __url_encode(s, mode='component') expects a string", call);
     }
     const std::string &s = argvals[0].get_string();
     bool path_mode = false;
@@ -528,10 +525,9 @@ Value ScriptRuntime::builtin_url_encode(const Value *argvals, size_t argc, const
     return Value::make_string(std::move(out));
 }
 
-Value ScriptRuntime::builtin_url_decode(const Value *argvals, size_t argc, const nari::CallExpr *call) {
+Value ScriptRuntime::builtin_url_decode(Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 1 || !argvals[0].is_string()) {
-        runtime_fatal("URLError: __url_decode(s, plus=false) expects a string", call);
-        return Value::none();
+        return runtime_fatal("URLError: __url_decode(s, plus=false) expects a string", call);
     }
     const std::string &s = argvals[0].get_string();
     bool plus_mode = (argc >= 2 && argvals[1].is_bool() && argvals[1].get_bool());

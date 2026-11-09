@@ -57,6 +57,7 @@ nari script.naric
 ## Editor Support
 
 See [EDITOR_SUPPORT.md](EDITOR_SUPPORT.md) for information on the VS Code extension, `nari-lsp`, debugging, syntax highlighting, and editor integration.
+For GDB source and bytecode breakpoints, see [docs/gdb-debugging.md](docs/gdb-debugging.md).
 
 ## Documentation
 
@@ -149,9 +150,9 @@ on distros that do not package `asmjit` or `replxx`.
 
 Packagers who need reproducible, network-isolated builds can control the
 fallback with Meson's `--wrap-mode`:
-- `--wrap-mode=nofallback` — never build subprojects; require system copies
+- `--wrap-mode=nofallback`, never build subprojects; require system copies
   (missing `asmjit` errors, missing `replxx` just disables the REPL).
-- `--wrap-mode=nodownload` — only use sources already vendored under
+- `--wrap-mode=nodownload`, only use sources already vendored under
   `subprojects/` / `subprojects/packagecache/` (no network fetch).
 
 Packaging scripts can also call Meson directly:

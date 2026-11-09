@@ -1,5 +1,6 @@
 #ifndef DISABLE_JIT
 #include "jit_helpers.h"
+#include "runtime/session.h"
 #include "compiler_support.h"
 #include "int_overflow.h"
 #include "io.h"
@@ -40,41 +41,40 @@ static void jit_dispatch_script_throw(VM *vm, Value error) {
 
 template <typename Call>
 static auto jit_runtime_call(VM *vm, Call &&call) -> decltype(call()) {
-    try {
-        auto result = call();
-        if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
-            std::longjmp(*vm->overflow_jmp, 1);
-        }
-        if (NARI_UNLIKELY(vm->runtime->has_pending_throw())) {
-            Value err = vm->runtime->take_pending_throw();
-            jit_dispatch_script_throw(vm, std::move(err));
-        }
-        return result;
-    } catch (const RuntimeError &) {
+    auto result = call();
+    if (NARI_UNLIKELY(Runtime::g_runtime_error_occurred.load())) {
         vm->has_error = true;
         if (vm->overflow_jmp) {
             std::longjmp(*vm->overflow_jmp, 1);
         }
-        return {};
+        return decltype(call()){};
     }
+    if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
+        std::longjmp(*vm->overflow_jmp, 1);
+    }
+    if (NARI_UNLIKELY(vm->runtime->has_pending_throw())) {
+        Value err = vm->runtime->take_pending_throw();
+        jit_dispatch_script_throw(vm, std::move(err));
+    }
+    return result;
 }
 
 template <typename Call>
 static void jit_runtime_call_void(VM *vm, Call &&call) {
-    try {
-        call();
-        if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
-            std::longjmp(*vm->overflow_jmp, 1);
-        }
-        if (NARI_UNLIKELY(vm->runtime->has_pending_throw())) {
-            Value err = vm->runtime->take_pending_throw();
-            jit_dispatch_script_throw(vm, std::move(err));
-        }
-    } catch (const RuntimeError &) {
+    call();
+    if (NARI_UNLIKELY(Runtime::g_runtime_error_occurred.load())) {
         vm->has_error = true;
         if (vm->overflow_jmp) {
             std::longjmp(*vm->overflow_jmp, 1);
         }
+        return;
+    }
+    if (NARI_UNLIKELY(vm->has_error) && vm->overflow_jmp) {
+        std::longjmp(*vm->overflow_jmp, 1);
+    }
+    if (NARI_UNLIKELY(vm->runtime->has_pending_throw())) {
+        Value err = vm->runtime->take_pending_throw();
+        jit_dispatch_script_throw(vm, std::move(err));
     }
 }
 
@@ -93,8 +93,7 @@ void jit_poll_shutdown(VM *vm) {
 }
 
 // Push an immediate int/float. Used by the optimizing-IR lowering, whose IConst/
-// FConst carry the value directly (not a constant-pool index). make_int_checked
-// keeps Nari's int48-overflow-promotes-to-float semantics.
+// FConst carry the value directly (not a constant-pool index). 
 void jit_push_int(VM *vm, int64_t v) {
     vm->push(Value::make_int_checked(v));
 }
@@ -155,7 +154,7 @@ void jit_store_var(VM *vm, uint32_t idx) {
 // Ends a loop iteration: drops this frame's upvalue cells for locals at or above
 // first_slot so the next iteration's closures get fresh cells instead of aliasing.
 void jit_close_upvalues(VM *vm, uint32_t first_slot) {
-    vm->current_frame().close_upvalues_from((uint16_t)first_slot);
+    vm->current_frame().close_upvalues_from(static_cast<uint16_t>(first_slot));
 }
 
 // slow path: write directly to slot with no operand-stack traffic.
@@ -441,7 +440,8 @@ static uint32_t jit_js_to_uint32(VM *vm, const Value &value) {
         numeric = value.get_float();
     } else {
         ScriptRuntime::BuiltinFn to_number = vm->runtime->lookup_builtin_member("__js_to_number");
-        Value number = vm->call_builtin_member(to_number, &value, 1);
+        Value value_copy = value;
+        Value number = vm->call_builtin_member(to_number, &value_copy, 1);
         jit_abort_on_runtime_error(vm);
         numeric = number.as_number();
     }
@@ -675,17 +675,13 @@ static void jit_call_depth_overflow(VM *vm) {
     }
 }
 
-// Debug-census switches. Deliberately at file scope: as function-local statics
-// inside jit_call_value_impl these cost a guard-variable load + branch each, i.e.
-// 10 instructions of dead weight on all 15.3M calls per tsc run.
 static const bool g_call_census = getenv("NARI_CALL_CENSUS") != nullptr;
 static const bool g_dc_census = getenv("NARI_DC_CENSUS") != nullptr;
 
 static NARI_ALWAYS_INLINE void jit_check_call_depth(VM *vm) {
-    // frames.size() divides the byte span by sizeof(CallFrame) (104, not a power of
-    // two), so it compiled to a shift plus a magic-reciprocal imul on every call.
-    // Comparing pointers folds the bound into a single constant displacement.
-    if (NARI_UNLIKELY(vm->frames.storage_end >= vm->frames.storage_begin + MAX_CALL_DEPTH)) {
+    // Both pointers are within the allocated frame array. Forming
+    // storage_begin + MAX_CALL_DEPTH is undefined while capacity is smaller.
+    if (NARI_UNLIKELY(vm->frames.size() >= MAX_CALL_DEPTH)) {
         jit_call_depth_overflow(vm);
     }
 }
@@ -1084,12 +1080,12 @@ struct CallCensus {
         for (const auto &e : v) {
             total += e.second;
         }
-        fprintf(stderr, "\n=== dynamic call census (total %llu) ===\n", (unsigned long long)total);
+        fprintf(stderr, "\n=== dynamic call census (total %llu) ===\n", static_cast<unsigned long long>(total));
         size_t n = v.size() < 40 ? v.size() : 40;
         for (size_t i = 0; i < n; i++) {
             fprintf(
-                stderr, "%10llu  %5.2f%%  %s\n", (unsigned long long)v[i].second, 100.0 * (double)v[i].second / (double)total,
-                v[i].first.c_str()
+                stderr, "%10llu  %5.2f%%  %s\n", static_cast<unsigned long long>(v[i].second),
+                100.0 * static_cast<double>(v[i].second) / static_cast<double>(total), v[i].first.c_str()
             );
         }
     }
@@ -1104,8 +1100,7 @@ static void jit_call_census_record(const FunctionData &fd) {
 
 // ---- direct-call blocker census (NARI_DC_CENSUS=1, diagnostic only) ----
 // For every dynamic call that reached the generic path, bucket the reason
-// resolve_direct_callee() would have refused it. Answers "is the 8-local
-// none-fill unroll bound the thing keeping tsc off the direct-call path".
+// resolve_direct_callee() would have refused it.
 namespace {
 struct DcCensus {
     uint64_t total = 0, native = 0, no_meta = 0, rest = 0, cap0 = 0, argc_gt4 = 0, arity = 0;
@@ -1115,9 +1110,12 @@ struct DcCensus {
         if (total == 0) {
             return;
         }
-        fprintf(stderr, "\n=== direct-call blocker census (total %llu) ===\n", (unsigned long long)total);
+        fprintf(stderr, "\n=== direct-call blocker census (total %llu) ===\n", static_cast<unsigned long long>(total));
         auto p = [&](const char *n, uint64_t v) {
-            fprintf(stderr, "%12llu  %5.2f%%  %s\n", (unsigned long long)v, 100.0 * (double)v / (double)total, n);
+            fprintf(
+                stderr, "%12llu  %5.2f%%  %s\n", static_cast<unsigned long long>(v),
+                100.0 * static_cast<double>(v) / static_cast<double>(total), n
+            );
         };
         p("native_kind (intrinsic)", native);
         p("no jit_meta / not user fn", no_meta);
@@ -1158,7 +1156,7 @@ static void jit_dc_census_record(const FunctionData &fd, uint32_t argc) {
         c.argc_gt4++;
         return;
     }
-    if ((uint32_t)fd.jit_param_count != argc || fd.jit_locals_count < argc) {
+    if (static_cast<uint32_t>(fd.jit_param_count) != argc || fd.jit_locals_count < argc) {
         c.arity++;
         return;
     }
@@ -1207,36 +1205,29 @@ static void jit_call_value_impl(VM *vm, uint32_t argc, uint32_t callee_label_idx
     }
 
     if (fidx >= 0) {
-        FunctionMeta *func = fd.jit_meta ? fd.jit_meta : &vm->chunk->functions[(uint32_t)fidx];
-        // Read the three call-shape scalars from FunctionData when it has them, so this
-        // path never dereferences FunctionMeta's second cache line (see the comment on
-        // FunctionData::jit_param_count). push_jit_frame still touches line 1 for
-        // code.data(), so this removes one of the two lines touched per call.
+        FunctionMeta *func = fd.jit_meta ? fd.jit_meta : &vm->chunk->functions[static_cast<uint32_t>(fidx)];
+        // Read the three call-shape scalars from FunctionData when it has them, 
+        // so this path never dereferences FunctionMeta's second cache line
         const bool meta_cached = fd.jit_meta != nullptr;
         // Rest arguments must be packed before entering the callee. The
         // general call path already performs that setup; the in-place fast
         // path below deliberately only handles one argument per local slot.
-        const int rest_param_index = meta_cached ? (int)fd.jit_rest_param_index : (int)func->rest_param_index;
+        const int rest_param_index = meta_cached ? static_cast<int>(fd.jit_rest_param_index) : static_cast<int>(func->rest_param_index);
         if (NARI_UNLIKELY(rest_param_index >= 0)) {
             jit_call(vm, argc);
             return;
         }
         const size_t locals_needed = meta_cached ? fd.jit_locals_count : func->var_names.size();
-        const size_t param_count = meta_cached ? (size_t)fd.jit_param_count : (size_t)func->param_count;
+        const size_t param_count = meta_cached ? static_cast<size_t>(fd.jit_param_count) : static_cast<size_t>(func->param_count);
         Value closure_root = func_val;
 
         // in-place arg move: shift args down over the func_val slot.
-        // This is a memmove@plt call for what is usually 8-32 bytes. Replacing it with
-        // an inline ascending copy for argc<=4 was measured: -6% instructions on a
-        // call-heavy microbench but +8% cycles there (variable trip count mispredicts),
-        // and neutral on tsc over 14 interleaved pairs. Left as memmove.
         std::memmove(vm->stack.data() + slot_base, vm->stack.data() + args_base, argc * sizeof(Value));
 
-        // resize to exactly locals_needed slots from slot_base.
         vm->stack.resize(slot_base + locals_needed);
 
-        // resize() initializes newly grown slots. Fill omitted parameters with
-        // the function's language-specific missing-argument value.
+        // resize() initializes newly grown slots.
+        // Fill omitted parameters with the function's language-specific missing-argument value.
         if (argc < locals_needed) {
             const size_t missing_end = std::min(param_count, locals_needed);
             Value missing_arg;
@@ -1261,10 +1252,10 @@ static void jit_call_value_impl(VM *vm, uint32_t argc, uint32_t callee_label_idx
         vm->jit_capture1_raw = fd.jit_capture1_raw;
         vm->jit_capture2_raw = fd.jit_capture2_raw;
 
-        auto compiled = nari::jit::g_jit_compiler->compiled_at((uint32_t)fidx);
+        auto compiled = vm->jit()->method_entry(static_cast<uint32_t>(fidx));
         if (!compiled) {
-            vm->note_jit_callee((uint32_t)fidx); // count + compile hot callees reached only via JIT
-            compiled = nari::jit::g_jit_compiler->compiled_at((uint32_t)fidx);
+            vm->note_jit_callee(static_cast<uint32_t>(fidx)); // count + compile hot callees reached only via JIT
+            compiled = vm->jit()->method_entry(static_cast<uint32_t>(fidx));
         }
         if (compiled) {
             vm->jit_call_depth++;
@@ -1308,7 +1299,7 @@ static void jit_call_value_impl(VM *vm, uint32_t argc, uint32_t callee_label_idx
     }
 
     // unknown func_idx (extension builtin, AST lambda, or runtime function).
-    // fall back to full jit_call; stack hasn't been modified yet.
+    // fall back to full jit_call.
     jit_call(vm, argc);
 }
 
@@ -1324,10 +1315,9 @@ uint64_t jit_string_char_code_at(void *string_obj, int64_t index) {
     return Value::make_int(code).raw_bits();
 }
 
-// __js_str_code_point_at(s, i). char_code_at is byte-based here, so every code
-// unit is 0..255 and the scripted helper's surrogate-pair branches are
-// unreachable: the result is the indexed byte, or undefined out of range. Needs
-// the VM only to source the undefined value.
+// __js_str_code_point_at(s, i). 
+// char_code_at is byte-based here, so every code unit is 0..255
+// and the scripted helper's surrogate-pair branches are unreachable
 uint64_t jit_string_code_point_at(void *vmp, void *string_obj, int64_t index) {
     const std::string &text = static_cast<StringObj *>(string_obj)->s;
     if (index < 0 || index >= static_cast<int64_t>(text.size())) {
@@ -1429,8 +1419,8 @@ static void jit_call_impl(VM *vm, uint32_t argc, const Value *receiver = nullptr
             user_idx = -1; // not a user bytecode function; fall to func_ptr path
         } else {
             user_idx = static_cast<int32_t>(fit->second);
-            // Populate the IC for future calls.
-            const_cast<FunctionData &>(fdata).jit_func_idx = user_idx;
+            // Populate the IC for future calls (jit_func_idx is a mutable cache field).
+            fdata.jit_func_idx = user_idx;
         }
     }
 
@@ -1443,7 +1433,7 @@ static void jit_call_impl(VM *vm, uint32_t argc, const Value *receiver = nullptr
             vm->stack.resize(args_base - 1);
             vm->call_user_function(static_cast<uint32_t>(user_idx), args, nullptr, captures, receiver);
         } else {
-            vm->call_user_function_stack((uint32_t)user_idx, args_base, argc, {}, receiver);
+            vm->call_user_function_stack(static_cast<uint32_t>(user_idx), args_base, argc, {}, receiver);
         }
 
         // run the callee to completion (interpreter loop)
@@ -1499,8 +1489,7 @@ void jit_call_method(VM *vm, uint32_t method_name_idx, uint32_t argc) {
     const size_t obj_idx = args_base - 1;
     Value obj = vm->stack[obj_idx];
 
-    // An object's, class instance's, or callable object's own field shadows
-    // any builtin member of the same name.
+    // An object's, class instance's, or callable object's own field shadows any builtin member of the same name.
     const Value *method = nullptr;
     if (obj.is_object()) {
         ObjectObj *method_obj = obj.get_obj_ptr();
@@ -1618,7 +1607,7 @@ void jit_call_method(VM *vm, uint32_t method_name_idx, uint32_t argc) {
         }
     }
     if (fn) {
-        Value result = vm->call_builtin_member(fn, &vm->stack[obj_idx], (size_t)argc + 1);
+        Value result = vm->call_builtin_member(fn, &vm->stack[obj_idx], static_cast<size_t>(argc) + 1);
         vm->stack.resize(obj_idx);
         vm->push(std::move(result));
         jit_abort_on_runtime_error(vm);
@@ -1694,7 +1683,7 @@ void jit_method_length(VM *vm) {
     }
     Value obj = vm->pop();
     if (obj.is_object()) {
-        vm->push(Value::make_int((int64_t)obj.get_obj_ptr()->field_count()));
+        vm->push(Value::make_int(static_cast<int64_t>(obj.get_obj_ptr()->field_count())));
     } else {
         vm->push(Value::make_int(0));
     }
@@ -1811,9 +1800,9 @@ void jit_method_substr(VM *vm, uint32_t argc) {
         return;
     }
     auto fn = resolve_method_fn(vm, s_fn_substr, "substr");
-    std::vector<Value> args((size_t)argc + 1);
-    for (int64_t i = (int64_t)argc; i >= 0; i--) {
-        args[(size_t)i] = vm->pop();
+    std::vector<Value> args(static_cast<size_t>(argc) + 1);
+    for (int64_t i = static_cast<int64_t>(argc); i >= 0; i--) {
+        args[static_cast<size_t>(i)] = vm->pop();
     }
     vm->push(vm->call_builtin_member(fn, args.data(), args.size()));
     jit_abort_on_runtime_error(vm);
@@ -1878,23 +1867,15 @@ void jit_array_spread(VM *vm) {
 
 void jit_make_closure(VM *vm, void *site_ptr) {
     const uint8_t *site = static_cast<const uint8_t *>(site_ptr);
-    auto read_u16 = [](const uint8_t *p) -> uint16_t { return (uint16_t)((p[0] << 8) | p[1]); };
+    auto read_u16 = [](const uint8_t *p) -> uint16_t { return static_cast<uint16_t>(((p[0] << 8) | p[1])); };
     uint16_t func_idx = read_u16(site + 1);
     uint16_t capture_count = read_u16(site + 3);
     const uint8_t *descriptor = site + 5;
     FunctionMeta *func = &vm->chunk->functions[func_idx];
     CapturesList captures;
     auto &frame = vm->current_frame();
-
-    // 2.66M closures are built per tsc run and their capture cells repeat 94% of the
-    // time, so reuse the per-frame cached CapturesList outright when every cell matches.
-    // Compare in place against the cached vector as cells are computed: a full match costs
-    // zero allocations and needs no scratch buffer, and the first mismatch at index k
-    // materializes a fresh vector seeded with the k cells already known to match.
-    // A source==2 capture snapshots the global's value into a fresh cell, so a cached
-    // vector holding one would serve a stale value: those stop reuse.
     const CapturesList &hit = frame.single_capture_cache;
-    bool tracking = capture_count >= 1 && hit && hit->size() == (size_t)capture_count;
+    bool tracking = capture_count >= 1 && hit && hit->size() == static_cast<size_t>(capture_count);
     bool cacheable = true;
     for (uint16_t i = 0; i < capture_count; i++, descriptor += 3) {
         uint8_t source = descriptor[0];
@@ -1944,13 +1925,14 @@ void jit_make_closure(VM *vm, void *site_ptr) {
 
     Value closure = Value::make_function(func->name);
     auto &function = closure.get_function();
+    
     function.captures = std::move(captures);
     function.cache_jit_captures();
-    function.jit_func_idx = (int32_t)func_idx;
-    function.jit_locals_count = (uint32_t)func->var_names.size();
+    function.jit_func_idx = static_cast<int32_t>(func_idx);
+    function.jit_locals_count = static_cast<uint32_t>(func->var_names.size());
     function.jit_meta = func;
-    function.jit_param_count = (uint8_t)func->param_count;
-    function.jit_rest_param_index = (int8_t)func->rest_param_index;
+    function.jit_param_count = static_cast<uint8_t>(func->param_count);
+    function.jit_rest_param_index = static_cast<int8_t>(func->rest_param_index);
     function.jit_js_undefined_params = func->js_undefined_params;
     function.jit_inline_kind = func->jit_inline_kind;
     function.jit_inline_imm = func->jit_inline_imm;
@@ -1959,9 +1941,9 @@ void jit_make_closure(VM *vm, void *site_ptr) {
 }
 
 void jit_make_object(VM *vm, uint32_t size) {
-    // collect pairs in insertion order (stack: key0,val0,...,keyN,valN with valN on top)
+    // collect pairs in insertion order (stack: `[key0, val0, ..., keyN, valN]` with valN on top) 
     std::vector<std::pair<std::string, Value>> pairs(size);
-    for (int i = (int)size - 1; i >= 0; i--) {
+    for (int i = static_cast<int>(size) - 1; i >= 0; i--) {
         pairs[i].second = vm->pop();
         pairs[i].first = vm->pop().to_string();
     }
@@ -2010,7 +1992,7 @@ void jit_make_object_site(VM *vm, uint32_t size, void *site) {
 // ensure the VM value stack has headroom for `n` more entries before JIT code manually advances _M_finish to
 // batch-store
 void jit_reserve(VM *vm, uint32_t n) {
-    vm->stack.reserve(vm->stack.size() + (size_t)n);
+    vm->stack.reserve(vm->stack.size() + static_cast<size_t>(n));
 }
 
 void jit_get_index(VM *vm) {
@@ -2020,7 +2002,7 @@ void jit_get_index(VM *vm) {
     if (key.is_float()) {
         double f = key.get_float();
         if (f == std::floor(f) && !std::isinf(f) && !std::isnan(f)) {
-            key = Value::make_int((int64_t)f);
+            key = Value::make_int(static_cast<int64_t>(f));
         }
     }
     if (obj.is_array()) {
@@ -2032,7 +2014,7 @@ void jit_get_index(VM *vm) {
             return;
         }
         int64_t idx = key.get_int();
-        if (idx >= 0 && idx < (int64_t)arr.size()) {
+        if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
             vm->push(arr[idx]);
         } else {
             vm->push(Value::none());
@@ -2079,7 +2061,7 @@ void jit_get_index(VM *vm) {
         }
         int64_t idx = key.get_int();
         const std::string &s = obj.get_string();
-        if (idx >= 0 && idx < (int64_t)s.size()) {
+        if (idx >= 0 && idx < static_cast<int64_t>(s.size())) {
             vm->push(Value::make_string(std::string(1, s[idx])));
         } else {
             vm->push(Value::none());
@@ -2097,7 +2079,7 @@ void jit_set_index(VM *vm) {
     if (key.is_float()) {
         double f = key.get_float();
         if (f == std::floor(f) && !std::isinf(f) && !std::isnan(f)) {
-            key = Value::make_int((int64_t)f);
+            key = Value::make_int(static_cast<int64_t>(f));
         }
     }
     if (obj.is_array()) {
@@ -2108,9 +2090,9 @@ void jit_set_index(VM *vm) {
             if (idx < 0) {
                 idx += arr.size();
             }
-            if (idx >= 0 && idx < (int64_t)arr.size()) {
+            if (idx >= 0 && idx < static_cast<int64_t>(arr.size())) {
                 arr[idx] = val;
-            } else if (idx >= (int64_t)arr.size() && idx < 10000000) {
+            } else if (idx >= static_cast<int64_t>(arr.size()) && idx < 10000000) {
                 arr.resize(static_cast<size_t>(idx) + 1, Value::none());
                 arr[idx] = val;
             }
@@ -2146,7 +2128,7 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
     Value obj = vm->pop();
 
     if (obj.is_object()) {
-        vm->push(vm->jit_lookup_object_property(obj.get_obj_ptr(), (uint16_t)name_idx));
+        vm->push(vm->jit_lookup_object_property(obj.get_obj_ptr(), static_cast<uint16_t>(name_idx)));
     } else if (obj.is_function()) {
         const Value *v = obj.get_function().get_property(name);
         vm->push(v ? *v : Value::none());
@@ -2256,9 +2238,9 @@ void jit_set_property(VM *vm, uint32_t name_idx) {
     Value obj = vm->pop();
 
     if (obj.is_object()) {
-        obj.get_obj_ptr()->set_field_by_id(vm->field_id_for_name((uint16_t)name_idx), std::move(val));
+        obj.get_obj_ptr()->set_field_by_id(vm->field_id_for_name(static_cast<uint16_t>(name_idx)), std::move(val));
     } else if (obj.is_function()) {
-        obj.get_function().set_property_by_id(vm->field_id_for_name((uint16_t)name_idx), std::move(val));
+        obj.get_function().set_property_by_id(vm->field_id_for_name(static_cast<uint16_t>(name_idx)), std::move(val));
     } else if (obj.is_class_instance()) {
         Value *fv = obj.get_class_instance()->get_field(name);
         if (fv) {
@@ -2282,8 +2264,8 @@ void jit_set_property(VM *vm, uint32_t name_idx) {
 // Peeks TOS, verifies it matches type_name, throws TypeError on mismatch.
 extern "C" {
 void jit_check_type(VM *vm, uint32_t type_str_idx, uint32_t packed) {
-    uint8_t context = (uint8_t)(packed & 0xFF);
-    int src_line = (int)((packed >> 8) & 0xFFFFFF);
+    uint8_t context = static_cast<uint8_t>((packed & 0xFF));
+    int src_line = static_cast<int>(((packed >> 8) & 0xFFFFFF));
     // Peek the TOS value.
     if (vm->stack.empty()) {
         return; // should never happen! (TODO: add unreachable() here?)
@@ -2390,8 +2372,7 @@ namespace nari {
 namespace jit {
 
 // generated frame setup clears smart-pointer slots with zero stores
-// we require that CellRef is all-zero when null, and that CapturesList is a pair of pointers without
-// padding.
+// we require that CellRef is all-zero when null, and that CapturesList is a pair of pointers without padding.
 bool stl_layouts_ok() {
     static const bool ok = [] {
         bool good = stl::null_is_all_zero<CellRef>() && stl::null_is_all_zero<CapturesList>() && sizeof(CapturesList) == 2 * sizeof(void *);
@@ -2401,31 +2382,6 @@ bool stl_layouts_ok() {
         return good;
     }();
     return ok;
-}
-
-MethodJITBase *g_jit_compiler = nullptr;
-bytecode::VM *g_compile_vm = nullptr;
-bool g_compile_captures_ok = false;
-
-void init_jit() {
-    if (getenv("NARI_DISABLE_JIT")) {
-        return;
-    }
-    if (!stl_layouts_ok()) {
-        return;
-    }
-    if (!g_jit_compiler) {
-        g_jit_compiler = new AsmJITMethodCompiler();
-    }
-}
-
-void shutdown_jit() {
-    unregister_all_gdb_jit_functions();
-    perf_jitdump_close();
-    if (g_jit_compiler) {
-        delete g_jit_compiler;
-        g_jit_compiler = nullptr;
-    }
 }
 
 } // namespace jit

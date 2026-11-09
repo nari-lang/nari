@@ -16,6 +16,7 @@ Mutations:
     stack_underflow write OP_POP at function entry
     bad_jump_target write OP_JUMP to the middle of its own operand
     short_compact    replace the first function body with a compact alias missing its operand
+    empty_code       replace the first function body with an empty instruction stream
 
 Opcode numeric values come from the enum order in src/bytecode.h and must
 stay in sync with it.
@@ -189,6 +190,9 @@ def main():
         # from expanding this one-byte code section.
         replacement = bytes((OP_LOAD_CONST | 0x80,))
         buf = buf[:length_pos] + write_varuint(len(replacement)) + replacement + buf[code_off + code_len:]
+
+    elif mutation == "empty_code":
+        buf = buf[:length_pos] + write_varuint(0) + buf[code_off + code_len:]
 
     else:
         print(f"unknown mutation: {mutation}", file=sys.stderr)

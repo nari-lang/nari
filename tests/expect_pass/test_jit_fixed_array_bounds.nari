@@ -1,0 +1,53 @@
+import { assert } from "../lib/assert.nari";
+
+func sum_pairs() {
+    let values = [2, 3, 5, 7, 11, 13];
+    let limit = values.length();
+    let index = 0;
+    let sum = 0;
+    while (index < limit) {
+        sum = sum + values[index] + values[index + 1];
+        index = index + 2;
+    }
+    return sum;
+}
+
+func odd_length_read() {
+    let values = [2, 3, 5];
+    let limit = values.length();
+    let index = 0;
+    let last = 0;
+    while (index < limit) {
+        last = values[index + 1];
+        index = index + 2;
+    }
+    return last;
+}
+
+func alias_shrinks_array() {
+    let values = [2, 3, 5, 7];
+    let limit = values.length();
+    let alias = values;
+    alias.pop();
+    let index = 0;
+    let last = 0;
+    while (index < limit) {
+        last = values[index + 1];
+        index = index + 2;
+    }
+    return last;
+}
+
+func start() {
+    let sum = 0;
+    let odd = 0;
+    let shrunk = 0;
+    for (let i = 0; i < 200; i++) {
+        sum = sum_pairs();
+        odd = odd_length_read();
+        shrunk = alias_shrinks_array();
+    }
+    assert(sum == 41, "fixed-size pair loop changed");
+    assert(odd == null, "odd-length pair loop read must return null");
+    assert(shrunk == null, "aliased array shrink must return null past the end");
+}

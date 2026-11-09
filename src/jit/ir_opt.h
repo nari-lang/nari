@@ -9,17 +9,19 @@
 
 namespace nari {
 namespace bytecode {
-struct Chunk;
+    struct Chunk;
 }
 namespace jit {
 namespace ir {
 
 // Maps a write-once global to the proven type of its value.
 using GlobalTypeMap = std::unordered_map<uint32_t, Ty>;
+using GlobalIntMap = std::unordered_map<uint32_t, int64_t>;
 
 // Builds that map. A global qualifies if it has one OP_STORE_GLOBAL and an
 // initializer with a known constant type.
 GlobalTypeMap analyze_const_globals(const nari::bytecode::Chunk &chunk);
+GlobalIntMap analyze_const_int_globals(const nari::bytecode::Chunk &chunk, const GlobalTypeMap &types);
 
 // Local slots that always hold an array of Int48 values.
 using IntArraySlots = std::unordered_set<uint32_t>;
@@ -30,6 +32,13 @@ IntArraySlots analyze_int_array_slots(const Func &f, uint32_t push_method_name_i
 // Every slot that can possibly be an int-array. The hoist pass below uses this
 // to select candidates.
 IntArraySlots int_array_candidates(const Func &f);
+
+// Mark positive loop-counter increments whose initialization and loop guard
+// prove that the result cannot overflow Int48.
+void mark_bounded_counter_adds(Func &f, const GlobalIntMap &global_ints, uint32_t length_method_name_idx);
+void mark_fixed_array_bounded_reads(Func &f, const IntArraySlots &int_array_slots, uint32_t length_method_name_idx);
+IntArraySlots mark_filled_array_bounded_reads(Func &f, uint32_t push_method_name_idx);
+void mark_bounded_binary_accumulators(Func &f, const IntArraySlots &filled_array_slots, uint32_t push_method_name_idx);
 
 // Gives a type to every SSA value and to each local slot. Repeats until the CFG
 // comes to a fixpoint. A type that the pass cannot prove stays Unknown.

@@ -1054,7 +1054,7 @@ public:
 		: buffer_(static_cast<pointer>(std::malloc(initsize * sizeof (ElemT)))), size_(initsize), capacity_(initsize)
 	{
 		if (buffer_ == NULL)
-			throw std::bad_alloc();
+			std::abort(); // NARI: exception-free by policy; upstream throws std::bad_alloc() here.
 	}
 
 	simple_array(const simple_array &right)
@@ -1430,7 +1430,9 @@ protected:
 //			buffer_ = NULL;
 			size_ = capacity_ = 0;
 		}
-		throw std::bad_alloc();
+		// NARI: exception-free by policy (allocation failure aborts
+		// process-wide); upstream throws std::bad_alloc() here.
+		std::abort();
 	}
 
 	void move_forwards_(const size_type pos, const size_type count)
@@ -1555,7 +1557,7 @@ public:
 			reset();
 			return;
 		}
-		throw std::bad_alloc();
+		std::abort(); // NARI: exception-free by policy; upstream throws std::bad_alloc() here.
 	}
 
 	bitset(const bitset &right)
@@ -1566,7 +1568,7 @@ public:
 			operator=(right);
 			return;
 		}
-		throw std::bad_alloc();
+		std::abort(); // NARI: exception-free by policy; upstream throws std::bad_alloc() here.
 	}
 
 #if defined(__cpp_rvalue_references)

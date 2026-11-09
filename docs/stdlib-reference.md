@@ -1,8 +1,5 @@
 # Nari Standard Library Reference
 
-> Auto-generated from `src/stdlib/std/*.nari` by `tools/gen_stdlib_reference.py`.
-> Do not edit by hand - re-run the generator to update.
-
 The Nari standard library is split into two surfaces:
 
 - **Prelude** - globals every program can use without an import (`Result` (`Ok`/`Err`), `Option` (`Some`/`None`), `yield`, `String`, `Array`, `Object`, `Spawn`,
@@ -342,8 +339,12 @@ _No description._
 
 #### `create_server(port, on_connection)`
 
-Legacy blocking server. Spins an internal accept loop and a yield
-loop on the main task, exiting only when shutdown is requested.
+**Legacy** blocking server. 
+
+Spins an internal accept loop and a yield loop on the main task, exiting only when shutdown is requested.
+
+> [!WARNING]
+Do **not** use this! I plan to remove it in a future release completely.
 
 #### `connect(host, port)`
 
@@ -354,31 +355,35 @@ net.close(conn). The conn object is also accepted directly.
 
 #### `listen(port)`
 
-TCP listener (non-blocking). Returns an IO handle resolving to:
-  { fd, port }
-Pass port=null or 0 for an ephemeral kernel-assigned port; the
-resolved server.port reflects the bound port. Use net.accept(server)
-to wait for a single inbound connection (loop to keep accepting),
-and net.close_server(server) when done.
+TCP listener (non-blocking). Returns an IO handle resolving to: `{ fd, port }`
+
+Pass `port=null` or `0` for an ephemeral kernel-assigned port.
+
+The resolved `server.port` reflects the bound port. 
+
+Use `net.accept(server)` to wait for a single inbound connection (loop to keep accepting),
+and `net.close_server(server)` when done.
 
 #### `accept(server)`
 
-Wait for one inbound TCP connection on a listening server. Returns
-an IO handle resolving to a conn object { fd, ip, port }. To issue
-accept concurrently with other work (e.g. a same-process connect),
+Wait for one inbound TCP connection on a listening server. 
+
+Returns an IO handle resolving to a conn object `{ fd, ip, port }`. 
+
+To issue accept concurrently with other work (e.g. a same-process connect),
 call accept() WITHOUT awaiting first, then await later.
 
 #### `read(conn, cb)`
 
-Read up to one chunk from a TCP conn. cb(err, data).
+Read up to one chunk from a TCP connection. `cb(err, data)`.
 
 #### `write(conn, data, cb)`
 
-Write data to a TCP conn. cb(err).
+Write data to a TCP connection. `cb(err)`.
 
 #### `close(conn)`
 
-Close a TCP conn.
+Close a TCP connection.
 
 #### `close_server(server)`
 
@@ -386,18 +391,25 @@ Close a TCP listener.
 
 #### `udp_socket(port)`
 
-UDP socket. Returns an IO handle resolving to { fd, port }.
-port null/0 -> ephemeral. Use net.udp_send(sock, host, port, data),
-net.udp_recv(sock, timeout_ms?), net.udp_close(sock).
+UDP socket. 
+
+Returns an IO handle resolving to `{ fd, port }`.
+
+Port `null`/`0` -> ephemeral.
 
 #### `udp_send(sock, host, port, data)`
 
-Send a UDP datagram. Returns an IO handle resolving to bytes sent.
+Send a UDP datagram. 
+
+Returns an IO handle resolving to bytes sent.
 
 #### `udp_recv(sock, timeout_ms)`
 
-Receive one UDP datagram. timeout_ms is optional; null/0 blocks
-forever (until shutdown). Resolves to { data, ip, port }.
+Receive one UDP datagram. 
+
+`timeout_ms` is optional; `null`/`0` blocks forever (until shutdown). 
+
+Resolves to `{ data, ip, port }`.
 
 #### `udp_close(sock)`
 
@@ -427,33 +439,39 @@ optional second argument `indent` (integer) enables pretty-printing
 
 _Source: `src/stdlib/std/archive.nari`_
 
-Archive read/write backed by libarchive (tar, tar.gz, zip).
-Extraction performs safety checks against zip-slip / absolute paths /
-symlinks / size limits - see src/builtins/archive.cpp for details.
+Archive read/write with libarchive (tar, tar.gz, zip).
 
-    import { Archive } from "std/archive";
+Extraction performs safety checks against zip-slip / absolute paths /
+links / size limits - see src/builtins/archive.cpp for details.
+
+```nari
+import { Archive } from "std/archive";
+```
 
 ### Archive
 
 #### `list(path)`
 
-Archive.list(path) -> [{ name, size, type, mtime }, ...]
-type: "file" | "dir" | "symlink" | "other"
+`Archive.list(path)` -> `[{ name, size, type, mtime }, ...]`
+
+`type`: `"file" | "dir" | "symlink" | "other"`
 
 #### `extract(archive_path, dest_dir, opts)`
 
-Archive.extract(archive_path, dest_dir, opts?) -> { files, bytes }
-opts: { max_files?: int=10000, max_bytes?: int=1<<30, allow_links?: bool=false }
-Rejects entries with absolute or escaping paths, and symlinks
-(unless allow_links=true). dest_dir is created if needed.
+`opts`: `{ max_files?: int=10000, max_bytes?: int=1<<30, allow_links?: bool=false }`
+
+Rejects entries with absolute or escaping paths, and links (unless allow_links=true).
+Hardlinks must target regular files extracted earlier from the same archive.
+
+`dest_dir` is created if needed.
 
 #### `create(archive_path, files, opts)`
 
-Archive.create(archive_path, files, opts?) -> { files, bytes }
 Format inferred from extension: .tar / .tar.gz / .tgz / .zip.
+
 `files`: array of either string (source path) or { src, dest }.
-opts: { base_dir?: string } - when set, string sources are stored
-  relative to base_dir; otherwise the basename is used.
+
+`opts`: `{ base_dir?: string }`, when set, string sources are stored relative to base_dir; otherwise the basename is used.
 
 ---
 
@@ -463,12 +481,14 @@ _Source: `src/stdlib/std/collections.nari`_
 
 Ordered string-keyed collections.
 
-    import { Map, Set } from "std/collections";
+```nari
+import { Map, Set } from "std/collections";
+```
 
 Map: O(1) lookup via a backing object plus a parallel keys array for
 stable insertion order. Keys are stringified at insert time.
-Set: ordered string-keyed set built on top of Map. Stringifies values at
-insert time, so Set.add(1) and Set.add("1") collide.
+
+Set: ordered string-keyed set built on top of Map, stringifies values at insert time.
 
 ### Map
 
@@ -488,16 +508,17 @@ _No description._
 
 _Source: `src/stdlib/std/date.nari`_
 
-Wall-clock time. All timestamps are integer milliseconds since the Unix
-epoch (1970-01-01T00:00:00Z). Designed for determinism: parse_iso of a
-value without an explicit timezone is treated as UTC.
+All timestamps are integer milliseconds since the Unix epoch (1970-01-01T00:00:00Z). 
 
-    import { Date } from "std/date";
-    let d = Date.from_ms(Date.now());
-    d.year; d.month; d.day; d.to_iso_string();
+`parse_iso` of a value without an explicit timezone is treated as UTC!
 
-Format strings use C strftime with one extension: "%L" -> 3-digit
-milliseconds.
+```nari
+import { Date } from "std/date";
+let d = Date.from_ms(Date.now());
+d.year; d.month; d.day; d.to_iso_string();
+```
+
+Format strings use C strftime with one extension: "%L" -> 3-digit milliseconds.
 
 ### Date
 
@@ -507,11 +528,11 @@ Returns ms-since-epoch (int).
 
 #### `utc(year, month, day, hour, minute, second, ms)`
 
-Construct a UTC timestamp from components. month is 1..12.
+Construct a UTC timestamp from components. month is 1 through 12.
 
 #### `parse_iso(s)`
 
-Parse an ISO-8601 / RFC-3339 string. Throws DateError on failure.
+Parse an ISO-8601 / RFC-3339 string. Throws `DateError` on failure.
 
 #### `format(ms, fmt, utc)`
 
@@ -519,7 +540,7 @@ strftime-style format. utc defaults to true.
 
 #### `from_ms(ms, opts)`
 
-Build a Date instance from ms. opts.utc defaults to true.
+Build a `Date` instance from ms. opts.utc defaults to true.
 
 ---
 
@@ -527,31 +548,34 @@ Build a Date instance from ms. opts.utc defaults to true.
 
 _Source: `src/stdlib/std/encoding.nari`_
 
-Binary-safe Hex / Base64 codecs backed by native builtins. They operate
-on raw byte strings (bytes 0-255), unlike from_char_code (capped at 127).
+Binary-safe Hex / Base64 codecs with native builtins. 
 
-    import { Hex, Base64 } from "std/encoding";
+They operate on raw byte strings (bytes 0-255), unlike from_char_code (capped at 127).
+
+```nari
+import { Hex, Base64 } from "std/encoding";
+```
 
 ### Hex
 
 #### `encode(s)`
 
-Hex.encode(str) -> lowercase hex string (2 chars per byte)
+`Hex.encode(str)` -> lowercase hex string (2 chars per byte)
 
 #### `decode(s)`
 
-Hex.decode(hex) -> byte string. Accepts upper/lowercase; throws on
+`Hex.decode(hex)` -> byte string. Accepts upper/lowercase; throws on
 odd length or non-hex characters.
 
 ### Base64
 
 #### `encode(s)`
 
-Base64.encode(str) -> standard base64 with '=' padding
+`Base64.encode(str)` -> standard base64 with '=' padding
 
 #### `decode(s)`
 
-Base64.decode(b64) -> byte string. Skips ASCII whitespace; throws on
+`Base64.decode(b64)` -> byte string. Skips ASCII whitespace; throws on
 invalid characters.
 
 ---
@@ -560,20 +584,23 @@ invalid characters.
 
 _Source: `src/stdlib/std/hash.nari`_
 
-Cryptographic hash helpers backed by mbedtls. Intended for integrity
-checks (lockfile, registry archives) - not authentication.
+**Cryptographic** hash helpers with mbedtls. 
 
-    import { Hash } from "std/hash";
+Intended for checksums.
+
+```nari
+import { Hash } from "std/hash";
+```
 
 ### Hash
 
 #### `sha256(s)`
 
-Hash.sha256(str) -> 64-char lowercase hex string of SHA-256(bytes(str))
+`Hash.sha256(str)` -> 64-char lowercase hex string of SHA-256(bytes(str))
 
 #### `sha256_file(path)`
 
-Hash.sha256_file(path) -> 64-char lowercase hex string of SHA-256
+`Hash.sha256_file(path)` -> 64-char lowercase hex string of SHA-256
 of the file's bytes. Streams the file; safe for large archives.
 
 ---
@@ -582,25 +609,31 @@ of the file's bytes. Streams the file; safe for large archives.
 
 _Source: `src/stdlib/std/logger.nari`_
 
-Leveled logging with timestamps. Routes to system.print by default;
-pass a `sink` function to capture (e.g. for tests or file output).
-Levels: trace=10, debug=20, info=30, warn=40, error=50, fatal=60.
-Set min level via Logger.create({ level: "info" }) - anything lower is
-silently dropped.
+Leveled logging with timestamps. 
 
-    import { Logger } from "std/logger";
+Routes to system.print by default, pass a `sink` function to capture
+
+Levels: trace=10, debug=20, info=30, warn=40, error=50, fatal=60.
+
+Set min level via Logger.create({ level: "info" }), anything lower is silently dropped.
+
+```nari
+import { Logger } from "std/logger";
+```
 
 ### Logger
 
 #### `levels =  { ... }`
 
-_No description._
+Any of the following values: `"trace"`, `"debug"`, `"info"`, `"warn"`, `"error"`, or `"fatal"`.
+
+Specifies minimum event level to capture, others are dropped.
 
 #### `create(opts)`
 
 Logger.create(opts?) -> logger instance.
-opts: { name?: string, level?: string|int=info, sink?: func(line),
-        timestamps?: bool=true }
+
+opts: { name?: string, level?: string|int=info, sink?: func(line), timestamps?: bool=true }
 
 ---
 
@@ -608,11 +641,13 @@ opts: { name?: string, level?: string|int=info, sink?: func(line),
 
 _Source: `src/stdlib/std/path.nari`_
 
-POSIX-style path utilities (forward-slash separator). Pure Nari - no
-filesystem access. Mirrors the subset of node:path / std/path most
-scripts need: join, basename, dirname, extname, normalize, is_absolute.
+POSIX-style path utilities (forward-slash separator).
 
-    import { Path } from "std/path";
+This does not validate actual filesystem access, it only parses path strings.
+
+```nari
+import { Path } from "std/path";
+```
 
 ### Path
 
@@ -651,12 +686,16 @@ normalize(path) -> collapse ".", ".." and duplicate slashes
 
 _Source: `src/stdlib/std/random.nari`_
 
-Seedable PRNG (xorshift32). Deterministic given the same seed; entirely
-pure-Nari so it does NOT share state with math.rand (which uses a global
-mt19937). NOT cryptographically secure.
+Seedable **PRNG** (xorshift32).
 
-    import { Random } from "std/random";
+This does not share state with math.rand().
 
+> [!WARNING]
+**Deterministic given the same seed. This is not cryptographically secure!**
+
+```nari
+import { Random } from "std/random";
+```
 ### Random
 
 #### `create(seed)`
@@ -671,11 +710,13 @@ seed=0 is reseeded to 1 (xorshift32 cannot recover from 0).
 _Source: `src/stdlib/std/regex.nari`_
 
 Stdlib surface over the runtime's regex engine (SRELL, ECMAScript syntax).
-Lets you build regexes from dynamic strings (literals like /foo/i remain
-the primary form). Returns/uses native regex values, so .test() / .exec()
-remain available as methods.
 
-    import { Regex } from "std/regex";
+Lets you build regexes from dynamic strings (literals like /foo/i remain the primary form). 
+
+Returns/uses native regex values, so .test() / .exec() remain available as methods.
+```nari
+import { Regex } from "std/regex";
+```
 
 ### Regex
 
@@ -722,22 +763,20 @@ _Source: `src/stdlib/std/url.nari`_
 Permissive parser/builder for URLs of the shape
   scheme://[user[:pass]@]host[:port][/path][?query][#fragment]
 Parsing is intentionally lenient (does not enforce host syntax) so that
-it works for HTTP, ws://, file://, custom schemes, etc. For strict
-WHATWG-conformant parsing you would want a dedicated native parser; this
+it works for HTTP, ws://, file://, custom schemes, etc. 
+
+For strict WHATWG-conformant parsing you would want a dedicated native parser; this
 is the 95% case for stdlib consumers.
 
-  import { URL } from "std/url";
-  let u = URL.parse("https://alice:s3cr3t@example.com:8443/a/b?x=1&y=2#top");
-  u.protocol; // "https"
-  u.host;     // "example.com"
-  u.params;   // { x: "1", y: "2" }
-  u.to_string();
+```nari
+import { URL } from "std/url";
 
-Percent-encoding helpers:
-  URL.encode(s) / URL.decode(s)                - strict component encoding
-                                                 (slashes encoded too).
-  URL.encode_path(s)                            - path-safe (keeps "/" ":").
-  URL.parse_query(s) / URL.format_query(obj)     - `?k=v&k2=v2` <-> object.
+let url = URL.parse("https://alice:password@example.com:8443/a/b?x=1&y=2#top").unwrap();
+print(url.protocol);    // "https"
+print(url.host);        // "example.com"
+print(url.params);      // { x: "1", y: "2" }
+print(url.to_string()); // https://alice:password@example.com:8443/a/b?x=1&y=2#top
+```
 
 ### URL
 
@@ -784,8 +823,7 @@ helper methods. Throws URLError if the scheme is missing.
 
 Build a URL string from an object of parts. Parts are written
 verbatim - no re-encoding - so callers should pass already-encoded
-path/search if they contain special characters (or use URL.parse
-then .with()).
+path/search if they contain special characters (or use URL.parse then .with()).
 
 ---
 
@@ -793,11 +831,18 @@ then .with()).
 
 _Source: `src/stdlib/std/uuid.nari`_
 
-uuid.v4() -> RFC-4122 version-4 UUID string. Backed by the
-non-cryptographic PRNG (math.rand / mt19937) - do NOT use for
-security-sensitive tokens.
+uuid.v4() -> RFC-4122 version-4 UUID string.
 
-    import { uuid } from "std/uuid";
+Uses **non-cryptographic** PRNG (math.rand / mt19937)
+
+> [!WARNING]
+**Do not use for security-sensitive tokens!**
+
+```nari
+import { uuid } from "std/uuid";
+
+print(uuid.v4());
+```
 
 ### uuid
 

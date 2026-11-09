@@ -109,20 +109,20 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         return false;
     }
 
-    auto u16 = [&](size_t p) -> uint16_t { return (uint16_t)((code[p] << 8) | code[p + 1]); };
+    auto u16 = [&](size_t p) -> uint16_t { return static_cast<uint16_t>(((code[p] << 8) | code[p + 1])); };
     auto jtarget = [&](size_t op_pc) -> size_t {
-        int16_t off = (int16_t)u16(op_pc + 1);
-        return (size_t)((ptrdiff_t)(op_pc + 3) + off);
+        int16_t off = static_cast<int16_t>(u16(op_pc + 1));
+        return static_cast<size_t>(((ptrdiff_t)(op_pc + 3) + off));
     };
 
     // eligibility and block leaders
     std::set<size_t> leaders;
     leaders.insert(0);
     for (size_t pc = 0; pc < code.size();) {
-        OpCode op = (OpCode)code[pc];
+        OpCode op = static_cast<OpCode>(code[pc]);
         int w = p1_width(op);
         if (op == OpCode::OP_MAKE_CLOSURE) {
-            w = (int)nari::bytecode::decoded_instruction_size(code, pc);
+            w = static_cast<int>(nari::bytecode::decoded_instruction_size(code, pc));
         }
         if (w == 0) {
             if (kBuildReport) {
@@ -145,7 +145,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
 
     // create blocks (one per in-range leader)
     out.meta = &func_meta;
-    out.num_slots = (uint32_t)func_meta.var_names.size();
+    out.num_slots = static_cast<uint32_t>(func_meta.var_names.size());
     out.num_params = func_meta.param_count;
     out.captured_local_slots.assign(out.num_slots, 0);
     std::map<size_t, BlockId> at; // leader pc -> block id
@@ -179,10 +179,10 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         size_t pc = start;
         bool found_term = false;
         while (pc < end) {
-            OpCode op = (OpCode)code[pc];
+            OpCode op = static_cast<OpCode>(code[pc]);
             int w = p1_width(op);
             if (op == OpCode::OP_MAKE_CLOSURE) {
-                w = (int)nari::bytecode::decoded_instruction_size(code, pc);
+                w = static_cast<int>(nari::bytecode::decoded_instruction_size(code, pc));
             }
             if (w == 0) {
                 return false; // pass 1 already filtered, defensive
@@ -229,7 +229,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
     }
     for (size_t block = 0; block < cfg_succs.size(); block++) {
         for (BlockId successor : cfg_succs[block]) {
-            cfg_preds[successor].push_back((BlockId)block);
+            cfg_preds[successor].push_back(static_cast<BlockId>(block));
         }
     }
 
@@ -262,7 +262,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
             int depth = -1;
             bool has_back_edge = false;
             for (BlockId p : preds) {
-                if ((size_t)p >= (size_t)bid) {
+                if (static_cast<size_t>(p) >= static_cast<size_t>(bid)) {
                     has_back_edge = true;
                     continue;
                 }
@@ -296,7 +296,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 int fwd_pred_count = 0;
                 BlockId only_fwd = InvalidBlock;
                 for (BlockId p : preds) {
-                    if ((size_t)p < (size_t)bid && exit_depth[p] >= 0) {
+                    if (static_cast<size_t>(p) < static_cast<size_t>(bid) && exit_depth[p] >= 0) {
                         fwd_pred_count++;
                         only_fwd = p;
                     }
@@ -304,7 +304,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 if (fwd_pred_count == 1) {
                     // Inherit predecessor's exit vstk (top `depth` entries).
                     const auto &pv = exit_vstk[only_fwd];
-                    if ((int)pv.size() < depth) {
+                    if (static_cast<int>(pv.size()) < depth) {
                         return false;
                     }
                     vstk.assign(pv.end() - depth, pv.end());
@@ -316,9 +316,9 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                         phi.op = Op::Phi;
                         phi.bytecode_pc = start;
                         for (BlockId p : preds) {
-                            if ((size_t)p < (size_t)bid && exit_depth[p] >= 0) {
+                            if (static_cast<size_t>(p) < static_cast<size_t>(bid) && exit_depth[p] >= 0) {
                                 const auto &pv = exit_vstk[p];
-                                int idx = (int)pv.size() - depth + d;
+                                int idx = static_cast<int>(pv.size()) - depth + d;
                                 if (idx < 0) {
                                     return false;
                                 }
@@ -368,7 +368,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
 
         while (pc < end && !terminated) {
             size_t op_pc = pc;
-            OpCode op = (OpCode)code[pc++];
+            OpCode op = static_cast<OpCode>(code[pc++]);
             switch (op) {
                 case OpCode::OP_LOAD_CONST: {
                     uint16_t ci = u16(pc);
@@ -865,7 +865,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                 case OpCode::OP_MAKE_OBJECT: {
                     uint16_t n = u16(pc);
                     pc += 2;
-                    size_t count = (size_t)n * 2;
+                    size_t count = static_cast<size_t>(n) * 2;
                     if (vstk.size() < count) {
                         return false;
                     }
@@ -895,7 +895,7 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                             out.captured_local_slots[idx] = 1;
                         }
                     }
-                    pc += 4 + (size_t)capture_count * 3;
+                    pc += 4 + static_cast<size_t>(capture_count) * 3;
                     Inst instruction;
                     instruction.op = Op::MakeClosure;
                     instruction.imm_u32 = func_idx;
@@ -922,12 +922,12 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     uint8_t argc = code[pc++];
                     uint16_t callee_label = u16(pc);
                     pc += 2;
-                    if (vstk.size() < (size_t)argc + 1) {
+                    if (vstk.size() < static_cast<size_t>(argc) + 1) {
                         return false;
                     }
                     std::vector<ValueId> ops;
-                    ops.reserve((size_t)argc + 1);
-                    size_t base = vstk.size() - ((size_t)argc + 1);
+                    ops.reserve(static_cast<size_t>(argc) + 1);
+                    size_t base = vstk.size() - (static_cast<size_t>(argc) + 1);
                     for (size_t i = base; i < vstk.size(); i++) {
                         ops.push_back(vstk[i]);
                     }
@@ -945,12 +945,12 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
                     uint16_t method = u16(pc);
                     pc += 2;
                     uint8_t argc = code[pc++];
-                    if (vstk.size() < (size_t)argc + 1) {
+                    if (vstk.size() < static_cast<size_t>(argc) + 1) {
                         return false;
                     }
                     std::vector<ValueId> ops;
-                    ops.reserve((size_t)argc + 1);
-                    size_t base = vstk.size() - ((size_t)argc + 1);
+                    ops.reserve(static_cast<size_t>(argc) + 1);
+                    size_t base = vstk.size() - (static_cast<size_t>(argc) + 1);
                     for (size_t i = base; i < vstk.size(); i++) {
                         ops.push_back(vstk[i]);
                     }
@@ -1071,14 +1071,14 @@ bool build(const Chunk &chunk, uint32_t func_idx, Func &out) {
         // Record exit state. Return terminators consume nothing further; the
         // exit stack is the vstk as-is after the terminator processed (Return
         // already popped the return value above).
-        exit_depth[bid] = (int)vstk.size();
+        exit_depth[bid] = static_cast<int>(vstk.size());
         exit_vstk[bid] = vstk;
 
         // Validate back-edges: any already-processed successor (id <= bid)
         // must agree on the entry depth via this edge.
         for (BlockId successor : cfg_succs[bid]) {
-            if ((size_t)successor <= (size_t)bid && entry_depth[successor] >= 0) {
-                if (entry_depth[successor] != (int)vstk.size()) {
+            if (static_cast<size_t>(successor) <= static_cast<size_t>(bid) && entry_depth[successor] >= 0) {
+                if (entry_depth[successor] != static_cast<int>(vstk.size())) {
                     return false;
                 }
                 // depth-0 match is the only legal case

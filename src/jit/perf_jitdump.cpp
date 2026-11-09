@@ -104,14 +104,14 @@ uint64_t g_code_index = 0;
 uint64_t monotonic_ns() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000ull + static_cast<uint64_t>(ts.tv_nsec);
 }
 
 uint32_t current_tid() {
 #if defined(__linux__)
-    return (uint32_t)syscall(SYS_gettid);
+    return static_cast<uint32_t>(syscall(SYS_gettid));
 #else
-    return (uint32_t)getpid();
+    return static_cast<uint32_t>(getpid());
 #endif
 }
 
@@ -124,7 +124,7 @@ void write_all_locked(const void *buf, size_t n) {
             return; // give up silently; diagnostics-only feature
         }
         p += w;
-        n -= (size_t)w;
+        n -= static_cast<size_t>(w);
     }
 }
 
@@ -139,7 +139,7 @@ void ensure_init_locked() {
     }
 
     char path[256];
-    snprintf(path, sizeof(path), "jit-%d.dump", (int)getpid());
+    snprintf(path, sizeof(path), "jit-%d.dump", static_cast<int>(getpid()));
     int fd = open(path, O_CREAT | O_TRUNC | O_RDWR, 0644);
     if (fd < 0) {
         return;
@@ -151,7 +151,7 @@ void ensure_init_locked() {
     hdr.total_size = sizeof(FileHeader);
     hdr.elf_mach = kElfMach;
     hdr.pad1 = 0;
-    hdr.pid = (uint32_t)getpid();
+    hdr.pid = static_cast<uint32_t>(getpid());
     hdr.timestamp = monotonic_ns();
     hdr.flags = 0;
 
@@ -164,13 +164,13 @@ void ensure_init_locked() {
             return;
         }
         p += w;
-        left -= (size_t)w;
+        left -= static_cast<size_t>(w);
     }
 
     // marker mmap: perf inject --jit keys on an executable mmap of a file named jit-*.dump,
     // mapping page 0 with PROT_EXEC makes perf record emit the MMAP event it needs.
     long pg = sysconf(_SC_PAGESIZE);
-    g_marker_size = (pg > 0) ? (size_t)pg : 4096;
+    g_marker_size = (pg > 0) ? static_cast<size_t>(pg) : 4096;
     g_marker = mmap(nullptr, g_marker_size, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0);
     if (g_marker == MAP_FAILED) {
         g_marker = nullptr;
@@ -193,19 +193,19 @@ void perf_jitdump_register(const std::string &name, const void *code_addr, size_
         return;
     }
 
-    const uint32_t namelen = (uint32_t)name.size() + 1; // include NUL
+    const uint32_t namelen = static_cast<uint32_t>(name.size()) + 1; // include NUL
 
     RecordHeader rh = {};
     rh.id = JIT_CODE_LOAD;
-    rh.total_size = (uint32_t)(sizeof(RecordHeader) + sizeof(CodeLoadRecord) + namelen + code_size);
+    rh.total_size = static_cast<uint32_t>((sizeof(RecordHeader) + sizeof(CodeLoadRecord) + namelen + code_size));
     rh.timestamp = monotonic_ns();
 
     CodeLoadRecord clr = {};
-    clr.pid = (uint32_t)getpid();
+    clr.pid = static_cast<uint32_t>(getpid());
     clr.tid = current_tid();
-    clr.vma = (uint64_t)(uintptr_t)code_addr;
-    clr.code_addr = (uint64_t)(uintptr_t)code_addr;
-    clr.code_size = (uint64_t)code_size;
+    clr.vma = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(code_addr));
+    clr.code_addr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(code_addr));
+    clr.code_size = static_cast<uint64_t>(code_size);
     clr.code_index = g_code_index++;
 
     // Assemble the whole record in one buffer and emit with a single write so a
@@ -231,7 +231,7 @@ void perf_jitdump_close() {
     if (g_fd >= 0) {
         RecordHeader rh{};
         rh.id = JIT_CODE_CLOSE;
-        rh.total_size = (uint32_t)sizeof(RecordHeader);
+        rh.total_size = static_cast<uint32_t>(sizeof(RecordHeader));
         rh.timestamp = monotonic_ns();
         write_all_locked(&rh, sizeof(rh));
         close(g_fd);

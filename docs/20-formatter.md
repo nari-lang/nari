@@ -21,7 +21,7 @@ nari fmt --stdin < file.nari  # read stdin, write stdout (editor integration)
 - **Operators**: spaces around binary operators and assignments
   (`a + b`, `x ?? y`, `s @ t`, `->`, `=>`); no spaces around unary operators
   (`-x`, `!flag`), member access (`a.b`, `a?.b`, `m::n`), or postfix `++`/`--`.
-- **Calls and indexing**: `foo(a, b)`, `arr[0]` — no space before `(`/`[`,
+- **Calls and indexing**: `foo(a, b)`, `arr[0]`, no space before `(`/`[`,
   one space after each comma. Control keywords get a space: `if (x)`, `return (x)`.
 - **Braces**: blocks keep the author's line placement; single-line blocks print as
   `{ stmt; }`, empty ones as `{}`.
@@ -50,4 +50,4 @@ That keeps formatting total and safe, but means a few things are out of scope:
   to the input; only whitespace changes.
 - **Generic `<` heuristic**: `Name<T>` written without a space is treated as
   generic arguments. A less-than written the same way (`a<b`) is preserved as
-  `a<b` — still valid, just not re-spaced.
+  `a<b`, still valid, just not re-spaced.

@@ -1,5 +1,6 @@
 #include "ast.h"
 #include "bytecode.h"
+#include "bytecode_matchers.h"
 #include "bytecode_verify.h"
 #include "parser_api.h"
 #include "runtime.h"
@@ -24,18 +25,21 @@ namespace nari {
 namespace bytecode {
 
 static bool is_js_undefined_param(const Param &param) {
-    const auto *ident = dynamic_cast<const IdentExpr *>(param.default_value.get());
-    return ident && ident->name == "__js_undefined";
+    const Expr *e = param.default_value.get();
+    if (e == nullptr || e->kind != ExprKind::Ident) {
+        return false;
+    }
+    return static_cast<const IdentExpr *>(e)->name == "__js_undefined";
 }
 
 static std::string callee_label(const Expr *expr) {
-    if (const auto *ident = dynamic_cast<const IdentExpr *>(expr)) {
-        return ident->name;
+    if (expr != nullptr && expr->kind == ExprKind::Ident) {
+        return static_cast<const IdentExpr *>(expr)->name;
     }
-    if (const auto *member = dynamic_cast<const MemberExpr *>(expr)) {
-        return "." + member->member;
+    if (expr != nullptr && expr->kind == ExprKind::Member) {
+        return "." + static_cast<const MemberExpr *>(expr)->member;
     }
-    if (dynamic_cast<const IndexExpr *>(expr)) {
+    if (expr != nullptr && expr->kind == ExprKind::Index) {
         return "indexed expression";
     }
     return "computed expression";
@@ -130,11 +134,11 @@ struct CompilerContext {
             auto it = locals.find(name);
             ShadowedBinding s;
             s.name = name;
-            s.prev_slot = (uint16_t)(it != locals.end() ? it->second : 0);
+            s.prev_slot = static_cast<uint16_t>((it != locals.end() ? it->second : 0));
             s.had_prev = it != locals.end();
             s.prev_const = const_locals.count(name) != 0;
             s.prev_lexical = lexical_bindings.count(name) != 0;
-            
+
             shadow_stack.push_back(std::move(s));
         }
         uint16_t idx = local_count++;
@@ -281,9 +285,11 @@ class Compiler {
     // FnLike is nari::Function or nari::ClassMethod: both expose
     // name/params/body/return_type/filename/line.
     // Strict-mode annotation enforcement applies to Function only (see definition).
+    // Returns false on resource exhaustion (e.g. too many closure captures).
     template <typename FnLike>
-    void compile_function_body(const FnLike *func, FunctionMeta &meta);
-    void compile_classes();
+    bool compile_function_body(const FnLike *func, FunctionMeta &meta);
+    bool compile_classes();
+    bool failed = false;
     void emit_js_truthy();
     void collect_idents(const Stmt *stmt, std::set<std::string> &idents);
     void collect_idents_expr(const Expr *expr, std::set<std::string> &idents);
@@ -313,197 +319,6 @@ void Compiler::emit_js_truthy() {
     ctx->patch_jump(end);
 }
 
-#ifdef NARI_EXTENDED_JSRT
-static bool is_ident(const Expr *expr, const char *name) {
-    const auto *ident = dynamic_cast<const IdentExpr *>(expr);
-    return ident && ident->name == name;
-}
-
-static const CallExpr *is_call(const Expr *expr, const char *name, size_t argc) {
-    const auto *call = dynamic_cast<const CallExpr *>(expr);
-    return call && !call->has_spread && !call->optional && call->args.size() == argc && is_ident(call->callee.get(), name) ? call : nullptr;
-}
-
-static bool is_conversion(const Expr *expr, const char *conversion, const char *param) {
-    const auto *call = is_call(expr, conversion, 1);
-    return call && is_ident(call->args[0].get(), param);
-}
-
-static bool is_int(const Expr *expr, int64_t value) {
-    const auto *number = dynamic_cast<const NumberExpr *>(expr);
-    return number && !number->is_float && number->i == value;
-}
-
-static const Expr *single_return(const Function *func) {
-    if (!func->body || func->body->stmts.size() != 1) {
-        return nullptr;
-    }
-    const auto *ret = dynamic_cast<const ReturnStmt *>(func->body->stmts[0].get());
-    return ret ? ret->value.get() : nullptr;
-}
-
-static bool matches_binary_helper(const Function *func, const char *op) {
-    if (func->params.size() != 2 || func->params[0].name != "a" || func->params[1].name != "b") {
-        return false;
-    }
-    const auto *binary = dynamic_cast<const BinaryExpr *>(single_return(func));
-    return binary && binary->op == op && is_conversion(binary->left.get(), "__js_to_int32", "a") &&
-           is_conversion(binary->right.get(), "__js_to_int32", "b");
-}
-
-static bool matches_shift_count(const Expr *expr, const char *param) {
-    const auto *mod = dynamic_cast<const BinaryExpr *>(expr);
-    return mod && mod->op == "%" && is_conversion(mod->left.get(), "__js_to_uint32", param) && is_int(mod->right.get(), 32);
-}
-
-static bool matches_apply_array_helper(const Function *func) {
-    if (func->params.size() != 2 || func->params[0].name != "f" || func->params[1].name != "args" || !func->body ||
-        func->body->stmts.size() != 15) {
-        return false;
-    }
-    const auto *length = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
-    const auto *length_call = length ? dynamic_cast<const CallExpr *>(length->initializerExpr.get()) : nullptr;
-    const auto *length_member = length_call ? dynamic_cast<const MemberExpr *>(length_call->callee.get()) : nullptr;
-    if (!length || length->name != "n" || !length_call || length_call->has_spread || length_call->optional || !length_call->args.empty() ||
-        !length_member || length_member->member != "length" || !is_ident(length_member->object.get(), "args")) {
-        return false;
-    }
-    for (int64_t arity = 0; arity <= 12; ++arity) {
-        const auto *branch = dynamic_cast<const IfStmt *>(func->body->stmts[arity + 1].get());
-        const auto *condition = branch ? dynamic_cast<const BinaryExpr *>(branch->cond.get()) : nullptr;
-        const auto *body = branch ? dynamic_cast<const BlockStmt *>(branch->then_branch.get()) : nullptr;
-        const auto *ret = body && body->stmts.size() == 1 ? dynamic_cast<const ReturnStmt *>(body->stmts[0].get()) : nullptr;
-        const auto *call = ret ? dynamic_cast<const CallExpr *>(ret->value.get()) : nullptr;
-        if (!condition || condition->op != "==" || !is_ident(condition->left.get(), "n") || !is_int(condition->right.get(), arity) ||
-            branch->else_branch || !call || call->has_spread || call->optional || !is_ident(call->callee.get(), "f") ||
-            call->args.size() != static_cast<size_t>(arity)) {
-            return false;
-        }
-        for (int64_t i = 0; i < arity; ++i) {
-            const auto *index = dynamic_cast<const IndexExpr *>(call->args[i].get());
-            if (!index || index->optional || !is_ident(index->object.get(), "args") || !is_int(index->index.get(), i)) {
-                return false;
-            }
-        }
-    }
-    const auto *fallback = dynamic_cast<const ReturnStmt *>(func->body->stmts[14].get());
-    const auto *fallback_call = fallback ? is_call(fallback->value.get(), "__js_apply_array_spread", 2) : nullptr;
-    return fallback_call && is_ident(fallback_call->args[0].get(), "f") && is_ident(fallback_call->args[1].get(), "args");
-}
-
-static bool matches_extended_jsrt_helper(const Function *func, OpCode op) {
-    if (op == OpCode::OP_CALL_SPREAD) {
-        return matches_apply_array_helper(func);
-    }
-    if (op == OpCode::OP_JS_GET_PROP_STATIC) {
-        const bool legacy = func->params.size() == 2 && func->body && func->body->stmts.size() == 10;
-        const bool own_miss_aware =
-            func->params.size() == 3 && func->params[2].name == "ownMiss" && func->body && func->body->stmts.size() == 8;
-        if ((!legacy && !own_miss_aware) || func->params[0].name != "obj" || func->params[1].name != "key") {
-            return false;
-        }
-        const auto *getter_key = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
-        const auto *concat = getter_key ? dynamic_cast<const BinaryExpr *>(getter_key->initializerExpr.get()) : nullptr;
-        const auto *prefix = concat ? dynamic_cast<const StringExpr *>(concat->left.get()) : nullptr;
-        return getter_key && getter_key->name == "getterKey" && concat && concat->op == "@" && prefix && prefix->value == "__js_getter__" &&
-               is_ident(concat->right.get(), "key");
-    }
-    if (op == OpCode::OP_JS_SET_PROP_STATIC) {
-        // Same contract as the getter gate: confirm jsrt's helper still starts by
-        // deriving "__js_setter__" @ key, so editing jsrt silently disables the
-        // opcode instead of silently changing semantics.
-        if (func->params.size() != 3 || func->params[0].name != "obj" || func->params[1].name != "key" || func->params[2].name != "value" ||
-            !func->body || func->body->stmts.size() < 2) {
-            return false;
-        }
-        const auto *setter_key = dynamic_cast<const VarDeclStmt *>(func->body->stmts[1].get());
-        const auto *concat = setter_key ? dynamic_cast<const BinaryExpr *>(setter_key->initializerExpr.get()) : nullptr;
-        const auto *prefix = concat ? dynamic_cast<const StringExpr *>(concat->left.get()) : nullptr;
-        return setter_key && setter_key->name == "setterKey" && concat && concat->op == "@" && prefix && prefix->value == "__js_setter__" &&
-               is_ident(concat->right.get(), "key");
-    }
-    if (op == OpCode::OP_JS_POSTINC) {
-        // Gate on jsrt's exact body, same contract as the get/set gates: editing
-        // jsrt silently disables the opcode rather than silently changing meaning.
-        //   func __js_postinc(o, k) { let old = __js_to_number(o[k]); o[k] = old + 1; return old; }
-        if (func->params.size() != 2 || func->params[0].name != "o" || func->params[1].name != "k" || !func->body ||
-            func->body->stmts.size() != 3) {
-            return false;
-        }
-        const auto *old_decl = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
-        if (!old_decl || old_decl->name != "old") {
-            return false;
-        }
-        const auto *to_number = is_call(old_decl->initializerExpr.get(), "__js_to_number", 1);
-        const auto *read = to_number ? dynamic_cast<const IndexExpr *>(to_number->args[0].get()) : nullptr;
-        if (!read || !is_ident(read->object.get(), "o") || !is_ident(read->index.get(), "k")) {
-            return false;
-        }
-        const auto *store = dynamic_cast<const IndexAssignStmt *>(func->body->stmts[1].get());
-        const auto *target = store ? dynamic_cast<const IndexExpr *>(store->target.get()) : nullptr;
-        if (!target || !is_ident(target->object.get(), "o") || !is_ident(target->index.get(), "k")) {
-            return false;
-        }
-        const auto *bump = dynamic_cast<const BinaryExpr *>(store->value.get());
-        if (!bump || bump->op != "+" || !is_ident(bump->left.get(), "old") || !is_int(bump->right.get(), 1)) {
-            return false;
-        }
-        const auto *ret = dynamic_cast<const ReturnStmt *>(func->body->stmts[2].get());
-        return ret && is_ident(ret->value.get(), "old");
-    }
-    if (op == OpCode::OP_JS_BIT_NOT) {
-        if (func->params.size() != 1 || func->params[0].name != "value") {
-            return false;
-        }
-        const auto *unary = dynamic_cast<const UnaryExpr *>(single_return(func));
-        return unary && unary->op == "~" && is_conversion(unary->operand.get(), "__js_to_int32", "value");
-    }
-    if (op == OpCode::OP_JS_BIT_AND) {
-        return matches_binary_helper(func, "&");
-    }
-    if (op == OpCode::OP_JS_BIT_OR) {
-        return matches_binary_helper(func, "|");
-    }
-    if (op == OpCode::OP_JS_BIT_XOR) {
-        return matches_binary_helper(func, "^");
-    }
-    if (op == OpCode::OP_JS_SHL || op == OpCode::OP_JS_SHR) {
-        if (func->params.size() != 2 || func->params[0].name != "a" || func->params[1].name != "b") {
-            return false;
-        }
-        const Expr *value = single_return(func);
-        if (op == OpCode::OP_JS_SHL) {
-            const auto *outer = is_call(value, "__js_to_int32", 1);
-            value = outer ? outer->args[0].get() : nullptr;
-        }
-        const auto *shift = dynamic_cast<const BinaryExpr *>(value);
-        return shift && shift->op == (op == OpCode::OP_JS_SHL ? "<<" : ">>") && is_conversion(shift->left.get(), "__js_to_int32", "a") &&
-               matches_shift_count(shift->right.get(), "b");
-    }
-    if (op != OpCode::OP_JS_USHR || func->params.size() != 2 || func->params[0].name != "a" || func->params[1].name != "b" || !func->body ||
-        func->body->stmts.size() != 3) {
-        return false;
-    }
-    const auto *value = dynamic_cast<const VarDeclStmt *>(func->body->stmts[0].get());
-    const auto *shift = dynamic_cast<const VarDeclStmt *>(func->body->stmts[1].get());
-    const auto *ret = dynamic_cast<const ReturnStmt *>(func->body->stmts[2].get());
-    if (!value || value->name != "value" || !is_conversion(value->initializerExpr.get(), "__js_to_uint32", "a") || !shift ||
-        shift->name != "shift" || !matches_shift_count(shift->initializerExpr.get(), "b") || !ret) {
-        return false;
-    }
-    const auto *floor = dynamic_cast<const CallExpr *>(ret->value.get());
-    const auto *member = floor ? dynamic_cast<const MemberExpr *>(floor->callee.get()) : nullptr;
-    if (!floor || floor->has_spread || floor->optional || floor->args.size() != 1 || !member || member->member != "floor" ||
-        !is_ident(member->object.get(), "math")) {
-        return false;
-    }
-    const auto *divide = dynamic_cast<const BinaryExpr *>(floor->args[0].get());
-    const auto *power = divide ? is_call(divide->right.get(), "__js_pow", 2) : nullptr;
-    return divide && divide->op == "/" && is_ident(divide->left.get(), "value") && power && is_int(power->args[0].get(), 2) &&
-           is_ident(power->args[1].get(), "shift");
-}
-#endif
-
 bool Compiler::is_const_binding(const std::string &name) const {
     if (ctx->locals.count(name)) {
         return ctx->const_locals.count(name);
@@ -526,92 +341,94 @@ void Compiler::collect_idents_expr(const Expr *expr, std::set<std::string> &iden
     if (!expr) {
         return;
     }
-    if (auto *ident = dynamic_cast<const IdentExpr *>(expr)) {
-        idents.insert(ident->name);
-        return;
-    }
-    if (auto *binary = dynamic_cast<const BinaryExpr *>(expr)) {
-        collect_idents_expr(binary->left.get(), idents);
-        collect_idents_expr(binary->right.get(), idents);
-        return;
-    }
-    if (auto *unary = dynamic_cast<const UnaryExpr *>(expr)) {
-        collect_idents_expr(unary->operand.get(), idents);
-        return;
-    }
-    if (auto *call = dynamic_cast<const CallExpr *>(expr)) {
-        collect_idents_expr(call->callee.get(), idents);
-        for (const auto &arg : call->args) {
-            collect_idents_expr(arg.get(), idents);
+    switch (expr->kind) {
+        case ExprKind::Ident:
+            idents.insert(static_cast<const IdentExpr *>(expr)->name);
+            return;
+        case ExprKind::Binary: {
+            const auto *binary = static_cast<const BinaryExpr *>(expr);
+            collect_idents_expr(binary->left.get(), idents);
+            collect_idents_expr(binary->right.get(), idents);
+            return;
         }
-        return;
-    }
-    if (auto *spread = dynamic_cast<const SpreadExpr *>(expr)) {
-        collect_idents_expr(spread->operand.get(), idents);
-        return;
-    }
-    if (auto *index = dynamic_cast<const IndexExpr *>(expr)) {
-        collect_idents_expr(index->object.get(), idents);
-        collect_idents_expr(index->index.get(), idents);
-        return;
-    }
-    if (auto *mem = dynamic_cast<const MemberExpr *>(expr)) {
-        collect_idents_expr(mem->object.get(), idents);
-        return;
-    }
-    if (auto *tern = dynamic_cast<const TernaryExpr *>(expr)) {
-        collect_idents_expr(tern->condition.get(), idents);
-        collect_idents_expr(tern->true_expr.get(), idents);
-        collect_idents_expr(tern->false_expr.get(), idents);
-        return;
-    }
-    if (auto *arr = dynamic_cast<const ArrayLiteralExpr *>(expr)) {
-        for (const auto &e : arr->elements) {
-            collect_idents_expr(e.get(), idents);
-        }
-        return;
-    }
-    if (auto *obj = dynamic_cast<const ObjectLiteralExpr *>(expr)) {
-        for (const auto &[k, v] : obj->entries) {
-            collect_idents_expr(v.get(), idents);
-        }
-        return;
-    }
-    if (auto *interp = dynamic_cast<const StringInterpolationExpr *>(expr)) {
-        for (const auto &value : interp->exprs) {
-            collect_idents_expr(value.get(), idents);
-        }
-        return;
-    }
-    if (auto *match = dynamic_cast<const MatchExpr *>(expr)) {
-        collect_idents_expr(match->scrutinee.get(), idents);
-        for (const auto &arm : match->arms) {
-            if (auto *literal = dynamic_cast<const LiteralPattern *>(arm.pattern.get())) {
-                collect_idents_expr(literal->value.get(), idents);
+        case ExprKind::Unary:
+            collect_idents_expr(static_cast<const UnaryExpr *>(expr)->operand.get(), idents);
+            return;
+        case ExprKind::Call: {
+            const auto *call = static_cast<const CallExpr *>(expr);
+            collect_idents_expr(call->callee.get(), idents);
+            for (const auto &arg : call->args) {
+                collect_idents_expr(arg.get(), idents);
             }
-            collect_idents_expr(arm.body.get(), idents);
+            return;
         }
-        return;
-    }
-    if (auto *new_expr = dynamic_cast<const NewExpr *>(expr)) {
-        for (const auto &arg : new_expr->args) {
-            collect_idents_expr(arg.get(), idents);
+        case ExprKind::Spread:
+            collect_idents_expr(static_cast<const SpreadExpr *>(expr)->operand.get(), idents);
+            return;
+        case ExprKind::Index: {
+            const auto *index = static_cast<const IndexExpr *>(expr);
+            collect_idents_expr(index->object.get(), idents);
+            collect_idents_expr(index->index.get(), idents);
+            return;
         }
-        return;
-    }
-    if (auto *spawn = dynamic_cast<const SpawnExpr *>(expr)) {
-        collect_idents(spawn->body.get(), idents);
-        return;
-    }
-    // Note: we *do* descend into FunctionExpr to collect transitive captures
-    if (auto *fn = dynamic_cast<const FunctionExpr *>(expr)) {
-        for (const auto &param : fn->params) {
-            collect_idents_expr(param.default_value.get(), idents);
+        case ExprKind::Member:
+            collect_idents_expr(static_cast<const MemberExpr *>(expr)->object.get(), idents);
+            return;
+        case ExprKind::Ternary: {
+            const auto *tern = static_cast<const TernaryExpr *>(expr);
+            collect_idents_expr(tern->condition.get(), idents);
+            collect_idents_expr(tern->true_expr.get(), idents);
+            collect_idents_expr(tern->false_expr.get(), idents);
+            return;
         }
-        if (fn->body) {
-            collect_idents(fn->body.get(), idents);
+        case ExprKind::ArrayLiteral:
+            for (const auto &e : static_cast<const ArrayLiteralExpr *>(expr)->elements) {
+                collect_idents_expr(e.get(), idents);
+            }
+            return;
+        case ExprKind::ObjectLiteral:
+            for (const auto &[k, v] : static_cast<const ObjectLiteralExpr *>(expr)->entries) {
+                collect_idents_expr(v.get(), idents);
+            }
+            return;
+        case ExprKind::StringInterpolation:
+            for (const auto &value : static_cast<const StringInterpolationExpr *>(expr)->exprs) {
+                collect_idents_expr(value.get(), idents);
+            }
+            return;
+        case ExprKind::Match: {
+            const auto *match = static_cast<const MatchExpr *>(expr);
+            collect_idents_expr(match->scrutinee.get(), idents);
+            for (const auto &arm : match->arms) {
+                const Pattern *pat = arm.pattern.get();
+                if (pat != nullptr && pat->pattern_kind == PatternKind::Literal) {
+                    collect_idents_expr(static_cast<const LiteralPattern *>(pat)->value.get(), idents);
+                }
+                collect_idents_expr(arm.body.get(), idents);
+            }
+            return;
         }
-        return;
+        case ExprKind::New:
+            for (const auto &arg : static_cast<const NewExpr *>(expr)->args) {
+                collect_idents_expr(arg.get(), idents);
+            }
+            return;
+        case ExprKind::Spawn:
+            collect_idents(static_cast<const SpawnExpr *>(expr)->body.get(), idents);
+            return;
+        // Note: we *do* descend into FunctionExpr to collect transitive captures
+        case ExprKind::Function: {
+            const auto *fn = static_cast<const FunctionExpr *>(expr);
+            for (const auto &param : fn->params) {
+                collect_idents_expr(param.default_value.get(), idents);
+            }
+            if (fn->body) {
+                collect_idents(fn->body.get(), idents);
+            }
+            return;
+        }
+        default:
+            return;
     }
 }
 
@@ -620,66 +437,73 @@ void Compiler::collect_idents(const Stmt *stmt, std::set<std::string> &idents) {
     if (!stmt) {
         return;
     }
-    if (auto *expr_stmt = dynamic_cast<const ExprStmt *>(stmt)) {
-        collect_idents_expr(expr_stmt->expr.get(), idents);
-        return;
-    }
-    if (auto *var_decl = dynamic_cast<const VarDeclStmt *>(stmt)) {
-        collect_idents_expr(var_decl->initializerExpr.get(), idents);
-        return;
-    }
-    if (auto *assign = dynamic_cast<const AssignStmt *>(stmt)) {
-        // Include the target variable name as a referenced identifier
-        idents.insert(assign->target);
-        collect_idents_expr(assign->value.get(), idents);
-        return;
-    }
-    if (auto *if_stmt = dynamic_cast<const IfStmt *>(stmt)) {
-        collect_idents_expr(if_stmt->cond.get(), idents);
-        collect_idents(if_stmt->then_branch.get(), idents);
-        collect_idents(if_stmt->else_branch.get(), idents);
-        return;
-    }
-    if (auto *while_stmt = dynamic_cast<const WhileStmt *>(stmt)) {
-        collect_idents_expr(while_stmt->cond.get(), idents);
-        collect_idents(while_stmt->body.get(), idents);
-        return;
-    }
-    if (auto *for_stmt = dynamic_cast<const ForStmt *>(stmt)) {
-        collect_idents(for_stmt->init.get(), idents);
-        collect_idents_expr(for_stmt->cond.get(), idents);
-        collect_idents(for_stmt->post.get(), idents);
-        collect_idents(for_stmt->body.get(), idents);
-        return;
-    }
-    if (auto *block = dynamic_cast<const BlockStmt *>(stmt)) {
-        for (const auto &s : block->stmts) {
-            collect_idents(s.get(), idents);
+    switch (stmt->stmt_kind) {
+        case StmtKind::Expr:
+            collect_idents_expr(static_cast<const ExprStmt *>(stmt)->expr.get(), idents);
+            return;
+        case StmtKind::VarDecl:
+            collect_idents_expr(static_cast<const VarDeclStmt *>(stmt)->initializerExpr.get(), idents);
+            return;
+        case StmtKind::Assign: {
+            const auto *assign = static_cast<const AssignStmt *>(stmt);
+            // Include the target variable name as a referenced identifier
+            idents.insert(assign->target);
+            collect_idents_expr(assign->value.get(), idents);
+            return;
         }
-        return;
-    }
-    if (auto *ret = dynamic_cast<const ReturnStmt *>(stmt)) {
-        collect_idents_expr(ret->value.get(), idents);
-        return;
-    }
-    if (auto *idx_assign = dynamic_cast<const IndexAssignStmt *>(stmt)) {
-        collect_idents_expr(idx_assign->target.get(), idents);
-        collect_idents_expr(idx_assign->value.get(), idents);
-        return;
-    }
-    if (auto *foreach_stmt = dynamic_cast<const ForEachStmt *>(stmt)) {
-        collect_idents_expr(foreach_stmt->iterable.get(), idents);
-        collect_idents(foreach_stmt->body.get(), idents);
-        return;
-    }
-    if (auto *switch_stmt = dynamic_cast<const SwitchStmt *>(stmt)) {
-        collect_idents_expr(switch_stmt->value.get(), idents);
-        for (const auto &_case : switch_stmt->cases) {
-            collect_idents_expr(_case.match.get(), idents);
-            collect_idents(_case.body.get(), idents);
+        case StmtKind::If: {
+            const auto *if_stmt = static_cast<const IfStmt *>(stmt);
+            collect_idents_expr(if_stmt->cond.get(), idents);
+            collect_idents(if_stmt->then_branch.get(), idents);
+            collect_idents(if_stmt->else_branch.get(), idents);
+            return;
         }
-        collect_idents(switch_stmt->default_body.get(), idents);
-        return;
+        case StmtKind::While: {
+            const auto *while_stmt = static_cast<const WhileStmt *>(stmt);
+            collect_idents_expr(while_stmt->cond.get(), idents);
+            collect_idents(while_stmt->body.get(), idents);
+            return;
+        }
+        case StmtKind::For: {
+            const auto *for_stmt = static_cast<const ForStmt *>(stmt);
+            collect_idents(for_stmt->init.get(), idents);
+            collect_idents_expr(for_stmt->cond.get(), idents);
+            collect_idents(for_stmt->post.get(), idents);
+            collect_idents(for_stmt->body.get(), idents);
+            return;
+        }
+        case StmtKind::Block:
+            for (const auto &s : static_cast<const BlockStmt *>(stmt)->stmts) {
+                collect_idents(s.get(), idents);
+            }
+            return;
+        case StmtKind::Return:
+            collect_idents_expr(static_cast<const ReturnStmt *>(stmt)->value.get(), idents);
+            return;
+        case StmtKind::IndexAssign: {
+            const auto *idx_assign = static_cast<const IndexAssignStmt *>(stmt);
+            collect_idents_expr(idx_assign->target.get(), idents);
+            collect_idents_expr(idx_assign->value.get(), idents);
+            return;
+        }
+        case StmtKind::ForEach: {
+            const auto *foreach_stmt = static_cast<const ForEachStmt *>(stmt);
+            collect_idents_expr(foreach_stmt->iterable.get(), idents);
+            collect_idents(foreach_stmt->body.get(), idents);
+            return;
+        }
+        case StmtKind::Switch: {
+            const auto *switch_stmt = static_cast<const SwitchStmt *>(stmt);
+            collect_idents_expr(switch_stmt->value.get(), idents);
+            for (const auto &_case : switch_stmt->cases) {
+                collect_idents_expr(_case.match.get(), idents);
+                collect_idents(_case.body.get(), idents);
+            }
+            collect_idents(switch_stmt->default_body.get(), idents);
+            return;
+        }
+        default:
+            return;
     }
 }
 
@@ -687,52 +511,60 @@ void Compiler::collect_bindings(const Stmt *stmt, std::set<std::string> &binding
     if (!stmt) {
         return;
     }
-    if (const auto *decl = dynamic_cast<const VarDeclStmt *>(stmt)) {
-        if (decl->destructure_kind == DestructureKind::Array) {
-            bindings.insert(decl->array_names.begin(), decl->array_names.end());
-        } else if (decl->destructure_kind == DestructureKind::Object) {
-            for (const auto &[_, name] : decl->object_bindings) {
-                bindings.insert(name);
+    switch (stmt->stmt_kind) {
+        case StmtKind::VarDecl: {
+            const auto *decl = static_cast<const VarDeclStmt *>(stmt);
+            if (decl->destructure_kind == DestructureKind::Array) {
+                bindings.insert(decl->array_names.begin(), decl->array_names.end());
+            } else if (decl->destructure_kind == DestructureKind::Object) {
+                for (const auto &[_, name] : decl->object_bindings) {
+                    bindings.insert(name);
+                }
+            } else {
+                bindings.insert(decl->name);
             }
-        } else {
-            bindings.insert(decl->name);
+            return;
         }
-        return;
-    }
-    if (const auto *block = dynamic_cast<const BlockStmt *>(stmt)) {
-        for (const auto &child : block->stmts) {
-            collect_bindings(child.get(), bindings);
+        case StmtKind::Block:
+            for (const auto &child : static_cast<const BlockStmt *>(stmt)->stmts) {
+                collect_bindings(child.get(), bindings);
+            }
+            return;
+        case StmtKind::If: {
+            const auto *branch = static_cast<const IfStmt *>(stmt);
+            collect_bindings(branch->then_branch.get(), bindings);
+            collect_bindings(branch->else_branch.get(), bindings);
+            return;
         }
-        return;
-    }
-    if (const auto *branch = dynamic_cast<const IfStmt *>(stmt)) {
-        collect_bindings(branch->then_branch.get(), bindings);
-        collect_bindings(branch->else_branch.get(), bindings);
-        return;
-    }
-    if (const auto *loop = dynamic_cast<const WhileStmt *>(stmt)) {
-        collect_bindings(loop->body.get(), bindings);
-        return;
-    }
-    if (const auto *loop = dynamic_cast<const ForStmt *>(stmt)) {
-        collect_bindings(loop->init.get(), bindings);
-        collect_bindings(loop->post.get(), bindings);
-        collect_bindings(loop->body.get(), bindings);
-        return;
-    }
-    if (const auto *loop = dynamic_cast<const ForEachStmt *>(stmt)) {
-        bindings.insert(loop->var);
-        if (!loop->val_var.empty()) {
-            bindings.insert(loop->val_var);
+        case StmtKind::While:
+            collect_bindings(static_cast<const WhileStmt *>(stmt)->body.get(), bindings);
+            return;
+        case StmtKind::For: {
+            const auto *loop = static_cast<const ForStmt *>(stmt);
+            collect_bindings(loop->init.get(), bindings);
+            collect_bindings(loop->post.get(), bindings);
+            collect_bindings(loop->body.get(), bindings);
+            return;
         }
-        collect_bindings(loop->body.get(), bindings);
-        return;
-    }
-    if (const auto *switch_stmt = dynamic_cast<const SwitchStmt *>(stmt)) {
-        for (const auto &item : switch_stmt->cases) {
-            collect_bindings(item.body.get(), bindings);
+        case StmtKind::ForEach: {
+            const auto *loop = static_cast<const ForEachStmt *>(stmt);
+            bindings.insert(loop->var);
+            if (!loop->val_var.empty()) {
+                bindings.insert(loop->val_var);
+            }
+            collect_bindings(loop->body.get(), bindings);
+            return;
         }
-        collect_bindings(switch_stmt->default_body.get(), bindings);
+        case StmtKind::Switch: {
+            const auto *switch_stmt = static_cast<const SwitchStmt *>(stmt);
+            for (const auto &item : switch_stmt->cases) {
+                collect_bindings(item.body.get(), bindings);
+            }
+            collect_bindings(switch_stmt->default_body.get(), bindings);
+            return;
+        }
+        default:
+            return;
     }
 }
 
@@ -743,7 +575,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *num = dynamic_cast<const NumberExpr *>(expr)) {
+    if (expr->kind == ExprKind::Number) {
+        const auto *num = static_cast<const NumberExpr *>(expr);
         if (num->is_float) {
             uint16_t idx = ctx->add_constant(Constant::make_float(num->f));
             ctx->emit_op_short(OpCode::OP_LOAD_CONST, idx);
@@ -762,25 +595,29 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *str = dynamic_cast<const StringExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::String) {
+        const auto *str = static_cast<const StringExpr *>(expr);
         uint32_t str_idx = chunk->add_string(str->value);
         uint16_t const_idx = ctx->add_constant(Constant::make_string(str_idx));
         ctx->emit_op_short(OpCode::OP_LOAD_CONST, const_idx);
         return;
     }
 
-    if (auto *b = dynamic_cast<const BoolExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Bool) {
+        const auto *b = static_cast<const BoolExpr *>(expr);
         ctx->emit_op(b->value ? OpCode::OP_LOAD_TRUE : OpCode::OP_LOAD_FALSE);
         return;
     }
 
-    if (auto *n = dynamic_cast<const NullExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Null) {
+        const auto *n = static_cast<const NullExpr *>(expr);
         (void)n; // unused
         ctx->emit_op(OpCode::OP_LOAD_NONE);
         return;
     }
 
-    if (auto *re = dynamic_cast<const RegexLiteralExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Regex) {
+        const auto *re = static_cast<const RegexLiteralExpr *>(expr);
         uint32_t pattern_idx = chunk->add_string(re->pattern);
         uint32_t flags_idx = chunk->add_string(re->flags);
         ctx->emit_op(OpCode::OP_MAKE_REGEX);
@@ -789,7 +626,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *var = dynamic_cast<const IdentExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Ident) {
+        const auto *var = static_cast<const IdentExpr *>(expr);
         uint16_t idx = ctx->resolve_local(var->name);
         if (idx != 0xFFFF) {
             ctx->emit_op_short(OpCode::OP_LOAD_VAR, idx);
@@ -815,7 +653,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *bin = dynamic_cast<const BinaryExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Binary) {
+        const auto *bin = static_cast<const BinaryExpr *>(expr);
         // short-circuit operators need special codegen
         if (bin->op == "&&") {
             compile_expr(bin->left.get());
@@ -910,10 +749,14 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *unary = dynamic_cast<const UnaryExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Unary) {
+        const auto *unary = static_cast<const UnaryExpr *>(expr);
         // increment/decrement operators (++x, --x, x++, x--)
         if (unary->op == "++" || unary->op == "--" || unary->op == "post++" || unary->op == "post--") {
-            auto *ident = dynamic_cast<const IdentExpr *>(unary->operand.get());
+            auto *ident =
+                ((unary->operand.get()) != nullptr && (unary->operand.get())->kind == ExprKind::Ident
+                     ? static_cast<const IdentExpr *>(unary->operand.get())
+                     : nullptr);
             if (!ident) {
                 fprintf(stderr, "increment/decrement requires a variable\n");
                 return;
@@ -990,12 +833,14 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *arr = dynamic_cast<const ArrayLiteralExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::ArrayLiteral) {
+        const auto *arr = static_cast<const ArrayLiteralExpr *>(expr);
         if (arr->has_spread) {
             // Build array incrementally: start with empty array, push/spread each element
             ctx->emit_op_short(OpCode::OP_MAKE_ARRAY, 0);
             for (const auto &elem : arr->elements) {
-                if (auto *spread = dynamic_cast<const SpreadExpr *>(elem.get())) {
+                if ((elem.get()) != nullptr && (elem.get())->kind == ExprKind::Spread) {
+                    const auto *spread = static_cast<const SpreadExpr *>(elem.get());
                     compile_expr(spread->operand.get());
                     ctx->emit_op(OpCode::OP_ARRAY_SPREAD);
                 } else {
@@ -1016,7 +861,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *obj = dynamic_cast<const ObjectLiteralExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::ObjectLiteral) {
+        const auto *obj = static_cast<const ObjectLiteralExpr *>(expr);
         if (obj->has_spread) {
             // build object incrementally
             ctx->emit_op_short(OpCode::OP_MAKE_OBJECT, 0);
@@ -1048,7 +894,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *idx = dynamic_cast<const IndexExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Index) {
+        const auto *idx = static_cast<const IndexExpr *>(expr);
         compile_expr(idx->object.get());
         if (idx->optional) {
             ctx->emit_op(OpCode::OP_DUP);
@@ -1066,7 +913,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *member = dynamic_cast<const MemberExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Member) {
+        const auto *member = static_cast<const MemberExpr *>(expr);
         compile_expr(member->object.get());
         if (member->optional) {
             ctx->emit_op(OpCode::OP_DUP);
@@ -1083,8 +931,12 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *call = dynamic_cast<const CallExpr *>(expr)) {
-        auto *callee = dynamic_cast<const IdentExpr *>(call->callee.get());
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Call) {
+        const auto *call = static_cast<const CallExpr *>(expr);
+        auto *callee =
+            ((call->callee.get()) != nullptr && (call->callee.get())->kind == ExprKind::Ident
+                 ? static_cast<const IdentExpr *>(call->callee.get())
+                 : nullptr);
 #ifdef NARI_EXTENDED_JSRT
         if (callee && !call->has_spread && !call->optional && !ctx->lexical_bindings.count(callee->name) &&
             !ctx->capture_map.count(callee->name)) {
@@ -1098,7 +950,10 @@ void Compiler::compile_expr(const Expr *expr) {
                     return;
                 }
                 if (helper->second == OpCode::OP_JS_SET_PROP_STATIC && call->args.size() == 3) {
-                    const auto *key = dynamic_cast<const StringExpr *>(call->args[1].get());
+                    const auto *key =
+                        ((call->args[1].get()) != nullptr && (call->args[1].get())->kind == ExprKind::String
+                             ? static_cast<const StringExpr *>(call->args[1].get())
+                             : nullptr);
                     if (key) {
                         compile_expr(call->args[0].get());
                         compile_expr(call->args[2].get());
@@ -1108,7 +963,10 @@ void Compiler::compile_expr(const Expr *expr) {
                     }
                 }
                 if (helper->second == OpCode::OP_JS_POSTINC && call->args.size() == 2) {
-                    const auto *key = dynamic_cast<const StringExpr *>(call->args[1].get());
+                    const auto *key =
+                        ((call->args[1].get()) != nullptr && (call->args[1].get())->kind == ExprKind::String
+                             ? static_cast<const StringExpr *>(call->args[1].get())
+                             : nullptr);
                     if (key) {
                         compile_expr(call->args[0].get());
                         uint32_t key_idx = chunk->add_string(key->value);
@@ -1117,7 +975,10 @@ void Compiler::compile_expr(const Expr *expr) {
                     }
                 }
                 if (helper->second == OpCode::OP_JS_GET_PROP_STATIC && call->args.size() == 2) {
-                    const auto *key = dynamic_cast<const StringExpr *>(call->args[1].get());
+                    const auto *key =
+                        ((call->args[1].get()) != nullptr && (call->args[1].get())->kind == ExprKind::String
+                             ? static_cast<const StringExpr *>(call->args[1].get())
+                             : nullptr);
                     if (key) {
                         compile_expr(call->args[0].get());
                         uint32_t key_idx = chunk->add_string(key->value);
@@ -1175,9 +1036,15 @@ void Compiler::compile_expr(const Expr *expr) {
         bool is_js_and = callee && callee->name == "__js_and";
         bool is_js_or = callee && callee->name == "__js_or";
         if (!call->has_spread && !call->optional && (is_js_and || is_js_or) && call->args.size() == 2) {
-            auto *right_thunk = dynamic_cast<const FunctionExpr *>(call->args[1].get());
+            auto *right_thunk =
+                ((call->args[1].get()) != nullptr && (call->args[1].get())->kind == ExprKind::Function
+                     ? static_cast<const FunctionExpr *>(call->args[1].get())
+                     : nullptr);
             if (right_thunk && right_thunk->params.empty() && right_thunk->body && right_thunk->body->stmts.size() == 1) {
-                auto *ret = dynamic_cast<const ReturnStmt *>(right_thunk->body->stmts[0].get());
+                auto *ret =
+                    ((right_thunk->body->stmts[0].get()) != nullptr && (right_thunk->body->stmts[0].get())->stmt_kind == StmtKind::Return
+                         ? static_cast<const ReturnStmt *>(right_thunk->body->stmts[0].get())
+                         : nullptr);
                 if (ret && ret->value) {
                     compile_expr(call->args[0].get());
                     ctx->emit_op(OpCode::OP_DUP);
@@ -1194,7 +1061,10 @@ void Compiler::compile_expr(const Expr *expr) {
         if (call->has_spread) {
             // spread call: build args array, then use OP_CALL_SPREAD.
             // for method calls with spread, we still need the object on the stack
-            auto *member = dynamic_cast<const MemberExpr *>(call->callee.get());
+            auto *member =
+                ((call->callee.get()) != nullptr && (call->callee.get())->kind == ExprKind::Member
+                     ? static_cast<const MemberExpr *>(call->callee.get())
+                     : nullptr);
             if (member) {
                 // method call with spread: obj.method(...args)
                 compile_expr(member->object.get());
@@ -1207,7 +1077,8 @@ void Compiler::compile_expr(const Expr *expr) {
             // A single spread operand is already the argument array expected
             // by OP_CALL_SPREAD, so avoid copying it into a temporary array.
             if (call->args.size() == 1) {
-                if (auto *spread = dynamic_cast<const SpreadExpr *>(call->args[0].get())) {
+                if ((call->args[0].get()) != nullptr && (call->args[0].get())->kind == ExprKind::Spread) {
+                    const auto *spread = static_cast<const SpreadExpr *>(call->args[0].get());
                     compile_expr(spread->operand.get());
                 } else {
                     ctx->emit_op_short(OpCode::OP_MAKE_ARRAY, 0);
@@ -1217,7 +1088,8 @@ void Compiler::compile_expr(const Expr *expr) {
             } else {
                 ctx->emit_op_short(OpCode::OP_MAKE_ARRAY, 0);
                 for (const auto &arg : call->args) {
-                    if (auto *spread = dynamic_cast<const SpreadExpr *>(arg.get())) {
+                    if ((arg.get()) != nullptr && (arg.get())->kind == ExprKind::Spread) {
+                        const auto *spread = static_cast<const SpreadExpr *>(arg.get());
                         compile_expr(spread->operand.get());
                         ctx->emit_op(OpCode::OP_ARRAY_SPREAD);
                     } else {
@@ -1232,7 +1104,10 @@ void Compiler::compile_expr(const Expr *expr) {
         }
 
         // check for method call (obj.method(args))
-        auto *member = dynamic_cast<const MemberExpr *>(call->callee.get());
+        auto *member =
+            ((call->callee.get()) != nullptr && (call->callee.get())->kind == ExprKind::Member
+                 ? static_cast<const MemberExpr *>(call->callee.get())
+                 : nullptr);
         if (member) {
             const std::string &method = member->member;
 
@@ -1275,7 +1150,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *func_expr = dynamic_cast<const FunctionExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Function) {
+        const auto *func_expr = static_cast<const FunctionExpr *>(expr);
         FunctionMeta meta;
         meta.name = "<lambda>";
         meta.source_file = func_expr->filename;
@@ -1332,7 +1208,14 @@ void Compiler::compile_expr(const Expr *expr) {
             }
         }
         if (captures.size() > UINT16_MAX) {
-            throw std::runtime_error("closure captures too many variables (max 65535)");
+            fprintf(stderr, "Error: closure captures too many variables (max 65535)\n");
+            ctx = saved;
+            parent_ctx = saved_parent;
+            is_main_scope = saved_main_scope;
+            loop_stack = std::move(saved_loop_stack);
+            try_depth = saved_try_depth;
+            failed = true;
+            return;
         }
         meta.capture_count = static_cast<uint16_t>(captures.size());
 
@@ -1412,7 +1295,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *ternary = dynamic_cast<const TernaryExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Ternary) {
+        const auto *ternary = static_cast<const TernaryExpr *>(expr);
         compile_expr(ternary->condition.get());
         size_t else_jump = ctx->emit_jump(OpCode::OP_JUMP_IF_FALSE);
         compile_expr(ternary->true_expr.get());
@@ -1423,7 +1307,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *interp = dynamic_cast<const StringInterpolationExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::StringInterpolation) {
+        const auto *interp = static_cast<const StringInterpolationExpr *>(expr);
         // build result by compiling parts and expressions, concatenating
         bool has_value = false;
         for (size_t i = 0; i < interp->parts.size(); ++i) {
@@ -1447,7 +1332,8 @@ void Compiler::compile_expr(const Expr *expr) {
                     auto expr_funcs = Parser::parse_program_from_source(interp->expr_sources[i]);
                     if (expr_funcs.size() >= 2 && expr_funcs[1] && expr_funcs[1]->body && !expr_funcs[1]->body->stmts.empty()) {
                         auto *first_stmt = expr_funcs[1]->body->stmts[0].get();
-                        if (auto *exprStmt = dynamic_cast<nari::ExprStmt *>(first_stmt)) {
+                        if ((first_stmt) != nullptr && (first_stmt)->stmt_kind == StmtKind::Expr) {
+                            auto *exprStmt = static_cast<nari::ExprStmt *>(first_stmt);
                             frag_expr = exprStmt->expr.get();
                         }
                     }
@@ -1476,7 +1362,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *match = dynamic_cast<const MatchExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Match) {
+        const auto *match = static_cast<const MatchExpr *>(expr);
         compile_expr(match->scrutinee.get());
 
         std::vector<size_t> end_jumps;
@@ -1486,12 +1373,15 @@ void Compiler::compile_expr(const Expr *expr) {
             }
 
             if (arm.pattern->pattern_kind == PatternKind::Variant) {
-                auto *var_pattern = dynamic_cast<const VariantPattern *>(arm.pattern.get());
+                auto *var_pattern =
+                    ((arm.pattern.get()) != nullptr && (arm.pattern.get())->pattern_kind == PatternKind::Variant
+                         ? static_cast<const VariantPattern *>(arm.pattern.get())
+                         : nullptr);
                 if (var_pattern) {
                     // check if obj.__variant == variant_name
                     ctx->emit_op(OpCode::OP_DUP); // dup scrutinee
                     uint32_t variant_str = chunk->add_string("__variant");
-                    ctx->emit_op_short(OpCode::OP_GET_PROPERTY, (uint16_t)variant_str);
+                    ctx->emit_op_short(OpCode::OP_GET_PROPERTY, static_cast<uint16_t>(variant_str));
                     uint32_t name_str = chunk->add_string(var_pattern->variant_name);
                     uint16_t name_const = ctx->add_constant(Constant::make_string(name_str));
                     ctx->emit_op_short(OpCode::OP_LOAD_CONST, name_const);
@@ -1515,7 +1405,11 @@ void Compiler::compile_expr(const Expr *expr) {
                     } else if (!var_pattern->fields.empty()) {
                         if (var_pattern->fields.size() == 1) {
                             // Single field: bind __data directly
-                            auto *binding = dynamic_cast<const BindingPattern *>(var_pattern->fields[0].get());
+                            auto *binding =
+                                ((var_pattern->fields[0].get()) != nullptr &&
+                                         (var_pattern->fields[0].get())->pattern_kind == PatternKind::Binding
+                                     ? static_cast<const BindingPattern *>(var_pattern->fields[0].get())
+                                     : nullptr);
                             if (binding) {
                                 ctx->emit_op(OpCode::OP_DUP); // dup scrutinee
                                 uint32_t data_str = chunk->add_string("__data");
@@ -1527,7 +1421,11 @@ void Compiler::compile_expr(const Expr *expr) {
                         } else {
                             // multi-field tuple: bind __data[0], __data[1], etc.
                             for (size_t i = 0; i < var_pattern->fields.size(); i++) {
-                                auto *binding = dynamic_cast<const BindingPattern *>(var_pattern->fields[i].get());
+                                auto *binding =
+                                    ((var_pattern->fields[i].get()) != nullptr &&
+                                             (var_pattern->fields[i].get())->pattern_kind == PatternKind::Binding
+                                         ? static_cast<const BindingPattern *>(var_pattern->fields[i].get())
+                                         : nullptr);
                                 if (binding) {
                                     ctx->emit_op(OpCode::OP_DUP); // dup scrutinee
                                     uint32_t data_str = chunk->add_string("__data");
@@ -1549,12 +1447,15 @@ void Compiler::compile_expr(const Expr *expr) {
                     ctx->patch_jump(skip);
                 }
             } else if (arm.pattern->pattern_kind == PatternKind::Binding) {
-                auto *bp = dynamic_cast<const BindingPattern *>(arm.pattern.get());
+                auto *bp =
+                    ((arm.pattern.get()) != nullptr && (arm.pattern.get())->pattern_kind == PatternKind::Binding
+                         ? static_cast<const BindingPattern *>(arm.pattern.get())
+                         : nullptr);
                 if (bp) {
                     // check if this binding name matches a variant
                     ctx->emit_op(OpCode::OP_DUP);
                     uint32_t variant_str = chunk->add_string("__variant");
-                    ctx->emit_op_short(OpCode::OP_GET_PROPERTY, (uint16_t)variant_str);
+                    ctx->emit_op_short(OpCode::OP_GET_PROPERTY, static_cast<uint16_t>(variant_str));
                     uint32_t name_str = chunk->add_string(bp->name);
                     uint16_t name_const = ctx->add_constant(Constant::make_string(name_str));
                     ctx->emit_op_short(OpCode::OP_LOAD_CONST, name_const);
@@ -1578,7 +1479,10 @@ void Compiler::compile_expr(const Expr *expr) {
                     end_jumps.push_back(ctx->emit_jump(OpCode::OP_JUMP));
                 }
             } else if (arm.pattern->pattern_kind == PatternKind::Literal) {
-                auto *lp = dynamic_cast<const LiteralPattern *>(arm.pattern.get());
+                auto *lp =
+                    ((arm.pattern.get()) != nullptr && (arm.pattern.get())->pattern_kind == PatternKind::Literal
+                         ? static_cast<const LiteralPattern *>(arm.pattern.get())
+                         : nullptr);
                 if (lp) {
                     ctx->emit_op(OpCode::OP_DUP);
                     compile_expr(lp->value.get());
@@ -1608,7 +1512,8 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (auto *new_expr = dynamic_cast<const NewExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::New) {
+        const auto *new_expr = static_cast<const NewExpr *>(expr);
         for (const auto &arg : new_expr->args) {
             compile_expr(arg.get());
         }
@@ -1619,14 +1524,15 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    if (dynamic_cast<const ThisExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::This) {
         ctx->emit_op(OpCode::OP_LOAD_THIS);
         return;
     }
 
     // compiles the body as an anonymous 0-param function and emits OP_SPAWN so the VM runs it asynchronously, returning
     // a Handle value.
-    if (auto *spawn_expr = dynamic_cast<const SpawnExpr *>(expr)) {
+    if ((expr) != nullptr && (expr)->kind == ExprKind::Spawn) {
+        const auto *spawn_expr = static_cast<const SpawnExpr *>(expr);
         if (!spawn_expr->body) {
             ctx->emit_op(OpCode::OP_LOAD_NONE);
             return;
@@ -1731,7 +1637,9 @@ void Compiler::compile_expr(const Expr *expr) {
         return;
     }
 
-    fprintf(stderr, "unhandled expression type! expr number: %d @ %s:%d\n", (int)expr->kind, expr->filename.c_str(), expr->line);
+    fprintf(
+        stderr, "unhandled expression type! expr number: %d @ %s:%d\n", static_cast<int>(expr->kind), expr->filename.c_str(), expr->line
+    );
     return;
 }
 
@@ -1745,13 +1653,15 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         ctx->emit_line(stmt->line);
     }
 
-    if (auto *expr_stmt = dynamic_cast<const ExprStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::Expr) {
+        const auto *expr_stmt = static_cast<const ExprStmt *>(stmt);
         compile_expr(expr_stmt->expr.get());
         ctx->emit_op(OpCode::OP_POP); // discard result
         return;
     }
 
-    if (auto *var_decl = dynamic_cast<const VarDeclStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::VarDecl) {
+        const auto *var_decl = static_cast<const VarDeclStmt *>(stmt);
         // handle destructuring
         if (var_decl->destructure_kind == DestructureKind::Array) {
             if (var_decl->initializerExpr) {
@@ -1785,7 +1695,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             for (const auto &[key, var_name] : var_decl->object_bindings) {
                 ctx->emit_op(OpCode::OP_DUP); // dup object
                 uint32_t str_idx = chunk->add_string(key);
-                ctx->emit_op_short(OpCode::OP_GET_PROPERTY, (uint16_t)str_idx);
+                ctx->emit_op_short(OpCode::OP_GET_PROPERTY, static_cast<uint16_t>(str_idx));
                 uint16_t local_idx = ctx->declare_local(var_name);
                 if (var_decl->is_const) {
                     ctx->const_locals.insert(var_name);
@@ -1804,7 +1714,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
                 ctx->emit_op(OpCode::OP_LOAD_NONE);
             }
             uint32_t str_idx = chunk->add_string(var_decl->name);
-            ctx->emit_op_short(OpCode::OP_STORE_GLOBAL, (uint16_t)str_idx);
+            ctx->emit_op_short(OpCode::OP_STORE_GLOBAL, static_cast<uint16_t>(str_idx));
             ctx->emit_op(OpCode::OP_POP);
             // also declare a local so it can be referenced within the current scope
             uint16_t idx = ctx->declare_local(var_decl->name);
@@ -1812,7 +1722,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
                 ctx->const_locals.insert(var_decl->name);
                 global_consts.insert(var_decl->name);
             }
-            ctx->emit_op_short(OpCode::OP_LOAD_GLOBAL, (uint16_t)str_idx);
+            ctx->emit_op_short(OpCode::OP_LOAD_GLOBAL, static_cast<uint16_t>(str_idx));
             ctx->emit_op_short(OpCode::OP_STORE_VAR, idx);
             ctx->emit_op(OpCode::OP_POP);
         } else {
@@ -1834,7 +1744,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             if (is_main_scope) {
                 ctx->emit_op_short(OpCode::OP_LOAD_VAR, idx);
                 uint32_t str_idx = chunk->add_string(var_decl->name);
-                ctx->emit_op_short(OpCode::OP_STORE_GLOBAL, (uint16_t)str_idx);
+                ctx->emit_op_short(OpCode::OP_STORE_GLOBAL, static_cast<uint16_t>(str_idx));
                 ctx->emit_op(OpCode::OP_POP);
             }
             ctx->emit_op(OpCode::OP_POP); // var decl doesn't produce a value
@@ -1842,7 +1752,8 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (auto *if_stmt = dynamic_cast<const IfStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::If) {
+        const auto *if_stmt = static_cast<const IfStmt *>(stmt);
         compile_expr(if_stmt->cond.get());
 
         size_t else_jump = ctx->emit_jump(OpCode::OP_JUMP_IF_FALSE);
@@ -1861,7 +1772,8 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (auto *while_stmt = dynamic_cast<const WhileStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::While) {
+        const auto *while_stmt = static_cast<const WhileStmt *>(stmt);
         size_t loop_start = ctx->function->code.size();
         // locals the body declares get slots at or above this, so closing from here
         // never touches a binding that lives outside the loop
@@ -1900,7 +1812,8 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (auto *block = dynamic_cast<const BlockStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::Block) {
+        const auto *block = static_cast<const BlockStmt *>(stmt);
         ctx->push_scope();
         for (const auto &s : block->stmts) {
             compile_stmt(s.get());
@@ -1909,16 +1822,19 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (auto *assign = dynamic_cast<const AssignStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::Assign) {
+        const auto *assign = static_cast<const AssignStmt *>(stmt);
         if (is_const_binding(assign->target)) {
             emit_const_assignment_error(assign->target);
             return;
         }
         // peephole: `v = v @ expr` -> OP_STR_APPEND_VAR / OP_STR_APPEND_GLOBAL
         // detects the pattern `target = target @ rhs` and emits a single string-append opcode
-        if (auto *bin = dynamic_cast<const BinaryExpr *>(assign->value.get())) {
+        if ((assign->value.get()) != nullptr && (assign->value.get())->kind == ExprKind::Binary) {
+            const auto *bin = static_cast<const BinaryExpr *>(assign->value.get());
             if (bin->op == "@") {
-                if (auto *lhs_ident = dynamic_cast<const IdentExpr *>(bin->left.get())) {
+                if ((bin->left.get()) != nullptr && (bin->left.get())->kind == ExprKind::Ident) {
+                    const auto *lhs_ident = static_cast<const IdentExpr *>(bin->left.get());
                     if (lhs_ident->name == assign->target) {
                         // Local always wins over capture/global (shadowing).
                         uint16_t idx = ctx->resolve_local(assign->target);
@@ -1966,9 +1882,11 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (auto *idx_assign = dynamic_cast<const IndexAssignStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::IndexAssign) {
+        const auto *idx_assign = static_cast<const IndexAssignStmt *>(stmt);
         // check if target is a member expression (obj.prop = v)
-        if (auto *member = dynamic_cast<const MemberExpr *>(idx_assign->target.get())) {
+        if ((idx_assign->target.get()) != nullptr && (idx_assign->target.get())->kind == ExprKind::Member) {
+            const auto *member = static_cast<const MemberExpr *>(idx_assign->target.get());
             compile_expr(member->object.get());
             compile_expr(idx_assign->value.get());
             uint32_t str_idx = chunk->add_string(member->member);
@@ -1976,7 +1894,8 @@ void Compiler::compile_stmt(const Stmt *stmt) {
             ctx->emit_op(OpCode::OP_POP);
         }
         // check if target is an index expression (arr[i] = v)
-        else if (auto *index = dynamic_cast<const IndexExpr *>(idx_assign->target.get())) {
+        else if ((idx_assign->target.get()) != nullptr && (idx_assign->target.get())->kind == ExprKind::Index) {
+            const auto *index = static_cast<const IndexExpr *>(idx_assign->target.get());
             compile_expr(index->object.get());
             compile_expr(index->index.get());
             compile_expr(idx_assign->value.get());
@@ -1986,14 +1905,17 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (auto *ret = dynamic_cast<const ReturnStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::Return) {
+        const auto *ret = static_cast<const ReturnStmt *>(stmt);
         if (ret->value) {
             // tail-call self-recursion -> OP_SELF_TAIL_CALL
             // Detect `return current_func(arg0, arg1, ...)` with no rest params not
             // inside a try block.
             if (this->try_depth == 0 && ctx->function->rest_param_index < 0) {
-                if (auto *tcall = dynamic_cast<const CallExpr *>(ret->value.get())) {
-                    if (auto *ident = dynamic_cast<const IdentExpr *>(tcall->callee.get())) {
+                if ((ret->value.get()) != nullptr && (ret->value.get())->kind == ExprKind::Call) {
+                    const auto *tcall = static_cast<const CallExpr *>(ret->value.get());
+                    if ((tcall->callee.get()) != nullptr && (tcall->callee.get())->kind == ExprKind::Ident) {
+                        const auto *ident = static_cast<const IdentExpr *>(tcall->callee.get());
                         if (ident->name == ctx->function->name && !ctx->function->name.empty() &&
                             ctx->function->name[0] != '<' && // not a lambda
                             tcall->args.size() <= 255) {
@@ -2028,7 +1950,8 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (auto *for_stmt = dynamic_cast<const ForStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::For) {
+        const auto *for_stmt = static_cast<const ForStmt *>(stmt);
         // taken before init so a `for (let i = ...)` binding is covered too
         uint16_t loop_slot_watermark = ctx->local_count;
         if (for_stmt->init) {
@@ -2080,7 +2003,8 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (auto *foreach_stmt = dynamic_cast<const ForEachStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::ForEach) {
+        const auto *foreach_stmt = static_cast<const ForEachStmt *>(stmt);
         bool is_kv = !foreach_stmt->val_var.empty();
 
         // Single-variable for-in is desugared onto an index loop over hidden locals
@@ -2237,7 +2161,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (dynamic_cast<const BreakStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::Break) {
         if (!loop_stack.empty()) {
             // pop any try frames entered since the loop started
             int frames_to_pop = this->try_depth - loop_stack.back().outer_try_depth;
@@ -2250,7 +2174,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (dynamic_cast<const ContinueStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::Continue) {
         if (!loop_stack.empty()) {
             // pop any try frames entered since the loop started
             int frames_to_pop = this->try_depth - loop_stack.back().outer_try_depth;
@@ -2271,7 +2195,8 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         return;
     }
 
-    if (auto *switch_stmt = dynamic_cast<const SwitchStmt *>(stmt)) {
+    if ((stmt) != nullptr && (stmt)->stmt_kind == StmtKind::Switch) {
+        const auto *switch_stmt = static_cast<const SwitchStmt *>(stmt);
         compile_expr(switch_stmt->value.get());
 
         std::vector<size_t> end_jumps;
@@ -2305,7 +2230,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
 }
 
 template <typename FnLike>
-void Compiler::compile_function_body(const FnLike *func, FunctionMeta &meta) {
+bool Compiler::compile_function_body(const FnLike *func, FunctionMeta &meta) {
     constexpr bool is_plain_function = std::is_same<FnLike, Function>::value;
 
     CompilerContext context(&meta, chunk);
@@ -2436,6 +2361,7 @@ void Compiler::compile_function_body(const FnLike *func, FunctionMeta &meta) {
     current_return_type_ = saved_return_type;
     strict_mode = saved_strict;
     ctx = saved_ctx;
+    return true;
 }
 
 // Compile every registered class into chunk functions.
@@ -2444,7 +2370,7 @@ void Compiler::compile_function_body(const FnLike *func, FunctionMeta &meta) {
 //     which is separately callable as a normal method: `a.init(x)` works)
 //   - <Class>.__init__  : field defaults, then a forward call to 'init' if present
 //   - <Class>.__static_init__ : static field defaults (only when some static has one)
-void Compiler::compile_classes() {
+bool Compiler::compile_classes() {
     for (const auto &entry : Parser::get_all_registered_classes()) {
         const nari::ClassDecl *cd = entry.second;
         if (!cd) {
@@ -2464,7 +2390,9 @@ void Compiler::compile_classes() {
             meta.capture_count = 0;
             meta.is_lambda = false;
             meta.js_undefined_params = std::any_of(method.params.begin(), method.params.end(), is_js_undefined_param);
-            compile_function_body(&method, meta);
+            if (!compile_function_body(&method, meta)) {
+                return false;
+            }
             chunk->method_func_idx[&method] = static_cast<uint32_t>(chunk->functions.size());
             chunk->functions.push_back(std::move(meta));
         }
@@ -2581,11 +2509,17 @@ void Compiler::compile_classes() {
             chunk->class_static_init_idx[cd] = static_cast<uint32_t>(chunk->functions.size());
             chunk->functions.push_back(std::move(meta));
         }
+        if (failed) {
+            return false;
+        }
     }
+    return !failed;
 }
 
 Chunk *Compiler::compile(const FuncList &functions) {
-    chunk = new Chunk();
+    // Owned here until return; released to the caller on success.
+    auto owned = std::make_unique<Chunk>();
+    chunk = owned.get();
 
 #ifdef NARI_EXTENDED_JSRT
     const std::unordered_map<std::string, OpCode> candidates = {
@@ -2614,25 +2548,28 @@ Chunk *Compiler::compile(const FuncList &functions) {
             if (!stmt) {
                 return;
             }
-            if (const auto *assign = dynamic_cast<const AssignStmt *>(stmt)) {
-                assigned.insert(assign->target);
+            if (stmt->stmt_kind == StmtKind::Assign) {
+                assigned.insert(static_cast<const AssignStmt *>(stmt)->target);
             }
-            if (const auto *block = dynamic_cast<const BlockStmt *>(stmt)) {
-                for (const auto &child : block->stmts) {
+            if (stmt->stmt_kind == StmtKind::Block) {
+                for (const auto &child : static_cast<const BlockStmt *>(stmt)->stmts) {
                     self(self, child.get());
                 }
-            } else if (const auto *branch = dynamic_cast<const IfStmt *>(stmt)) {
+            } else if (stmt->stmt_kind == StmtKind::If) {
+                const auto *branch = static_cast<const IfStmt *>(stmt);
                 self(self, branch->then_branch.get());
                 self(self, branch->else_branch.get());
-            } else if (const auto *loop = dynamic_cast<const WhileStmt *>(stmt)) {
-                self(self, loop->body.get());
-            } else if (const auto *loop = dynamic_cast<const ForStmt *>(stmt)) {
+            } else if (stmt->stmt_kind == StmtKind::While) {
+                self(self, static_cast<const WhileStmt *>(stmt)->body.get());
+            } else if (stmt->stmt_kind == StmtKind::For) {
+                const auto *loop = static_cast<const ForStmt *>(stmt);
                 self(self, loop->init.get());
                 self(self, loop->post.get());
                 self(self, loop->body.get());
-            } else if (const auto *loop = dynamic_cast<const ForEachStmt *>(stmt)) {
-                self(self, loop->body.get());
-            } else if (const auto *switch_stmt = dynamic_cast<const SwitchStmt *>(stmt)) {
+            } else if (stmt->stmt_kind == StmtKind::ForEach) {
+                self(self, static_cast<const ForEachStmt *>(stmt)->body.get());
+            } else if (stmt->stmt_kind == StmtKind::Switch) {
+                const auto *switch_stmt = static_cast<const SwitchStmt *>(stmt);
                 for (const auto &item : switch_stmt->cases) {
                     self(self, item.body.get());
                 }
@@ -2662,7 +2599,9 @@ Chunk *Compiler::compile(const FuncList &functions) {
             continue;
         }
         for (const auto &stmt : func->body->stmts) {
-            const auto *decl = dynamic_cast<const VarDeclStmt *>(stmt.get());
+            const auto *decl =
+                ((stmt.get()) != nullptr && (stmt.get())->stmt_kind == StmtKind::VarDecl ? static_cast<const VarDeclStmt *>(stmt.get())
+                                                                                         : nullptr);
             if (!decl || !decl->is_const) {
                 continue;
             }
@@ -2685,7 +2624,9 @@ Chunk *Compiler::compile(const FuncList &functions) {
                 continue;
             }
             for (const auto &stmt : func->body->stmts) {
-                const auto *decl = dynamic_cast<const VarDeclStmt *>(stmt.get());
+                const auto *decl =
+                    ((stmt.get()) != nullptr && (stmt.get())->stmt_kind == StmtKind::VarDecl ? static_cast<const VarDeclStmt *>(stmt.get())
+                                                                                             : nullptr);
                 if (decl && decl->is_global) {
                     global_names.insert(decl->name);
                 }
@@ -2735,12 +2676,18 @@ Chunk *Compiler::compile(const FuncList &functions) {
         meta.js_undefined_params = std::any_of(func->params.begin(), func->params.end(), is_js_undefined_param);
         // strict_mode is propagated inside compile_function_body from func->strict_mode
 
-        compile_function_body(func, meta);
+        if (!compile_function_body(func, meta)) {
+            chunk = nullptr;
+            return nullptr;
+        }
 
         chunk->functions.push_back(std::move(meta));
     }
 
-    compile_classes();
+    if (!compile_classes()) {
+        chunk = nullptr;
+        return nullptr;
+    }
 
     FunctionMeta main_func;
     main_func.name = "<main>";
@@ -2767,6 +2714,13 @@ Chunk *Compiler::compile(const FuncList &functions) {
     is_main_scope = true;
     for (const Function *body : top_level_bodies) {
         if (body && body->body) {
+            uint32_t module_name_idx = chunk->add_string(body->name);
+            if (module_name_idx > UINT16_MAX) {
+                fprintf(stderr, "error: too many string constants for module entry\n");
+                chunk = nullptr;
+                return nullptr;
+            }
+            ctx->emit_op_short(OpCode::OP_MODULE_ENTRY, static_cast<uint16_t>(module_name_idx));
             compile_stmt(body->body.get());
         }
     }
@@ -2799,19 +2753,19 @@ Chunk *Compiler::compile(const FuncList &functions) {
         chunk->types.push_back(std::move(typeInfo));
     }
 
-    return chunk;
+    chunk = nullptr;
+    return owned.release();
 }
 
 Chunk *compile_bytecode(const FuncList &functions) {
     Compiler compiler;
-    Chunk *chunk = compiler.compile(functions);
+    std::unique_ptr<Chunk> chunk(compiler.compile(functions));
     if (chunk != nullptr) {
         if (!BytecodeVerifier::verify(*chunk)) {
-            delete chunk;
             return nullptr;
         }
     }
-    return chunk;
+    return chunk.release();
 }
 
 AppendedCode Compiler::compile_append(Chunk *existing, const FuncList &functions, const std::string &entry_name) {
@@ -2831,7 +2785,10 @@ AppendedCode Compiler::compile_append(Chunk *existing, const FuncList &functions
         meta.is_lambda = false;
         meta.js_undefined_params = std::any_of(func->params.begin(), func->params.end(), is_js_undefined_param);
 
-        compile_function_body(func, meta);
+        if (!compile_function_body(func, meta)) {
+            out.ok = false;
+            return out;
+        }
 
         uint32_t idx = static_cast<uint32_t>(chunk->functions.size());
         chunk->functions.push_back(std::move(meta));
@@ -2842,7 +2799,10 @@ AppendedCode Compiler::compile_append(Chunk *existing, const FuncList &functions
         }
     }
 
-    compile_classes(); // classes declared inside the eval'd source
+    if (!compile_classes()) { // classes declared inside the eval'd source
+        out.ok = false;
+        return out;
+    }
     return out;
 }
 

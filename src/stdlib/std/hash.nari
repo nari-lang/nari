@@ -1,5 +1,5 @@
 // Hash
-//  Cryptographic hash helpers backed by mbedtls. Intended for integrity
+//  Cryptographic hash helpers with mbedtls. Intended for integrity
 //  checks (lockfile, registry archives) - not authentication.
 //
 //  import { Hash } from "std/hash";

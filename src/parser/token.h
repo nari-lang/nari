@@ -3,8 +3,8 @@
 #include <string>
 #include <vector>
 
-// Token types shared between the lexer (parser/lexer.cpp) and the
-// precedence-climbing parser (parser.cpp). Split out of parser.cpp.
+// Token types shared between the lexer and the precedence-climbing parser.
+
 namespace Parser {
 
 enum class TokenKind {
@@ -12,7 +12,7 @@ enum class TokenKind {
     TK_IDENT,
     TK_NUMBER,
     TK_STRING,
-    // `interpolated strings like this {some_var}!`
+    // `interpolated strings like {this}!`
     TK_INTERP_STRING,
     // (
     TK_LPAREN,

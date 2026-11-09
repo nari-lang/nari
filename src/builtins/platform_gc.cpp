@@ -8,7 +8,7 @@
 #include "jit/asmjit_jit.h" // perf_jitdump_close
 #endif
 
-Value ScriptRuntime::builtin_platform_arch(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_platform_arch(Value *, size_t, const nari::CallExpr *) {
 #if defined(__EMSCRIPTEN__)
 #ifdef __wasm64__
     return Value::make_string("wasm64");
@@ -38,7 +38,7 @@ Value ScriptRuntime::builtin_platform_arch(const Value *, size_t, const nari::Ca
 #endif
 }
 
-Value ScriptRuntime::builtin_platform_os(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_platform_os(Value *, size_t, const nari::CallExpr *) {
 #if defined(__EMSCRIPTEN__)
     return Value::make_string("emscripten");
 #endif
@@ -66,23 +66,23 @@ Value ScriptRuntime::builtin_platform_os(const Value *, size_t, const nari::Call
 #define ENDIAN_STRING (nari::compat::endian::native == nari::compat::endian::little) ? "little" : "big"
 #endif
 
-Value ScriptRuntime::builtin_platform_endianness(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_platform_endianness(Value *, size_t, const nari::CallExpr *) {
     return Value::make_string(ENDIAN_STRING);
 }
 
 #ifndef NARI_MCU
-Value ScriptRuntime::builtin_platform_hostname(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_platform_hostname(Value *, size_t, const nari::CallExpr *) {
     char hostname[256];
     gethostname(hostname, sizeof(hostname));
     return Value::make_string(hostname);
 }
 #else
-Value ScriptRuntime::builtin_platform_hostname(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_platform_hostname(Value *, size_t, const nari::CallExpr *) {
     return Value::make_string("generic_mcu");
 }
 #endif
 
-Value ScriptRuntime::builtin_platform_getenv(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_platform_getenv(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc >= 1 && argvals[0].is_string()) {
         const char *value = getenv(argvals[0].get_string().c_str());
         if (value) {
@@ -100,7 +100,7 @@ extern char **environ;
 #define NARI_ENVIRON environ
 #endif
 
-Value ScriptRuntime::builtin_platform_environ(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_platform_environ(Value *, size_t, const nari::CallExpr *) {
     // Snapshot the whole environment as a name -> value object
     Value env = Value::make_object();
     ObjectObj *oobj = env.get_obj_ptr();
@@ -115,11 +115,11 @@ Value ScriptRuntime::builtin_platform_environ(const Value *, size_t, const nari:
     return env;
 }
 
-Value ScriptRuntime::builtin_platform_cwd(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_platform_cwd(Value *, size_t, const nari::CallExpr *) {
     return Value::make_string(nari::fs::current_path().string());
 }
 
-Value ScriptRuntime::builtin_platform_isatty(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_platform_isatty(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc < 1 || !argvals[0].is_int()) {
         return Value::make_bool(false);
     }
@@ -131,12 +131,12 @@ Value ScriptRuntime::builtin_platform_isatty(const Value *argvals, size_t argc, 
 #endif
 }
 
-Value ScriptRuntime::builtin_process_argc(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_process_argc(Value *, size_t, const nari::CallExpr *) {
     return Value::make_int(static_cast<int64_t>(this->process_argc));
 }
 
 // TODO?: should we cache this? array building can be expensive.
-Value ScriptRuntime::builtin_process_argv(const Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_process_argv(Value *, size_t, const nari::CallExpr *) {
     std::vector<Value> args;
     for (int i = 0; i < this->process_argc; ++i) {
         args.push_back(Value::make_string(this->process_argv[i]));
@@ -144,7 +144,7 @@ Value ScriptRuntime::builtin_process_argv(const Value *, size_t, const nari::Cal
     return Value::make_array(std::move(args));
 }
 
-Value ScriptRuntime::builtin_process_exit(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_process_exit(Value *argvals, size_t argc, const nari::CallExpr *) {
     int exit_code = 0;
     if (argc >= 1 && argvals[0].is_int()) {
         exit_code = static_cast<int>(argvals[0].get_int());
@@ -161,7 +161,7 @@ Value ScriptRuntime::builtin_process_exit(const Value *argvals, size_t argc, con
     _exit(exit_code);
 }
 
-Value ScriptRuntime::builtin_process_exec(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_process_exec(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc >= 1 && argvals[0].is_string()) {
         std::string command = argvals[0].get_string();
         int ret = system(command.c_str());
@@ -171,7 +171,7 @@ Value ScriptRuntime::builtin_process_exec(const Value *argvals, size_t argc, con
 }
 
 // Garbage Collector builtin functions
-Value ScriptRuntime::builtin_gc_collect(const Value *, size_t, const CallExpr *) {
+Value ScriptRuntime::builtin_gc_collect(Value *, size_t, const CallExpr *) {
     auto &gc = GarbageCollector::instance();
 
     auto roots = collect_gc_roots();
@@ -191,7 +191,7 @@ Value ScriptRuntime::builtin_gc_collect(const Value *, size_t, const CallExpr *)
     return result_gc;
 }
 
-Value ScriptRuntime::builtin_gc_stats(const Value *, size_t, const CallExpr *) {
+Value ScriptRuntime::builtin_gc_stats(Value *, size_t, const CallExpr *) {
     auto &gc = GarbageCollector::instance();
     auto stats = gc.get_stats();
 
@@ -210,7 +210,7 @@ Value ScriptRuntime::builtin_gc_stats(const Value *, size_t, const CallExpr *) {
     return result_gs;
 }
 
-Value ScriptRuntime::builtin_gc_enable(const Value *argvals, size_t argc, const CallExpr *) {
+Value ScriptRuntime::builtin_gc_enable(Value *argvals, size_t argc, const CallExpr *) {
     auto &gc = GarbageCollector::instance();
 
     if (argc >= 1 && argvals[0].is_bool()) {
@@ -221,7 +221,7 @@ Value ScriptRuntime::builtin_gc_enable(const Value *argvals, size_t argc, const 
     return Value::make_bool(false);
 }
 
-Value ScriptRuntime::builtin_gc_set_threshold(const Value *argvals, size_t argc, const CallExpr *) {
+Value ScriptRuntime::builtin_gc_set_threshold(Value *argvals, size_t argc, const CallExpr *) {
     auto &gc = GarbageCollector::instance();
 
     if (argc >= 1) {
@@ -245,7 +245,7 @@ Value ScriptRuntime::builtin_gc_set_threshold(const Value *argvals, size_t argc,
 
 // __gc_set_memory_limit(bytes) - set artificial memory limit (0 = unlimited)
 // Useful for testing how apps behave under memory constraints
-Value ScriptRuntime::builtin_gc_set_memory_limit(const Value *argvals, size_t argc, const CallExpr *) {
+Value ScriptRuntime::builtin_gc_set_memory_limit(Value *argvals, size_t argc, const CallExpr *) {
     auto &gc = GarbageCollector::instance();
 
     if (argc >= 1) {
@@ -268,7 +268,7 @@ Value ScriptRuntime::builtin_gc_set_memory_limit(const Value *argvals, size_t ar
 }
 
 // __gc_get_memory_usage() - Get estimated memory usage in bytes
-Value ScriptRuntime::builtin_gc_get_memory_usage(const Value *argvals, size_t argc, const CallExpr *) {
+Value ScriptRuntime::builtin_gc_get_memory_usage(Value *argvals, size_t argc, const CallExpr *) {
     auto &gc = GarbageCollector::instance();
     return Value::make_int(static_cast<int64_t>(gc.get_estimated_memory_usage()));
 }

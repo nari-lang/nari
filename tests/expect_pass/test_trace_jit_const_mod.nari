@@ -36,7 +36,17 @@ func mod_negative(n, d) {
   return acc;
 }
 
-// call everything twice: the second call runs the recorded/compiled trace
+func mod_divisor_becomes_zero() {
+  let divisor = 3;
+  let result = 0;
+  for (let i = 0; i < 20; i = i + 1) {
+    result = i % divisor;
+    if (i == 12) { divisor = 0; }
+  }
+  return result;
+}
+
+// Run each case twice to check trace reuse across calls.
 for (let round = 0; round < 2; round = round + 1) {
   expect(mod_chain(100000, 999983) == 232968, "mod_chain(100000, 999983)");
   expect(mod_chain(50000, 101) == 65, "mod_chain(50000, 101)");
@@ -45,4 +55,7 @@ for (let round = 0; round < 2; round = round + 1) {
   expect(mod_negative(50000, 999983) == -641334602, "negative dividends");
   expect(mod_negative(50000, 65536) == -932838022, "negative dividends, pow2 divisor");
 }
+let zero_divisor_result = mod_divisor_becomes_zero();
+expect(typeof(zero_divisor_result) == "float" && zero_divisor_result != zero_divisor_result,
+       "modulo by zero must produce NaN after a trace side exit");
 print("trace-jit const-mod: ok");

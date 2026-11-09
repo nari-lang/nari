@@ -1,11 +1,39 @@
 // Mid-level optimizing IR - names + debug dump. See ir.h / docs/JIT_OPTIMIZING_PIPELINE.md.
 #ifndef DISABLE_JIT
 #include "ir.h"
+#include "bytecode.h"
 #include <cstdio>
 
 namespace nari {
 namespace jit {
 namespace ir {
+
+bool verify_checked_arithmetic(const Func &f) {
+    if (!f.meta) {
+        return false;
+    }
+    for (const Block &block : f.blocks) {
+        for (ValueId id : block.insts) {
+            if (id < 0 || static_cast<size_t>(id) >= f.insts.size()) {
+                return false;
+            }
+            const Inst &in = f.inst(id);
+            if (in.op != Op::IAdd && in.op != Op::ISub && in.op != Op::IMul) {
+                continue;
+            }
+            if ((in.type != Ty::Number && !(in.type == Ty::Int48 && in.proven_int48)) || in.operands.size() != 2 ||
+                in.bytecode_pc >= f.meta->code.size()) {
+                return false;
+            }
+            for (ValueId operand : in.operands) {
+                if (operand < 0 || static_cast<size_t>(operand) >= f.insts.size() || f.inst(operand).type != Ty::Int48) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
 
 const char *op_name(Op op) {
     switch (op) {
@@ -237,22 +265,22 @@ std::string dump(const Func &f) {
             out += line;
         }
         if (in.op == Op::IConst || in.op == Op::BConst) {
-            snprintf(line, sizeof(line), " #%lld", (long long)in.imm_int);
+            snprintf(line, sizeof(line), " #%lld", static_cast<long long>(in.imm_int));
             out += line;
         } else if (in.op == Op::FConst) {
             snprintf(line, sizeof(line), " #%g", in.imm_float);
             out += line;
         } else if (in.op == Op::StoreImmSlot || in.op == Op::StoreBImmSlot) {
-            snprintf(line, sizeof(line), " #%lld -> @%u", (long long)in.imm_int, in.imm_u32);
+            snprintf(line, sizeof(line), " #%lld -> @%u", static_cast<long long>(in.imm_int), in.imm_u32);
             out += line;
         } else if (in.op == Op::StoreNSlot) {
             snprintf(line, sizeof(line), " -> @%u", in.imm_u32);
             out += line;
         } else if (in.op == Op::StoreCSlot) {
-            snprintf(line, sizeof(line), " const#%lld -> @%u", (long long)in.imm_int, in.imm_u32);
+            snprintf(line, sizeof(line), " const#%lld -> @%u", static_cast<long long>(in.imm_int), in.imm_u32);
             out += line;
         } else if (in.op == Op::CopySlot) {
-            snprintf(line, sizeof(line), " @%lld -> @%u", (long long)in.imm_int, in.imm_u32);
+            snprintf(line, sizeof(line), " @%lld -> @%u", static_cast<long long>(in.imm_int), in.imm_u32);
             out += line;
         } else if (
             in.op == Op::LoadSlot || in.op == Op::StoreSlot || in.op == Op::LoadGlobal || in.op == Op::StoreGlobal ||
@@ -266,7 +294,7 @@ std::string dump(const Func &f) {
             snprintf(line, sizeof(line), " argc=%u", in.imm_u32);
             out += line;
         } else if (in.op == Op::CallMethod) {
-            snprintf(line, sizeof(line), " @%u argc=%lld", in.imm_u32, (long long)in.imm_int);
+            snprintf(line, sizeof(line), " @%u argc=%lld", in.imm_u32, static_cast<long long>(in.imm_int));
             out += line;
         } else if (in.op == Op::Jump) {
             snprintf(line, sizeof(line), " -> b%d", in.target0);

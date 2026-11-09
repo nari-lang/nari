@@ -27,7 +27,7 @@ static int getline(char **lineptr, size_t *n, FILE *fp) {
     }
     if (*lineptr == NULL) {
         *n = GETLINE_MINSIZE;
-        *lineptr = (char *)malloc(sizeof(char) * (*n));
+        *lineptr = static_cast<char *>(malloc(sizeof(char) * (*n)));
         if (*lineptr == NULL) {
             errno = ENOMEM;
             return -1;
@@ -39,7 +39,7 @@ static int getline(char **lineptr, size_t *n, FILE *fp) {
         ch = fgetc(fp);
         while (i >= (*n) - 2) {
             *n *= 2;
-            p = (char *)realloc(*lineptr, sizeof(char) * (*n));
+            p = static_cast<char *>(realloc(*lineptr, sizeof(char) * (*n)));
             if (p == NULL) {
                 if (free_on_err) {
                     free(*lineptr);
@@ -67,7 +67,7 @@ static int getline(char **lineptr, size_t *n, FILE *fp) {
             *n = i + 1;
             return i + 1;
         }
-        (*lineptr)[i] = (char)ch;
+        (*lineptr)[i] = static_cast<char>(ch);
     }
 }
 #endif

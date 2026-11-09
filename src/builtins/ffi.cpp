@@ -4,7 +4,7 @@
 
 #include "../nari_ffi.h"
 
-Value ScriptRuntime::builtin_ffi_membersof(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_membersof(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc == 0) {
         fprintf(stderr, "ERROR: __ffi_membersof() requires an argument (type name, string, or type identifier)\n");
         return Value::none();
@@ -129,14 +129,14 @@ Value ScriptRuntime::builtin_ffi_membersof(const Value *argvals, size_t argc, co
     return result_val;
 }
 
-Value ScriptRuntime::builtin_ffi_load_library(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_load_library(Value *argvals, size_t argc, const nari::CallExpr *) {
     if ((argc == 0) || !argvals[0].is_string()) {
         return Value::none();
     }
 
     std::string lib_path = argvals[0].get_string();
 
-    auto &registry = FFIRegistry::instance();
+    auto &registry = nari::FFIRegistry::instance();
     auto lib = registry.load_library(lib_path);
 
     if (!lib || !lib->is_loaded()) {
@@ -170,7 +170,7 @@ Value ScriptRuntime::builtin_ffi_load_library(const Value *argvals, size_t argc,
 }
 
 // __ffi_get_symbol(lib, "function_name")
-Value ScriptRuntime::builtin_ffi_get_symbol(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_get_symbol(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc < 2 || !argvals[0].is_object() || !argvals[1].is_string()) {
         return Value::none();
     }
@@ -183,7 +183,7 @@ Value ScriptRuntime::builtin_ffi_get_symbol(const Value *argvals, size_t argc, c
     }
 
     uintptr_t handle_int = lib_oobj_gs->get_field("__ffi_handle__")->get_ptr_bits();
-    auto *lib = reinterpret_cast<FFILibrary *>(handle_int);
+    auto *lib = reinterpret_cast<nari::FFILibrary *>(handle_int);
 
     void *symbol = lib->get_symbol(symbol_name);
     if (!symbol) {
@@ -196,8 +196,8 @@ Value ScriptRuntime::builtin_ffi_get_symbol(const Value *argvals, size_t argc, c
 // infer argument types from a printf-style format string, used for variadic functions
 // this is purely heuristic and may not be accurate for all format strings, but *should* work for common cases
 // if you find an issue, please open an issue!!
-static std::vector<FFIType> infer_types_from_format_string(const std::string &fmt) {
-    std::vector<FFIType> types;
+static std::vector<nari::FFIType> infer_types_from_format_string(const std::string &fmt) {
+    std::vector<nari::FFIType> types;
     size_t len = fmt.size();
     for (size_t i = 0; i < len; ++i) {
         if (fmt[i] != '%') {
@@ -218,10 +218,10 @@ static std::vector<FFIType> infer_types_from_format_string(const std::string &fm
 
         // Optional width
         if (i < len && fmt[i] == '*') {
-            types.push_back(FFIType::Int32); // * consumes an int
+            types.push_back(nari::FFIType::Int32); // * consumes an int
             ++i;
         } else {
-            while (i < len && std::isdigit((unsigned char)fmt[i])) {
+            while (i < len && std::isdigit(static_cast<unsigned char>(fmt[i]))) {
                 ++i;
             }
         }
@@ -230,10 +230,10 @@ static std::vector<FFIType> infer_types_from_format_string(const std::string &fm
         if (i < len && fmt[i] == '.') {
             ++i;
             if (i < len && fmt[i] == '*') {
-                types.push_back(FFIType::Int32); // .* consumes an int
+                types.push_back(nari::FFIType::Int32); // .* consumes an int
                 ++i;
             } else {
-                while (i < len && std::isdigit((unsigned char)fmt[i])) {
+                while (i < len && std::isdigit(static_cast<unsigned char>(fmt[i]))) {
                     ++i;
                 }
             }
@@ -274,7 +274,7 @@ static std::vector<FFIType> infer_types_from_format_string(const std::string &fm
             case 'x':
             case 'X':
             case 'c':
-                types.push_back((is_long || is_long_long) ? FFIType::Int64 : FFIType::Int32);
+                types.push_back((is_long || is_long_long) ? nari::FFIType::Int64 : nari::FFIType::Int32);
                 break;
             case 'f':
             case 'F':
@@ -285,12 +285,12 @@ static std::vector<FFIType> infer_types_from_format_string(const std::string &fm
             case 'a':
             case 'A':
                 // C always promotes float to double in variadic calls
-                types.push_back(FFIType::Double);
+                types.push_back(nari::FFIType::Double);
                 break;
             case 's':
             case 'p':
             case 'n':
-                types.push_back(FFIType::Pointer);
+                types.push_back(nari::FFIType::Pointer);
                 break;
             default:
                 break;
@@ -301,14 +301,14 @@ static std::vector<FFIType> infer_types_from_format_string(const std::string &fm
 
 // __ffi_call(loaded_lib_reference, "function_name", signature_obj, [args...])
 // signature must look something like { return: "int", params: ["int", "string"] }
-Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_call(Value *argvals, size_t argc, const nari::CallExpr *) {
 
     if (argc < 3 || !argvals[0].is_object() || !argvals[1].is_string() || !argvals[2].is_object()) {
         return Value::none();
     }
 
     if (!argvals[0].is_object()) {
-        fprintf(stderr, "ERROR: First argument to __ffi_call is not an object (type index: %zu)\n", (size_t)argvals[0].tag());
+        fprintf(stderr, "ERROR: First argument to __ffi_call is not an object (type index: %zu)\n", static_cast<size_t>(argvals[0].tag()));
         return Value::none();
     }
 
@@ -331,55 +331,55 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
 
     const Value *handle_v = lib_oobj2->get_field("__ffi_handle__");
     if (!handle_v || !handle_v->is_int()) {
-        fprintf(stderr, "ERROR: __ffi_handle__ is not an integer (type index: %zu)\n", (size_t)handle_v->tag());
+        fprintf(stderr, "ERROR: __ffi_handle__ is not an integer (type index: %zu)\n", static_cast<size_t>(handle_v->tag()));
         return Value::none();
     }
 
     uintptr_t handle_int = handle_v->get_ptr_bits();
-    auto *lib = reinterpret_cast<FFILibrary *>(handle_int);
+    auto *lib = reinterpret_cast<nari::FFILibrary *>(handle_int);
 
     void *func_ptr = lib->get_symbol(func_name);
     if (!func_ptr) {
         return Value::none();
     }
 
-    FFISignature sig;
+    nari::FFISignature sig;
 
-    auto parse_ffi_type = [&sig](const Value &type_val, bool is_return) -> FFIType {
+    auto parse_ffi_type = [&sig](const Value &type_val, bool is_return) -> nari::FFIType {
         if (type_val.is_string()) {
             std::string type_str = type_val.get_string();
 
             // Check for pointer syntax (e.g., "MSG*", "u8*", "Rectangle*")
             if (!type_str.empty() && type_str.back() == '*') {
-                return FFIType::Pointer;
+                return nari::FFIType::Pointer;
             }
 
             if (type_str == "void") {
-                return FFIType::Void;
+                return nari::FFIType::Void;
             } else if (type_str == "i8" || type_str == "int8" || type_str == "char") {
-                return FFIType::Int8;
+                return nari::FFIType::Int8;
             } else if (type_str == "u8" || type_str == "uint8" || type_str == "uchar" || type_str == "byte") {
-                return FFIType::UInt8;
+                return nari::FFIType::UInt8;
             } else if (type_str == "i16" || type_str == "int16" || type_str == "short") {
-                return FFIType::Int16;
+                return nari::FFIType::Int16;
             } else if (type_str == "u16" || type_str == "uint16" || type_str == "ushort" || type_str == "word") {
-                return FFIType::UInt16;
+                return nari::FFIType::UInt16;
             } else if (type_str == "int" || type_str == "i32" || type_str == "int32") {
-                return FFIType::Int32;
+                return nari::FFIType::Int32;
             } else if (type_str == "long" || type_str == "i64" || type_str == "int64") {
-                return FFIType::Int64;
+                return nari::FFIType::Int64;
             } else if (type_str == "uint" || type_str == "u32") {
-                return FFIType::UInt32;
+                return nari::FFIType::UInt32;
             } else if (type_str == "ulong" || type_str == "u64") {
-                return FFIType::UInt64;
+                return nari::FFIType::UInt64;
             } else if (type_str == "float") {
-                return FFIType::Float;
+                return nari::FFIType::Float;
             } else if (type_str == "double") {
-                return FFIType::Double;
+                return nari::FFIType::Double;
             } else if (type_str == "bool") {
-                return FFIType::Bool;
+                return nari::FFIType::Bool;
             } else if (type_str == "string" || type_str == "pointer") {
-                return FFIType::Pointer;
+                return nari::FFIType::Pointer;
             }
         } else if (type_val.is_object()) {
             const ObjectObj *type_oobj = type_val.get_obj_ptr();
@@ -389,7 +389,7 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
                 std::string struct_name = type_oobj->get_field(is_union ? "union" : "struct")->get_string();
                 const Value *fields_v = type_oobj->get_field("fields");
 
-                std::vector<FFIStructField> fields;
+                std::vector<nari::FFIStructField> fields;
 
                 if (fields_v && fields_v->is_array()) {
                     const auto &fields_array = fields_v->get_array();
@@ -400,32 +400,32 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
 
                                 std::string field_name = field_oobj->get_field("name")->get_string();
                                 std::string type_str = field_oobj->get_field("type")->get_string();
-                                FFIType field_type = FFIType::Void;
+                                nari::FFIType field_type = nari::FFIType::Void;
 
                                 if (type_str == "i8" || type_str == "int8" || type_str == "char") {
-                                    field_type = FFIType::Int8;
+                                    field_type = nari::FFIType::Int8;
                                 } else if (type_str == "u8" || type_str == "uint8" || type_str == "uchar" || type_str == "byte") {
-                                    field_type = FFIType::UInt8;
+                                    field_type = nari::FFIType::UInt8;
                                 } else if (type_str == "i16" || type_str == "int16" || type_str == "short") {
-                                    field_type = FFIType::Int16;
+                                    field_type = nari::FFIType::Int16;
                                 } else if (type_str == "u16" || type_str == "uint16" || type_str == "ushort" || type_str == "word") {
-                                    field_type = FFIType::UInt16;
+                                    field_type = nari::FFIType::UInt16;
                                 } else if (type_str == "int" || type_str == "i32" || type_str == "int32") {
-                                    field_type = FFIType::Int32;
+                                    field_type = nari::FFIType::Int32;
                                 } else if (type_str == "long" || type_str == "i64" || type_str == "int64") {
-                                    field_type = FFIType::Int64;
+                                    field_type = nari::FFIType::Int64;
                                 } else if (type_str == "uint" || type_str == "u32") {
-                                    field_type = FFIType::UInt32;
+                                    field_type = nari::FFIType::UInt32;
                                 } else if (type_str == "ulong" || type_str == "u64") {
-                                    field_type = FFIType::UInt64;
+                                    field_type = nari::FFIType::UInt64;
                                 } else if (type_str == "float") {
-                                    field_type = FFIType::Float;
+                                    field_type = nari::FFIType::Float;
                                 } else if (type_str == "double") {
-                                    field_type = FFIType::Double;
+                                    field_type = nari::FFIType::Double;
                                 } else if (type_str == "bool") {
-                                    field_type = FFIType::Bool;
+                                    field_type = nari::FFIType::Bool;
                                 } else if (type_str == "string" || type_str == "pointer") {
-                                    field_type = FFIType::Pointer;
+                                    field_type = nari::FFIType::Pointer;
                                 }
 
                                 size_t field_count = 1;
@@ -438,13 +438,13 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
                                     field_count = static_cast<size_t>(count_v->get_int());
                                 }
                                 fields.emplace_back(field_name, field_type, field_count);
-                                if (field_type == FFIType::Void) {
-                                    fields.back().aggregate_def = create_struct_def_from_type(type_str);
+                                if (field_type == nari::FFIType::Void) {
+                                    fields.back().aggregate_def = nari::create_struct_def_from_type(type_str);
                                     if (!fields.back().aggregate_def) {
                                         fprintf(stderr, "ERROR: Unsupported FFI aggregate field type '%s'\n", type_str.c_str());
                                         fields.pop_back();
                                     } else {
-                                        fields.back().type = FFIType::Struct;
+                                        fields.back().type = nari::FFIType::Struct;
                                     }
                                 }
                             }
@@ -452,7 +452,7 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
                     }
                 }
 
-                auto struct_def = std::make_shared<FFIStructDef>(struct_name, fields, is_union);
+                auto struct_def = std::make_shared<nari::FFIStructDef>(struct_name, fields, is_union);
 
                 if (is_return) {
                     sig.return_struct_def = struct_def;
@@ -460,11 +460,11 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
                     sig.param_struct_defs.push_back(struct_def);
                 }
 
-                return FFIType::Struct;
+                return nari::FFIType::Struct;
             }
         }
 
-        return FFIType::Void;
+        return nari::FFIType::Void;
     };
 
     if (sig_oobj->has_field("returns")) {
@@ -492,11 +492,11 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
     if (sig_oobj->has_field("params") && sig_oobj->get_field("params")->is_array()) {
         const auto &params_array = sig_oobj->get_field("params")->get_array();
         for (const auto &param_val : params_array) {
-            FFIType param_type = parse_ffi_type(param_val, false);
+            nari::FFIType param_type = parse_ffi_type(param_val, false);
             sig.param_types.push_back(param_type);
 
             // if not struct, add nullptr to keep alignment
-            if (param_type != FFIType::Struct) {
+            if (param_type != nari::FFIType::Struct) {
                 sig.param_struct_defs.push_back(nullptr);
             }
         }
@@ -531,7 +531,7 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
     if (sig.is_variadic && func_args.size() > sig.fixed_param_count) {
         // try to infer variadic types from a printf-style format string found in
         // the fixed arguments, this scans fixed params in reverse.
-        std::vector<FFIType> fmt_types;
+        std::vector<nari::FFIType> fmt_types;
         for (size_t i = sig.fixed_param_count; i-- > 0;) {
             if (func_args[i].is_string()) {
                 const std::string &s = func_args[i].get_string();
@@ -551,13 +551,13 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
                 // Fall back to inferring from the runtime value type
                 const Value &arg = func_args[i];
                 if (arg.is_string()) {
-                    sig.param_types.push_back(FFIType::Pointer);
+                    sig.param_types.push_back(nari::FFIType::Pointer);
                 } else if (arg.is_int()) {
-                    sig.param_types.push_back(FFIType::Int32);
+                    sig.param_types.push_back(nari::FFIType::Int32);
                 } else if (arg.is_float()) {
-                    sig.param_types.push_back(FFIType::Double);
+                    sig.param_types.push_back(nari::FFIType::Double);
                 } else if (arg.is_bool()) {
-                    sig.param_types.push_back(FFIType::Bool);
+                    sig.param_types.push_back(nari::FFIType::Bool);
                 } else {
                     fprintf(stderr, "ERROR: Cannot infer FFI type for variadic object or array argument\n");
                     return Value::none();
@@ -567,13 +567,13 @@ Value ScriptRuntime::builtin_ffi_call(const Value *argvals, size_t argc, const n
     }
 
     if (sig.is_variadic) {
-        return FFICaller::call_function_variadic(func_ptr, sig, func_args);
+        return nari::FFICaller::call_function_variadic(func_ptr, sig, func_args);
     } else {
-        return FFICaller::call_function(func_ptr, sig, func_args);
+        return nari::FFICaller::call_function(func_ptr, sig, func_args);
     }
 }
 
-Value ScriptRuntime::builtin_ffi_utf16(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_utf16(Value *argvals, size_t argc, const nari::CallExpr *) {
     if ((argc == 0) || !argvals[0].is_string()) {
         return Value::make_int(0);
     }
@@ -604,7 +604,7 @@ Value ScriptRuntime::builtin_ffi_utf16(const Value *argvals, size_t argc, const 
     return Value::make_int(reinterpret_cast<int64_t>(raw));
 }
 
-Value ScriptRuntime::builtin_ffi_alloc(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_alloc(Value *argvals, size_t argc, const nari::CallExpr *) {
     if ((argc == 0) || !argvals[0].is_int()) {
         return Value::make_int(0);
     }
@@ -622,7 +622,7 @@ Value ScriptRuntime::builtin_ffi_alloc(const Value *argvals, size_t argc, const 
     return Value::make_int(reinterpret_cast<int64_t>(raw));
 }
 
-Value ScriptRuntime::builtin_ffi_utf16_read(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_utf16_read(Value *argvals, size_t argc, const nari::CallExpr *) {
     if ((argc == 0) || !argvals[0].is_int()) {
         return Value::make_string("");
     }
@@ -659,7 +659,7 @@ Value ScriptRuntime::builtin_ffi_utf16_read(const Value *argvals, size_t argc, c
     return Value::make_string(utf8);
 }
 
-Value ScriptRuntime::builtin_ffi_free(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_free(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc > 0 && argvals[0].is_object() && argvals[0].get_obj_ptr()->is_managed_native_struct()) {
         fprintf(stderr, "ERROR: __ffi_free() cannot free a managed FFI struct\n");
         return Value::none();
@@ -670,14 +670,14 @@ Value ScriptRuntime::builtin_ffi_free(const Value *argvals, size_t argc, const n
 
     uintptr_t ptr_value = argvals[0].get_ptr_bits();
     if (ptr_value != 0) {
-        std::free((void *)ptr_value);
+        std::free(reinterpret_cast<void *>(ptr_value));
     }
 
     return Value::none();
 }
 
 // __ffi_alloc_struct(typename) - allocate memory for a struct type
-Value ScriptRuntime::builtin_ffi_alloc_struct(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_alloc_struct(Value *argvals, size_t argc, const nari::CallExpr *) {
     if ((argc == 0) || !argvals[0].is_string()) {
         fprintf(stderr, "ERROR: __ffi_alloc_struct() requires a type name string\n");
         return Value::none();
@@ -697,11 +697,11 @@ Value ScriptRuntime::builtin_ffi_alloc_struct(const Value *argvals, size_t argc,
         return Value::none();
     }
 
-    return Value::make_int((int64_t)ptr);
+    return Value::make_int(static_cast<int64_t>(reinterpret_cast<intptr_t>(ptr)));
 }
 
 // __ffi_managed_struct(typename) - create an ordinary GC object owning zeroed struct memory
-Value ScriptRuntime::builtin_ffi_managed_struct(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_managed_struct(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc == 0 || !argvals[0].is_string()) {
         fprintf(stderr, "ERROR: __ffi_managed_struct() requires a type name string\n");
         return Value::none();
@@ -722,7 +722,7 @@ Value ScriptRuntime::builtin_ffi_managed_struct(const Value *argvals, size_t arg
 }
 
 // __ffi_read_struct(ptr, typename) - read struct from memory into Nari object
-Value ScriptRuntime::builtin_ffi_read_struct(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_read_struct(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc == 1 && argvals[0].is_object()) {
         const ObjectObj *owner = argvals[0].get_obj_ptr();
         if (!owner->is_managed_native_struct()) {
@@ -754,7 +754,7 @@ Value ScriptRuntime::builtin_ffi_read_struct(const Value *argvals, size_t argc, 
 }
 
 // __ffi_write_struct(ptr, typename, obj) - write nari object to struct memory
-Value ScriptRuntime::builtin_ffi_write_struct(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_write_struct(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc == 2 && argvals[0].is_object() && argvals[1].is_object()) {
         const ObjectObj *owner = argvals[0].get_obj_ptr();
         if (!owner->is_managed_native_struct()) {
@@ -789,7 +789,7 @@ Value ScriptRuntime::builtin_ffi_write_struct(const Value *argvals, size_t argc,
 }
 
 // __ffi_sizeof(typename) - get size of a struct type
-Value ScriptRuntime::builtin_ffi_sizeof(const Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_ffi_sizeof(Value *argvals, size_t argc, const nari::CallExpr *) {
     if ((argc == 0) || !argvals[0].is_string()) {
         fprintf(stderr, "ERROR: __ffi_sizeof() requires a type name string\n");
         return Value::none();
@@ -806,7 +806,7 @@ Value ScriptRuntime::builtin_ffi_sizeof(const Value *argvals, size_t argc, const
     return Value::make_int(static_cast<int64_t>(struct_size));
 }
 
-Value ScriptRuntime::builtin_ffi_create_callback(const Value *argvals, size_t argc, const CallExpr *) {
+Value ScriptRuntime::builtin_ffi_create_callback(Value *argvals, size_t argc, const CallExpr *) {
     if (argc < 2 || !argvals[0].is_object() || !argvals[1].is_function()) {
         fprintf(stderr, "ERROR: __ffi_create_callback() requires (signature_object, nari_function)\n");
         return Value::none();
@@ -816,43 +816,43 @@ Value ScriptRuntime::builtin_ffi_create_callback(const Value *argvals, size_t ar
     const Value &nari_func = argvals[1];
 
     // Parse signature (same as in __ffi_call)
-    FFISignature sig;
+    nari::FFISignature sig;
     bool invalid_callback_type = false;
 
-    auto parse_ffi_type = [&invalid_callback_type](const Value &type_val, bool is_return) -> FFIType {
+    auto parse_ffi_type = [&invalid_callback_type](const Value &type_val, bool is_return) -> nari::FFIType {
         if (type_val.is_string()) {
             std::string type_str = type_val.get_string();
 
             if (!type_str.empty() && type_str.back() == '*') {
-                return FFIType::Pointer;
+                return nari::FFIType::Pointer;
             }
 
             if (type_str == "void") {
-                return FFIType::Void;
+                return nari::FFIType::Void;
             } else if (type_str == "i8" || type_str == "int8" || type_str == "char") {
-                return FFIType::Int8;
+                return nari::FFIType::Int8;
             } else if (type_str == "u8" || type_str == "uint8" || type_str == "uchar" || type_str == "byte") {
-                return FFIType::UInt8;
+                return nari::FFIType::UInt8;
             } else if (type_str == "i16" || type_str == "int16" || type_str == "short") {
-                return FFIType::Int16;
+                return nari::FFIType::Int16;
             } else if (type_str == "u16" || type_str == "uint16" || type_str == "ushort" || type_str == "word") {
-                return FFIType::UInt16;
+                return nari::FFIType::UInt16;
             } else if (type_str == "int" || type_str == "i32" || type_str == "int32") {
-                return FFIType::Int32;
+                return nari::FFIType::Int32;
             } else if (type_str == "long" || type_str == "i64" || type_str == "int64") {
-                return FFIType::Int64;
+                return nari::FFIType::Int64;
             } else if (type_str == "uint" || type_str == "u32") {
-                return FFIType::UInt32;
+                return nari::FFIType::UInt32;
             } else if (type_str == "ulong" || type_str == "u64") {
-                return FFIType::UInt64;
+                return nari::FFIType::UInt64;
             } else if (type_str == "float") {
-                return FFIType::Float;
+                return nari::FFIType::Float;
             } else if (type_str == "double") {
-                return FFIType::Double;
+                return nari::FFIType::Double;
             } else if (type_str == "bool") {
-                return FFIType::Bool;
+                return nari::FFIType::Bool;
             } else if (type_str == "string" || type_str == "pointer") {
-                return FFIType::Pointer;
+                return nari::FFIType::Pointer;
             }
         }
 
@@ -864,18 +864,18 @@ Value ScriptRuntime::builtin_ffi_create_callback(const Value *argvals, size_t ar
                 fprintf(stderr, "ERROR: Aggregate types are not supported in callbacks\n");
             }
             invalid_callback_type = true;
-            return FFIType::Void;
+            return nari::FFIType::Void;
         }
 
         fprintf(stderr, "ERROR: Unsupported FFI type for callback\n");
         invalid_callback_type = true;
-        return FFIType::Void;
+        return nari::FFIType::Void;
     };
 
     if (sig_oobj_cb.has_field("returns")) {
         sig.return_type = parse_ffi_type(*sig_oobj_cb.get_field("returns"), true);
     } else {
-        sig.return_type = FFIType::Void;
+        sig.return_type = nari::FFIType::Void;
     }
 
     if (sig_oobj_cb.has_field("params")) {
@@ -892,7 +892,7 @@ Value ScriptRuntime::builtin_ffi_create_callback(const Value *argvals, size_t ar
         return Value::none();
     }
 
-    void *callback_ptr = FFICallbackManager::instance().create_callback(sig, nari_func, this);
+    void *callback_ptr = nari::FFICallbackManager::instance().create_callback(sig, nari_func, this);
 
     if (!callback_ptr) {
         fprintf(stderr, "ERROR: Failed to create FFI callback\n");
@@ -903,7 +903,7 @@ Value ScriptRuntime::builtin_ffi_create_callback(const Value *argvals, size_t ar
 }
 
 // __ffi_free_callback(callback_pointer) - free a previously created callback
-Value ScriptRuntime::builtin_ffi_free_callback(const Value *argvals, size_t argc, const CallExpr *) {
+Value ScriptRuntime::builtin_ffi_free_callback(Value *argvals, size_t argc, const CallExpr *) {
     if ((argc == 0) || !argvals[0].is_int()) {
         fprintf(stderr, "ERROR: __ffi_free_callback() requires a callback pointer (integer)\n");
         return Value::none();
@@ -912,7 +912,7 @@ Value ScriptRuntime::builtin_ffi_free_callback(const Value *argvals, size_t argc
     uintptr_t ptr_value = argvals[0].get_ptr_bits();
     if (ptr_value != 0) {
         void *callback_ptr = reinterpret_cast<void *>(ptr_value);
-        FFICallbackManager::instance().free_callback(callback_ptr);
+        nari::FFICallbackManager::instance().free_callback(callback_ptr);
     }
 
     return Value::none();

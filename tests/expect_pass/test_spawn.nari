@@ -1,13 +1,13 @@
-// -- spawn expression in bytecode mode ----------------------------------------
+// spawn expression in bytecode mode
 
-// 1. spawn returns a handle
+// spawn returns a handle
 let h = spawn { return 42 }
 if (typeof(h) != "handle") { panic("spawn should return a handle, got: " @ typeof(h)) }
 
-// 2. .await resolves to the return value
+// .await resolves to the return value
 if (h.await != 42) { panic("spawn handle .await should be 42") }
 
-// 3. spawn with computation
+// spawn with computation
 let h2 = spawn {
     let x = 10
     let y = 20
@@ -15,31 +15,31 @@ let h2 = spawn {
 }
 if (h2.await != 30) { panic("spawn computation: expected 30, got " + string(h2.await)) }
 
-// 4. spawn with string return
+// spawn with string return
 let h3 = spawn { return "hello" }
 if (h3.await != "hello") { panic("spawn string: expected 'hello'") }
 
-// 5. .ready is true after completion
+// .ready is true after completion
 let h4 = spawn { return true }
 h4.await  // wait for completion
 if (!h4.ready) { panic("handle.ready should be true after .await access") }
 
-// 6. .failed is false on successful spawn
+// .failed is false on successful spawn
 let h5 = spawn { return 0 }
 h5.await  // wait
 if (h5.failed) { panic("handle.failed should be false on success") }
 
-// 7. spawn with no explicit return gives null
+// spawn with no explicit return gives null
 let h6 = spawn { let x = 1 + 1 }
 if (h6.await != null) { panic("spawn with no return should give null") }
 
-// 8. multiple concurrent spawns sum correctly
+// multiple concurrent spawns sum correctly
 let a = spawn { return 1 }
 let b = spawn { return 2 }
 let c = spawn { return 3 }
 if (a.await + b.await + c.await != 6) { panic("multiple spawns: expected sum 6") }
 
-// 9. spawn captures outer variable
+// spawn captures outer variable
 let base = 100
 let hc = spawn { return base + 1 }
 if (hc.await != 101) { panic("spawn should capture outer variable, expected 101") }

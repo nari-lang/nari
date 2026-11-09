@@ -1,15 +1,18 @@
 #ifndef DISABLE_JIT
 #include "asmjit_jit.h"
 
-#ifdef NARI_ENABLE_GDB_JIT
+#ifndef NARI_DISABLE_GDB_JIT
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
+
+#include <elf.h>
 
 namespace nari {
 namespace jit {
@@ -36,28 +39,30 @@ enum {
     JIT_UNREGISTER_FN = 2,
 };
 
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((used, visibility("default")))
+#endif
 jit_descriptor __jit_debug_descriptor = { 1, JIT_NOACTION, nullptr, nullptr };
 
 #if defined(__GNUC__) || defined(__clang__)
-__attribute__((noinline))
+__attribute__((noinline, used, visibility("default")))
 #endif
 void __jit_debug_register_code() {
     asm volatile("" ::: "memory");
 }
 
 #if defined(__GNUC__) || defined(__clang__)
-__attribute__((noinline))
+__attribute__((noinline, used))
 #endif
 void nari_jit_initial_load_complete() {
-    asm volatile("" ::: "memory");
+    static volatile uint8_t reached = 0;
+    reached = 1;
+    asm volatile("" : : "m"(reached) : "memory");
 }
 
 } // extern "C"
 
 namespace {
-
-constexpr uint16_t EM_X86_64 = 62;
-constexpr uint16_t EM_AARCH64 = 183;
 
 #if defined(__x86_64__)
 constexpr uint16_t ElfMachine = EM_X86_64;
@@ -67,61 +72,14 @@ constexpr uint16_t ElfMachine = EM_AARCH64;
 constexpr uint16_t ElfMachine = 0;
 #endif
 
-constexpr uint32_t SHT_PROGBITS = 1;
-constexpr uint32_t SHT_SYMTAB = 2;
-constexpr uint32_t SHT_STRTAB = 3;
-constexpr uint64_t SHF_ALLOC = 0x2;
-constexpr uint64_t SHF_EXECINSTR = 0x4;
-constexpr uint8_t STB_GLOBAL = 1;
-constexpr uint8_t STT_FUNC = 2;
-constexpr uint16_t SHN_UNDEF = 0;
-
-struct Elf64_Ehdr_Mini {
-    unsigned char e_ident[16];
-    uint16_t e_type;
-    uint16_t e_machine;
-    uint32_t e_version;
-    uint64_t e_entry;
-    uint64_t e_phoff;
-    uint64_t e_shoff;
-    uint32_t e_flags;
-    uint16_t e_ehsize;
-    uint16_t e_phentsize;
-    uint16_t e_phnum;
-    uint16_t e_shentsize;
-    uint16_t e_shnum;
-    uint16_t e_shstrndx;
-};
-
-struct Elf64_Shdr_Mini {
-    uint32_t sh_name;
-    uint32_t sh_type;
-    uint64_t sh_flags;
-    uint64_t sh_addr;
-    uint64_t sh_offset;
-    uint64_t sh_size;
-    uint32_t sh_link;
-    uint32_t sh_info;
-    uint64_t sh_addralign;
-    uint64_t sh_entsize;
-};
-
-struct Elf64_Sym_Mini {
-    uint32_t st_name;
-    unsigned char st_info;
-    unsigned char st_other;
-    uint16_t st_shndx;
-    uint64_t st_value;
-    uint64_t st_size;
-};
-
-static_assert(sizeof(Elf64_Ehdr_Mini) == 64);
-static_assert(sizeof(Elf64_Shdr_Mini) == 64);
-static_assert(sizeof(Elf64_Sym_Mini) == 24);
+static_assert(sizeof(Elf64_Ehdr) == 64);
+static_assert(sizeof(Elf64_Shdr) == 64);
+static_assert(sizeof(Elf64_Sym) == 24);
 
 struct RegisteredObject {
     std::vector<char> elf;
     jit_code_entry entry;
+    const void *owner = nullptr;
 };
 
 std::mutex g_gdb_jit_mutex;
@@ -166,9 +124,9 @@ std::vector<char> build_elf_symbol_file(const std::string &name, const void *cod
     strtab.insert(strtab.end(), name.begin(), name.end());
     strtab.push_back('\0');
 
-    std::vector<Elf64_Sym_Mini> symtab;
+    std::vector<Elf64_Sym> symtab;
     symtab.push_back({});
-    Elf64_Sym_Mini fn_sym{};
+    Elf64_Sym fn_sym = {};
     fn_sym.st_name = symbol_name;
     fn_sym.st_info = static_cast<unsigned char>((STB_GLOBAL << 4) | STT_FUNC);
     fn_sym.st_other = 0;
@@ -180,7 +138,7 @@ std::vector<char> build_elf_symbol_file(const std::string &name, const void *cod
     fn_sym.st_size = static_cast<uint64_t>(code_size);
     symtab.push_back(fn_sym);
 
-    std::vector<char> elf(sizeof(Elf64_Ehdr_Mini), 0);
+    std::vector<char> elf(sizeof(Elf64_Ehdr), 0);
 
     size_t text_off = align_up(elf.size(), 16);
     elf.resize(text_off);
@@ -188,7 +146,7 @@ std::vector<char> build_elf_symbol_file(const std::string &name, const void *cod
 
     size_t symtab_off = align_up(elf.size(), 8);
     elf.resize(symtab_off);
-    append_bytes(elf, symtab.data(), symtab.size() * sizeof(Elf64_Sym_Mini));
+    append_bytes(elf, symtab.data(), symtab.size() * sizeof(Elf64_Sym));
 
     size_t strtab_off = elf.size();
     append_bytes(elf, strtab.data(), strtab.size());
@@ -197,9 +155,9 @@ std::vector<char> build_elf_symbol_file(const std::string &name, const void *cod
     append_bytes(elf, shstrtab.data(), shstrtab.size());
 
     size_t shoff = align_up(elf.size(), 8);
-    elf.resize(shoff + 5 * sizeof(Elf64_Shdr_Mini));
+    elf.resize(shoff + 5 * sizeof(Elf64_Shdr));
 
-    Elf64_Ehdr_Mini ehdr{};
+    Elf64_Ehdr ehdr{};
     ehdr.e_ident[0] = 0x7f;
     ehdr.e_ident[1] = 'E';
     ehdr.e_ident[2] = 'L';
@@ -211,16 +169,16 @@ std::vector<char> build_elf_symbol_file(const std::string &name, const void *cod
     ehdr.e_machine = ElfMachine;
     ehdr.e_version = 1;
     ehdr.e_shoff = shoff;
-    ehdr.e_ehsize = sizeof(Elf64_Ehdr_Mini);
-    ehdr.e_shentsize = sizeof(Elf64_Shdr_Mini);
+    ehdr.e_ehsize = sizeof(Elf64_Ehdr);
+    ehdr.e_shentsize = sizeof(Elf64_Shdr);
     ehdr.e_shnum = 5;
     ehdr.e_shstrndx = 4;
     write_at(elf, 0, ehdr);
 
-    Elf64_Shdr_Mini null_sh{};
+    Elf64_Shdr null_sh{};
     write_at(elf, shoff, null_sh);
 
-    Elf64_Shdr_Mini text_sh{};
+    Elf64_Shdr text_sh{};
     text_sh.sh_name = text_name;
     text_sh.sh_type = SHT_PROGBITS;
     text_sh.sh_flags = SHF_ALLOC | SHF_EXECINSTR;
@@ -228,34 +186,34 @@ std::vector<char> build_elf_symbol_file(const std::string &name, const void *cod
     text_sh.sh_offset = text_off;
     text_sh.sh_size = static_cast<uint64_t>(code_size);
     text_sh.sh_addralign = 16;
-    write_at(elf, shoff + sizeof(Elf64_Shdr_Mini), text_sh);
+    write_at(elf, shoff + sizeof(Elf64_Shdr), text_sh);
 
-    Elf64_Shdr_Mini symtab_sh{};
+    Elf64_Shdr symtab_sh{};
     symtab_sh.sh_name = symtab_name;
     symtab_sh.sh_type = SHT_SYMTAB;
     symtab_sh.sh_offset = symtab_off;
-    symtab_sh.sh_size = static_cast<uint64_t>(symtab.size() * sizeof(Elf64_Sym_Mini));
+    symtab_sh.sh_size = static_cast<uint64_t>(symtab.size() * sizeof(Elf64_Sym));
     symtab_sh.sh_link = 3;
     symtab_sh.sh_info = 1;
     symtab_sh.sh_addralign = 8;
-    symtab_sh.sh_entsize = sizeof(Elf64_Sym_Mini);
-    write_at(elf, shoff + 2 * sizeof(Elf64_Shdr_Mini), symtab_sh);
+    symtab_sh.sh_entsize = sizeof(Elf64_Sym);
+    write_at(elf, shoff + 2 * sizeof(Elf64_Shdr), symtab_sh);
 
-    Elf64_Shdr_Mini strtab_sh{};
+    Elf64_Shdr strtab_sh{};
     strtab_sh.sh_name = strtab_name;
     strtab_sh.sh_type = SHT_STRTAB;
     strtab_sh.sh_offset = strtab_off;
     strtab_sh.sh_size = static_cast<uint64_t>(strtab.size());
     strtab_sh.sh_addralign = 1;
-    write_at(elf, shoff + 3 * sizeof(Elf64_Shdr_Mini), strtab_sh);
+    write_at(elf, shoff + 3 * sizeof(Elf64_Shdr), strtab_sh);
 
-    Elf64_Shdr_Mini shstrtab_sh{};
+    Elf64_Shdr shstrtab_sh{};
     shstrtab_sh.sh_name = shstrtab_name;
     shstrtab_sh.sh_type = SHT_STRTAB;
     shstrtab_sh.sh_offset = shstrtab_off;
     shstrtab_sh.sh_size = static_cast<uint64_t>(shstrtab.size());
     shstrtab_sh.sh_addralign = 1;
-    write_at(elf, shoff + 4 * sizeof(Elf64_Shdr_Mini), shstrtab_sh);
+    write_at(elf, shoff + 4 * sizeof(Elf64_Shdr), shstrtab_sh);
 
     return elf;
 }
@@ -278,12 +236,13 @@ std::string sanitize_symbol_name(std::string name) {
 
 } // namespace
 
-void register_gdb_jit_function(const std::string &name, const void *code_addr, size_t code_size) {
+void register_gdb_jit_function(const void *owner, const std::string &name, const void *code_addr, size_t code_size) {
     if (ElfMachine == 0 || !code_addr || code_size == 0) {
         return;
     }
 
     auto obj = std::make_unique<RegisteredObject>();
+    obj->owner = owner;
     obj->elf = build_elf_symbol_file(sanitize_symbol_name(name), code_addr, code_size);
     obj->entry.next_entry = nullptr;
     obj->entry.prev_entry = nullptr;
@@ -305,24 +264,34 @@ void register_gdb_jit_function(const std::string &name, const void *code_addr, s
     g_registered_objects.push_back(std::move(obj));
 }
 
-void unregister_all_gdb_jit_functions() {
+void unregister_gdb_jit_functions(const void *owner) {
     std::lock_guard<std::mutex> lock(g_gdb_jit_mutex);
 
-    for (auto it = g_registered_objects.rbegin(); it != g_registered_objects.rend(); ++it) {
-        RegisteredObject *obj = it->get();
-        __jit_debug_descriptor.relevant_entry = &obj->entry;
+    for (size_t i = g_registered_objects.size(); i > 0; --i) {
+        RegisteredObject &obj = *g_registered_objects[i - 1];
+        if (obj.owner != owner) {
+            continue;
+        }
+        jit_code_entry &entry = obj.entry;
+        __jit_debug_descriptor.relevant_entry = &entry;
         __jit_debug_descriptor.action_flag = JIT_UNREGISTER_FN;
         __jit_debug_register_code();
         __jit_debug_descriptor.action_flag = JIT_NOACTION;
+        if (entry.prev_entry) {
+            entry.prev_entry->next_entry = entry.next_entry;
+        } else {
+            __jit_debug_descriptor.first_entry = entry.next_entry;
+        }
+        if (entry.next_entry) {
+            entry.next_entry->prev_entry = entry.prev_entry;
+        }
+        g_registered_objects.erase(g_registered_objects.begin() + static_cast<std::ptrdiff_t>(i - 1));
     }
-
-    g_registered_objects.clear();
-    __jit_debug_descriptor.first_entry = nullptr;
     __jit_debug_descriptor.relevant_entry = nullptr;
 }
 
 } // namespace jit
 } // namespace nari
 
-#endif // NARI_ENABLE_GDB_JIT
+#endif // !NARI_DISABLE_GDB_JIT
 #endif // !DISABLE_JIT

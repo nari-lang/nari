@@ -1,0 +1,4 @@
+// Builtin fatal errors are uncatchable panics, the process MUST stop here.
+print(index_of(1, 2));
+
+print("execution continued after builtin runtime error");

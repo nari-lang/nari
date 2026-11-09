@@ -12,6 +12,8 @@ struct FunctionMeta;
 
 #include "core_types.h" // JitInlineKind
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <vector>
 
 namespace nari {
@@ -116,6 +118,12 @@ struct TraceStep {
     };
 
     Kind kind;
+    TraceStep(Kind kind_) : kind(kind_) {}
+    static TraceStep with_resume(Kind kind, size_t pc) {
+        TraceStep step(kind);
+        step.resume_pc = pc;
+        return step;
+    }
     uint16_t slot = 0;    // for Load/StoreVar: local slot index
     int64_t int_val = 0;  // for LoadIntConst
     double dbl_val = 0.0; // for LoadFloatConst
@@ -124,13 +132,15 @@ struct TraceStep {
     uint32_t prop_slot_index = 0; // field index within the object's shape (shape-pointer scheme).
     // Stable for any object whose shape matches the entry guard;
     // the slot address is recomputed each access
-    void *obj_ptr = nullptr;                      // recorded ObjectObj* (for entry guard)
-    void *shape_ptr = nullptr;                    // recorded ObjectShape* (for object property guards)
+    const void *obj_ptr = nullptr;                // recorded ObjectObj* (for entry guard)
+    const void *shape_ptr = nullptr;              // recorded ObjectShape* (for object property guards)
     uint32_t shape_ver = 0;                       // recorded shape_version (for entry guard)
     TraceType prop_val_type = TraceType::Unknown; // type of the property value
 
-    // side-exit PC for body branch guards (SideExitIfFalse / SideExitIfTrue)
-    size_t fallback_pc = 0;
+    // Bytecode instruction to resume on a guard failure. Presence is explicit:
+    // PC zero is a valid instruction, while an absent location is invalid for
+    // any operation that can return to the interpreter.
+    std::optional<size_t> resume_pc;
 
     // closure call: pinned capture cell pointer (for ClosureInc / ClosureAddConst)
     void *capture_ptr = nullptr;
@@ -182,6 +192,10 @@ struct TraceRecording {
     }
 };
 
+// Reject malformed traces before lowering. In particular every guard that
+// can return to the interpreter must have a valid resume instruction.
+bool validate_trace_recording(const TraceRecording &rec, const bytecode::Chunk &chunk, uint32_t func_idx);
+
 // compiled trace
 struct CompiledTrace {
     using Fn = void (*)(bytecode::VM *);
@@ -198,10 +212,6 @@ class TraceJITBase {
     // invalidate all cached compiled traces
     virtual void reset() = 0;
 };
-
-extern TraceJITBase *g_trace_jit;
-void init_trace_jit();
-void shutdown_trace_jit();
 
 } // namespace jit
 } // namespace nari

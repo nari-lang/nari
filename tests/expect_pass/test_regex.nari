@@ -1,4 +1,4 @@
-// -- Regex literal basics ----------------------------------------------------
+// Regex literal basics
 
 // typeof
 if (typeof(/hello/) != "regex") { panic("typeof regex literal should be 'regex'"); }
@@ -7,7 +7,7 @@ if (typeof(/foo/gi) != "regex") { panic("typeof regex with flags should be 'rege
 let r = /hello/i;
 if (typeof(r) != "regex") { panic("typeof stored regex should be 'regex'"); }
 
-// -- .test() -----------------------------------------------------------------
+// -- .test() --
 
 // case-insensitive match
 if (!r.test("Hello World")) { panic("case-insensitive test should match 'Hello World'"); }
@@ -25,7 +25,7 @@ if (/^\d+$/.test("12abc"))     { panic("^\\d+$ should NOT match mixed string"); 
 if (!/^\d+$/.test("12345"))    { panic("^\\d+$ should match pure digits"); }
 if (/^\d+$/.test(""))          { panic("^\\d+$ should NOT match empty string"); }
 
-// -- .exec() -----------------------------------------------------------------
+// -- .exec() --
 
 // no-match returns null
 let m_null = /xyz/.exec("hello world");
@@ -54,7 +54,7 @@ let m3 = /hello/i.exec("say HELLO there");
 if (m3 == null)        { panic("case-insensitive exec should match"); }
 if (m3.value != "HELLO") { panic("exec value should be 'HELLO' (original case)"); }
 
-// -- regex in expressions -----------------------------------------------------
+// -- regex in expressions --
 
 // inline method call on literal
 let ok = /^\w+$/.test("identifier");
@@ -67,7 +67,7 @@ func validate_email(s: string) -> bool {
 if (!validate_email("user@example.com")) { panic("valid email should pass"); }
 if (validate_email("not-an-email"))      { panic("invalid email should fail"); }
 
-// -- string coercion ----------------------------------------------------------
+// -- string coercion --
 
 let re_str = "" @ /\d+/;
 if (re_str != "/\\d+/") { panic("regex to-string should give '/\\d+/', got: " @ re_str); }
@@ -75,7 +75,7 @@ if (re_str != "/\\d+/") { panic("regex to-string should give '/\\d+/', got: " @ 
 let re_flags_str = "" @ /foo/gi;
 if (re_flags_str != "/foo/gi") { panic("regex with flags to-string should give '/foo/gi'"); }
 
-// -- division disambiguation --------------------------------------------------
+// -- division disambiguation --
 
 let a = 10;
 let b = 2;

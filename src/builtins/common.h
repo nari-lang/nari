@@ -23,8 +23,6 @@
 #include <vector>
 
 #include "../runtime.h"
-#define SRELL_NO_THROW
-#include "../../thirdparty/srell.hpp"
 #ifndef DISABLE_HTTP
 #include "../io.h"
 #endif
@@ -242,5 +240,4 @@ inline bool utf16_to_utf8(const std::u16string &input, std::string &output) {
 
 #define STDLIB_VERSION "0.0.4"
 
-// Builtin implementations are split across src/builtins/*.cpp and share this
-// common prelude header.
+// Builtin implementations are split across src/builtins/*.cpp and share this common prelude header.

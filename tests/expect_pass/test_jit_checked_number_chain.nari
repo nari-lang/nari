@@ -1,0 +1,36 @@
+import { assert } from "../lib/assert.nari";
+
+func add_chain(a, b, c) {
+    let first = a + b;
+    return first + c;
+}
+
+func sub_chain(a, b, c) {
+    let first = a - b;
+    return first - c;
+}
+
+func mul_chain(a, b) {
+    let product = a * b;
+    return product + 5;
+}
+
+func start() {
+    let positive = null;
+    let negative = null;
+    let product = null;
+    let small = null;
+    for (let i = 0; i < 200; i++) {
+        positive = add_chain(140737488355327, 1, 3);
+        negative = sub_chain(-140737488355328, 1, 3);
+        product = mul_chain(1099511627776, 16777216);
+        small = add_chain(100, 20, 3);
+    }
+    assert(typeof(positive) == "float", "chained addition must retain promoted float");
+    assert(positive == 140737488355331.0, "chained addition changed value");
+    assert(typeof(negative) == "float", "chained subtraction must retain promoted float");
+    assert(negative == -140737488355332.0, "chained subtraction changed value");
+    assert(typeof(product) == "float", "chained multiplication must retain promoted float");
+    assert(product == 18446744073709551616.0, "chained multiplication changed value");
+    assert(typeof(small) == "int" && small == 123, "checked arithmetic changed in-range result");
+}

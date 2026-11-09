@@ -124,7 +124,7 @@ struct CC {
 // op must be one of: OP_LT, OP_LE, OP_GT, OP_GE, OP_EQ, OP_NE
 inline CC::Cond opcode_to_cc(uint8_t op) {
     using OpCode = nari::bytecode::OpCode;
-    switch ((OpCode)op) {
+    switch (static_cast<OpCode>(op)) {
         case OpCode::OP_EQ:
             return CC::kEQ;
         case OpCode::OP_NE:
@@ -474,6 +474,16 @@ inline void load(Compiler &cc, const Gp &dst, const Mem &mem) {
 #endif
 }
 
+// Acquire load for function pointers published by a background JIT worker.
+// x86-64 MOV already provides acquire ordering; ARM64 needs LDAR.
+inline void load_acquire(Compiler &cc, const Gp &dst, const Mem &mem) {
+#if NARI_JIT_ARM64
+    cc.ldar(dst, mem);
+#else
+    cc.mov(dst, mem);
+#endif
+}
+
 // store a 64-bit GP register to memory
 inline void store(Compiler &cc, const Mem &mem, const Gp &src) {
 #if NARI_JIT_ARM64
@@ -580,7 +590,7 @@ inline void imul_imm(Compiler &cc, const Gp &dst, const Gp &src, int32_t imm) {
         cc.lsl(dst, src, asmjit::Imm(shift));
     } else {
         Gp tmp = cc.new_gp64();
-        cc.mov(tmp, (int64_t)imm);
+        cc.mov(tmp, static_cast<int64_t>(imm));
         cc.mul(dst, src, tmp);
     }
 #else
@@ -1030,7 +1040,7 @@ inline void fneg(Compiler &cc, const Vec &dst, const Vec &src) {
 #endif
 }
 
-// float convert to signed int64: dst = (int64_t)src
+// float convert to signed int64: dst = static_cast<int64_t>(src)
 inline void f64_to_int(Compiler &cc, const Gp &dst, const Vec &src) {
 #if NARI_JIT_ARM64
     cc.fcvtzs(dst, src);
@@ -1076,7 +1086,7 @@ inline void test_imm(Compiler &cc, const Gp &reg, int64_t imm) {
 #endif
 }
 
-// zero-extend byte register to 64-bit: dst = (uint64_t)(uint8_t)src
+// zero-extend byte register to 64-bit: dst = static_cast<uint64_t>(static_cast<uint8_t>(src))
 inline void zx_r8(Compiler &cc, const Gp &dst, const Gp &src) {
 #if NARI_JIT_ARM64
     cc.uxtb(dst.w(), src.w());
@@ -1136,7 +1146,7 @@ inline void lea(Compiler &cc, const Gp &dst, const Gp &base, int64_t offset) {
         cc.add(dst, base, tmp);
     }
 #else
-    cc.lea(dst, asmjit::x86::qword_ptr(base, (int32_t)offset));
+    cc.lea(dst, asmjit::x86::qword_ptr(base, static_cast<int32_t>(offset)));
 #endif
 }
 

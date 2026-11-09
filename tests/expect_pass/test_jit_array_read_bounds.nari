@@ -1,0 +1,47 @@
+import { assert } from "../lib/assert.nari";
+
+func read_at(index) {
+    let values = [7, 11];
+    return values[index];
+}
+
+func read_fixed_oob() {
+    let values = [];
+    values.push(7);
+    return values[3];
+}
+
+func conditionally_initialized(flag) {
+    let values;
+    if (flag) { values = []; }
+    values[0] = 4;
+    return values[0];
+}
+
+func conditional_push(flag) {
+    let values;
+    if (flag) { values = []; }
+    values.push(4);
+    return values;
+}
+
+func start() {
+    let inside = null;
+    let before = null;
+    let after = null;
+    let fixed = null;
+    for (let i = 0; i < 200; i++) {
+        inside = read_at(1);
+        before = read_at(-1);
+        after = read_at(2);
+        fixed = read_fixed_oob();
+        conditionally_initialized(true);
+        conditional_push(true);
+    }
+    assert(inside == 11, "in-bounds array read changed");
+    assert(before == null, "negative array read must return null");
+    assert(after == null, "past-end array read must return null");
+    assert(fixed == null, "integer-array past-end read must return null");
+    assert(conditionally_initialized(false) == null, "uninitialized array slot changed");
+    assert(conditional_push(false) == null, "uninitialized array push changed");
+}

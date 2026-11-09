@@ -1,8 +1,8 @@
 // -- type inspection --
 
-/// Returns a string describing the runtime type of value.
-/// Possible results: "number", "string", "bool", "array", "object",
-/// "function", "null", "handle", "classinstance"
+// Returns a string describing the runtime type of value.
+// Possible results: "number", "string", "bool", "array", "object",
+// "function", "null", "handle", "classinstance"
 func typeof(value) -> string {}
 
 func is_number(value) -> bool {}
@@ -39,7 +39,7 @@ func print(...values) {}
 // Returns the value of the expression (or of an explicit return) in the source, else null.
 func eval(source: string) {}
 
-// Random / time
+// -- Random / time --
 
 // Returns a random float in [0, 1).
 func random() -> number {}
@@ -47,12 +47,12 @@ func random() -> number {}
 // Returns a numeric timestamp (milliseconds since Unix epoch by default).
 func time() -> number {}
 
-// Ranges
+// -- Ranges --
 
 // Returns an array of integers from start (inclusive) to end (exclusive), stepping by `step`` (default 1).
 func range(start: number, end: number, step: number) -> number[] {}
 
-// Async
+// -- Async --
 
 // schedules fn to run after delay milliseconds. Returns a handle.
 func set_timeout(fn: func, delay: number) {}
@@ -63,15 +63,15 @@ func set_interval(fn: func, interval: number) -> number {}
 // cancels a repeating interval previously created by set_interval.
 func clear_interval(id: number) {}
 
-// I/O
+// -- I/O --
 
 // reads a single line from stdin (blocking).
 func read_line() -> string {}
 
-// dot-methods
-// These are called as method syntax only (arr.push(), str.trim(), etc.).
+// -- dot-methods --
+// only called as arr.method(), obj.method(), etc.
 
-// arrays
+// -- arrays --
 
 // Appends value to the array and returns the new length.
 func push(value) -> number {}
@@ -139,7 +139,7 @@ func flat(depth: number) -> any[] {}
 // Maps each element using a callback, then flattens the result by one level.
 func flat_map(callback: func) -> any[] {}
 
-// objects
+// -- objects --
 
 // Returns an array of all enumerable property keys.
 func keys() -> string[] {}
@@ -162,7 +162,7 @@ func freeze() -> void {}
 // Returns true if the object has been frozen.
 func is_frozen() -> bool {}
 
-// strings
+// -- strings --
 
 // Returns a substring starting at start with the given length.
 func substr(start: number, length: number) -> string {}
@@ -221,7 +221,7 @@ func to_char_array() -> string[] {}
 // Returns true if the string contains substring.
 func contains(substring: string) -> bool {}
 
-// regex
+// -- regex --
 
 // Returns true if the regex matches anywhere in subject.
 func test(subject: string) -> bool {}

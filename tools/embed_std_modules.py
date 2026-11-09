@@ -103,10 +103,10 @@ def main(argv=None) -> int:
     out_lines.append("namespace {")
     for idx, (name, content) in enumerate(modules):
         out_lines.append(f"const std::string& nari_std_module_source_{idx}() {{")
-        out_lines.append(f"    static const std::string kSrc = std::string(")
+        out_lines.append("    static const std::string src = std::string(")
         out_lines.append("        " + emit_string_literal(content))
         out_lines.append("    );")
-        out_lines.append("    return kSrc;")
+        out_lines.append("    return src;")
         out_lines.append("}")
     out_lines.append("} // anonymous namespace\n")
 

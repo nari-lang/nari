@@ -34,8 +34,8 @@ std::string read_file_to_string(const std::string &path) {
         fclose(f);
         return {};
     }
-    std::string buf((size_t)sz, '\0');
-    size_t n = fread(&buf[0], 1, (size_t)sz, f);
+    std::string buf(static_cast<size_t>(sz), '\0');
+    size_t n = fread(&buf[0], 1, static_cast<size_t>(sz), f);
     fclose(f);
     buf.resize(n);
     return buf;

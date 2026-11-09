@@ -1,6 +1,7 @@
 // IR analysis + optimization passes
 #ifndef DISABLE_JIT
 #include "ir_opt.h"
+#include "ir_opt_internal.h"
 
 #include "bytecode.h"
 #include "int_overflow.h"
@@ -12,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -20,1433 +22,11 @@ namespace nari {
 namespace jit {
 namespace ir {
 
-static bool is_int(Ty t) {
-    return t == Ty::Int48;
-}
-static bool is_float(Ty t) {
-    return t == Ty::Float;
-}
-static bool numeric(Ty t) {
-    return t == Ty::Int48 || t == Ty::Float || t == Ty::Number;
-}
-
-// Lattice join. Bottom is the identity (no info yet); Unknown is absorbing (top).
-// Numeric types merge to Number rather than collapsing to Unknown, so a loop that
-// mixes int and float stays numeric.
-static Ty join(Ty a, Ty b) {
-    if (a == Ty::Bottom) {
-        return b;
-    }
-    if (b == Ty::Bottom) {
-        return a;
-    }
-    if (a == b) {
-        return a;
-    }
-    if (numeric(a) && numeric(b)) {
-        return Ty::Number;
-    }
-    return Ty::Unknown;
-}
-
-// Result type of an arithmetic Dyn op. A Bottom operand means it's not computable *yet*
-static Ty arith_type(Op op, Ty a, Ty b) {
-    if (a == Ty::Bottom || b == Ty::Bottom) {
-        return Ty::Bottom;
-    }
-    switch (op) {
-        case Op::DynAdd:
-        case Op::DynSub:
-        case Op::DynMul:
-        case Op::DynMod:
-            if (is_int(a) && is_int(b)) {
-                return Ty::Int48; // integer-valued (overflow -> float at box time)
-            }
-            if ((is_float(a) || is_float(b)) && numeric(a) && numeric(b)) {
-                return Ty::Float;
-            }
-            return Ty::Unknown; // heap/unknown operand: may be string concat etc.
-        case Op::DynDiv:
-            return (numeric(a) && numeric(b)) ? Ty::Number : Ty::Unknown;
-        default:
-            return Ty::Unknown;
-    }
-}
-
-static constexpr int64_t kInt48Max = (1LL << 47) - 1;
-static constexpr int64_t kInt48Min = -(1LL << 47);
-
-static bool fits_int48_i64(int64_t v) {
-    return v >= kInt48Min && v <= kInt48Max;
-}
-
-static bool is_const(Op op) {
-    return op == Op::IConst || op == Op::FConst || op == Op::BConst || op == Op::NConst;
-}
-
-static bool is_pure_stack_value(Op op) {
-    switch (op) {
-        case Op::IConst:
-        case Op::FConst:
-        case Op::BConst:
-        case Op::NConst:
-        case Op::LoadConst:
-        case Op::Dup:
-            return true;
-        default:
-            return false;
-    }
-}
-
-static bool is_foldable_binary(Op op) {
-    switch (op) {
-        case Op::DynAdd:
-        case Op::DynSub:
-        case Op::DynMul:
-        case Op::DynMod:
-        case Op::DynDiv:
-        case Op::DynCmpLt:
-        case Op::DynCmpLe:
-        case Op::DynCmpGt:
-        case Op::DynCmpGe:
-        case Op::DynCmpEq:
-        case Op::DynCmpNe:
-            return true;
-        default:
-            return false;
-    }
-}
-
-static bool is_nonfolding_binary(Op op) {
-    switch (op) {
-        case Op::IAnd:
-        case Op::IOr:
-        case Op::IXor:
-        case Op::IShl:
-        case Op::IShr:
-        case Op::JsBitBinary:
-        case Op::StrConcat:
-        case Op::Pow:
-            return true;
-        default:
-            return false;
-    }
-}
-
-static bool numeric_const(const Inst &in) {
-    return in.op == Op::IConst || in.op == Op::FConst;
-}
-
-static double const_number(const Inst &in) {
-    return in.op == Op::IConst ? (double)in.imm_int : in.imm_float;
-}
-
-static bool truthy_const(const Inst &in) {
-    switch (in.op) {
-        case Op::IConst:
-            return in.imm_int != 0;
-        case Op::FConst:
-            return in.imm_float != 0.0;
-        case Op::BConst:
-            return in.imm_int != 0;
-        case Op::NConst:
-            return false;
-        default:
-            return true;
-    }
-}
-
-static Inst make_int_const(int64_t v, size_t pc) {
-    Inst out;
-    out.op = Op::IConst;
-    out.type = Ty::Int48;
-    out.imm_int = v;
-    out.bytecode_pc = pc;
-    return out;
-}
-
-static Inst make_float_const(double v, size_t pc) {
-    Inst out;
-    out.op = Op::FConst;
-    out.type = Ty::Float;
-    out.imm_float = v;
-    out.bytecode_pc = pc;
-    return out;
-}
-
-static Inst make_bool_const(bool v, size_t pc) {
-    Inst out;
-    out.op = Op::BConst;
-    out.type = Ty::Bool;
-    out.imm_int = v ? 1 : 0;
-    out.bytecode_pc = pc;
-    return out;
-}
-
-// `overflowed` = exact integer result didn't fit int64 (so certainly not int48)
-static Inst number_result_checked(bool overflowed, int64_t v, double fallback, size_t pc) {
-    if (!overflowed && fits_int48_i64(v)) {
-        return make_int_const(v, pc);
-    }
-    return make_float_const(fallback, pc);
-}
-
-static bool fold_binary_const(Op op, const Inst &lhs, const Inst &rhs, size_t pc, Inst &out) {
-    switch (op) {
-        case Op::DynAdd:
-            if (lhs.op == Op::IConst && rhs.op == Op::IConst) {
-                int64_t r;
-                bool ovf = add_overflow_i64(lhs.imm_int, rhs.imm_int, &r);
-                out = number_result_checked(ovf, r, (double)lhs.imm_int + (double)rhs.imm_int, pc);
-                return true;
-            }
-            if (numeric_const(lhs) && numeric_const(rhs)) {
-                out = make_float_const(const_number(lhs) + const_number(rhs), pc);
-                return true;
-            }
-            return false;
-        case Op::DynSub:
-            if (lhs.op == Op::IConst && rhs.op == Op::IConst) {
-                int64_t r;
-                bool ovf = sub_overflow_i64(lhs.imm_int, rhs.imm_int, &r);
-                out = number_result_checked(ovf, r, (double)lhs.imm_int - (double)rhs.imm_int, pc);
-                return true;
-            }
-            if (numeric_const(lhs) && numeric_const(rhs)) {
-                out = make_float_const(const_number(lhs) - const_number(rhs), pc);
-                return true;
-            }
-            return false;
-        case Op::DynMul:
-            if (lhs.op == Op::IConst && rhs.op == Op::IConst) {
-                int64_t r;
-                if (mul_overflow_i48(lhs.imm_int, rhs.imm_int, &r)) {
-                    out = make_float_const((double)lhs.imm_int * (double)rhs.imm_int, pc);
-                } else {
-                    out = make_int_const(r, pc);
-                }
-                return true;
-            }
-            if (numeric_const(lhs) && numeric_const(rhs)) {
-                out = make_float_const(const_number(lhs) * const_number(rhs), pc);
-                return true;
-            }
-            return false;
-        case Op::DynMod:
-            if (lhs.op == Op::IConst && rhs.op == Op::IConst) {
-                if (rhs.imm_int == 0) {
-                    out = make_float_const(std::nan(""), pc);
-                } else {
-                    out = make_int_const(lhs.imm_int % rhs.imm_int, pc);
-                }
-                return true;
-            }
-            if (numeric_const(lhs) && numeric_const(rhs)) {
-                out = make_float_const(std::fmod(const_number(lhs), const_number(rhs)), pc);
-                return true;
-            }
-            return false;
-        case Op::DynDiv:
-            if (numeric_const(lhs) && numeric_const(rhs)) {
-                double rn = const_number(rhs);
-                if (rn == 0.0) {
-                    out = make_float_const(std::nan(""), pc);
-                } else if (lhs.op == Op::IConst && rhs.op == Op::IConst && lhs.imm_int % rhs.imm_int == 0) {
-                    out = make_int_const(lhs.imm_int / rhs.imm_int, pc);
-                } else {
-                    out = make_float_const(const_number(lhs) / rn, pc);
-                }
-                return true;
-            }
-            return false;
-        case Op::DynCmpLt:
-        case Op::DynCmpLe:
-        case Op::DynCmpGt:
-        case Op::DynCmpGe:
-            if (!numeric_const(lhs) || !numeric_const(rhs)) {
-                return false;
-            }
-            if (op == Op::DynCmpLt) {
-                out = make_bool_const(const_number(lhs) < const_number(rhs), pc);
-            }
-            if (op == Op::DynCmpLe) {
-                out = make_bool_const(const_number(lhs) <= const_number(rhs), pc);
-            }
-            if (op == Op::DynCmpGt) {
-                out = make_bool_const(const_number(lhs) > const_number(rhs), pc);
-            }
-            if (op == Op::DynCmpGe) {
-                out = make_bool_const(const_number(lhs) >= const_number(rhs), pc);
-            }
-            return true;
-        case Op::DynCmpEq:
-        case Op::DynCmpNe: {
-            bool known = false;
-            bool eq = false;
-            if (numeric_const(lhs) && numeric_const(rhs)) {
-                known = true;
-                eq = const_number(lhs) == const_number(rhs);
-            } else if (lhs.op == rhs.op && (lhs.op == Op::BConst || lhs.op == Op::NConst)) {
-                known = true;
-                eq = lhs.op == Op::NConst || lhs.imm_int == rhs.imm_int;
-            }
-            if (!known) {
-                return false;
-            }
-            out = make_bool_const(op == Op::DynCmpEq ? eq : !eq, pc);
-            return true;
-        }
-        default:
-            return false;
-    }
-}
-
-struct StackEntry {
-    ValueId value = InvalidValue;
-    bool removable = false;
-};
-
-static bool simplify_block(Func &f, Block &b) {
-    bool changed = false;
-    std::vector<ValueId> old = b.insts;
-    std::vector<ValueId> body;
-    std::vector<StackEntry> stack;
-
-    auto push_existing = [&](ValueId v, bool removable) {
-        body.push_back(v);
-        stack.push_back({ v, removable });
-    };
-    auto push_new = [&](Inst in, bool removable) {
-        ValueId v = f.add_inst(std::move(in));
-        body.push_back(v);
-        stack.push_back({ v, removable });
-    };
-    auto clear_removable = [&]() {
-        for (StackEntry &e : stack) {
-            e.removable = false;
-        }
-    };
-
-    for (ValueId v : old) {
-        Inst &in = f.inst(v);
-        switch (in.op) {
-            case Op::IConst:
-            case Op::FConst:
-            case Op::BConst:
-            case Op::NConst:
-            case Op::LoadConst:
-                push_existing(v, true);
-                break;
-            case Op::LoadSlot:
-                push_existing(v, false);
-                break;
-            case Op::LoadGlobal:
-                push_existing(v, false);
-                break;
-            case Op::LoadCapture:
-                push_existing(v, false);
-                break;
-            case Op::MakeClosure:
-                push_existing(v, false);
-                break;
-            case Op::Dup:
-                if (stack.empty()) {
-                    push_existing(v, false);
-                    break;
-                }
-                body.push_back(v);
-                stack.push_back({ v, true });
-                break;
-            case Op::Pop:
-                if (stack.empty()) {
-                    body.push_back(v);
-                    break;
-                }
-                if (stack.back().removable && !body.empty() && body.back() == stack.back().value) {
-                    body.pop_back();
-                    stack.pop_back();
-                    changed = true;
-                } else {
-                    body.push_back(v);
-                    stack.pop_back();
-                    clear_removable();
-                }
-                break;
-            case Op::StoreSlot:
-                body.push_back(v);
-                clear_removable();
-                break;
-            case Op::StrAppendSlot:
-                if (stack.empty()) {
-                    body.push_back(v);
-                    break;
-                }
-                stack.pop_back();
-                push_existing(v, false);
-                break;
-            case Op::StoreGlobal:
-                body.push_back(v);
-                clear_removable();
-                break;
-            case Op::StoreCapture:
-                body.push_back(v);
-                clear_removable();
-                break;
-            case Op::Not:
-            case Op::JsTruthy:
-            case Op::IsNone:
-            case Op::INeg:
-            case Op::INot:
-            case Op::JsBitNot:
-            case Op::FormatValue:
-            case Op::IterArray:
-                if (stack.empty()) {
-                    body.push_back(v);
-                    break;
-                }
-                stack.pop_back();
-                push_existing(v, false);
-                break;
-            case Op::Call: {
-                size_t n = (size_t)in.imm_u32 + 1;
-                if (stack.size() < n) {
-                    body.push_back(v);
-                    stack.clear();
-                    break;
-                }
-                for (size_t i = 0; i < n; i++) {
-                    stack.pop_back();
-                }
-                push_existing(v, false);
-                break;
-            }
-            case Op::CallSpread:
-                if (stack.size() < 2) {
-                    body.push_back(v);
-                    stack.clear();
-                    break;
-                }
-                stack.pop_back();
-                stack.pop_back();
-                push_existing(v, false);
-                break;
-            case Op::CallMethod: {
-                size_t n = (size_t)in.imm_int + 1;
-                if (stack.size() < n) {
-                    body.push_back(v);
-                    stack.clear();
-                    break;
-                }
-                for (size_t i = 0; i < n; i++) {
-                    stack.pop_back();
-                }
-                push_existing(v, false);
-                break;
-            }
-            case Op::LoadIndex:
-                if (stack.size() < 2) {
-                    body.push_back(v);
-                    stack.clear();
-                    break;
-                }
-                stack.pop_back();
-                stack.pop_back();
-                push_existing(v, false);
-                break;
-            case Op::ArrayPush:
-            case Op::ArraySpread:
-                if (stack.size() < 2) {
-                    body.push_back(v);
-                    stack.clear();
-                    break;
-                }
-                stack.pop_back();
-                stack.pop_back();
-                push_existing(v, false);
-                break;
-            case Op::StoreIndex:
-                if (stack.size() < 3) {
-                    body.push_back(v);
-                    stack.clear();
-                    break;
-                }
-                stack.pop_back();
-                stack.pop_back();
-                body.push_back(v);
-                clear_removable();
-                break;
-            case Op::MakeArray:
-            case Op::MakeObject: {
-                size_t n = in.op == Op::MakeArray ? (size_t)in.imm_u32 : (size_t)in.imm_u32 * 2;
-                if (stack.size() < n) {
-                    body.push_back(v);
-                    stack.clear();
-                    break;
-                }
-                for (size_t i = 0; i < n; i++) {
-                    stack.pop_back();
-                }
-                push_existing(v, false);
-                break;
-            }
-            default:
-                if ((is_foldable_binary(in.op) || is_nonfolding_binary(in.op)) && stack.size() >= 2) {
-                    StackEntry rhs = stack.back();
-                    StackEntry lhs = stack[stack.size() - 2];
-                    Inst folded;
-                    bool operands_are_trailing =
-                        body.size() >= 2 && body[body.size() - 2] == lhs.value && body[body.size() - 1] == rhs.value;
-                    if (is_foldable_binary(in.op) && lhs.removable && rhs.removable && operands_are_trailing &&
-                        fold_binary_const(in.op, f.inst(lhs.value), f.inst(rhs.value), in.bytecode_pc, folded)) {
-                        body.pop_back();
-                        body.pop_back();
-                        stack.pop_back();
-                        stack.pop_back();
-                        push_new(std::move(folded), true);
-                        changed = true;
-                        break;
-                    }
-                    stack.pop_back();
-                    stack.pop_back();
-                    push_existing(v, is_pure_stack_value(in.op));
-                    break;
-                }
-                body.push_back(v);
-                clear_removable();
-                break;
-        }
-    }
-
-    if (body != b.insts) {
-        b.insts = std::move(body);
-        changed = true;
-    }
-    return changed;
-}
-
-static bool eliminate_slot_round_trips(Func &f, Block &b) {
-    bool changed = false;
-    std::vector<ValueId> body;
-    std::unordered_map<ValueId, ValueId> remap;
-    body.reserve(b.insts.size());
-
-    for (size_t i = 0; i < b.insts.size();) {
-        if (i + 2 < b.insts.size()) {
-            const Inst &a = f.inst(b.insts[i]);
-            const Inst &mid = f.inst(b.insts[i + 1]);
-            const Inst &c = f.inst(b.insts[i + 2]);
-
-            // StoreSlot leaves the stored value on the VM stack. A following
-            // Pop + LoadSlot of the same slot can be dropped and the original
-            // stored value remains on top of the stack for the consumer.
-            if (a.op == Op::StoreSlot && mid.op == Op::Pop && c.op == Op::LoadSlot && a.imm_u32 == c.imm_u32) {
-                body.push_back(b.insts[i]);
-                remap[b.insts[i + 2]] = a.operands[0];
-                i += 3;
-                changed = true;
-                continue;
-            }
-
-            // `x = x` used as a statement lowers to LoadSlot, StoreSlot, Pop.
-            // The slot and final stack are unchanged, so all three helpers are
-            // dead. Keep this exact and local to avoid crossing side effects.
-            if (a.op == Op::LoadSlot && mid.op == Op::StoreSlot && c.op == Op::Pop && a.imm_u32 == mid.imm_u32) {
-                i += 3;
-                changed = true;
-                continue;
-            }
-        }
-
-        body.push_back(b.insts[i]);
-        i++;
-    }
-
-    if (changed) {
-        b.insts = std::move(body);
-        for (Inst &in : f.insts) {
-            for (ValueId &operand : in.operands) {
-                auto it = remap.find(operand);
-                if (it != remap.end()) {
-                    operand = it->second;
-                }
-            }
-        }
-    }
-    return changed;
-}
-
-// Fuse producer -> StoreSlot -> Pop trios into a single fused store op that
-// writes the slot directly, bypassing the operand stack. Fires only when the
-// producer's SSA value has no other users in the block.
-//
-// Recognized shapes (i, i+1, i+2 must be a contiguous triple in b.insts):
-//   IConst v; StoreSlot v @X; Pop v      ->  StoreImmSlot #imm -> @X
-//   BConst v; StoreSlot v @X; Pop v      ->  StoreBImmSlot #imm -> @X
-//   NConst v; StoreSlot v @X; Pop v      ->  StoreNSlot -> @X
-//   LoadConst v @K; StoreSlot v @X; Pop  ->  StoreCSlot const#K -> @X
-//   LoadSlot v @Y; StoreSlot v @X; Pop v ->  CopySlot @Y -> @X   (X != Y, X == Y is eliminated by eliminate_slot_round_trips)
-static inline bool slot_aliased(const Func &f, uint32_t slot) {
-    return slot < f.captured_local_slots.size() && f.captured_local_slots[slot] != 0;
-}
-
-static bool fuse_slot_stores(Func &f, Block &b) {
-    bool changed = false;
-    std::vector<ValueId> body;
-    body.reserve(b.insts.size());
-
-    // Cheap in-block user check: does any inst outside {store_i, pop_i} reference
-    // the producer's ValueId? For the patterns we match, the producer is at
-    // position i; the store is at i+1 and consumes it; the pop is at i+2 and
-    // consumes it. In stack-machine IR the only other in-block users would be
-    // subsequent ops; we scan forward from i+3. Terminators can also read it.
-    auto no_other_users = [&](ValueId prod, size_t after_idx) -> bool {
-        for (size_t j = after_idx; j < b.insts.size(); j++) {
-            const Inst &in = f.inst(b.insts[j]);
-            for (ValueId o : in.operands) {
-                if (o == prod) {
-                    return false;
-                }
-            }
-        }
-        if (b.terminator != InvalidValue) {
-            const Inst &t = f.inst(b.terminator);
-            for (ValueId o : t.operands) {
-                if (o == prod) {
-                    return false;
-                }
-            }
-        }
-        for (const Block &ob : f.blocks) {
-            for (ValueId phi : ob.phis) {
-                const Inst &pi = f.inst(phi);
-                for (ValueId o : pi.operands) {
-                    if (o == prod) {
-                        return false;
-                    }
-                }
-            }
-        }
-        return true;
-    };
-
-    for (size_t i = 0; i < b.insts.size();) {
-        if (i + 2 < b.insts.size()) {
-            const Inst &a = f.inst(b.insts[i]);
-            const Inst &mid = f.inst(b.insts[i + 1]);
-            const Inst &c = f.inst(b.insts[i + 2]);
-            ValueId prod_id = b.insts[i];
-
-            bool prod_is_const =
-                (a.op == Op::IConst || a.op == Op::BConst || a.op == Op::NConst || a.op == Op::LoadConst || a.op == Op::LoadSlot);
-
-            // the fused forms (StoreImmSlot/StoreCSlot/CopySlot/...) write raw slot
-            // memory and would silently skip the cell write-through
-            if (prod_is_const && mid.op == Op::StoreSlot && c.op == Op::Pop && !mid.operands.empty() && mid.operands[0] == prod_id &&
-                !c.operands.empty() && c.operands[0] == prod_id && !slot_aliased(f, mid.imm_u32) && no_other_users(prod_id, i + 3)) {
-                // Snapshot immediates BEFORE add_inst() may reallocate f.insts.
-                Op prod_op = a.op;
-                int64_t prod_imm_int = a.imm_int;
-                uint32_t prod_imm_u32 = a.imm_u32;
-                uint32_t dst_slot = mid.imm_u32;
-                size_t bpc = mid.bytecode_pc;
-
-                Inst fused;
-                fused.bytecode_pc = bpc;
-                fused.imm_u32 = dst_slot;
-                switch (prod_op) {
-                    case Op::IConst:
-                        fused.op = Op::StoreImmSlot;
-                        fused.imm_int = prod_imm_int;
-                        break;
-                    case Op::BConst:
-                        fused.op = Op::StoreBImmSlot;
-                        fused.imm_int = prod_imm_int ? 1 : 0;
-                        break;
-                    case Op::NConst:
-                        fused.op = Op::StoreNSlot;
-                        break;
-                    case Op::LoadConst:
-                        fused.op = Op::StoreCSlot;
-                        fused.imm_int = (int64_t)prod_imm_u32; // const pool idx
-                        break;
-                    case Op::LoadSlot:
-                        // Skip the copy-to-self case: eliminate_slot_round_trips
-                        // handles LoadSlot @X; StoreSlot @X; Pop as a no-op.
-                        if (prod_imm_u32 == dst_slot) {
-                            goto no_fuse;
-                        }
-                        // CopySlot reads the source slot raw, bypassing its cell
-                        if (slot_aliased(f, prod_imm_u32)) {
-                            goto no_fuse;
-                        }
-                        fused.op = Op::CopySlot;
-                        fused.imm_int = (int64_t)prod_imm_u32; // src slot
-                        break;
-                    default:
-                        goto no_fuse;
-                }
-                {
-                    ValueId fused_id = f.add_inst(std::move(fused));
-                    body.push_back(fused_id);
-                    i += 3;
-                    changed = true;
-                    continue;
-                }
-            no_fuse:;
-            }
-        }
-        body.push_back(b.insts[i]);
-        i++;
-    }
-    if (changed) {
-        b.insts = std::move(body);
-    }
-    return changed;
-}
-
-static bool fold_branch(Func &f, Block &b) {
-    if (b.terminator == InvalidValue) {
-        return false;
-    }
-    Inst &t = f.inst(b.terminator);
-    if (t.op != Op::Branch || t.operands.empty() || b.insts.empty()) {
-        return false;
-    }
-    ValueId cond = t.operands[0];
-    if (b.insts.back() != cond || !is_const(f.inst(cond).op)) {
-        return false;
-    }
-    bool take_true = truthy_const(f.inst(cond));
-    b.insts.pop_back();
-    t.op = Op::Jump;
-    t.operands.clear();
-    t.target0 = take_true ? t.target0 : t.target1;
-    t.target1 = InvalidBlock;
-    b.succs.clear();
-    b.succs.push_back(t.target0);
-    return true;
-}
-
-static BlockId jump_thread_target(const Func &f, BlockId target) {
-    BlockId cur = target;
-    for (size_t depth = 0; depth < f.blocks.size(); depth++) {
-        if (cur < 0 || (size_t)cur >= f.blocks.size()) {
-            return target;
-        }
-        const Block &b = f.blocks[cur];
-        if (!b.phis.empty() || !b.insts.empty() || b.terminator == InvalidValue) {
-            return cur;
-        }
-        const Inst &t = f.inst(b.terminator);
-        if (t.op != Op::Jump || t.target0 == cur) {
-            return cur;
-        }
-        cur = t.target0;
-    }
-    return target; // cycle guard
-}
-
-static bool thread_jumps(Func &f) {
-    bool changed = false;
-    for (Block &b : f.blocks) {
-        if (b.terminator == InvalidValue) {
-            continue;
-        }
-        Inst &t = f.inst(b.terminator);
-        if (t.op == Op::Jump) {
-            BlockId nt = jump_thread_target(f, t.target0);
-            if (nt != t.target0) {
-                t.target0 = nt;
-                b.succs.clear();
-                b.succs.push_back(nt);
-                changed = true;
-            }
-        } else if (t.op == Op::Branch) {
-            BlockId nt0 = jump_thread_target(f, t.target0);
-            BlockId nt1 = jump_thread_target(f, t.target1);
-            if (nt0 != t.target0 || nt1 != t.target1) {
-                t.target0 = nt0;
-                t.target1 = nt1;
-                b.succs.clear();
-                b.succs.push_back(nt0);
-                b.succs.push_back(nt1);
-                changed = true;
-            }
-        }
-    }
-    return changed;
-}
-
-// Local (within-block) constant propagation through slots.
-// Between a StoreSlot of a constant and the next StoreSlot to that slot,
-// every LoadSlot of it yields that constant, so the load is rewritten in place to a copy of the constant.
-// This is stack-safe within a block (a LoadSlot and a constant both push exactly one value).
-static bool propagate_slot_consts(Func &f, Block &b) {
-    bool changed = false;
-    std::unordered_map<uint32_t, ValueId> known; // slot -> const-valued inst id
-    for (ValueId v : b.insts) {
-        Inst &in = f.inst(v);
-        if (in.op == Op::LoadSlot) {
-            if (slot_aliased(f, in.imm_u32)) {
-                continue; // a call may have rewritten the cell; the load must stand
-            }
-            auto it = known.find(in.imm_u32);
-            if (it != known.end()) {
-                const Inst &c = f.inst(it->second);
-                in.op = c.op; // rewrite load -> constant, keeping this value's id
-                in.type = c.type;
-                in.imm_int = c.imm_int;
-                in.imm_float = c.imm_float;
-                in.operands.clear();
-                changed = true;
-            }
-        } else if (in.op == Op::StoreSlot) {
-            ValueId sv = in.operands.empty() ? InvalidValue : in.operands[0];
-            if (sv != InvalidValue && is_const(f.inst(sv).op) && !slot_aliased(f, in.imm_u32)) {
-                known[in.imm_u32] = sv;
-            } else {
-                known.erase(in.imm_u32);
-            }
-        }
-        // No other op modifies a slot; LoadSlot reads only.
-    }
-    return changed;
-}
-
-// Dead store elimination: a StoreSlot to a slot that is never read (no LoadSlot anywhere)
-//  and is not captured by a closure is unobservable, since a non-aliased slot is purely function-local.
-//
-// StoreSlot is stack-neutral (it peeks), so dropping it preserves the value stack, the peeked value stays on the stack.
-// Composes with const-prop and DCE (which then removes the now-unused value + its Pop).
-static bool eliminate_dead_stores(Func &f) {
-    std::vector<bool> loaded(f.num_slots, false);
-    // An aliased slot's store also writes its upvalue cell, which a closure can read
-    // even if this function never loads the slot again, so it is never unobservable.
-    for (uint32_t sl = 0; sl < f.num_slots; sl++) {
-        if (slot_aliased(f, sl)) {
-            loaded[sl] = true;
-        }
-    }
-    for (const Inst &in : f.insts) {
-        if (in.op == Op::LoadSlot && in.imm_u32 < loaded.size()) {
-            loaded[in.imm_u32] = true;
-        }
-    }
-    bool changed = false;
-    for (Block &b : f.blocks) {
-        std::vector<ValueId> body;
-        body.reserve(b.insts.size());
-        for (ValueId v : b.insts) {
-            const Inst &in = f.inst(v);
-            if (in.op == Op::StoreSlot && in.imm_u32 < loaded.size() && !loaded[in.imm_u32]) {
-                changed = true; // unobservable write -> drop
-                continue;
-            }
-            body.push_back(v);
-        }
-        if (body.size() != b.insts.size()) {
-            b.insts = std::move(body);
-        }
-    }
-    return changed;
-}
-
-static void rebuild_preds(Func &f);
-
-// Local value numbering (within-block CSE). Simulates the block's operand stack,
-// giving each value an exact integer value-number.
-// When a freshly pushed value equals the entry directly below it on the stack (i.e.
-// a sub-expression was recomputed immediately after an identical one), its whole
-// span is replaced by a single Dup of that lower value.
-static bool local_value_numbering(Func &f, Block &b) {
-    std::unordered_map<std::string, int> vnmap;
-    int next_vn = 0;
-    auto getvn = [&](const std::string &key) -> int {
-        auto it = vnmap.find(key);
-        if (it != vnmap.end()) {
-            return it->second;
-        }
-        return vnmap[key] = next_vn++;
-    };
-    std::unordered_map<uint32_t, int> slot_version;
-    auto slot_ver = [&](uint32_t s) -> int {
-        auto it = slot_version.find(s);
-        return it == slot_version.end() ? 0 : it->second;
-    };
-
-    struct E {
-        int vn;
-        ValueId vid;
-        size_t body_pos; // index in `body` where this value's sub-expression begins
-    };
-    std::vector<E> st;
-    std::vector<ValueId> body;
-    bool changed = false;
-
-    auto push_leaf = [&](ValueId v, int vn) {
-        // CSE a leaf (const / LoadSlot) that re-pushes the value already on top.
-        if (!st.empty() && st.back().vn == vn) {
-            Inst dup;
-            dup.op = Op::Dup;
-            dup.operands = { st.back().vid };
-            dup.bytecode_pc = f.inst(v).bytecode_pc;
-            ValueId d = f.add_inst(std::move(dup));
-            body.push_back(d);
-            st.push_back({ vn, d, body.size() - 1 });
-            changed = true;
-        } else {
-            body.push_back(v);
-            st.push_back({ vn, v, body.size() - 1 });
-        }
-    };
-
-    for (ValueId v : b.insts) {
-        Inst &in = f.inst(v);
-        switch (in.op) {
-            case Op::IConst:
-                push_leaf(v, getvn("i:" + std::to_string(in.imm_int)));
-                break;
-            case Op::FConst: {
-                int64_t bits;
-                memcpy(&bits, &in.imm_float, sizeof(bits));
-                push_leaf(v, getvn("f:" + std::to_string(bits)));
-                break;
-            }
-            case Op::BConst:
-                push_leaf(v, getvn("b:" + std::to_string(in.imm_int)));
-                break;
-            case Op::NConst:
-                push_leaf(v, getvn("none"));
-                break;
-            case Op::LoadConst:
-                push_leaf(v, getvn("const:" + std::to_string(in.imm_u32)));
-                break;
-            case Op::LoadSlot:
-                push_leaf(v, getvn("ld:" + std::to_string(in.imm_u32) + ":" + std::to_string(slot_ver(in.imm_u32))));
-                break;
-            case Op::LoadGlobal:
-                push_leaf(v, getvn("global:" + std::to_string(in.imm_u32)));
-                break;
-            case Op::LoadCapture:
-                // Capture cell idx is fixed for the whole function body, so
-                // "capture:idx" is a stable key like a global.
-                // The immediate-CSE window only fires against a matching stack top.
-                // StoreCapture (clears vnmap) and Call (pushes a distinct vn) both break it.
-                push_leaf(v, getvn("capture:" + std::to_string(in.imm_u32)));
-                break;
-            case Op::Dup:
-                body.push_back(v);
-                if (st.empty()) {
-                    st.clear();
-                } else {
-                    st.push_back({ st.back().vn, v, body.size() - 1 });
-                }
-                break;
-            case Op::StoreSlot:
-                // stack-neutral (peek); invalidate later loads of this slot
-                slot_version[in.imm_u32] = slot_ver(in.imm_u32) + 1;
-                body.push_back(v);
-                break;
-            case Op::StrAppendSlot:
-                slot_version[in.imm_u32] = slot_ver(in.imm_u32) + 1;
-                vnmap.clear();
-                body.push_back(v);
-                if (st.empty()) {
-                    st.clear();
-                } else {
-                    E rhs = st.back();
-                    st.pop_back();
-                    in.operands = { rhs.vid };
-                    st.push_back({ getvn("strapp:" + std::to_string((int)v)), v, body.size() - 1 });
-                }
-                break;
-            case Op::StoreGlobal:
-                // stack-neutral (peek); invalidate global/load-index value numbers.
-                vnmap.clear();
-                body.push_back(v);
-                break;
-            case Op::StoreCapture:
-                // stack-neutral (peek); a write-through to a captured cell can be
-                // observed by aliasing loads, so drop all value numbers.
-                vnmap.clear();
-                body.push_back(v);
-                break;
-            case Op::Not:
-            case Op::JsTruthy:
-            case Op::IsNone:
-            case Op::INeg:
-            case Op::INot:
-            case Op::FormatValue: {
-                if (st.empty()) {
-                    body.push_back(v);
-                    st.clear();
-                    break;
-                }
-                E a = st.back();
-                st.pop_back();
-                in.operands = { a.vid };
-                int vn = getvn(std::to_string((int)in.op) + ":" + std::to_string(a.vn));
-                body.push_back(v);
-                st.push_back({ vn, v, a.body_pos });
-                break;
-            }
-            case Op::Pop:
-                body.push_back(v);
-                if (!st.empty()) {
-                    st.pop_back();
-                }
-                break;
-            case Op::DynAdd:
-            case Op::DynSub:
-            case Op::DynMul:
-            case Op::DynMod:
-            case Op::DynDiv:
-            case Op::DynCmpLt:
-            case Op::DynCmpLe:
-            case Op::DynCmpGt:
-            case Op::DynCmpGe:
-            case Op::DynCmpEq:
-            case Op::DynCmpNe:
-            case Op::DynStrictCmpEq:
-            case Op::DynStrictCmpNe: {
-                if (st.size() < 2) {
-                    body.push_back(v);
-                    st.clear(); // lost track -> stop CSE for the rest of the block
-                    break;
-                }
-                E rhs = st.back();
-                st.pop_back();
-                E lhs = st.back();
-                st.pop_back();
-                in.operands = { lhs.vid, rhs.vid }; // keep operands consistent with CSE
-                int o1 = lhs.vn, o2 = rhs.vn;
-                if ((in.op == Op::DynAdd || in.op == Op::DynMul || in.op == Op::DynStrictCmpEq || in.op == Op::DynStrictCmpNe) && o1 > o2) {
-                    std::swap(o1, o2); // commutative: normalize operand order
-                }
-                int vn = getvn(std::to_string((int)in.op) + ":" + std::to_string(o1) + ":" + std::to_string(o2));
-                size_t span_start = lhs.body_pos; // expression begins at the left operand
-                body.push_back(v);
-                // CSE: identical to the value directly below? -> replace span with Dup.
-                if (!st.empty() && st.back().vn == vn) {
-                    ValueId below = st.back().vid;
-                    Inst dup;
-                    dup.op = Op::Dup;
-                    dup.operands = { below };
-                    dup.bytecode_pc = in.bytecode_pc;
-                    ValueId d = f.add_inst(std::move(dup));
-                    body.resize(span_start);
-                    body.push_back(d);
-                    st.push_back({ vn, d, span_start });
-                    changed = true;
-                } else {
-                    st.push_back({ vn, v, span_start });
-                }
-                break;
-            }
-            case Op::StrConcat:
-            case Op::Pow:
-            case Op::IAnd:
-            case Op::IOr:
-            case Op::IXor:
-            case Op::IShl:
-            case Op::IShr:
-            case Op::JsBitBinary: {
-                if (st.size() < 2) {
-                    body.push_back(v);
-                    st.clear();
-                    break;
-                }
-                E rhs = st.back();
-                st.pop_back();
-                E lhs = st.back();
-                st.pop_back();
-                in.operands = { lhs.vid, rhs.vid };
-                int o1 = lhs.vn, o2 = rhs.vn;
-                if ((in.op == Op::IAnd || in.op == Op::IOr || in.op == Op::IXor) && o1 > o2) {
-                    std::swap(o1, o2);
-                }
-                int vn = getvn(std::to_string((int)in.op) + ":" + std::to_string(o1) + ":" + std::to_string(o2));
-                body.push_back(v);
-                st.push_back({ vn, v, lhs.body_pos });
-                break;
-            }
-            case Op::Call: {
-                size_t n = (size_t)in.imm_u32 + 1;
-                body.push_back(v);
-                if (st.size() < n) {
-                    st.clear();
-                } else {
-                    for (size_t i = 0; i < n; i++) {
-                        st.pop_back();
-                    }
-                    st.push_back({ getvn("call:" + std::to_string((int)v)), v, body.size() - 1 });
-                }
-                break;
-            }
-            case Op::CallSpread:
-                body.push_back(v);
-                if (st.size() < 2) {
-                    st.clear();
-                } else {
-                    E args = st.back();
-                    st.pop_back();
-                    E callee = st.back();
-                    st.pop_back();
-                    in.operands = { callee.vid, args.vid };
-                    vnmap.clear();
-                    st.push_back({ getvn("calls:" + std::to_string((int)v)), v, body.size() - 1 });
-                }
-                break;
-            case Op::CallMethod: {
-                size_t n = (size_t)in.imm_int + 1;
-                body.push_back(v);
-                if (st.size() < n) {
-                    st.clear();
-                } else {
-                    for (size_t i = 0; i < n; i++) {
-                        st.pop_back();
-                    }
-                    st.push_back({ getvn("callm:" + std::to_string((int)v)), v, body.size() - 1 });
-                }
-                break;
-            }
-            case Op::LoadIndex:
-                body.push_back(v);
-                if (st.size() < 2) {
-                    st.clear();
-                } else {
-                    st.pop_back();
-                    st.pop_back();
-                    st.push_back({ getvn("idx:" + std::to_string((int)v)), v, body.size() - 1 });
-                }
-                break;
-            case Op::ArrayPush:
-            case Op::ArraySpread:
-                body.push_back(v);
-                if (st.size() < 2) {
-                    st.clear();
-                } else {
-                    E iterable = st.back();
-                    st.pop_back();
-                    E target = st.back();
-                    st.pop_back();
-                    in.operands = { target.vid, iterable.vid };
-                    vnmap.clear();
-                    st.push_back({ getvn("arraymut:" + std::to_string((int)v)), v, body.size() - 1 });
-                }
-                break;
-            case Op::StoreIndex:
-                body.push_back(v);
-                if (st.size() < 3) {
-                    st.clear();
-                } else {
-                    st.pop_back();
-                    st.pop_back();
-                    // object remains on stack; unknown mutation invalidates index values
-                    vnmap.clear();
-                }
-                break;
-            case Op::MakeArray:
-            case Op::MakeObject: {
-                size_t n = in.op == Op::MakeArray ? (size_t)in.imm_u32 : (size_t)in.imm_u32 * 2;
-                body.push_back(v);
-                if (st.size() < n) {
-                    st.clear();
-                } else {
-                    for (size_t i = 0; i < n; i++) {
-                        st.pop_back();
-                    }
-                    st.push_back({ getvn("agg:" + std::to_string((int)v)), v, body.size() - 1 });
-                }
-                break;
-            }
-            case Op::MakeClosure:
-                body.push_back(v);
-                st.push_back({ getvn("closure:" + std::to_string((int)v)), v, body.size() - 1 });
-                break;
-            case Op::IterArray: {
-                // Pop 1 / push 1. Use a per-instruction unique value number so it
-                // is never CSE-deduped (normalizing the same object twice yields
-                // distinct fresh key-arrays; two calls must not be merged).
-                body.push_back(v);
-                if (st.empty()) {
-                    st.clear();
-                } else {
-                    E a = st.back();
-                    st.pop_back();
-                    in.operands = { a.vid };
-                    st.push_back({ getvn("iter:" + std::to_string((int)v)), v, body.size() - 1 });
-                }
-                break;
-            }
-            default:
-                body.push_back(v);
-                st.clear();
-                break;
-        }
-    }
-
-    if (changed && body != b.insts) {
-        b.insts = std::move(body);
-        return true;
-    }
-    return false;
-}
-
-// Phi-branch threading: collapse a merge block B of the shape
-//   B: v = phi(s0..sk);  branch v ? T : F        (one phi, empty body)
-// by pushing the branch into every predecessor.
-//
-// Requires: phi.operands[i] positionally matches B.preds[i], T and F have no
-// phis, and the phi result is used only as B's branch condition (otherwise a live use dangles when B is removed).
-static bool thread_phi_branches(Func &f) {
-    bool any = false;
-    for (size_t guard = 0; guard <= f.blocks.size(); guard++) {
-        rebuild_preds(f);
-        bool changed = false;
-        for (size_t bi = 0; bi < f.blocks.size(); bi++) {
-            if ((BlockId)bi == f.entry) {
-                continue;
-            }
-            Block &B = f.blocks[bi];
-            if (B.preds.empty() || !B.insts.empty() || B.phis.size() != 1 || B.terminator == InvalidValue) {
-                continue;
-            }
-            Inst &term = f.inst(B.terminator);
-            if (term.op != Op::Branch || term.operands.size() != 1) {
-                continue;
-            }
-            ValueId phi_id = B.phis[0];
-            if (term.operands[0] != phi_id) {
-                continue; // branch must test the phi
-            }
-            Inst &phi = f.inst(phi_id);
-            if (phi.op != Op::Phi || phi.operands.size() != B.preds.size()) {
-                continue; // desynced operands<->preds: skip (never true pre-fixpoint)
-            }
-            BlockId T = term.target0, F = term.target1;
-            if (T < 0 || F < 0 || (size_t)T >= f.blocks.size() || (size_t)F >= f.blocks.size() || T == (BlockId)bi || F == (BlockId)bi) {
-                continue;
-            }
-            if (!f.blocks[T].phis.empty() || !f.blocks[F].phis.empty()) {
-                continue; // targets would gain preds needing phi fixup
-            }
-            // Every predecessor must reach B via an unconditional Jump.
-            bool preds_ok = true;
-            for (BlockId p : B.preds) {
-                if (p < 0 || (size_t)p >= f.blocks.size()) {
-                    preds_ok = false;
-                    break;
-                }
-                const Block &P = f.blocks[p];
-                if (P.terminator == InvalidValue) {
-                    preds_ok = false;
-                    break;
-                }
-                const Inst &pt = f.inst(P.terminator);
-                if (pt.op != Op::Jump || pt.target0 != (BlockId)bi) {
-                    preds_ok = false;
-                    break;
-                }
-            }
-            if (!preds_ok) {
-                continue;
-            }
-            // The phi result must feed nothing but B's branch condition.
-            int uses = 0;
-            for (const Block &blk : f.blocks) {
-                for (ValueId pv : blk.phis) {
-                    for (ValueId o : f.inst(pv).operands) {
-                        if (o == phi_id) {
-                            uses++;
-                        }
-                    }
-                }
-                for (ValueId iv : blk.insts) {
-                    for (ValueId o : f.inst(iv).operands) {
-                        if (o == phi_id) {
-                            uses++;
-                        }
-                    }
-                }
-                if (blk.terminator != InvalidValue) {
-                    for (ValueId o : f.inst(blk.terminator).operands) {
-                        if (o == phi_id) {
-                            uses++;
-                        }
-                    }
-                }
-            }
-            if (uses != 1) {
-                continue;
-            }
-            // Rewrite each pred's terminating Jump into the merged Branch.
-            for (size_t i = 0; i < B.preds.size(); i++) {
-                Block &P = f.blocks[B.preds[i]];
-                Inst &pt = f.inst(P.terminator);
-                pt.op = Op::Branch;
-                pt.operands = { phi.operands[i] };
-                pt.target0 = T;
-                pt.target1 = F;
-                P.succs.clear();
-                P.succs.push_back(T);
-                P.succs.push_back(F);
-            }
-            // B is now unreachable. Drop its outgoing edges so a subsequent
-            // rebuild_preds cannot hand T/F a phantom predecessor before
-            // dead-block removal compacts B away.
-            B.succs.clear();
-            B.preds.clear();
-            changed = true;
-            any = true;
-            break; // preds mutated -> rebuild and rescan
-        }
-        if (!changed) {
-            break;
-        }
-    }
-    if (any) {
-        rebuild_preds(f);
-    }
-    return any;
-}
-
-// Straight-line block merging: when A ends in an unconditional Jump to B and B's
-// only predecessor is A, fuse B's body and terminator into A and drop the jump.
-static bool merge_blocks(Func &f) {
-    rebuild_preds(f);
-    std::vector<bool> removed(f.blocks.size(), false);
-    bool changed = false;
-    for (size_t ai = 0; ai < f.blocks.size(); ai++) {
-        if (removed[ai]) {
-            continue;
-        }
-        Block &A = f.blocks[ai];
-        if (A.terminator == InvalidValue) {
-            continue;
-        }
-        if (f.inst(A.terminator).op != Op::Jump) {
-            continue;
-        }
-        BlockId bid = f.inst(A.terminator).target0;
-        if (bid < 0 || (size_t)bid >= f.blocks.size() || bid == (BlockId)ai || bid == f.entry || removed[bid]) {
-            continue;
-        }
-        Block &B = f.blocks[bid];
-        if (B.preds.size() != 1 || B.preds[0] != (BlockId)ai || !B.phis.empty()) {
-            continue; // B must be entered only from A
-        }
-        A.insts.insert(A.insts.end(), B.insts.begin(), B.insts.end());
-        A.terminator = B.terminator;
-        A.succs = B.succs;
-        removed[bid] = true;
-        B.insts.clear();
-        B.terminator = InvalidValue;
-        B.succs.clear();
-        B.preds.clear();
-        changed = true;
-    }
-    if (changed) {
-        rebuild_preds(f);
-    }
-    return changed;
-}
-
-// Remove blocks unreachable from the entry (left behind by branch-folding and jump-threading) from the IR proper.
-// Compacts f.blocks and remaps every BlockId reference: Func::entry, each Block::id/succs/preds, and Jump/Branch
-// terminator targets.
-static bool remove_unreachable_blocks(Func &f) {
-    if (f.blocks.empty() || f.entry < 0 || (size_t)f.entry >= f.blocks.size()) {
-        return false;
-    }
-    std::vector<bool> reach(f.blocks.size(), false);
-    std::vector<BlockId> stk;
-    stk.push_back(f.entry);
-    reach[f.entry] = true;
-    while (!stk.empty()) {
-        BlockId b = stk.back();
-        stk.pop_back();
-        for (BlockId s : f.blocks[b].succs) {
-            if (s >= 0 && (size_t)s < reach.size() && !reach[s]) {
-                reach[s] = true;
-                stk.push_back(s);
-            }
-        }
-    }
-
-    size_t nreach = 0;
-    for (bool r : reach) {
-        if (r) {
-            nreach++;
-        }
-    }
-    if (nreach == f.blocks.size()) {
-        return false; // nothing unreachable
-    }
-
-    // old BlockId -> new (compacted) BlockId
-    std::vector<BlockId> remap(f.blocks.size(), InvalidBlock);
-    BlockId next = 0;
-    for (size_t i = 0; i < f.blocks.size(); i++) {
-        if (reach[i]) {
-            remap[i] = next++;
-        }
-    }
-
-    std::vector<Block> compact;
-    compact.reserve(nreach);
-    for (size_t i = 0; i < f.blocks.size(); i++) {
-        if (!reach[i]) {
-            continue;
-        }
-        Block b = std::move(f.blocks[i]);
-        b.id = remap[i];
-        for (BlockId &s : b.succs) {
-            s = remap[s]; // every succ of a reachable block is reachable
-        }
-        if (b.terminator != InvalidValue) {
-            Inst &t = f.inst(b.terminator);
-            if (t.op == Op::Jump) {
-                t.target0 = remap[t.target0];
-            } else if (t.op == Op::Branch) {
-                t.target0 = remap[t.target0];
-                t.target1 = remap[t.target1];
-            }
-        }
-        b.preds.clear(); // rebuilt below
-        compact.push_back(std::move(b));
-    }
-    f.blocks = std::move(compact);
-    f.entry = remap[f.entry];
-    for (Block &b : f.blocks) {
-        for (BlockId s : b.succs) {
-            if (s >= 0 && (size_t)s < f.blocks.size()) {
-                f.blocks[s].preds.push_back(b.id);
-            }
-        }
-    }
-    return true;
-}
-
-static void rebuild_preds(Func &f) {
-    for (Block &b : f.blocks) {
-        b.preds.clear();
-    }
-    for (Block &b : f.blocks) {
-        for (BlockId s : b.succs) {
-            if (s >= 0 && (size_t)s < f.blocks.size()) {
-                f.blocks[s].preds.push_back(b.id);
-            }
-        }
-    }
-}
-
 // report-only GVN / global-CSE opportunity detector.
 //
-// Purely analysis!
-// Builds a dominator tree, natural-loop
-// detection, available-expressions dataflow, then counts value-producing
-// instructions that are fully redundant across block boundaries.
+// Purely analysis!!
+// Builds a dominator tree, natural-loop detection, available-expressions dataflow, 
+// then counts value-producing instructions that are fully redundant across block boundaries.
 // Dominators classify loop membership only.
 // Memory loads carry a dependency set so a store or call kills exactly the loads it may invalidate.
 namespace {
@@ -1469,9 +49,23 @@ enum GvnClass {
     GC_N
 };
 static const char *gc_name(int c) {
-    static const char *n[GC_N] = { "divmod", "fdiv",   "lglobal", "lprop", "lindex", "lslot", "lcap",
-                                   "strcat", "farith", "iarith",  "cmp",   "dyn",    "box",   "other" };
-    return (c >= 0 && c < GC_N) ? n[c] : "?";
+    static const char *name[GC_N] = { 
+        "divmod",
+        "fdiv",
+        "lglobal",
+        "lprop",
+        "lindex",
+        "lslot",
+        "lcap",
+        "strcat",
+        "farith",
+        "iarith",
+        "cmp",
+        "dyn",
+        "box",
+        "other"
+    };
+    return (c >= 0 && c < GC_N) ? name[c] : "?";
 }
 static bool gc_expensive(int c) {
     return c == GC_DIVMOD_INT || c == GC_LGLOBAL || c == GC_LPROP || c == GC_LINDEX || c == GC_STRCAT || c == GC_DYN;
@@ -1635,7 +229,7 @@ struct GvnTotals {
 void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
     static GvnTotals totals; // prints aggregate at exit
     const size_t NB = f.blocks.size();
-    if (NB == 0 || f.entry < 0 || (size_t)f.entry >= NB) {
+    if (NB == 0 || f.entry < 0 || static_cast<size_t>(f.entry) >= NB) {
         return;
     }
     totals.funcs++;
@@ -1654,7 +248,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
             const Block &B = f.blocks[b];
             if (i < B.succs.size()) {
                 BlockId s = B.succs[i++];
-                if (s >= 0 && (size_t)s < NB && !seen[s]) {
+                if (s >= 0 && static_cast<size_t>(s) < NB && !seen[s]) {
                     seen[s] = 1;
                     stk.push_back({ s, 0 });
                 }
@@ -1666,7 +260,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
     }
     std::vector<BlockId> rpo(order.rbegin(), order.rend());
     for (size_t i = 0; i < rpo.size(); i++) {
-        rpo_num[rpo[i]] = (int)i;
+        rpo_num[rpo[i]] = static_cast<int>(i);
     }
 
     // dominator tree (Cooper-Harvey-Kennedy)
@@ -1691,7 +285,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
             }
             BlockId newidom = InvalidBlock;
             for (BlockId p : f.blocks[b].preds) {
-                if (p < 0 || (size_t)p >= NB || rpo_num[p] < 0) {
+                if (p < 0 || static_cast<size_t>(p) >= NB || rpo_num[p] < 0) {
                     continue;
                 }
                 if (idom[p] == InvalidBlock) {
@@ -1724,7 +318,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
     std::vector<char> in_loop(NB, 0);
     for (BlockId n : rpo) {
         for (BlockId h : f.blocks[n].succs) {
-            if (h < 0 || (size_t)h >= NB || rpo_num[h] < 0) {
+            if (h < 0 || static_cast<size_t>(h) >= NB || rpo_num[h] < 0) {
                 continue;
             }
             if (!dominates(h, n)) {
@@ -1739,7 +333,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
                 BlockId x = work.back();
                 work.pop_back();
                 for (BlockId p : f.blocks[x].preds) {
-                    if (p < 0 || (size_t)p >= NB) {
+                    if (p < 0 || static_cast<size_t>(p) >= NB) {
                         continue;
                     }
                     if (!in_loop[p]) {
@@ -1759,7 +353,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
         if (it != vnint.end()) {
             return it->second;
         }
-        int id = (int)vndeps.size();
+        int id = static_cast<int>(vndeps.size());
         vnint[key] = id;
         vndeps.push_back(d);
         return id;
@@ -1767,17 +361,17 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
     const size_t NI = f.insts.size();
     std::vector<int> vn(NI, -1);
     auto opvn = [&](ValueId v) -> int {
-        if (v >= 0 && (size_t)v < NI && vn[v] >= 0) {
+        if (v >= 0 && static_cast<size_t>(v) < NI && vn[v] >= 0) {
             return vn[v];
         }
-        return mkvn("dangling:" + std::to_string((int)v), Deps{}); // conservative
+        return mkvn("dangling:" + std::to_string(static_cast<int>(v)), Deps{}); // conservative
     };
-    for (ValueId id = 0; id < (ValueId)NI; id++) {
+    for (ValueId id = 0; id < static_cast<ValueId>(NI); id++) {
         const Inst &in = f.insts[id];
         Op op = in.op;
         Deps d;
         std::string key;
-        auto uniq = [&]() { key = "uniq:" + std::to_string((int)id); };
+        auto uniq = [&]() { key = "uniq:" + std::to_string(static_cast<int>(id)); };
         switch (op) {
             case Op::IConst:
                 key = "i:" + std::to_string(in.imm_int);
@@ -1851,7 +445,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
                     if (commutative(op) && ov.size() == 2 && ov[0] > ov[1]) {
                         std::swap(ov[0], ov[1]);
                     }
-                    key = "e" + std::to_string((int)op);
+                    key = "e" + std::to_string(static_cast<int>(op));
                     for (int x : ov) {
                         key += ":" + std::to_string(x);
                     }
@@ -1867,7 +461,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
     std::unordered_map<int, int> vn2cid; // vn -> compact id
     std::vector<int> cid_class;          // compact id -> op class
     std::vector<int> cid_vn;             // compact id -> vn
-    for (ValueId id = 0; id < (ValueId)NI; id++) {
+    for (ValueId id = 0; id < static_cast<ValueId>(NI); id++) {
         const Inst &in = f.insts[id];
         int c = classify(in.op);
         if (c == GC_OTHER || in.result == InvalidValue) {
@@ -1877,7 +471,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
         if (vn2cid.count(v)) {
             continue;
         }
-        int cid = (int)cid_class.size();
+        int cid = static_cast<int>(cid_class.size());
         vn2cid[v] = cid;
         cid_class.push_back(c);
         cid_vn.push_back(v);
@@ -1907,7 +501,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
             case Op::StoreNSlot:
             case Op::StoreCSlot:
             case Op::CopySlot:
-                k.slot = (int)in.imm_u32;
+                k.slot = static_cast<int>(in.imm_u32);
                 if (in.op == Op::StrAppendSlot) {
                     k.h = true;
                 }
@@ -1936,7 +530,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
     };
     auto killed = [&](int cid, const Kill &k) -> bool {
         const Deps &d = deps_of(cid);
-        if (k.slot >= 0 && d.has_slot((uint32_t)k.slot)) {
+        if (k.slot >= 0 && d.has_slot(static_cast<uint32_t>(k.slot))) {
             return true;
         }
         if (k.g && d.global) {
@@ -1972,7 +566,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
             Kill k = kill_of(in);
             if (k.any()) {
                 for (size_t c = 0; c < M; c++) {
-                    if (killed((int)c, k)) {
+                    if (killed(static_cast<int>(c), k)) {
                         state[c] = -1;
                     }
                 }
@@ -2018,7 +612,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
                     std::fill(in.begin(), in.end(), 0);
                 } else {
                     for (BlockId p : f.blocks[b].preds) {
-                        if (p < 0 || (size_t)p >= NB || rpo_num[p] < 0) {
+                        if (p < 0 || static_cast<size_t>(p) >= NB || rpo_num[p] < 0) {
                             continue;
                         };
                         for (size_t c = 0; c < M; c++) {
@@ -2058,7 +652,7 @@ void gvn_report(const Func &f, const char *fn_name, uint32_t fn_idx) {
             Kill k = kill_of(in);
             if (k.any()) {
                 for (size_t c = 0; c < M; c++) {
-                    if (killed((int)c, k)) {
+                    if (killed(static_cast<int>(c), k)) {
                         avail[c] = anyav[c] = local[c] = 0;
                     }
                 }
@@ -2127,7 +721,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
         return plan;
     }
     const size_t NB = f.blocks.size();
-    if (NB == 0 || f.entry < 0 || (size_t)f.entry >= NB) {
+    if (NB == 0 || f.entry < 0 || static_cast<size_t>(f.entry) >= NB) {
         return plan;
     }
 
@@ -2145,7 +739,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
                     aliased.insert(rhs.imm_u32);
                 }
             } else if (in.op == Op::CopySlot) {
-                uint32_t src = (uint32_t)in.imm_int;
+                uint32_t src = static_cast<uint32_t>(in.imm_int);
                 if (src != in.imm_u32) {
                     aliased.insert(src);
                 }
@@ -2176,7 +770,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
             const Block &B = f.blocks[b];
             if (i < B.succs.size()) {
                 BlockId s = B.succs[i++];
-                if (s >= 0 && (size_t)s < NB && !seen[s]) {
+                if (s >= 0 && static_cast<size_t>(s) < NB && !seen[s]) {
                     seen[s] = 1;
                     stk.push_back({ s, 0 });
                 }
@@ -2188,7 +782,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
     }
     std::vector<BlockId> rpo(order.rbegin(), order.rend());
     for (size_t i = 0; i < rpo.size(); i++) {
-        rpo_num[rpo[i]] = (int)i;
+        rpo_num[rpo[i]] = static_cast<int>(i);
     }
 
     // dominator tree (Cooper-Harvey-Kennedy)
@@ -2213,7 +807,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
             }
             BlockId newidom = InvalidBlock;
             for (BlockId p : f.blocks[b].preds) {
-                if (p < 0 || (size_t)p >= NB || rpo_num[p] < 0) {
+                if (p < 0 || static_cast<size_t>(p) >= NB || rpo_num[p] < 0) {
                     continue;
                 }
                 if (idom[p] == InvalidBlock) {
@@ -2247,7 +841,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
     std::unordered_map<BlockId, std::vector<char>> loop_body; // header -> body mask
     for (BlockId n : rpo) {
         for (BlockId h : f.blocks[n].succs) {
-            if (h < 0 || (size_t)h >= NB || rpo_num[h] < 0) {
+            if (h < 0 || static_cast<size_t>(h) >= NB || rpo_num[h] < 0) {
                 continue;
             }
             if (!dominates(h, n)) {
@@ -2265,7 +859,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
                     BlockId x = work.back();
                     work.pop_back();
                     for (BlockId p : f.blocks[x].preds) {
-                        if (p < 0 || (size_t)p >= NB) {
+                        if (p < 0 || static_cast<size_t>(p) >= NB) {
                             continue;
                         }
                         if (!body[p]) {
@@ -2344,7 +938,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
             bool reads = false;
             long bsize = 0;
             bool resizes = false;
-            for (BlockId bb = 0; bb < (BlockId)NB; bb++) {
+            for (BlockId bb = 0; bb < static_cast<BlockId>(NB); bb++) {
                 if (!body[bb]) {
                     continue;
                 }
@@ -2364,7 +958,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
             bool unique_pre = true;
 
             for (BlockId p : f.blocks[h].preds) {
-                if (p < 0 || (size_t)p >= NB) {
+                if (p < 0 || static_cast<size_t>(p) >= NB) {
                     continue;
                 }
                 if (body[p]) {
@@ -2396,7 +990,7 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
         }
         plan.materialize[best_pre].push_back(slot);
         const std::vector<char> &body = loop_body[best_hdr];
-        for (BlockId bb = 0; bb < (BlockId)NB; bb++) {
+        for (BlockId bb = 0; bb < static_cast<BlockId>(NB); bb++) {
             if (body[bb]) {
                 plan.valid[bb].insert(slot);
             }
@@ -2407,16 +1001,6 @@ ArrayHeaderHoist plan_array_header_hoist(const Func &f, const IntArraySlots &int
 }
 
 bool optimize(Func &f) {
-    // This used to bail on the entire function whenever ANY local was captured by a
-    // closure, which left 10.5% of JIT'd functions -- but 27.8% of all IR
-    // instructions, since they are the big ones -- completely unoptimized. Only three
-    // passes actually need locals to be unaliased, and each is gated per slot via
-    // slot_aliased() instead, so a function with one captured slot still gets the full
-    // pipeline on its other slots. Measured: ir_opt is worth ~192 ms (4.9%) overall
-    // and the three aliasing-sensitive passes are only ~28 ms of that; lifting the
-    // bail is worth -38.6 ms (0.99%) on tsc (14-pair interleaved A/B, t=5.4, 13/14).
-    // Phi-branch threading runs first, exactly once, on the pristine build output:
-    //      it is the only consumer of phi.operands[i]<->preds[i]
     bool any = thread_phi_branches(f);
 
     // Iterate to a fixpoint: each pass can expose work for the others
@@ -2650,6 +1234,53 @@ GlobalTypeMap analyze_const_globals(const nari::bytecode::Chunk &chunk) {
         }
     }
 
+    return out;
+}
+
+GlobalIntMap analyze_const_int_globals(const nari::bytecode::Chunk &chunk, const GlobalTypeMap &types) {
+    using namespace nari::bytecode;
+    GlobalIntMap out;
+    for (const FunctionMeta &fn : chunk.functions) {
+        const ByteArray &code = fn.code;
+        std::vector<std::optional<int64_t>> locals(fn.var_names.size());
+        std::optional<int64_t> top;
+        for (size_t pc = 0; pc < code.size();) {
+            const size_t size = decoded_instruction_size(code, pc);
+            if (size == 0) {
+                break;
+            }
+            const OpCode op = OpCode(code[pc]);
+            const uint32_t operand = pc + 2 < code.size() ? (uint32_t(code[pc + 1]) << 8) | code[pc + 2] : UINT32_MAX;
+            if (op == OpCode::OP_LOAD_CONST) {
+                top = operand < fn.constants.size() && fn.constants[operand].type == Constant::Type::INT
+                          ? std::optional<int64_t>(fn.constants[operand].as_int)
+                          : std::nullopt;
+            } else if (op == OpCode::OP_LOAD_ZERO || op == OpCode::OP_LOAD_ONE) {
+                top = op == OpCode::OP_LOAD_ONE ? 1 : 0;
+            } else if (op == OpCode::OP_LOAD_VAR) {
+                top = operand < locals.size() ? locals[operand] : std::nullopt;
+            } else if (op == OpCode::OP_STORE_VAR) {
+                if (operand < locals.size()) {
+                    locals[operand] = top;
+                }
+            } else if (op == OpCode::OP_STORE_GLOBAL) {
+                auto type = types.find(operand);
+                if (top && type != types.end() && type->second == Ty::Int48) {
+                    out[operand] = *top;
+                }
+            } else if (op == OpCode::OP_DUP) {
+                // The top value is unchanged.
+            } else if (op == OpCode::OP_JUMP || op == OpCode::OP_JUMP_IF_FALSE || op == OpCode::OP_JUMP_IF_TRUE ||
+                       op == OpCode::OP_JUMP_IF_NONE || op == OpCode::OP_CALL || op == OpCode::OP_RETURN ||
+                       op == OpCode::OP_SELF_TAIL_CALL || op == OpCode::OP_THROW) {
+                top.reset();
+                std::fill(locals.begin(), locals.end(), std::nullopt);
+            } else {
+                top.reset();
+            }
+            pc += size;
+        }
+    }
     return out;
 }
 
@@ -2954,7 +1585,6 @@ void infer_types(
                 }
                 case Op::Call:
                 case Op::CallSpread:
-                case Op::CallMethod:
                 case Op::LoadProperty:
                 case Op::JsGetPropStatic:
                 case Op::LoadCapture:
@@ -2968,11 +1598,15 @@ void infer_types(
                 case Op::IterArray:
                     nt = Ty::Unknown;
                     break;
+                case Op::CallMethod:
+                    nt = in.proven_int48 ? Ty::Int48 : Ty::Unknown;
+                    break;
                 case Op::LoadIndex: {
-                    // if the array operand is LoadSlot @s for a slot that analyze_int_array_slots()
-                    // proved holds an int-only array, the element type is Int48. Otherwise Unknown.
+                    // Integer-only elements imply an integer result only when
+                    // control flow also proves the read stays in bounds.
                     nt = Ty::Unknown;
-                    if (int_array_slots && !in.operands.empty()) {
+                    if (in.proven_inbounds && int_array_slots && in.operands.size() >= 2 &&
+                        f.inst(in.operands[1]).type == Ty::Int48) {
                         const Inst &obj = f.inst(in.operands[0]);
                         if (obj.op == Op::LoadSlot && int_array_slots->count(obj.imm_u32)) {
                             nt = Ty::Int48;
@@ -3012,7 +1646,8 @@ void infer_types(
                 case Op::DynMul:
                 case Op::DynMod:
                 case Op::DynDiv:
-                    nt = arith_type(in.op, f.inst(in.operands[0]).type, f.inst(in.operands[1]).type);
+                    nt = in.proven_int48 ? Ty::Int48
+                                         : arith_type(in.op, f.inst(in.operands[0]).type, f.inst(in.operands[1]).type);
                     break;
                 case Op::DynCmpLt:
                 case Op::DynCmpLe:
@@ -3086,7 +1721,7 @@ void infer_types(
                     case Op::CopySlot: {
                         // CopySlot @src -> @dst propagates the src slot type.
                         // The source slot is stored in in.imm_int (see fuse_slot_stores).
-                        uint32_t src = (uint32_t)in.imm_int;
+                        uint32_t src = static_cast<uint32_t>(in.imm_int);
                         if (src < slot_ty.size()) {
                             ns[in.imm_u32] = join(ns[in.imm_u32], slot_ty[src]);
                         } else {

@@ -1,6 +1,8 @@
-// #ifndef DISABLE_JIT
-#include "trace_jit_asmjit.h"
+#ifndef DISABLE_JIT
+#include "trace/compiler.h"
 #include "asmjit_jit.h"
+#include "abi.h"
+#include "asmjit_jit_async.h"
 #include "bytecode.h"
 #include "core_types.h"
 #include "jit_helpers.h"
@@ -35,8 +37,8 @@ ASMJIT_NOINLINE double nari_fast_sin(double x) noexcept {
     double k = std::floor(x * kTwoOverPi + 0.5);
     x -= k * kPio2_hi;
     x -= k * kPio2_lo;
-    int64_t ki = (int64_t)k;
-    int q = (int)(ki & 3);
+    int64_t ki = static_cast<int64_t>(k);
+    int q = static_cast<int>((ki & 3));
     double x2 = x * x;
     // sin Horner: x * (1 + x^2 * (a3 + x^2 * (a5 + x^2 * (a7 + x^2 * a9))))
     double s =
@@ -64,8 +66,8 @@ ASMJIT_NOINLINE double nari_fast_cos(double x) noexcept {
     double k = std::floor(x * kTwoOverPi + 0.5);
     x -= k * kPio2_hi;
     x -= k * kPio2_lo;
-    int64_t ki = (int64_t)k;
-    int q = (int)(ki & 3);
+    int64_t ki = static_cast<int64_t>(k);
+    int q = static_cast<int>((ki & 3));
     double x2 = x * x;
     double s =
         x *
@@ -86,6 +88,8 @@ ASMJIT_NOINLINE double nari_fast_cos(double x) noexcept {
 namespace nari {
 namespace jit {
 
+using namespace abi;
+
 // signed division by constant: magic multiply
 struct SignedDivMagic {
     int64_t magic;
@@ -93,7 +97,7 @@ struct SignedDivMagic {
 };
 
 static SignedDivMagic sdiv_magic(int64_t d) {
-    uint64_t ad = (uint64_t)d;
+    uint64_t ad = static_cast<uint64_t>(d);
     uint64_t two63 = 1ULL << 63;
     uint64_t anc = two63 - 1 - (two63 % ad);
     uint64_t q1 = two63 / anc, r1 = two63 - q1 * anc;
@@ -118,42 +122,27 @@ static SignedDivMagic sdiv_magic(int64_t d) {
         }
         break;
     }
-    return { (int64_t)(q2 + 1), p - 64 };
+    return { static_cast<int64_t>((q2 + 1)), p - 64 };
 }
 
 // layout constants
-static const int64_t ValSize = sizeof(Value);
 
 // NaN-boxing: tag is upper 2 bytes (offset 6) of 8-byte Value
-static const int64_t tagWordOff = 6;             // offset of NaN-box tag word within Value
-static const int64_t tagInt = (int64_t)0xFFFC;   // upper16 for Int
-static const int64_t tagFloat = (int64_t)0x0000; // floats: upper16 < 0xFFFB
-static const int64_t tagBool = (int64_t)0xFFFE;
-static const int64_t FrameSize = sizeof(nari::bytecode::CallFrame);
-static const int64_t SlotBaseOff = field_offset(&nari::bytecode::CallFrame::slot_base);
-static const int64_t kIpOff = field_offset(&nari::bytecode::CallFrame::ip);
+static const int64_t tagWordOff = 6;                          // offset of NaN-box tag word within Value
+static const int64_t tagInt = static_cast<int64_t>(0xFFFC);   // upper16 for Int
+static const int64_t tagFloat = static_cast<int64_t>(0x0000); // floats: upper16 < 0xFFFB
+static const int64_t tagBool = static_cast<int64_t>(0xFFFE);
+static const int64_t kIpOff = FrameIpOff;
 
-static const int64_t FramesFinishOff = jit::field_offset(&nari::bytecode::VM::frames) + offsetof(nari::bytecode::FrameArray, storage_end);
 
 // VM::trace_last_iters, a compiled trace writes its loop iteration count here before returning.
-static const int64_t kVmTraceItersOff = jit::field_offset(&nari::bytecode::VM::trace_last_iters);
-
-static const int64_t HeapTypeTagOff = jit::field_offset(&::HeapHeader::type_tag);
-static const int64_t ObjShapeVersionOff = jit::field_offset(&::ObjectObj::shape_version);
-static const int64_t ObjShapeOff = jit::field_offset(&::ObjectObj::shape);
-static const int64_t ObjFieldsStartOff = jit::field_offset(&::ObjectObj::fields) + offsetof(Array, storage_begin);
-static const int64_t ObjFrozenOff = jit::field_offset(&::ObjectObj::frozen);
-static const int64_t ObjDictModeOff = jit::field_offset(&::ObjectObj::dict_mode);
+static const int64_t kVmTraceItersOff = VMTraceItersOff;
 
 // Array has an explicit three-pointer layout shared with generated code.
-static const int64_t ArrayVBeginOff = nari::jit::field_offset(&::ArrayObj::v) + offsetof(Array, storage_begin);
-static const int64_t ArrayVEndOff = nari::jit::field_offset(&::ArrayObj::v) + offsetof(Array, storage_end);
+static const int64_t ArrayVBeginOff = ArrayVecStartOff;
+static const int64_t ArrayVEndOff = ArrayVecFinishOff;
 
 // same as above with VM operand stack
-static const int64_t VMStackFinishOff = jit::field_offset(&nari::bytecode::VM::stack) + offsetof(Array, storage_end);
-static const int64_t FDInlineKindOff = nari::jit::field_offset(&::FunctionData::jit_inline_kind);
-static const int64_t FDInlineImmOff = nari::jit::field_offset(&::FunctionData::jit_inline_imm);
-static const int64_t FDCapture0RawOff = nari::jit::field_offset(&::FunctionData::jit_capture0_raw);
 
 #if NARI_JIT_X86 && defined(__linux__) && defined(__x86_64__)
 static asmjit::x86::Mem gs_qword_ptr(int32_t offset) {
@@ -162,120 +151,6 @@ static asmjit::x86::Mem gs_qword_ptr(int32_t offset) {
     return mem;
 }
 #endif
-
-TraceJITCompilerAsmJit::TraceJITCompilerAsmJit() {
-}
-TraceJITCompilerAsmJit::~TraceJITCompilerAsmJit() {
-}
-
-// invalidate all cached traces and release their machine code
-void TraceJITCompilerAsmJit::reset() {
-    cache.clear();
-    rt.~JitRuntime();
-    new (&rt) asmjit::JitRuntime();
-}
-
-// cache lookup
-const CompiledTrace *TraceJITCompilerAsmJit::find(uint32_t func_idx, size_t anchor_pc) const {
-    auto it = this->cache.find(make_key(func_idx, anchor_pc));
-    if (it == this->cache.end()) {
-        return nullptr;
-    }
-    return &it->second.trace;
-}
-
-// pre-scan: find all local var slots used in the trace
-struct AsmLiveVar {
-    uint16_t slot;
-    TraceType type;
-};
-
-static std::vector<AsmLiveVar> asm_collect_live_vars(const std::vector<TraceStep> &steps) {
-    std::unordered_map<uint16_t, TraceType> seen;
-    for (const auto &s : steps) {
-        if ((s.kind == TraceStep::Kind::LoadIntVar || s.kind == TraceStep::Kind::StoreIntVar) && seen.find(s.slot) == seen.end()) {
-            seen[s.slot] = TraceType::Int;
-        } else if (
-            (s.kind == TraceStep::Kind::LoadFloatVar || s.kind == TraceStep::Kind::StoreFloatVar) && seen.find(s.slot) == seen.end()
-        ) {
-            seen[s.slot] = TraceType::Float;
-        } else if (
-            (s.kind == TraceStep::Kind::LoadObjVar || s.kind == TraceStep::Kind::ObjAddConstInPlace ||
-             s.kind == TraceStep::Kind::ObjAddPropInPlace) &&
-            seen.find(s.slot) == seen.end()
-        ) {
-            seen[s.slot] = TraceType::Obj;
-        } else if (s.kind == TraceStep::Kind::LoadArrayVar && seen.find(s.slot) == seen.end()) {
-            seen[s.slot] = TraceType::Array;
-        } else if (
-            (s.kind == TraceStep::Kind::ClosureInc || s.kind == TraceStep::Kind::ClosureAddConst) && seen.find(s.closure_slot) == seen.end()
-        ) {
-            seen[s.closure_slot] = TraceType::Function;
-        }
-    }
-    std::vector<AsmLiveVar> result;
-    result.reserve(seen.size());
-    for (auto &[slot, type] : seen) {
-        result.push_back({ slot, type });
-    }
-    std::sort(result.begin(), result.end(), [](const AsmLiveVar &a, const AsmLiveVar &b) { return a.slot < b.slot; });
-    return result;
-}
-
-static std::vector<TraceStep> optimize_object_update_traces(const std::vector<TraceStep> &steps) {
-    std::vector<TraceStep> out;
-    out.reserve(steps.size());
-
-    for (size_t i = 0; i < steps.size();) {
-        // obj.f = obj.f + const; POP
-        if (i + 7 <= steps.size() && steps[i + 0].kind == TraceStep::Kind::LoadObjVar && steps[i + 1].kind == TraceStep::Kind::LoadObjVar &&
-            steps[i + 2].kind == TraceStep::Kind::ObjGetProp &&
-            (steps[i + 3].kind == TraceStep::Kind::LoadOneConst || steps[i + 3].kind == TraceStep::Kind::LoadZeroConst ||
-             steps[i + 3].kind == TraceStep::Kind::LoadIntConst) &&
-            steps[i + 4].kind == TraceStep::Kind::IntAdd && steps[i + 5].kind == TraceStep::Kind::ObjSetProp &&
-            steps[i + 6].kind == TraceStep::Kind::Pop && steps[i + 0].slot == steps[i + 1].slot &&
-            steps[i + 2].prop_slot_index == steps[i + 5].prop_slot_index && steps[i + 2].prop_val_type == TraceType::Int &&
-            steps[i + 5].prop_val_type == TraceType::Int) {
-            TraceStep fused{ TraceStep::Kind::ObjAddConstInPlace };
-            fused.slot = steps[i + 0].slot;
-            fused.prop_slot_index = steps[i + 2].prop_slot_index;
-            fused.prop_val_type = TraceType::Int;
-            if (steps[i + 3].kind == TraceStep::Kind::LoadOneConst) {
-                fused.int_val = 1;
-            } else if (steps[i + 3].kind == TraceStep::Kind::LoadZeroConst) {
-                fused.int_val = 0;
-            } else {
-                fused.int_val = steps[i + 3].int_val;
-            }
-            out.push_back(fused);
-            i += 7;
-            continue;
-        }
-
-        // obj.f = obj.f + obj.g; POP
-        if (i + 8 <= steps.size() && steps[i + 0].kind == TraceStep::Kind::LoadObjVar && steps[i + 1].kind == TraceStep::Kind::LoadObjVar &&
-            steps[i + 2].kind == TraceStep::Kind::ObjGetProp && steps[i + 3].kind == TraceStep::Kind::LoadObjVar &&
-            steps[i + 4].kind == TraceStep::Kind::ObjGetProp && steps[i + 5].kind == TraceStep::Kind::IntAdd &&
-            steps[i + 6].kind == TraceStep::Kind::ObjSetProp && steps[i + 7].kind == TraceStep::Kind::Pop &&
-            steps[i + 0].slot == steps[i + 1].slot && steps[i + 0].slot == steps[i + 3].slot &&
-            steps[i + 2].prop_slot_index == steps[i + 6].prop_slot_index && steps[i + 2].prop_val_type == TraceType::Int &&
-            steps[i + 4].prop_val_type == TraceType::Int && steps[i + 6].prop_val_type == TraceType::Int) {
-            TraceStep fused{ TraceStep::Kind::ObjAddPropInPlace };
-            fused.slot = steps[i + 0].slot;
-            fused.prop_slot_index = steps[i + 2].prop_slot_index;
-            fused.rhs_prop_slot_index = steps[i + 4].prop_slot_index;
-            fused.prop_val_type = TraceType::Int;
-            out.push_back(fused);
-            i += 8;
-            continue;
-        }
-
-        out.push_back(steps[i]);
-        ++i;
-    }
-
-    return out;
-}
 
 // Float condition codes are now in arch::CC (kFLT/kFLE/kFGT/kFGE)
 
@@ -363,7 +238,7 @@ struct AsmVEntry {
 CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const nari::bytecode::Chunk &chunk, uint32_t func_idx) {
     CompiledTrace result;
 
-    if (!rec.valid || rec.steps.empty() || rec.exit_pc == 0) {
+    if (!validate_trace_recording(rec, chunk, func_idx)) {
         return result;
     }
 
@@ -453,21 +328,21 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
         arch::load(cc, stack_start, arch::ptr(vm_ptr, 0));
 
         // frames_end = *(i64*)(vm + FramesFinishOff)
-        arch::load(cc, frames_end, arch::ptr(vm_ptr, (int32_t)FramesFinishOff));
+        arch::load(cc, frames_end, arch::ptr(vm_ptr, static_cast<int32_t>(FramesFinishOff)));
     }
 
     // slot_base_val = *(i64*)(frames_end - FrameSize + SlotBaseOff)
-    arch::load(cc, slot_base_val, arch::ptr(frames_end, (int32_t)(-FrameSize + SlotBaseOff)));
+    arch::load(cc, slot_base_val, arch::ptr(frames_end, static_cast<int32_t>((-FrameSize + SlotBaseOff))));
 
     // base_offset = slot_base_val * ValSize
 #if NARI_JIT_ARM64
     {
         arch::Gp kval = cc.new_gp64();
-        cc.mov(kval, (int64_t)ValSize);
+        cc.mov(kval, static_cast<int64_t>(ValSize));
         cc.mul(base_offset, slot_base_val, kval);
     }
 #else
-    cc.imul(base_offset, slot_base_val, (int32_t)ValSize);
+    cc.imul(base_offset, slot_base_val, static_cast<int32_t>(ValSize));
 #endif
 
     // addr0 = stack_start + base_offset
@@ -479,16 +354,21 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 
     // Compute per-slot addresses
     for (const auto &lv : live_vars) {
-        arch::Gp ar = addr_reg.at(lv.slot);
+        // find + bail instead of at(): this file must not throw.
+        auto ar_it = addr_reg.find(lv.slot);
+        if (ar_it == addr_reg.end()) {
+            return result;
+        }
+        arch::Gp ar = ar_it->second;
         if (lv.slot == 0) {
             cc.mov(ar, addr0);
         } else {
 #if NARI_JIT_ARM64
             arch::Gp off = cc.new_gp64();
-            cc.mov(off, (int64_t)((int64_t)lv.slot * ValSize));
+            cc.mov(off, static_cast<int64_t>((static_cast<int64_t>(lv.slot * ValSize)));
             cc.add(ar, addr0, off);
 #else
-            cc.lea(ar, x86::ptr(addr0, (int32_t)((int64_t)lv.slot * ValSize)));
+            cc.lea(ar, x86::ptr(addr0, static_cast<int32_t>((static_cast<int64_t>(lv.slot * ValSize)))));
 #endif
         }
     }
@@ -502,7 +382,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 
     // collect expected ObjectShape* and shape_version for each obj var slot.
     struct ObjGuard {
-        void *expected_shape;
+        const void *expected_shape;
         uint32_t expected_ver;
     };
     std::unordered_map<uint16_t, ObjGuard> obj_guards;
@@ -515,7 +395,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
     // collect expected ArrayObj* and recorded (finish - start) size-in-bytes for each array var slot.
     // Entry guard checks identity + size at every trace entry
     struct ArrGuard {
-        void *expected_arr;
+        const void *expected_arr;
         int64_t expected_size_bytes;
     };
     std::unordered_map<uint16_t, ArrGuard> arr_guards;
@@ -526,154 +406,187 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
     }
 
     for (const auto &lv : live_vars) {
-        arch::Gp ar = addr_reg.at(lv.slot);
+        auto ar_it = addr_reg.find(lv.slot);
+        if (ar_it == addr_reg.end()) {
+            return result;
+        }
+        arch::Gp ar = ar_it->second;
 
         // load the tag word (NaN-box upper 16 bits)
-        arch::load_tag16(cc, tmp_i, ar, 0, (int32_t)tagWordOff);
+        arch::load_tag16(cc, tmp_i, ar, 0, static_cast<int32_t>(tagWordOff));
         if (lv.type == TraceType::Int) {
             // exact match: must be 0xFFFC
-            arch::cmp_imm_jcc(cc, tmp_i, (int32_t)tagInt, arch::CC::kNE, lbl_guardfail);
+            arch::cmp_imm_jcc(cc, tmp_i, static_cast<int32_t>(tagInt), arch::CC::kNE, lbl_guardfail);
         } else if (lv.type == TraceType::Obj) {
             // must be heap tag: 0xFFFB
-            arch::cmp_imm_jcc(cc, tmp_i, (int32_t)kTagHeapTrace, arch::CC::kNE, lbl_guardfail);
+            arch::cmp_imm_jcc(cc, tmp_i, static_cast<int32_t>(kTagHeapTrace), arch::CC::kNE, lbl_guardfail);
             // extract raw pointer (lower 48 bits) and verify object type + shape
             arch::Gp raw_ptr = cc.new_gp64();
             arch::load(cc, raw_ptr, arch::ptr(ar, 0));
             arch::Gp mask48 = cc.new_gp64();
-            cc.mov(mask48, (int64_t)0x0000FFFFFFFFFFFFLL);
+            cc.mov(mask48, static_cast<int64_t>(0x0000FFFFFFFFFFFFLL));
 #if NARI_JIT_ARM64
             cc.and_(raw_ptr, raw_ptr, mask48);
 #else
             cc.and_(raw_ptr, mask48);
 #endif
             arch::Gp heap_type = cc.new_gp64();
-            arch::load8_zx(cc, heap_type, arch::ptr(raw_ptr, (int)HeapTypeTagOff));
-            arch::cmp_imm_jcc(cc, heap_type, (int32_t)ValueTag::Object, arch::CC::kNE, lbl_guardfail);
+            arch::load8_zx(cc, heap_type, arch::ptr(raw_ptr, static_cast<int>(NARI_JIT_OFF(HeapHeader, type_tag))));
+            arch::cmp_imm_jcc(cc, heap_type, static_cast<int32_t>(ValueTag::Object), arch::CC::kNE, lbl_guardfail);
 
             auto git = obj_guards.find(lv.slot);
             if (git != obj_guards.end()) {
                 arch::Gp shape_ptr = cc.new_gp64();
-                arch::load(cc, shape_ptr, arch::ptr(raw_ptr, (int)ObjShapeOff));
+                arch::load(cc, shape_ptr, arch::ptr(raw_ptr, static_cast<int>(ObjShapeOff)));
                 arch::Gp expected_shape = cc.new_gp64();
-                cc.mov(expected_shape, (int64_t)(intptr_t)git->second.expected_shape);
+                cc.mov(expected_shape, static_cast<int64_t>(reinterpret_cast<intptr_t>(git->second.expected_shape)));
                 arch::cmp_jcc(cc, shape_ptr, expected_shape, arch::CC::kNE, lbl_guardfail);
 
 #if NARI_JIT_ARM64
                 arch::Gp ver_val = cc.new_gp64();
-                arch::load32_zx(cc, ver_val, raw_ptr, (int32_t)ObjShapeVersionOff);
-                arch::cmp_imm_jcc(cc, ver_val, (int32_t)git->second.expected_ver, arch::CC::kNE, lbl_guardfail);
+                arch::load32_zx(cc, ver_val, raw_ptr, static_cast<int32_t>(ObjShapeVersionOff));
+                arch::cmp_imm_jcc(cc, ver_val, static_cast<int32_t>(git->second.expected_ver), arch::CC::kNE, lbl_guardfail);
 #else
-                cc.cmp(x86::dword_ptr(raw_ptr, (int)ObjShapeVersionOff), (int32_t)git->second.expected_ver);
+                cc.cmp(x86::dword_ptr(raw_ptr, static_cast<int>(ObjShapeVersionOff)), static_cast<int32_t>(git->second.expected_ver));
                 cc.jne(lbl_guardfail);
 #endif
 
                 arch::Gp frozen = cc.new_gp64();
-                arch::load8_zx(cc, frozen, arch::ptr(raw_ptr, (int)ObjFrozenOff));
+                arch::load8_zx(cc, frozen, arch::ptr(raw_ptr, static_cast<int>(ObjFrozenOff)));
                 arch::cmp_imm_jcc(cc, frozen, 0, arch::CC::kNE, lbl_guardfail);
 
                 arch::Gp dict_mode = cc.new_gp64();
-                arch::load8_zx(cc, dict_mode, arch::ptr(raw_ptr, (int)ObjDictModeOff));
+                arch::load8_zx(cc, dict_mode, arch::ptr(raw_ptr, static_cast<int>(ObjDictModeOff)));
                 arch::cmp_imm_jcc(cc, dict_mode, 0, arch::CC::kNE, lbl_guardfail);
             }
         } else if (lv.type == TraceType::Function) {
-            arch::cmp_imm_jcc(cc, tmp_i, (int32_t)kTagHeapTrace, arch::CC::kNE, lbl_guardfail);
+            arch::cmp_imm_jcc(cc, tmp_i, static_cast<int32_t>(kTagHeapTrace), arch::CC::kNE, lbl_guardfail);
             arch::Gp raw_ptr = cc.new_gp64();
             arch::load(cc, raw_ptr, arch::ptr(ar, 0));
             arch::Gp mask48 = cc.new_gp64();
-            cc.mov(mask48, (int64_t)0x0000FFFFFFFFFFFFLL);
+            cc.mov(mask48, static_cast<int64_t>(0x0000FFFFFFFFFFFFLL));
 #if NARI_JIT_ARM64
             cc.and_(raw_ptr, raw_ptr, mask48);
 #else
             cc.and_(raw_ptr, mask48);
 #endif
             arch::Gp heap_type = cc.new_gp64();
-            arch::load8_zx(cc, heap_type, arch::ptr(raw_ptr, (int)HeapTypeTagOff));
-            arch::cmp_imm_jcc(cc, heap_type, (int32_t)ValueTag::Function, arch::CC::kNE, lbl_guardfail);
+            arch::load8_zx(cc, heap_type, arch::ptr(raw_ptr, static_cast<int>(NARI_JIT_OFF(HeapHeader, type_tag))));
+            arch::cmp_imm_jcc(cc, heap_type, static_cast<int32_t>(ValueTag::Function), arch::CC::kNE, lbl_guardfail);
         } else if (lv.type == TraceType::Array) {
             // Heap-tag guard (upper16 == 0xFFFB).
-            arch::cmp_imm_jcc(cc, tmp_i, (int32_t)kTagHeapTrace, arch::CC::kNE, lbl_guardfail);
+            arch::cmp_imm_jcc(cc, tmp_i, static_cast<int32_t>(kTagHeapTrace), arch::CC::kNE, lbl_guardfail);
             // Extract raw ArrayObj* (lower 48 bits) and verify type_tag ==
             // ValueTag::Array (5), then guard on (finish - start) size.
             arch::Gp raw_ptr = cc.new_gp64();
             arch::load(cc, raw_ptr, arch::ptr(ar, 0));
             arch::Gp mask48 = cc.new_gp64();
-            cc.mov(mask48, (int64_t)0x0000FFFFFFFFFFFFLL);
+            cc.mov(mask48, static_cast<int64_t>(0x0000FFFFFFFFFFFFLL));
 #if NARI_JIT_ARM64
             cc.and_(raw_ptr, raw_ptr, mask48);
 #else
             cc.and_(raw_ptr, mask48);
 #endif
             arch::Gp heap_type = cc.new_gp64();
-            arch::load8_zx(cc, heap_type, arch::ptr(raw_ptr, (int)HeapTypeTagOff));
-            arch::cmp_imm_jcc(cc, heap_type, (int32_t)ValueTag::Array, arch::CC::kNE, lbl_guardfail);
+            arch::load8_zx(cc, heap_type, arch::ptr(raw_ptr, static_cast<int>(NARI_JIT_OFF(HeapHeader, type_tag))));
+            arch::cmp_imm_jcc(cc, heap_type, static_cast<int32_t>(ValueTag::Array), arch::CC::kNE, lbl_guardfail);
 
             auto ait = arr_guards.find(lv.slot);
             if (ait != arr_guards.end()) {
                 // Optional identity guard on the ArrayObj*.
                 // This is stricter than needed but matches ObjGuard's shape guard
                 arch::Gp expected_arr = cc.new_gp64();
-                cc.mov(expected_arr, (int64_t)(intptr_t)ait->second.expected_arr);
+                cc.mov(expected_arr, static_cast<int64_t>(reinterpret_cast<intptr_t>(ait->second.expected_arr)));
                 arch::cmp_jcc(cc, raw_ptr, expected_arr, arch::CC::kNE, lbl_guardfail);
 
                 // size-in-bytes = *(ArrayObj + ArrayVEndOff) - *(ArrayObj + ArrayVBeginOff)
                 arch::Gp start_p = cc.new_gp64();
                 arch::Gp finish_p = cc.new_gp64();
-                arch::load(cc, start_p, arch::ptr(raw_ptr, (int)ArrayVBeginOff));
-                arch::load(cc, finish_p, arch::ptr(raw_ptr, (int)ArrayVEndOff));
+                arch::load(cc, start_p, arch::ptr(raw_ptr, static_cast<int>(ArrayVBeginOff)));
+                arch::load(cc, finish_p, arch::ptr(raw_ptr, static_cast<int>(ArrayVEndOff)));
                 arch::sub2(cc, finish_p, start_p); // finish_p = size_bytes
                 arch::Gp expected_sz = cc.new_gp64();
-                cc.mov(expected_sz, (int64_t)ait->second.expected_size_bytes);
+                cc.mov(expected_sz, static_cast<int64_t>(ait->second.expected_size_bytes));
                 arch::cmp_jcc(cc, finish_p, expected_sz, arch::CC::kNE, lbl_guardfail);
             }
         } else {
             // float: upper16 must be < 0xFFFB (unsigned); ints/bools/heap all fail
             // Since tag is a zero-extended u16 (0..65535), signed >= works the same
-            arch::cmp_imm_jcc(cc, tmp_i, (int32_t)kTagHeapTrace, arch::CC::kGE, lbl_guardfail);
+            arch::cmp_imm_jcc(cc, tmp_i, static_cast<int32_t>(kTagHeapTrace), arch::CC::kGE, lbl_guardfail);
         }
     }
 
     // load live vars into registers
     for (const auto &lv : live_vars) {
-        arch::Gp ar = addr_reg.at(lv.slot);
+        auto ar_it = addr_reg.find(lv.slot);
+        if (ar_it == addr_reg.end()) {
+            return result;
+        }
+        arch::Gp ar = ar_it->second;
         if (lv.type == TraceType::Int) {
-            arch::Gp vr = var_ireg.at(lv.slot);
+            auto vr_it = var_ireg.find(lv.slot);
+            if (vr_it == var_ireg.end()) {
+                return result;
+            }
+            arch::Gp vr = vr_it->second;
             arch::load(cc, vr, arch::ptr(ar, 0)); // load NaN-boxed qword
             arch::sign_extend_48(cc, vr);         // decode: now plain int64
         } else if (lv.type == TraceType::Obj) {
             // extract raw heap pointer (lower 48 bits)
-            arch::Gp vr = var_ireg.at(lv.slot);
+            auto vr_it = var_ireg.find(lv.slot);
+            if (vr_it == var_ireg.end()) {
+                return result;
+            }
+            arch::Gp vr = vr_it->second;
             arch::load(cc, vr, arch::ptr(ar, 0));
             arch::Gp mask48 = cc.new_gp64();
-            cc.mov(mask48, (int64_t)0x0000FFFFFFFFFFFFLL);
+            cc.mov(mask48, static_cast<int64_t>(0x0000FFFFFFFFFFFFLL));
 #if NARI_JIT_ARM64
             cc.and_(vr, vr, mask48);
 #else
             cc.and_(vr, mask48); // now holds raw ObjectObj*
 #endif
-            arch::load(cc, obj_fields_start_reg.at(lv.slot), arch::ptr(vr, (int)ObjFieldsStartOff));
+            auto of_it = obj_fields_start_reg.find(lv.slot);
+            if (of_it == obj_fields_start_reg.end()) {
+                return result;
+            }
+            arch::load(cc, of_it->second, arch::ptr(vr, static_cast<int>(ObjFieldsStartOff)));
         } else if (lv.type == TraceType::Array) {
             // extract raw heap pointer, hoist data_start / size_bytes into fixed registers for the trace body.
             // Both are stable inside the body because the recorder aborts on any op that could grow the array.
             // Trace exit paths do not need to flush these because ArrayObj lifetime is GC-managed and we read the vec
             // storage.
-            arch::Gp vr = var_ireg.at(lv.slot);
+            auto vr_it = var_ireg.find(lv.slot);
+            if (vr_it == var_ireg.end()) {
+                return result;
+            }
+            arch::Gp vr = vr_it->second;
             arch::load(cc, vr, arch::ptr(ar, 0));
             arch::Gp mask48 = cc.new_gp64();
-            cc.mov(mask48, (int64_t)0x0000FFFFFFFFFFFFLL);
+            cc.mov(mask48, static_cast<int64_t>(0x0000FFFFFFFFFFFFLL));
 #if NARI_JIT_ARM64
             cc.and_(vr, vr, mask48);
 #else
             cc.and_(vr, mask48); // now holds raw ArrayObj*
 #endif
-            arch::Gp start_r = arr_data_start_reg.at(lv.slot);
-            arch::Gp size_r = arr_size_bytes_reg.at(lv.slot);
-            arch::load(cc, start_r, arch::ptr(vr, (int)ArrayVBeginOff));
-            arch::load(cc, size_r, arch::ptr(vr, (int)ArrayVEndOff));
+            auto ds_it = arr_data_start_reg.find(lv.slot);
+            auto sb_it = arr_size_bytes_reg.find(lv.slot);
+            if (ds_it == arr_data_start_reg.end() || sb_it == arr_size_bytes_reg.end()) {
+                return result;
+            }
+            arch::Gp start_r = ds_it->second;
+            arch::Gp size_r = sb_it->second;
+            arch::load(cc, start_r, arch::ptr(vr, static_cast<int>(ArrayVBeginOff)));
+            arch::load(cc, size_r, arch::ptr(vr, static_cast<int>(ArrayVEndOff)));
             arch::sub2(cc, size_r, start_r); // size_r = size in bytes
         } else if (lv.type == TraceType::Function) {
             // Closure call steps reload the function value from the stack slot.
         } else {
-            arch::load_f64(cc, var_dreg.at(lv.slot), ar, 0);
+            auto vd_it = var_dreg.find(lv.slot);
+            if (vd_it == var_dreg.end()) {
+                return result;
+            }
+            arch::load_f64(cc, vd_it->second, ar, 0);
         }
     }
 
@@ -686,7 +599,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
         Label running = cc.new_label();
         arch::Gp flag_addr = cc.new_gp64("shutdown_addr");
         arch::Gp requested = cc.new_gp64("shutdown_requested");
-        cc.mov(flag_addr, Imm((uint64_t)(uintptr_t)&Runtime::g_shutdown_requested));
+        cc.mov(flag_addr, Imm(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&Runtime::g_shutdown_requested))));
         arch::load8_zx(cc, requested, arch::ptr8(flag_addr));
         arch::test_zero(cc, requested);
         arch::jcc(cc, arch::CC::kEQ, running);
@@ -712,9 +625,9 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
         if (obj_entry.has_aux_gp) {
             cc.mov(slot_addr, obj_entry.aux_gp);
         } else {
-            arch::load(cc, slot_addr, arch::ptr(obj_entry.gp, (int)ObjFieldsStartOff));
+            arch::load(cc, slot_addr, arch::ptr(obj_entry.gp, static_cast<int>(ObjFieldsStartOff)));
         }
-        int64_t foff = (int64_t)prop_slot_index * ValSize;
+        int64_t foff = static_cast<int64_t>(prop_slot_index) * ValSize;
         if (foff != 0) {
             arch::add_imm(cc, slot_addr, foff);
         }
@@ -730,7 +643,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
         arch::Gp tag16 = cc.new_gp64();
         cc.mov(tag16, r);
         arch::shr(cc, tag16, 48);
-        arch::cmp_imm(cc, tag16.r32(), Imm((int)tagInt));
+        arch::cmp_imm(cc, tag16.r32(), Imm(static_cast<int>(tagInt)));
         arch::jcc(cc, arch::CC::kEQ, lbl_is_int);
         {
             arch::Vec fv = arch::new_vec_f64(cc);
@@ -810,12 +723,17 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
     };
 
     // code base pointer (embedded as constant for IP writes)
-    uint64_t code_base = (uint64_t)chunk.functions[func_idx].code.data();
+    uint64_t code_base = reinterpret_cast<uint64_t>(chunk.functions[func_idx].code.data());
     uint64_t exit_ip = code_base + rec.exit_pc;
     uint64_t entry_ip = code_base + rec.target_pc;
 
     // NaN-box tag for Int: 0xFFFC000000000000
-    static const int64_t nbIntTagTrace = (int64_t)((uint64_t)tagInt << 48);
+    static const int64_t nbIntTagTrace = static_cast<int64_t>((static_cast<uint64_t>(tagInt << 48)));
+
+    // Declared before the flush helper: a missing register entry marks the
+    // trace uncompilable and the caller falls back to the interpreter.
+    bool compilation_ok = true;
+    size_t step_idx = 0;
 
     // Helper lambdas for flush
     auto emit_flush_and_ret = [&](uint64_t new_ip_val) {
@@ -825,30 +743,42 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
             if (lv.type == TraceType::Obj || lv.type == TraceType::Function || lv.type == TraceType::Array) {
                 continue; // heap pointer not modified, skip flush
             }
-            arch::Gp ar = addr_reg.at(lv.slot);
+            auto ar_it = addr_reg.find(lv.slot);
+            if (ar_it == addr_reg.end()) {
+                compilation_ok = false;
+                return;
+            }
+            arch::Gp ar = ar_it->second;
             if (lv.type == TraceType::Int) {
                 if (!tag_loaded) {
                     cc.mov(nb_tag, nbIntTagTrace);
                     tag_loaded = true;
                 }
-                arch::Gp vr = var_ireg.at(lv.slot);
+                auto vr_it = var_ireg.find(lv.slot);
+                if (vr_it == var_ireg.end()) {
+                    compilation_ok = false;
+                    return;
+                }
+                arch::Gp vr = vr_it->second;
                 arch::nanbox_encode_int(cc, vr, nb_tag);
                 arch::store(cc, arch::ptr(ar, 0), vr);
             } else {
-                arch::store_f64(cc, ar, 0, var_dreg.at(lv.slot));
+                auto vd_it = var_dreg.find(lv.slot);
+                if (vd_it == var_dreg.end()) {
+                    compilation_ok = false;
+                    return;
+                }
+                arch::store_f64(cc, ar, 0, vd_it->second);
             }
         }
         // Set vm->frames.back().ip = new_ip_val
         arch::Gp ip_val = cc.new_gp64();
-        cc.mov(ip_val, (int64_t)new_ip_val);
-        arch::store(cc, arch::ptr(frames_end, (int32_t)(-FrameSize + kIpOff)), ip_val);
+        cc.mov(ip_val, static_cast<int64_t>(new_ip_val));
+        arch::store(cc, arch::ptr(frames_end, static_cast<int32_t>((-FrameSize + kIpOff))), ip_val);
         // record how many loop iterations this trace entry ran (profitability)
-        arch::store(cc, arch::ptr(vm_ptr, (int32_t)kVmTraceItersOff), iter_ctr);
+        arch::store(cc, arch::ptr(vm_ptr, static_cast<int32_t>(kVmTraceItersOff)), iter_ctr);
         cc.ret();
     };
-
-    bool compilation_ok = true;
-    size_t step_idx = 0;
 
     // Side-exit descriptors. Array bounds-check exits also need to materialize
     // the operands the interpreter will re-consume onto vm->stack.
@@ -856,6 +786,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
         arch::Gp raw_gp; // raw 64-bit value (or int48 to be NaN-boxed)
         TraceType src_type;
         bool has_raw_ptr_tag; // true = value already NaN-boxed heap Value; false = int to encode
+        arch::Vec float_xmm;  // source for a Float operand
     };
     struct SideExit {
         Label label;
@@ -863,80 +794,19 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
         std::vector<PushArg> push_args;
     };
     std::vector<SideExit> side_exits;
-
-#if NARI_JIT_X86
-    if (chunk.functions[func_idx].name == "bench_objects" && var_ireg.find(0) != var_ireg.end() && var_ireg.find(1) != var_ireg.end() &&
-        obj_fields_start_reg.find(0) != obj_fields_start_reg.end()) {
-        arch::Gp obj_fields = obj_fields_start_reg.at(0);
-        arch::Gp ireg = var_ireg.at(1);
-        arch::Gp xreg = cc.new_gp64("bo_x");
-        arch::Gp yreg = cc.new_gp64("bo_y");
-        arch::Vec zreg = arch::new_vec_f64(cc);
-        arch::Gp ztmp = cc.new_gp64("bo_ztmp");
-
-        // x and y remain within int48 for this loop; z overflows int48, so keep it as double.
-        arch::load(cc, xreg, arch::ptr(obj_fields, 0));
-        arch::sign_extend_48(cc, xreg);
-        arch::load(cc, yreg, arch::ptr(obj_fields, (int)ValSize));
-        arch::sign_extend_48(cc, yreg);
-        arch::load(cc, ztmp, arch::ptr(obj_fields, (int)(2 * ValSize)));
-        {
-            arch::Gp ztag = cc.new_gp64("bo_ztag");
-            cc.mov(ztag, ztmp);
-            arch::shr(cc, ztag, 48);
-            Label z_is_int = cc.new_label();
-            Label z_loaded = cc.new_label();
-            arch::cmp_imm(cc, ztag.r32(), Imm((int)tagInt));
-            arch::jcc(cc, arch::CC::kEQ, z_is_int);
-            arch::load_f64(cc, zreg, arch::ptr(obj_fields, (int)(2 * ValSize)));
-            arch::jmp(cc, z_loaded);
-            cc.bind(z_is_int);
-            arch::sign_extend_48(cc, ztmp);
-            cc.cvtsi2sd(zreg, ztmp);
-            cc.bind(z_loaded);
+    auto append_deopt_arg = [&](SideExit &se, const AsmVEntry &value) {
+        if (value.is_lazy_cmp ||
+            (value.type != TraceType::Int && value.type != TraceType::Bool && value.type != TraceType::Float)) {
+            return false;
         }
-
-        Label bo_loop = cc.new_label();
-        Label bo_done = cc.new_label();
-        cc.bind(bo_loop);
-        arch::cmp_imm(cc, ireg, Imm(1000000));
-        arch::jcc(cc, arch::CC::kGE, bo_done);
-        arch::add_imm(cc, xreg, 1);
-        arch::add2(cc, yreg, xreg);
-        {
-            arch::Vec y_as_double = arch::new_vec_f64(cc);
-            cc.cvtsi2sd(y_as_double, yreg);
-            cc.addsd(zreg, y_as_double);
-        }
-        arch::add_imm(cc, ireg, 1);
-        arch::add_imm(cc, iter_ctr, 1); // count iteration (profitability)
-        poll_shutdown();
-        arch::jmp(cc, bo_loop);
-
-        cc.bind(bo_done);
-        {
-            arch::Gp boxed_x = cc.new_gp64("bo_bx");
-            cc.mov(boxed_x, xreg);
-            arch::Gp tag = cc.new_gp64("bo_tag");
-            arch::nanbox_encode_int(cc, boxed_x, tag);
-            arch::store(cc, arch::ptr(obj_fields, 0), boxed_x);
-            arch::Gp boxed_y = cc.new_gp64("bo_by");
-            cc.mov(boxed_y, yreg);
-            arch::nanbox_encode_int(cc, boxed_y, tag);
-            arch::store(cc, arch::ptr(obj_fields, (int)ValSize), boxed_y);
-            arch::store_f64(cc, obj_fields, (int)(2 * ValSize), zreg);
-        }
-        emit_flush_and_ret(exit_ip);
-        cc.bind(lbl_guardfail);
-        {
-            arch::Gp ip_val = cc.new_gp64();
-            cc.mov(ip_val, (int64_t)entry_ip);
-            arch::store(cc, arch::ptr(frames_end, (int32_t)(-FrameSize + kIpOff)), ip_val);
-        }
-        cc.ret();
-        goto finalize_trace;
-    }
-#endif
+        PushArg arg{};
+        arg.raw_gp = value.gp;
+        arg.float_xmm = value.xmm;
+        arg.src_type = value.type;
+        arg.has_raw_ptr_tag = false;
+        se.push_args.push_back(arg);
+        return true;
+    };
 
     for (step_idx = 0; step_idx < opt_steps.size(); step_idx++) {
         const auto &step = opt_steps[step_idx];
@@ -952,7 +822,9 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 // lookahead: LoadIntVar(s), LoadOneConst, IntAdd, StoreIntVar(s), Pop -> increment
                 {
                     size_t r = opt_steps.size() - step_idx;
-                    if (r >= 5) {
+                    // Resumable integer operations need their own overflow guard
+                    // and side exit, so leave them in the normal lowering path.
+                    if (r >= 5 && !opt_steps[step_idx + 2].resume_pc.has_value()) {
                         const auto &s1 = opt_steps[step_idx + 1];
                         const auto &s2 = opt_steps[step_idx + 2];
                         const auto &s3 = opt_steps[step_idx + 3];
@@ -970,7 +842,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                         // LoadIntVar(s), LoadIntConst(N), IntAdd, StoreIntVar(s), Pop -> add imm
                         if (s1.kind == Kind::LoadIntConst && s2.kind == Kind::IntAdd && s3.kind == Kind::StoreIntVar &&
                             s3.slot == step.slot && s4.kind == Kind::Pop) {
-                            int32_t imm = (int32_t)s1.int_val;
+                            int32_t imm = static_cast<int32_t>(s1.int_val);
 #if NARI_JIT_ARM64
                             if (imm >= 0 && imm <= 4095) {
                                 cc.add(it->second, it->second, asmjit::Imm(imm));
@@ -1012,7 +884,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
             }
             case Kind::LoadIntConst: {
                 arch::Gp r = cc.new_gp64();
-                cc.mov(r, (int64_t)step.int_val);
+                cc.mov(r, static_cast<int64_t>(step.int_val));
                 vpush_gp(r, TraceType::Int);
                 break;
             }
@@ -1038,7 +910,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 arch::Gp tmp = cc.new_gp64();
                 uint64_t bits;
                 memcpy(&bits, &step.dbl_val, 8);
-                cc.mov(tmp, (int64_t)bits);
+                cc.mov(tmp, static_cast<int64_t>(bits));
                 cc.fmov(r, tmp);
 #else
                 x86::Mem c = cc.new_double_const(ConstPoolScope::kLocal, step.dbl_val);
@@ -1094,7 +966,35 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
             case Kind::IntMul:
             case Kind::IntDiv:
             case Kind::IntMod: {
+                if (vstack.size() < 2) {
+                    compilation_ok = false;
+                    goto done;
+                }
                 AsmVEntry b = vpop(), a = vpop();
+                const bool checked = step.kind == Kind::IntAdd || step.kind == Kind::IntSub || step.kind == Kind::IntMul;
+                const bool resumable = checked || step.kind == Kind::IntMod;
+                Label overflow;
+                if (resumable) {
+                    if (!step.resume_pc.has_value() || a.type != TraceType::Int || b.type != TraceType::Int) {
+                        compilation_ok = false;
+                        goto done;
+                    }
+                    SideExit se;
+                    se.label = cc.new_label();
+                    se.ip_val = code_base + step.resume_pc.value();
+                    for (const AsmVEntry &entry : vstack) {
+                        if (!append_deopt_arg(se, entry)) {
+                            compilation_ok = false;
+                            goto done;
+                        }
+                    }
+                    if (!append_deopt_arg(se, a) || !append_deopt_arg(se, b)) {
+                        compilation_ok = false;
+                        goto done;
+                    }
+                    overflow = se.label;
+                    side_exits.push_back(std::move(se));
+                }
                 arch::Gp r = cc.new_gp64();
                 if (step.kind == Kind::IntAdd) {
 #if NARI_JIT_ARM64
@@ -1111,15 +1011,24 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 #endif
                 } else if (step.kind == Kind::IntMul) {
 #if NARI_JIT_ARM64
+                    arch::Gp high = cc.new_gp64();
+                    cc.smulh(high, a.gp, b.gp);
                     cc.mul(r, a.gp, b.gp);
+                    arch::Gp sign = cc.new_gp64();
+                    cc.asr(sign, r, asmjit::Imm(63));
+                    cc.cmp(high, sign);
+                    arch::jcc(cc, arch::CC::kNE, overflow);
 #else
                     cc.mov(r, a.gp);
                     cc.imul(r, b.gp);
+                    cc.jo(overflow);
 #endif
                 } else if (step.kind == Kind::IntDiv) {
                     arch::Gp rem = cc.new_gp64();
                     arch::signed_div(cc, r, rem, a.gp, b.gp);
                 } else { // IntMod
+                    arch::test_zero(cc, b.gp);
+                    arch::jcc(cc, arch::CC::kEQ, overflow);
                     // check if the divisor is a known constant from a LoadIntConst step
                     int64_t const_div = 0;
                     if (step_idx > 0 && opt_steps[step_idx - 1].kind == Kind::LoadIntConst) {
@@ -1135,7 +1044,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                         arch::Gp mul_hi = cc.new_gp64();
                         cc.mov(mul_lo, a.gp);
                         arch::Gp magic = cc.new_gp64();
-                        cc.mov(magic, (int64_t)dm.magic);
+                        cc.mov(magic, static_cast<int64_t>(dm.magic));
                         arch::imul_wide_hi(cc, mul_hi, mul_lo, magic);
                         arch::Gp q = cc.new_gp64();
                         cc.mov(q, mul_hi);
@@ -1169,11 +1078,11 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 #if NARI_JIT_ARM64
                         {
                             arch::Gp div_c = cc.new_gp64();
-                            cc.mov(div_c, (int64_t)const_div);
+                            cc.mov(div_c, static_cast<int64_t>(const_div));
                             cc.mul(q, q, div_c);
                         }
 #else
-                        cc.imul(q, q, (int32_t)const_div);
+                        cc.imul(q, q, static_cast<int32_t>(const_div));
 #endif
                         r = cc.new_gp64();
 #if NARI_JIT_ARM64
@@ -1186,6 +1095,13 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                         arch::Gp quo = cc.new_gp64();
                         arch::signed_div(cc, quo, r, a.gp, b.gp);
                     }
+                }
+                if (checked) {
+                    arch::Gp narrowed = cc.new_gp64();
+                    cc.mov(narrowed, r);
+                    arch::sign_extend_48(cc, narrowed);
+                    cc.cmp(narrowed, r);
+                    arch::jcc(cc, arch::CC::kNE, overflow);
                 }
                 vpush_gp(r, TraceType::Int);
                 break;
@@ -1341,22 +1257,22 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 {
                     void *fn_ptr = nullptr;
                     if (step.kind == Kind::MathSin) {
-                        fn_ptr = (void *)(double (*)(double))nari_fast_sin;
+                        fn_ptr = reinterpret_cast<void *>(static_cast<double (*)(double)>(nari_fast_sin));
                     } else if (step.kind == Kind::MathCos) {
-                        fn_ptr = (void *)(double (*)(double))nari_fast_cos;
+                        fn_ptr = reinterpret_cast<void *>(static_cast<double (*)(double)>(nari_fast_cos));
                     } else if (step.kind == Kind::MathTan) {
-                        fn_ptr = (void *)(double (*)(double))std::tan;
+                        fn_ptr = reinterpret_cast<void *>(static_cast<double (*)(double)>(std::tan));
                     } else if (step.kind == Kind::MathFloor) {
-                        fn_ptr = (void *)(double (*)(double))std::floor;
+                        fn_ptr = reinterpret_cast<void *>(static_cast<double (*)(double)>(std::floor));
                     } else {
-                        fn_ptr = (void *)(double (*)(double))std::ceil;
+                        fn_ptr = reinterpret_cast<void *>(static_cast<double (*)(double)>(std::ceil));
                     }
 
                     InvokeNode *invoke;
 #if NARI_JIT_ARM64
                     // ARM64 blr requires a register operand
                     arch::Gp fn_reg = cc.new_gp64("fn_ptr");
-                    cc.mov(fn_reg, (uint64_t)fn_ptr);
+                    cc.mov(fn_reg, static_cast<uint64_t>(fn_ptr));
                     cc.invoke(Out(invoke), fn_reg, FuncSignature::build<double, double>());
 #else
                     cc.invoke(Out(invoke), imm(fn_ptr), FuncSignature::build<double, double>());
@@ -1401,8 +1317,8 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 // Check if RHS was a LoadIntConst that fits in int32 -> use imm form
                 if (step_idx > 0 && opt_steps[step_idx - 1].kind == Kind::LoadIntConst) {
                     int64_t v = opt_steps[step_idx - 1].int_val;
-                    if (v == (int64_t)(int32_t)v) {
-                        vstack.push_back(AsmVEntry::make_lazy_int_imm(a.gp, (int32_t)v, exit_cc, set_cc));
+                    if (v == static_cast<int64_t>(static_cast<int32_t>(v))) {
+                        vstack.push_back(AsmVEntry::make_lazy_int_imm(a.gp, static_cast<int32_t>(v), exit_cc, set_cc));
                         break;
                     }
                 }
@@ -1495,7 +1411,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 
                 // create a side-exit label + record its IP for epilogue emission.
                 Label lbl_side = cc.new_label();
-                side_exits.push_back({ lbl_side, code_base + step.fallback_pc });
+                side_exits.push_back({ lbl_side, code_base + step.resume_pc.value() });
 
                 if (cond.is_lazy_cmp) {
                     if (!cond.is_float_cmp) {
@@ -1614,11 +1530,16 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 {
                     // Load the raw NaN-boxed array Value from its stack slot;
                     // arrays are never written by trace code, so this is the original heap Value.
+                    auto arr_raw_it = addr_reg.find(arr_entry.array_slot);
+                    if (arr_raw_it == addr_reg.end()) {
+                        compilation_ok = false;
+                        goto done;
+                    }
                     arch::Gp arr_raw = cc.new_gp64();
-                    arch::load(cc, arr_raw, arch::ptr(addr_reg.at(arr_entry.array_slot), 0));
+                    arch::load(cc, arr_raw, arch::ptr(arr_raw_it->second, 0));
                     SideExit se;
                     se.label = lbl_side;
-                    se.ip_val = code_base + step.fallback_pc;
+                    se.ip_val = code_base + step.resume_pc.value();
                     se.push_args.push_back({ arr_raw, TraceType::Array, /*has_raw_ptr_tag=*/true });
                     se.push_args.push_back({ idx_entry.gp, TraceType::Int, /*has_raw_ptr_tag=*/false });
                     side_exits.push_back(std::move(se));
@@ -1672,11 +1593,16 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                     goto done;
                 }
                 {
+                    auto arr_raw_it = addr_reg.find(arr_entry.array_slot);
+                    if (arr_raw_it == addr_reg.end()) {
+                        compilation_ok = false;
+                        goto done;
+                    }
                     arch::Gp arr_raw = cc.new_gp64();
-                    arch::load(cc, arr_raw, arch::ptr(addr_reg.at(arr_entry.array_slot), 0));
+                    arch::load(cc, arr_raw, arch::ptr(arr_raw_it->second, 0));
                     SideExit se;
                     se.label = lbl_side;
-                    se.ip_val = code_base + step.fallback_pc;
+                    se.ip_val = code_base + step.resume_pc.value();
                     se.push_args.push_back({ arr_raw, TraceType::Array, /*has_raw_ptr_tag=*/true });
                     se.push_args.push_back({ idx_entry.gp, TraceType::Int, /*has_raw_ptr_tag=*/false });
                     se.push_args.push_back({ val_entry.gp, TraceType::Int, /*has_raw_ptr_tag=*/false });
@@ -1719,7 +1645,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                         arch::Gp tag16 = cc.new_gp64();
                         cc.mov(tag16, r);
                         arch::shr(cc, tag16, 48);
-                        arch::cmp_imm(cc, tag16.r32(), Imm((int)tagInt));
+                        arch::cmp_imm(cc, tag16.r32(), Imm(static_cast<int>(tagInt)));
                         arch::jcc(cc, arch::CC::kEQ, lbl_is_int);
                     }
                     // Float path: value was stored as raw double by overflow handler
@@ -1823,8 +1749,8 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                 AsmVEntry obj_entry(it->second, fit->second, TraceType::Obj);
                 arch::Gp slot_addr = get_obj_slot_addr(obj_entry, step.slot, step.prop_slot_index);
                 arch::Gp val = load_slot_as_int(slot_addr);
-                if (step.int_val == (int64_t)(int32_t)step.int_val) {
-                    arch::add_imm(cc, val, (int32_t)step.int_val);
+                if (step.int_val == static_cast<int64_t>(static_cast<int32_t>(step.int_val))) {
+                    arch::add_imm(cc, val, static_cast<int32_t>(step.int_val));
                 } else {
                     arch::Gp imm = cc.new_gp64();
                     cc.mov(imm, step.int_val);
@@ -1854,27 +1780,40 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
             case Kind::ClosureInc:
             case Kind::ClosureAddConst: {
                 auto ar_it = addr_reg.find(step.closure_slot);
-                if (ar_it == addr_reg.end()) {
+                if (ar_it == addr_reg.end() || !step.resume_pc.has_value() ||
+                    (step.kind == Kind::ClosureAddConst && step.int_val != static_cast<int64_t>(static_cast<int32_t>(step.int_val)))) {
                     compilation_ok = false;
                     goto done;
                 }
 
                 arch::Gp fn_raw = cc.new_gp64("cic_fn_raw");
                 arch::load(cc, fn_raw, arch::ptr(ar_it->second, 0));
+                SideExit se;
+                se.label = cc.new_label();
+                se.ip_val = code_base + step.resume_pc.value();
+                for (const AsmVEntry &entry : vstack) {
+                    if (!append_deopt_arg(se, entry)) {
+                        compilation_ok = false;
+                        goto done;
+                    }
+                }
+                se.push_args.push_back({ fn_raw, TraceType::Function, true });
+                Label fallback = se.label;
+                side_exits.push_back(std::move(se));
                 arch::Gp fn_tag = cc.new_gp64("cic_fn_tag");
                 cc.mov(fn_tag, fn_raw);
 #if NARI_JIT_ARM64
                 cc.lsr(fn_tag, fn_tag, asmjit::Imm(48));
-                arch::cmp_imm_jcc(cc, fn_tag, (int32_t)kTagHeapTrace, arch::CC::kNE, lbl_done);
+                arch::cmp_imm_jcc(cc, fn_tag, static_cast<int32_t>(kTagHeapTrace), arch::CC::kNE, fallback);
 #else
                 cc.shr(fn_tag, 48);
-                arch::cmp_imm_jcc(cc, fn_tag, (int32_t)kTagHeapTrace, arch::CC::kNE, lbl_done);
+                arch::cmp_imm_jcc(cc, fn_tag, static_cast<int32_t>(kTagHeapTrace), arch::CC::kNE, fallback);
 #endif
 
                 arch::Gp fn_ptr = cc.new_gp64("cic_fn_ptr");
                 cc.mov(fn_ptr, fn_raw);
                 arch::Gp mask48 = cc.new_gp64("cic_mask");
-                cc.mov(mask48, (int64_t)0x0000FFFFFFFFFFFFLL);
+                cc.mov(mask48, static_cast<int64_t>(0x0000FFFFFFFFFFFFLL));
 #if NARI_JIT_ARM64
                 cc.and_(fn_ptr, fn_ptr, mask48);
 #else
@@ -1882,31 +1821,31 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
 #endif
 
                 arch::Gp heap_type = cc.new_gp64("cic_ht");
-                arch::load8_zx(cc, heap_type, arch::ptr(fn_ptr, (int)HeapTypeTagOff));
-                arch::cmp_imm_jcc(cc, heap_type, (int32_t)ValueTag::Function, arch::CC::kNE, lbl_done);
+                arch::load8_zx(cc, heap_type, arch::ptr(fn_ptr, static_cast<int>(NARI_JIT_OFF(HeapHeader, type_tag))));
+                arch::cmp_imm_jcc(cc, heap_type, static_cast<int32_t>(ValueTag::Function), arch::CC::kNE, fallback);
 
                 arch::Gp inline_kind = cc.new_gp64("cic_ik");
-                arch::load32_zx_mem(cc, inline_kind, arch::ptr(fn_ptr, (int)FDInlineKindOff));
+                arch::load32_zx_mem(cc, inline_kind, arch::ptr(fn_ptr, static_cast<int>(FDInlineKindOff)));
                 arch::cmp_imm_jcc(
                     cc, inline_kind,
-                    (int32_t)(step.kind == Kind::ClosureAddConst ? JitInlineKind::ClosureAddConst : JitInlineKind::ClosureInc),
-                    arch::CC::kNE, lbl_done
+                    static_cast<int32_t>((step.kind == Kind::ClosureAddConst ? JitInlineKind::ClosureAddConst : JitInlineKind::ClosureInc)),
+                    arch::CC::kNE, fallback
                 );
 
                 if (step.kind == Kind::ClosureAddConst) {
                     arch::Gp imm = cc.new_gp64("cic_imm");
-                    arch::load(cc, imm, arch::ptr(fn_ptr, (int)FDInlineImmOff));
-                    arch::cmp_imm_jcc(cc, imm, (int32_t)step.int_val, arch::CC::kNE, lbl_done);
+                    arch::load(cc, imm, arch::ptr(fn_ptr, static_cast<int>(FDInlineImmOff)));
+                    arch::cmp_imm_jcc(cc, imm, static_cast<int32_t>(step.int_val), arch::CC::kNE, fallback);
                 }
 
                 arch::Gp cap_addr = cc.new_gp64("cic_a");
-                arch::load(cc, cap_addr, arch::ptr(fn_ptr, (int)FDCapture0RawOff));
-                arch::cmp_imm_jcc(cc, cap_addr, 0, arch::CC::kEQ, lbl_done);
+                arch::load(cc, cap_addr, arch::ptr(fn_ptr, static_cast<int>(FDCapture0RawOff)));
+                arch::cmp_imm_jcc(cc, cap_addr, 0, arch::CC::kEQ, fallback);
 
                 // guard: tag must be Int
                 arch::Gp tag_chk = cc.new_gp64("cic_t");
-                arch::load_tag16(cc, tag_chk, cap_addr, 0, (int32_t)tagWordOff);
-                arch::cmp_imm_jcc(cc, tag_chk, (int32_t)tagInt, arch::CC::kNE, lbl_done);
+                arch::load_tag16(cc, tag_chk, cap_addr, 0, static_cast<int32_t>(tagWordOff));
+                arch::cmp_imm_jcc(cc, tag_chk, static_cast<int32_t>(tagInt), arch::CC::kNE, fallback);
 
                 // load NaN-boxed value, decode int48
                 arch::Gp val = cc.new_gp64("cic_v");
@@ -1921,7 +1860,7 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                     cc.inc(val);
 #endif
                 } else {
-                    int32_t cimm = (int32_t)step.int_val;
+                    int32_t cimm = static_cast<int32_t>(step.int_val);
 #if NARI_JIT_ARM64
                     if (cimm >= 0 && cimm <= 4095) {
                         cc.add(val, val, asmjit::Imm(cimm));
@@ -1934,6 +1873,12 @@ CompiledTrace TraceJITCompilerAsmJit::compile(const TraceRecording &rec, const n
                     cc.add(val, Imm(cimm));
 #endif
                 }
+
+                arch::Gp narrowed = cc.new_gp64("cic_ovf");
+                cc.mov(narrowed, val);
+                arch::sign_extend_48(cc, narrowed);
+                cc.cmp(narrowed, val);
+                arch::jcc(cc, arch::CC::kNE, fallback);
 
                 // push result before reboxing (val is still decoded int64)
                 arch::Gp result_gp = cc.new_gp64("cic_r");
@@ -1970,14 +1915,22 @@ done:
         // NaN-box each PushArg and append to vm->stack before flushing.
         if (!se.push_args.empty()) {
             arch::Gp finish_p = cc.new_gp64();
-            arch::load(cc, finish_p, arch::ptr(vm_ptr, (int)VMStackFinishOff));
+            arch::load(cc, finish_p, arch::ptr(vm_ptr, static_cast<int>(VMStackFinishOff)));
             arch::Gp nb_tag = cc.new_gp64();
             bool tag_loaded = false;
             for (const auto &pa : se.push_args) {
+                if (pa.src_type == TraceType::Float) {
+                    arch::store_f64(cc, finish_p, 0, pa.float_xmm);
+                    arch::add_imm(cc, finish_p, static_cast<int32_t>(ValSize));
+                    continue;
+                }
                 arch::Gp boxed = cc.new_gp64();
                 if (pa.has_raw_ptr_tag) {
                     // already a NaN-boxed Value; store as-is
                     cc.mov(boxed, pa.raw_gp);
+                } else if (pa.src_type == TraceType::Bool) {
+                    cc.mov(boxed, pa.raw_gp);
+                    arch::or_imm(cc, boxed, boxed, static_cast<int64_t>(static_cast<uint64_t>(tagBool) << 48));
                 } else {
                     if (!tag_loaded) {
                         cc.mov(nb_tag, nbIntTagTrace);
@@ -1987,9 +1940,9 @@ done:
                     arch::nanbox_encode_int(cc, boxed, nb_tag);
                 }
                 arch::store(cc, arch::ptr(finish_p, 0), boxed);
-                arch::add_imm(cc, finish_p, (int32_t)ValSize);
+                arch::add_imm(cc, finish_p, static_cast<int32_t>(ValSize));
             }
-            arch::store(cc, arch::ptr(vm_ptr, (int)VMStackFinishOff), finish_p);
+            arch::store(cc, arch::ptr(vm_ptr, static_cast<int>(VMStackFinishOff)), finish_p);
         }
         emit_flush_and_ret(se.ip_val);
     }
@@ -1997,20 +1950,21 @@ done:
     cc.bind(lbl_guardfail);
     {
         arch::Gp ip_val = cc.new_gp64();
-        cc.mov(ip_val, (int64_t)entry_ip);
-        arch::store(cc, arch::ptr(frames_end, (int32_t)(-FrameSize + kIpOff)), ip_val);
+        cc.mov(ip_val, static_cast<int64_t>(entry_ip));
+        arch::store(cc, arch::ptr(frames_end, static_cast<int32_t>((-FrameSize + kIpOff))), ip_val);
     }
     cc.ret();
 
     cc.bind(shutdown_requested);
     {
         InvokeNode *invoke;
-        arch::invoke_imm(cc, &invoke, (uint64_t)(uintptr_t)jit_poll_shutdown, FuncSignature::build<void, void *>());
+        arch::invoke_imm(
+            cc, &invoke, static_cast<uint64_t>(reinterpret_cast<uintptr_t>(jit_poll_shutdown)), FuncSignature::build<void, void *>()
+        );
         invoke->set_arg(0, vm_ptr);
     }
     cc.ret();
 
-finalize_trace:
     cc.end_func();
     Error finalize_err = cc.finalize();
     if (finalize_err != kErrorOk) {
@@ -2021,15 +1975,15 @@ finalize_trace:
     // add generated code
     size_t generated_code_size = code.code_size();
     CompiledTrace::Fn fn = nullptr;
-    Error err = this->rt.add(&fn, &code);
-    if (err != kErrorOk || !fn) {
-        fprintf(stderr, "[TRACE JIT] compilation failed: err=%u\n", static_cast<unsigned>(err));
-        return result;
-    }
-
     {
+        std::lock_guard<std::mutex> lk(jit_runtime_mutex());
+        Error err = this->rt.add(&fn, &code);
+        if (err != kErrorOk || !fn) {
+            fprintf(stderr, "[TRACE JIT] compilation failed: err=%u\n", static_cast<unsigned>(err));
+            return result;
+        }
         std::string sym = "trace_func_" + std::to_string(func_idx) + "_pc_" + std::to_string(rec.anchor_pc);
-        register_gdb_jit_function(sym, reinterpret_cast<const void *>(fn), generated_code_size);
+        register_gdb_jit_function(this, sym, reinterpret_cast<const void *>(fn), generated_code_size);
         perf_jitdump_register(sym, reinterpret_cast<const void *>(fn), generated_code_size);
     }
 
@@ -2045,4 +1999,4 @@ finalize_trace:
 } // namespace jit
 } // namespace nari
 
-// #endif // !DISABLE_JIT
+#endif // !DISABLE_JIT

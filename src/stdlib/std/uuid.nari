@@ -1,6 +1,6 @@
 // uuid
 //  uuid.v4() -> RFC-4122 version-4 UUID string. 
-//  Backed by the non-cryptographic PRNG (math.rand / mt19937) 
+//  uses non-cryptographic PRNG (math.rand / mt19937) 
 //
 //  do not use for security-sensitive tokens!!
 //

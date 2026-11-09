@@ -122,7 +122,6 @@ struct IdentExpr : Expr {
     explicit IdentExpr(std::string n) : name(std::move(n)) {
         kind = ExprKind::Ident;
     }
-
 };
 
 // func(params) { ... }
@@ -134,7 +133,6 @@ struct FunctionExpr : Expr {
     FunctionExpr() {
         kind = ExprKind::Function;
     }
-
 };
 
 struct StringExpr : Expr {
@@ -143,11 +141,10 @@ struct StringExpr : Expr {
     explicit StringExpr(std::string v) : value(std::move(v)) {
         kind = ExprKind::String;
     }
-
 };
 
 struct NumberExpr : Expr {
-    // Nari integers are NaN-boxed with a 48-bit payload, 
+    // Nari integers are NaN-boxed with a 48-bit payload,
     // so this is the full range an int-typed number can represent.
     static constexpr int64_t AST_INT48_MIN = -(1LL << 47);
     static constexpr int64_t AST_INT48_MAX = (1LL << 47) - 1;
@@ -175,7 +172,6 @@ struct NumberExpr : Expr {
             is_float = false;
         }
     }
-
 };
 
 struct BoolExpr : Expr {
@@ -184,14 +180,12 @@ struct BoolExpr : Expr {
     explicit BoolExpr(bool v) : value(v) {
         kind = ExprKind::Bool;
     }
-
 };
 
 struct NullExpr : Expr {
     NullExpr() {
         kind = ExprKind::Null;
     }
-
 };
 
 // regex literal: /pattern/flags
@@ -210,7 +204,6 @@ struct UnaryExpr : Expr {
     UnaryExpr(std::string o, ExprPtr opd) : op(std::move(o)), operand(std::move(opd)) {
         kind = ExprKind::Unary;
     }
-
 };
 
 struct BinaryExpr : Expr {
@@ -224,7 +217,6 @@ struct BinaryExpr : Expr {
     BinaryExpr(std::string o, ExprPtr l, ExprPtr r) : op(std::move(o)), left(std::move(l)), right(std::move(r)) {
         kind = ExprKind::Binary;
     }
-
 };
 
 struct CallExpr : Expr {
@@ -262,7 +254,6 @@ struct ObjectLiteralExpr : Expr {
     ObjectLiteralExpr() {
         kind = ExprKind::ObjectLiteral;
     }
-
 };
 
 // array[index] or object[key]
@@ -274,7 +265,6 @@ struct IndexExpr : Expr {
     IndexExpr(ExprPtr obj, ExprPtr idx) : object(std::move(obj)), index(std::move(idx)) {
         kind = ExprKind::Index;
     }
-
 };
 
 // member access: object.member
@@ -302,7 +292,6 @@ struct NewExpr : Expr {
     explicit NewExpr(std::string cn) : class_name(std::move(cn)) {
         kind = ExprKind::New;
     }
-
 };
 
 // string interpolation: `Hello {name}!`
@@ -315,7 +304,6 @@ struct StringInterpolationExpr : Expr {
     StringInterpolationExpr() {
         kind = ExprKind::StringInterpolation;
     }
-
 };
 
 // ternary conditional expression: condition ? trueExpr : falseExpr
@@ -328,7 +316,6 @@ struct TernaryExpr : Expr {
         : condition(std::move(cond)), true_expr(std::move(true_val)), false_expr(std::move(false_val)) {
         kind = ExprKind::Ternary;
     }
-
 };
 
 // type tags for fast stmt dispatch
@@ -360,7 +347,6 @@ struct ExprStmt : Stmt {
     explicit ExprStmt(ExprPtr e) : expr(std::move(e)) {
         stmt_kind = StmtKind::Expr;
     }
-
 };
 
 enum VarDeclCtrl : bool {
@@ -389,7 +375,6 @@ struct VarDeclStmt : Stmt {
         : name(std::move(n)), initializerExpr(std::move(i)), is_global(g), is_const(c) {
         stmt_kind = StmtKind::VarDecl;
     }
-
 };
 
 struct AssignStmt : Stmt {
@@ -399,7 +384,6 @@ struct AssignStmt : Stmt {
     AssignStmt(std::string t, ExprPtr v) : target(std::move(t)), value(std::move(v)) {
         stmt_kind = StmtKind::Assign;
     }
-
 };
 
 // indexed assignment: arr[index] = value, obj[key] = value, or obj.member = value
@@ -410,7 +394,6 @@ struct IndexAssignStmt : Stmt {
     IndexAssignStmt(ExprPtr t, ExprPtr v) : target(std::move(t)), value(std::move(v)) {
         stmt_kind = StmtKind::IndexAssign;
     }
-
 };
 
 // control flow
@@ -422,7 +405,6 @@ struct IfStmt : Stmt {
     IfStmt(ExprPtr c, StmtPtr t, StmtPtr e = nullptr) : cond(std::move(c)), then_branch(std::move(t)), else_branch(std::move(e)) {
         stmt_kind = StmtKind::If;
     }
-
 };
 
 struct WhileStmt : Stmt {
@@ -432,7 +414,6 @@ struct WhileStmt : Stmt {
     WhileStmt(ExprPtr c, StmtPtr b) : cond(std::move(c)), body(std::move(b)) {
         stmt_kind = StmtKind::While;
     }
-
 };
 
 struct ForStmt : Stmt {
@@ -444,7 +425,6 @@ struct ForStmt : Stmt {
     ForStmt(StmtPtr i, ExprPtr c, StmtPtr p, StmtPtr b) : init(std::move(i)), cond(std::move(c)), post(std::move(p)), body(std::move(b)) {
         stmt_kind = StmtKind::For;
     }
-
 };
 
 struct ForEachStmt : Stmt {
@@ -461,7 +441,6 @@ struct ForEachStmt : Stmt {
         : var(std::move(v)), val_var(std::move(vv)), iterable(std::move(it)), body(std::move(b)) {
         stmt_kind = StmtKind::ForEach;
     }
-
 };
 
 struct BreakStmt : Stmt {
@@ -482,7 +461,6 @@ struct ReturnStmt : Stmt {
     explicit ReturnStmt(ExprPtr v = nullptr) : value(std::move(v)) {
         stmt_kind = StmtKind::Return;
     }
-
 };
 
 struct BlockStmt : Stmt {
@@ -491,7 +469,6 @@ struct BlockStmt : Stmt {
     BlockStmt() {
         stmt_kind = StmtKind::Block;
     }
-
 };
 
 // spawn expression: spawn { ... }
@@ -502,7 +479,6 @@ struct SpawnExpr : Expr {
     SpawnExpr(BlockPtr b) : body(std::move(b)) {
         kind = ExprKind::Spawn;
     }
-
 };
 
 struct SwitchCase {
@@ -521,7 +497,6 @@ struct SwitchStmt : Stmt {
     explicit SwitchStmt(ExprPtr v) : value(std::move(v)) {
         stmt_kind = StmtKind::Switch;
     }
-
 };
 
 // for custom type declarations
@@ -552,7 +527,6 @@ struct TypeDecl : ASTNode {
     bool is_alias() const {
         return alias_target != nullptr;
     }
-
 };
 
 // enum variant, can be a single unit or have tuple/struct data
@@ -583,7 +557,6 @@ struct EnumDecl : ASTNode {
 
     explicit EnumDecl(std::string n) : name(std::move(n)) {
     }
-
 };
 
 using TypeDeclPtr = std::unique_ptr<TypeDecl>;
@@ -646,7 +619,6 @@ struct ClassDecl : ASTNode {
         }
         return nullptr;
     }
-
 };
 
 using ClassDeclPtr = std::unique_ptr<ClassDecl>;
@@ -681,7 +653,6 @@ struct BindingPattern : Pattern {
     explicit BindingPattern(std::string n) : name(std::move(n)) {
         pattern_kind = PatternKind::Binding;
     }
-
 };
 
 // Literal pattern: 42, "hello", true, null
@@ -691,7 +662,6 @@ struct LiteralPattern : Pattern {
     explicit LiteralPattern(ExprPtr v) : value(std::move(v)) {
         pattern_kind = PatternKind::Literal;
     }
-
 };
 
 // variant pattern, Ok(value), Err(e), Some(x), None
@@ -708,7 +678,6 @@ struct VariantPattern : Pattern {
     VariantPattern(std::string e, std::string v) : enum_name(std::move(e)), variant_name(std::move(v)) {
         pattern_kind = PatternKind::Variant;
     }
-
 };
 
 // Match arm: pattern => expression
@@ -728,7 +697,6 @@ struct MatchExpr : Expr {
     explicit MatchExpr(ExprPtr s) : scrutinee(std::move(s)) {
         kind = ExprKind::Match;
     }
-
 };
 
 struct Function : ASTNode {
@@ -765,7 +733,6 @@ struct Function : ASTNode {
             closure_const_env_ptr = nullptr;
         }
     }
-
 };
 
 struct Program {
@@ -774,7 +741,6 @@ struct Program {
     std::vector<EnumDeclPtr> enums;
     std::vector<ClassDeclPtr> classes;
     std::vector<StmtPtr> top_level_stmts;
-
 };
 
 } // namespace nari

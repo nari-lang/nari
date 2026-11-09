@@ -21,13 +21,13 @@
 // Windows DLL handling macros to mimic dlopen/dlsym
 #define RTLD_LAZY 0
 inline void *dlopen(const char *filename, int) {
-    return (void *)LoadLibraryA(filename);
+    return static_cast<void *>(LoadLibraryA(filename));
 }
 inline void *dlsym(void *handle, const char *symbol) {
-    return (void *)GetProcAddress((HMODULE)handle, symbol);
+    return reinterpret_cast<void *>(GetProcAddress(static_cast<HMODULE>(handle), symbol);
 }
 inline int dlclose(void *handle) {
-    return FreeLibrary((HMODULE)handle) ? 0 : -1;
+    return FreeLibrary(static_cast<HMODULE>(handle)) ? 0 : -1;
 }
 inline const char *dlerror() {
     static char buf[256];
@@ -197,19 +197,19 @@ struct FFISignature {
 struct FFISignatureHash {
     std::size_t operator()(const FFISignature &sig) const {
         // pack return type + variadic + fixed count + param count into initial seed
-        std::size_t h = (size_t)sig.return_type;
-        h = h * 31 + (size_t)sig.is_variadic;
+        std::size_t h = static_cast<size_t>(sig.return_type);
+        h = h * 31 + static_cast<size_t>(sig.is_variadic);
         h = h * 31 + sig.fixed_param_count;
         h = h * 31 + sig.param_types.size();
         // mix param types with FNV-1a
         for (const auto &pt : sig.param_types) {
-            h ^= (size_t)pt;
+            h ^= static_cast<size_t>(pt);
             h *= 0x100000001B3ULL; // FNV prime
         }
 
         // hash struct definitions
         if (sig.return_struct_def) {
-            h ^= (size_t)sig.return_struct_def->is_union;
+            h ^= static_cast<size_t>(sig.return_struct_def->is_union);
             h *= 0x100000001B3ULL;
             for (char c : sig.return_struct_def->name) {
                 h ^= c;
@@ -220,7 +220,7 @@ struct FFISignatureHash {
                     h ^= c;
                     h *= 0x100000001B3ULL;
                 }
-                h ^= (size_t)field.type;
+                h ^= static_cast<size_t>(field.type);
                 h *= 0x100000001B3ULL;
                 h ^= field.count;
                 h *= 0x100000001B3ULL;
@@ -229,7 +229,7 @@ struct FFISignatureHash {
 
         for (const auto &sdef : sig.param_struct_defs) {
             if (sdef) {
-                h ^= (size_t)sdef->is_union;
+                h ^= static_cast<size_t>(sdef->is_union);
                 h *= 0x100000001B3ULL;
                 for (char c : sdef->name) {
                     h ^= c;
@@ -240,7 +240,7 @@ struct FFISignatureHash {
                         h ^= c;
                         h *= 0x100000001B3ULL;
                     }
-                    h ^= (size_t)field.type;
+                    h ^= static_cast<size_t>(field.type);
                     h *= 0x100000001B3ULL;
                     h ^= field.count;
                     h *= 0x100000001B3ULL;
@@ -405,7 +405,7 @@ class FFICaller {
         bool prepared = false;
     };
 
-    typedef std::unordered_map<FFISignature, FFICaller::CIFCache, FFISignatureHash> FFISigMap;
+    using FFISigMap = std::unordered_map<FFISignature, FFICaller::CIFCache, FFISignatureHash>;
 
   private:
     static FFISigMap cif_cache;
@@ -420,7 +420,7 @@ std::shared_ptr<FFIStructDef> create_struct_def_from_type(const std::string &typ
 size_t get_struct_size(const std::string &type_name);
 Value read_struct_from_memory(void *ptr, const std::string &type_name);
 bool write_struct_to_memory(void *ptr, const std::string &type_name, const Value &obj);
-void *managed_struct_pointer(const Value &value);
+void *managed_struct_pointer(Value &value);
 
 // FFI Callback support for creating native function pointers from Nari functions
 struct FFICallback {

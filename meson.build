@@ -6,6 +6,7 @@ project(
     version: '0.0.1',
 )
 
+is_linux = host_machine.system() == 'linux'
 is_windows = host_machine.system() == 'windows'
 is_emscripten = host_machine.system() == 'emscripten'
 is_darwin = host_machine.system() == 'darwin'
@@ -99,7 +100,7 @@ link_args = []
 
 # link the libc++ runtime statically so the result depends only on glibc + libgcc_s
 if get_option('static_libcxx')
-    if not (cc.get_id() == 'clang' and host_machine.system() == 'linux')
+    if not (cc.get_id() == 'clang' and is_linux)
         error('static_libcxx is only supported with clang on Linux')
     endif
     link_args += ['-nostdlib++', '-l:libc++.a', '-l:libc++abi.a', '--unwindlib=libgcc']
@@ -126,9 +127,8 @@ endif
 if disable_jit
     cpp_args += ['-DDISABLE_JIT']
 else
-    buildtype = get_option('buildtype')
-    if buildtype == 'debug' or buildtype == 'debugoptimized'
-        cpp_args += ['-DNARI_ENABLE_GDB_JIT']
+    if not is_linux
+        cpp_args += ['-DNARI_DISABLE_GDB_JIT']
     endif
 endif
 if extended_jsrt
@@ -144,6 +144,34 @@ if windows_win7_compat
         '-D_WIN32_WINNT=0x0601',
         '-DNTDDI_VERSION=0x06010000',
     ]
+endif
+
+# The codebase is exception-free by policy (allocation failure aborts via the
+# new_handler installed in main); disable C++ exceptions so any future throw
+# fails the build instead of silently relying on unwinding.
+cpp_args += ['-fno-exceptions']
+
+# Link-time optimization for release builds. ThinLTO is the default: it links
+# several times faster than full LTO at equal runtime performance and binary
+# size (measured on this repo: nari link 9.9s -> 1.5s, clean build 21.8s ->
+# 15.7s). Emscripten and MCU targets manage their own flags and are skipped.
+if get_option('lto_mode') != 'none' and not is_emscripten and not target_mcu and get_option('buildtype') == 'release'
+    if cc.get_id() == 'clang'
+        if get_option('lto_mode') == 'thin'
+            lto_flag = '-flto=thin'
+        else
+            lto_flag = '-flto'
+        endif
+        cpp_args += [lto_flag]
+        link_args += [lto_flag]
+    elif cc.get_id() == 'gcc'
+        # GCC has no ThinLTO mode; fall back to full LTO.
+        message('lto_mode is set to thin/full but the compiler is GCC: using full LTO')
+        cpp_args += ['-flto']
+        link_args += ['-flto']
+    else
+        message('lto_mode is set but the compiler is not clang or GCC: LTO disabled')
+    endif
 endif
 
 add_project_arguments(cpp_args, language: 'cpp')
@@ -213,32 +241,31 @@ sources = [
     'src/repl.cpp',
     'src/runtime.cpp',
     'src/builtins/core.cpp',
+    'src/builtins/net.cpp',
+    'src/builtins/http.cpp',
     'src/builtins/collections.cpp',
+    'src/builtins/arrays.cpp',
+    'src/builtins/json.cpp',
+    'src/builtins/strings.cpp',
+    'src/builtins/regex.cpp',
     'src/builtins/modules_io.cpp',
     'src/builtins/ffi.cpp',
     'src/builtins/hash.cpp',
     'src/builtins/archive.cpp',
     'src/builtins/platform_gc.cpp',
-    'src/core_types.cpp',
-    'src/gc.cpp',
-    'src/nari_fs.cpp',
     'src/bytecode/bytecode.cpp',
-    'src/parser.cpp',
-    'src/parser/module_resolver.cpp',
-    'src/parser/lexer.cpp',
+    'src/bytecode/bytecode_vm_exec.cpp',
+    'src/bytecode/bytecode_vm_helpers.cpp',
+    'src/bytecode/bytecode_jit_stubs.cpp',
+    'src/bytecode/bytecode_vm_call.cpp',
+    'src/bytecode/gdb_bridge.cpp',
     'src/fmt/formatter.cpp',
     'src/fmt/fmt_cli.cpp',
     'src/debugger.cpp',
     'src/dap/dap_server.cpp',
 ]
 
-if not target_mcu
-    sources += [
-        'src/bytecode/bytecode_compiler.cpp',
-        'src/bytecode/bytecode_dump.cpp',
-        embed_target,
-    ]
-endif
+
 
 # we still compile the ffi stub when disable_jit isn't set, because the stub provides ffi_reentry_depth.
 if not disable_ffi or not disable_jit
@@ -248,13 +275,24 @@ endif
 if not disable_jit
     sources += [
         'src/jit/jit_helpers.cpp',
+        'src/jit/runtime/session.cpp',
         'src/jit/jit_tls.cpp',
-        'src/jit/trace_jit.cpp',
-        'src/jit/trace_jit_asmjit.cpp',
+        'src/jit/trace/verify.cpp',
+        'src/jit/trace/record.cpp',
+        'src/jit/trace/lower.cpp',
+        'src/jit/trace/opt.cpp',
         'src/jit/asmjit_jit.cpp',
+        'src/jit/asmjit_jit_async.cpp',
+        'src/jit/asmjit_dump.cpp',
         'src/jit/ir.cpp',
         'src/jit/ir_build.cpp',
+        'src/jit/ir_emit_base.cpp',
+        'src/jit/ir_emit_call.cpp',
+        'src/jit/ir_emit_reg.cpp',
+        'src/jit/ir_emit_stack.cpp',
+        'src/jit/ir_emit_lower.cpp',
         'src/jit/ir_opt.cpp',
+        'src/jit/ir_opt_blocks.cpp',
         'src/jit/gdb_jit.cpp',
         'src/jit/perf_jitdump.cpp',
     ]
@@ -489,6 +527,53 @@ if is_emscripten
     ]
 endif
 
+# Shared frontend objects: the parser, bytecode compiler/validator, core types,
+# GC, filesystem helpers and JSON DOM. nari, naric and nari-lsp each compiled
+# these separately; building them once here pays each TU's parse+codegen cost
+# a single time. Flags are project-wide (add_project_arguments) and the
+# include roots are the union the three executables already used, so the
+# objects are identical; link_with pulls in only referenced objects.
+nari_common_sources = [
+    'src/nari_fs.cpp',
+    'src/parser.cpp',
+    'src/parser/parse_core.cpp',
+    'src/parser/parse_types.cpp',
+    'src/parser/parse_function.cpp',
+    'src/parser/parse_opt.cpp',
+    'src/parser/parse_expr.cpp',
+    'src/parser/parse_stmt.cpp',
+    'src/parser/module_registry.cpp',
+    'src/parser/parse_interp.cpp',
+    'src/parser/parse_util.cpp',
+    'src/parser/type_registry.cpp',
+    'src/parser/module_resolver.cpp',
+    'src/parser/lexer.cpp',
+    'src/core_types.cpp',
+    'src/gc.cpp',
+    'src/json_dom.cpp',
+    'src/bytecode/bytecode_compiler.cpp',
+]
+
+if not target_mcu
+    nari_common_sources += [
+        'src/bytecode/bytecode_matchers.cpp',
+        'src/bytecode/bytecode_verify.cpp',
+        'src/bytecode/bytecode_dump.cpp',
+        embed_target,
+    ]
+endif
+
+nari_common = static_library(
+    'nari_common',
+    nari_common_sources,
+    include_directories: [
+        inc_dirs,
+        include_directories('src', 'src/bytecode', 'src/jit'),
+    ],
+    dependencies: all_deps,
+    cpp_pch: 'src/nari_common_pch.h',
+)
+
 executable(
     'nari',
     sources,
@@ -496,6 +581,8 @@ executable(
         inc_dirs,
         include_directories('src', 'src/dap', 'src/bytecode', 'src/jit'),
     ],
+    link_with: nari_common,
+    cpp_pch: 'src/nari_pch.h',
     dependencies: all_deps,
     link_args: link_args,
     install: true,
@@ -504,15 +591,6 @@ executable(
 if not is_emscripten and not target_mcu
     naric_sources = [
         'src/naric.cpp',
-        'src/nari_fs.cpp',
-        'src/parser.cpp',
-        'src/parser/module_resolver.cpp',
-        'src/parser/lexer.cpp',
-        'src/core_types.cpp',
-        'src/gc.cpp',
-        'src/bytecode/bytecode_compiler.cpp',
-        'src/bytecode/bytecode_dump.cpp',
-        embed_target,
     ]
 
     naric_deps = []
@@ -524,21 +602,19 @@ if not is_emscripten and not target_mcu
         'naric',
         naric_sources,
         include_directories: [inc_dirs, include_directories('src', 'src/bytecode', 'src/jit')],
+        link_with: nari_common,
         dependencies: naric_deps,
+        link_args: link_args,
         install: true,
     )
 
     if not disable_lsp
         lsp_sources = [
             'lsp/lsp_server.cpp',
-            'src/nari_fs.cpp',
-            'src/parser.cpp',
-            'src/parser/module_resolver.cpp',
-            'src/parser/lexer.cpp',
-            'src/core_types.cpp',
-            'src/gc.cpp',
-            'src/bytecode/bytecode_compiler.cpp',
-            embed_target,
+            'lsp/lsp_analysis.cpp',
+            'lsp/lsp_handlers.cpp',
+            'lsp/lsp_parse.cpp',
+            'lsp/lsp_resolve.cpp',
             embed_builtins_target,
         ]
 
@@ -556,7 +632,10 @@ if not is_emscripten and not target_mcu
             'nari-lsp',
             lsp_sources,
             include_directories: lsp_inc_dirs,
+            link_with: nari_common,
+            cpp_pch: 'src/nari_common_pch.h',
             dependencies: lsp_deps,
+            link_args: link_args,
             install: true,
         )
     endif

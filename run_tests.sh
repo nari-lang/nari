@@ -62,8 +62,8 @@ SUCCESS_TESTS=()
 while IFS= read -r _t; do SUCCESS_TESTS+=("$_t"); done < <(find tests/expect_pass -name "*.nari" -not -name "*npkg*" | sort)
 
 # SKIP_NETWORK_TESTS=1 drops tests that reach external hosts (which are flaky in CI).
-# currently just test_spawn_methods.nari
-NETWORK_TESTS=("tests/expect_pass/test_spawn_methods.nari")
+# Socket tests cannot run in restricted environments.
+NETWORK_TESTS=("tests/expect_pass/test_spawn_methods.nari" "tests/expect_pass/test_stdlib_net.nari")
 if [ "${SKIP_NETWORK_TESTS:-0}" = "1" ]; then
     echo "SKIP_NETWORK_TESTS=1 set; excluding network-dependent tests"
     FILTERED=()
@@ -167,12 +167,10 @@ fi
 
 # Shell-level suites that can't be expressed as .nari files
 EXTRA_SUITES=(
+    "tests/trace_jit_execution.sh"
     "tests/naric_robustness.sh"
+    "tests/archive_extract_security.sh"
     "tests/interrupt_shutdown.sh"
-    # "tests/npkg_workspace_smoke.sh"
-    # "tests/npkg_publish_polish.sh"
-    # "tests/npkg_search_smoke.sh"
-    # "tests/npkg_owner_smoke.sh"
 )
 
 for suite in "${EXTRA_SUITES[@]}"; do

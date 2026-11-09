@@ -8,13 +8,16 @@
 #include "parser_api.h"
 #include "runtime.h"
 
-#include "thirdparty/json.hpp"
+#include "json_dom.h"
 
+#include <climits>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -27,7 +30,7 @@
 #include <unistd.h>
 #endif
 
-using json = nlohmann::json;
+using json = JsonValue;
 
 namespace nari {
 namespace dap {
@@ -51,7 +54,7 @@ void log_init() {
     if (path && *path) {
         g_log = std::fopen(path, "a");
         if (g_log) {
-            std::fprintf(g_log, "\n==== dap session start (pid=%d) ====\n", (int)getpid());
+            std::fprintf(g_log, "\n==== dap session start (pid=%d) ====\n", static_cast<int>(getpid()));
             std::fflush(g_log);
         }
     }
@@ -67,6 +70,8 @@ void log_line(const char *prefix, const std::string &body) {
 }
 
 void write_message(const json &msg) {
+    // error_handler_t::replace: program output and file paths can carry
+    // arbitrary bytes, which dump() would otherwise report by throwing.
     std::string body = msg.dump();
     log_line(">>", body);
     std::lock_guard<std::mutex> lock(g_out_mtx);
@@ -163,13 +168,12 @@ struct Server {
     std::vector<ScopeRef> scope_refs;
     int next_var_ref = 1000;
 
-    bytecode::Chunk *chunk = nullptr; // chunk owned here, freed on shutdown
+    std::unique_ptr<bytecode::Chunk> chunk; // owned here; VM thread borrows it
 
     ~Server() {
         if (vm_thread.joinable()) {
             vm_thread.join();
         }
-        delete chunk;
     }
 };
 
@@ -228,7 +232,10 @@ static bytecode::Chunk *compile_source_for_debug(const std::string &path) {
     if (g_log && chunk) {
         log_line("--", "compiled " + std::to_string(chunk->functions.size()) + " functions:");
         for (const auto &fn : chunk->functions) {
-            log_line("  ", std::string("name='") + fn.name + "' source='" + fn.source_file + "' line_map_size=" + std::to_string(fn.line_map.size()));
+            log_line(
+                "  ",
+                std::string("name='") + fn.name + "' source='" + fn.source_file + "' line_map_size=" + std::to_string(fn.line_map.size())
+            );
         }
     }
     return chunk;
@@ -278,31 +285,24 @@ static int run_vm(bytecode::Chunk *chunk, const std::vector<std::string> &argv) 
         prime_parser_state_for_vm_thread(argv.front());
     }
 
-    // Convert argv into the VM's (int, char**) form. Pointers are owned by `arg_storage`.
+    // Convert argv into the VM's (int, char**) form.
     std::vector<std::string> arg_storage = argv;
     std::vector<char *> c_argv;
     c_argv.reserve(arg_storage.size());
     for (auto &s : arg_storage) {
-        c_argv.push_back(const_cast<char *>(s.c_str()));
+        c_argv.push_back(s.data());
     }
 
     int rc = 0;
-    try {
-        bytecode::VM vm(static_cast<int>(c_argv.size()), c_argv.empty() ? nullptr : c_argv.data());
-        g_current_vm = &vm;
-        vm.runtime->stdout_writer = [](const std::string &text) { send_output("stdout", text); };
-        if (!vm.run(chunk)) {
-            rc = 1;
-        }
-        g_current_vm = nullptr;
-    } catch (const std::exception &e) {
-        g_current_vm = nullptr;
-        send_output("stderr", std::string(e.what()) + "\n");
-        rc = 1;
-    } catch (...) {
-        g_current_vm = nullptr;
+    // No exceptions: every throwing std call reachable from vm.run was replaced
+    // with a non-throwing equivalent, and allocation failure aborts process-wide.
+    bytecode::VM vm(static_cast<int>(c_argv.size()), c_argv.empty() ? nullptr : c_argv.data(), false);
+    g_current_vm = &vm;
+    vm.runtime->stdout_writer = [](const std::string &text) { send_output("stdout", text); };
+    if (!vm.run(chunk)) {
         rc = 1;
     }
+    g_current_vm = nullptr;
     return rc;
 }
 // DAP request handlers
@@ -345,7 +345,7 @@ static void handle_launch(Server &server, int seq, const json &args) {
         server.argv.push_back(path);
     }
 
-    server.chunk = load_program(path);
+    server.chunk.reset(load_program(path));
     if (!server.chunk) {
         send_response(seq, "launch", false, json::object(), "failed to load/compile program: " + path);
         send_event("terminated");
@@ -410,14 +410,22 @@ static void handle_set_breakpoints(Server &server, int seq, const json &args) {
     std::vector<int> requested_lines;
     if (args.contains("breakpoints") && args["breakpoints"].is_array()) {
         for (const auto &b : args["breakpoints"]) {
+            // get<int>() throws on out-of-range integers, so go through
+            // int64_t and ignore values no source line can have.
             if (b.contains("line") && b["line"].is_number_integer()) {
-                requested_lines.push_back(b["line"].get<int>());
+                int64_t line = b["line"].get<int64_t>();
+                if (line >= 0 && line <= INT_MAX) {
+                    requested_lines.push_back(static_cast<int>(line));
+                }
             }
         }
     } else if (args.contains("lines") && args["lines"].is_array()) {
         for (const auto &l : args["lines"]) {
             if (l.is_number_integer()) {
-                requested_lines.push_back(l.get<int>());
+                int64_t line = l.get<int64_t>();
+                if (line >= 0 && line <= INT_MAX) {
+                    requested_lines.push_back(static_cast<int>(line));
+                }
             }
         }
     }
@@ -443,8 +451,9 @@ static void handle_configuration_done(Server &server, int seq, const json &) {
     send_response(seq, "configurationDone", true);
 
     // Start the VM thread now that the client is done configuring.
+    // Server keeps ownership; the thread borrows the chunk (joined in ~Server).
     if (server.launch_received && server.chunk && !server.vm_thread.joinable()) {
-        bytecode::Chunk *chunk = server.chunk; // the VM owns the chunk during run()
+        bytecode::Chunk *chunk = server.chunk.get();
         std::vector<std::string> vm_argv = server.argv;
         server.vm_thread = std::thread([chunk, vm_argv]() {
             int rc = run_vm(chunk, vm_argv);
@@ -668,7 +677,7 @@ static bool lookup_frame_value(const dbg::FrameSnapshot &frame, const std::strin
 }
 
 static bool skip_ws(const std::string &expr, size_t &i) {
-    while (i < expr.size() && std::isspace((unsigned char)expr[i])) {
+    while (i < expr.size() && std::isspace(static_cast<unsigned char>(expr[i]))) {
         ++i;
     }
     return i < expr.size();
@@ -676,11 +685,11 @@ static bool skip_ws(const std::string &expr, size_t &i) {
 
 static bool parse_ident_token(const std::string &expr, size_t &i, std::string &out) {
     skip_ws(expr, i);
-    if (i >= expr.size() || !(std::isalpha((unsigned char)expr[i]) || expr[i] == '_')) {
+    if (i >= expr.size() || !(std::isalpha(static_cast<unsigned char>(expr[i])) || expr[i] == '_')) {
         return false;
     }
     size_t start = i++;
-    while (i < expr.size() && (std::isalnum((unsigned char)expr[i]) || expr[i] == '_')) {
+    while (i < expr.size() && (std::isalnum(static_cast<unsigned char>(expr[i])) || expr[i] == '_')) {
         ++i;
     }
     out.assign(expr, start, i - start);
@@ -710,23 +719,35 @@ static bool parse_string_key(const std::string &expr, size_t &i, std::string &ou
 
 static bool parse_int_index(const std::string &expr, size_t &i, int64_t &out) {
     skip_ws(expr, i);
-    size_t start = i;
+    bool negative = false;
     if (i < expr.size() && (expr[i] == '-' || expr[i] == '+')) {
+        negative = (expr[i] == '-');
         ++i;
     }
     size_t digits = i;
-    while (i < expr.size() && std::isdigit((unsigned char)expr[i])) {
+    // Manual conversion: std::stoll reports overflow by throwing, which this
+    // codebase does not use. Bounds are checked digit by digit instead.
+    int64_t v = 0;
+    while (i < expr.size() && std::isdigit(static_cast<unsigned char>(expr[i]))) {
+        int d = expr[i] - '0';
+        if (negative) {
+            if (v < (INT64_MIN + d) / 10) {
+                return false;
+            }
+            v = v * 10 - d;
+        } else {
+            if (v > (INT64_MAX - d) / 10) {
+                return false;
+            }
+            v = v * 10 + d;
+        }
         ++i;
     }
     if (digits == i) {
         return false;
     }
-    try {
-        out = std::stoll(expr.substr(start, i - start));
-        return true;
-    } catch (...) {
-        return false;
-    }
+    out = v;
+    return true;
 }
 
 static bool resolve_member_value(const Value &base, const std::string &member, Value &out) {
@@ -1057,10 +1078,11 @@ int run_dap_server(std::string initial_script, std::vector<std::string> argv) {
     std::string body;
     while (read_message(body)) {
         log_line("<<", body);
-        json msg;
-        try {
-            msg = json::parse(body);
-        } catch (...) {
+        // allow_exceptions=false: malformed input yields a discarded value
+        // instead of throwing, which this codebase does not use.
+        json msg = json::parse(body);
+        if (msg.is_discarded()) {
+            send_output("stderr", "dap: ignoring malformed message\n");
             continue;
         }
         dispatch(server, msg);

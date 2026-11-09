@@ -9,11 +9,18 @@
 #include <asmjit/core.h>
 
 #include <cstddef>
+#include <atomic>
+#include <memory>
 #include <string>
 #include <unordered_set>
 
 namespace nari {
 namespace jit {
+
+// Lowering context shared with src/jit/ir_emit_*.cpp (defined in ir_emit.h).
+struct IrEmitContext;
+struct DirectCallee;
+struct RegTierResult;
 
 // abstract base for method JIT compilers
 class MethodJITBase {
@@ -27,22 +34,18 @@ class MethodJITBase {
     virtual CompiledFunc get_compiled_fast(uint32_t idx) const = 0;
 
     // Non-virtual form of get_compiled_fast for the per-call dispatch path.
-    // Every scripted call performs this lookup, so going through the vtable
-    // costs an uninlinable indirect call each time. The table is the subclass's
-    // compiled-function vector, which must already be pointer-stable because
-    // generated code bakes its address as an immediate.
     CompiledFunc compiled_at(uint32_t idx) const {
-        return idx < fn_table_size_ ? fn_table_[idx] : nullptr;
+        return idx < fn_table_size_ ? fn_table_[idx].load(std::memory_order_acquire) : nullptr;
     }
 
   protected:
-    void set_fn_table(CompiledFunc *table, size_t size) {
+    void set_fn_table(std::atomic<CompiledFunc> *table, size_t size) {
         fn_table_ = table;
         fn_table_size_ = size;
     }
 
   private:
-    CompiledFunc *fn_table_ = nullptr;
+    std::atomic<CompiledFunc> *fn_table_ = nullptr;
     size_t fn_table_size_ = 0;
 };
 
@@ -57,34 +60,46 @@ class AsmJITMethodCompiler : public MethodJITBase {
     // machine code, allocates it executable, and publishes it to compiled_fn_vec.
     void publish_async(uint32_t chunk_idx, asmjit::CodeHolder *holder, const std::string &sym);
 
+    // Establish the function table before the VM looks up an entry. A new
+    // chunk invalidates all code and drains outstanding compile jobs.
+    void bind_chunk(const nari::bytecode::Chunk &chunk);
+
+    // Wait for background publications before removing debugger registrations.
+    void drain_async();
+
     CompiledFunc compile_chunk(const nari::bytecode::Chunk &chunk, uint32_t chunk_idx) override;
+    CompiledFunc compile_with_context(const nari::bytecode::Chunk &chunk, uint32_t chunk_idx, nari::bytecode::VM *vm,
+                                      bool captures_ok);
     bool is_compiled(uint32_t chunk_idx) const override;
     CompiledFunc get_compiled(uint32_t chunk_idx) const override;
     CompiledFunc get_compiled_fast(uint32_t idx) const override;
 
   private:
-    // Blocks until every queued background compile has been published. Must be called
-    // before anything frees generated code or resizes compiled_fn_vec.
-    void drain_async();
+    nari::bytecode::VM *compile_vm_ = nullptr;
+    bool compile_captures_ok_ = false;
     // Set by ir_compile when a compile was handed to the worker instead of finished
     // inline, so compile_chunk knows the null return is "pending", not "impossible".
-    bool async_pending_ = false;
-
+    bool async_pending = false;
     asmjit::JitRuntime rt;
-    // compiled_fn_vec is pointer-stable for the lifetime of `bound_chunk_`
-    std::vector<CompiledFunc> compiled_fn_vec;
-    // Generated code bakes compiled_fn_vec.data() / &compiled_fn_vec[i] as immediates;
-    // those bytes would dangle (use-after-free) if the vector reallocated after a base was baked.
+
+    // The table is fixed for the lifetime of `bound_chunk`. Workers publish
+    // with release stores; C++ and generated callers use acquire loads.
+    static_assert(sizeof(std::atomic<CompiledFunc>) == sizeof(CompiledFunc), "JIT table slots must be pointer-sized");
+    static_assert(std::atomic<CompiledFunc>::is_always_lock_free, "JIT table slots must be lock-free");
+    std::unique_ptr<std::atomic<CompiledFunc>[]> compiled_fn_vec;
+    size_t compiled_fn_count = 0;
+    // Generated code bakes compiled_fn_vec.get() / &compiled_fn_vec[i] as immediates.
     [[maybe_unused]] const void *fn_vec_base = nullptr;
     // TODO: functions containing exception handling (OP_SETUP_TRY) are not
     // compiled by the JIT, they fall back to the bytecode interpreter.
     std::unordered_set<uint32_t> not_compilable;
     // Tracks which chunk owns the currently baked-in machine code
-    const nari::bytecode::Chunk *bound_chunk_ = nullptr;
+    const nari::bytecode::Chunk *bound_chunk = nullptr;
 
     // Per-chunk write-once global-name -> proven type,
     // built by ir::analyze_const_globals() in reset_for_chunk().
-    ir::GlobalTypeMap global_const_types_;
+    ir::GlobalTypeMap global_const_types;
+    ir::GlobalIntMap global_const_ints;
 
     // Per-chunk string-pool index of the "push" method name
     uint32_t push_method_name_idx_ = UINT32_MAX;
@@ -120,6 +135,59 @@ class AsmJITMethodCompiler : public MethodJITBase {
     CompiledFunc ir_compile(
         const nari::bytecode::Chunk &chunk, uint32_t chunk_idx, CompiledFunc spec_fallback = nullptr, bool *spec_candidate = nullptr
     );
+
+  private:
+    // ir_compile lowering helpers (defined in src/jit/ir_emit_*.cpp).
+    // Each takes the shared IrEmitContext explicitly; see ir_emit.h.
+    static void report(const nari::bytecode::Chunk &chunk, uint32_t chunk_idx, const char *what);
+    DirectCallee resolve_direct_callee(IrEmitContext &ctx, const ir::Inst &in, uint32_t argc);
+    int callee_kind_hint(IrEmitContext &ctx, const ir::Inst &in);
+    void call0(IrEmitContext &ctx, const void *helper);
+    void emit_call_typeof(IrEmitContext &ctx);
+    void poll_shutdown(IrEmitContext &ctx);
+    void call_u32(IrEmitContext &ctx, const void *helper, uint32_t a);
+    void call_u32_u32(IrEmitContext &ctx, const void *helper, uint32_t a, uint32_t b);
+    void call_i64(IrEmitContext &ctx, const void *helper, int64_t a);
+    void call_u32_u64(IrEmitContext &ctx, const void *helper, uint32_t a, uint64_t b);
+    bool both_float(IrEmitContext &ctx, const ir::Inst &in);
+    bool lhs_int(IrEmitContext &ctx, const ir::Inst &in);
+    bool rhs_int(IrEmitContext &ctx, const ir::Inst &in);
+    RegTierResult compile_reg_tier(IrEmitContext &ctx);
+    void
+    emit_ir_call_value(IrEmitContext &ctx, uint32_t argc, uint32_t callee_label_idx, int kind_hint = -1, const DirectCallee *dc = nullptr);
+    void emit_direct_call_guarded(IrEmitContext &ctx, uint32_t argc, uint32_t callee_label_idx, const DirectCallee &d);
+    void emit_float_binop(IrEmitContext &ctx, ir::Op op);
+    void emit_ir_load_slot(IrEmitContext &ctx, uint32_t slot);
+    void emit_ir_store_slot(IrEmitContext &ctx, uint32_t slot);
+    void emit_ir_store_raw_to_slot(IrEmitContext &ctx, uint32_t slot, uint64_t raw);
+    void emit_ir_store_imm_slot(IrEmitContext &ctx, int64_t imm, uint32_t slot);
+    void emit_ir_store_bimm_slot(IrEmitContext &ctx, int64_t imm, uint32_t slot);
+    void emit_ir_store_n_slot(IrEmitContext &ctx, uint32_t slot);
+    void emit_ir_store_c_slot(IrEmitContext &ctx, uint32_t const_idx, uint32_t slot);
+    void emit_ir_copy_slot(IrEmitContext &ctx, uint32_t src, uint32_t dst);
+    void emit_ir_pop(IrEmitContext &ctx);
+    void emit_ir_dup(IrEmitContext &ctx);
+    void emit_ir_load_cached_capture(IrEmitContext &ctx, int64_t capture_offset, const char *name);
+    void emit_ir_store_cached_capture(IrEmitContext &ctx, int64_t capture_offset, const char *name);
+    void emit_ir_load_global(IrEmitContext &ctx, uint32_t name_idx);
+    void emit_ir_js_get_prop_static(IrEmitContext &ctx, uint32_t name_idx);
+    void emit_ir_raw_const(IrEmitContext &ctx, uint64_t raw, const char *name);
+    void emit_ir_fconst(IrEmitContext &ctx, double imm);
+    void emit_ir_iconst(IrEmitContext &ctx, int64_t imm);
+    bool emit_ir_sconst_inline(IrEmitContext &ctx, uint32_t const_idx);
+    void emit_ir_call_method(IrEmitContext &ctx, const ir::Inst &in);
+    void emit_ir_load_index(IrEmitContext &ctx, bool skip_arr_guard, bool skip_idx_guard);
+    void emit_ir_store_index(IrEmitContext &ctx, bool skip_arr_guard, bool skip_idx_guard);
+    void emit_int_binop(IrEmitContext &ctx, ir::Op op, bool skip_lhs_tag_check = false, bool skip_rhs_tag_check = false);
+    void emit_int_mul(IrEmitContext &ctx, bool skip_lhs_tag_check = false, bool skip_rhs_tag_check = false);
+    void emit_int_mod(IrEmitContext &ctx, bool skip_lhs_tag_check = false, bool skip_rhs_tag_check = false);
+    void emit_int_cmp(IrEmitContext &ctx, ir::Op op, bool skip_lhs_tag_check = false, bool skip_rhs_tag_check = false);
+    void emit_float_cmp(IrEmitContext &ctx, ir::Op op);
+    void lower_body(IrEmitContext &ctx, const ir::Inst &in);
+    void lower_term(IrEmitContext &ctx, const ir::Inst &t);
+    bool is_fcmp_branch_fusable(IrEmitContext &ctx, const ir::Inst &cmp);
+    void lower_fused_float_cmp_branch(IrEmitContext &ctx, const ir::Inst &cmp, const ir::Inst &term);
+    void lower_fused_int_cmp_branch(IrEmitContext &ctx, const ir::Inst &cmp, const ir::Inst &term);
 };
 
 } // namespace jit
@@ -129,32 +197,13 @@ class AsmJITMethodCompiler : public MethodJITBase {
 namespace nari {
 namespace jit {
 
-extern MethodJITBase *g_jit_compiler;
-// VM whose invocation triggered the in-progress compile_chunk (null outside one).
-// Set only from VM::note_jit_callee, which runs inside jit_call_value_impl's window
-// where vm->jit_captures_raw points at the *compiling* function's closure captures,
-// so a Call site's LoadCapture callee can be resolved at compile time.
-extern bytecode::VM *g_compile_vm;
-// True only while compiling from note_jit_callee, where vm->jit_captures_raw is
-// known to point at the compiled function's own closure captures. Global-callee
-// resolution needs only g_compile_vm and works on every compile path.
-extern bool g_compile_captures_ok;
-// --- guarded direct call: pinned callee closures ---
-// A direct-call site guards on a closure Value's raw bits. Those bits embed a
-// heap pointer, so the guarded closure must never be freed: otherwise a later
-// allocation could reuse the address and the guard would pass for the wrong
-// object. Pinning stores a copy at a stable address and roots it with the GC.
-// Returns the raw bits to bake into the guard.
-void init_jit();
-void shutdown_jit();
-
-#ifdef NARI_ENABLE_GDB_JIT
-void register_gdb_jit_function(const std::string &name, const void *code_addr, size_t code_size);
-void unregister_all_gdb_jit_functions();
+#ifndef NARI_DISABLE_GDB_JIT
+void register_gdb_jit_function(const void *owner, const std::string &name, const void *code_addr, size_t code_size);
+void unregister_gdb_jit_functions(const void *owner);
 #else
-inline void register_gdb_jit_function(const std::string &, const void *, size_t) {
+inline void register_gdb_jit_function(const void *, const std::string &, const void *, size_t) {
 }
-inline void unregister_all_gdb_jit_functions() {
+inline void unregister_gdb_jit_functions(const void *) {
 }
 #endif
 

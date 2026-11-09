@@ -23,7 +23,7 @@ class HeaderPool {
         }
         void *ptr = malloc(size);
         if (!ptr) {
-            throw std::bad_alloc();
+            nari_oom_abort("small buffer pool allocation failed");
         }
         return ptr;
     }
@@ -47,16 +47,19 @@ class HeaderPool {
 constexpr std::size_t HeaderPoolCap = 8192;
 
 // One pool per pooled type, selected at compile time. The pool is private to each TU and lazily constructed.
-template <class Derived> HeaderPool &pool_for() {
+template <class Derived>
+HeaderPool &pool_for() {
     static HeaderPool *p = new HeaderPool(HeaderPoolCap);
     return *p;
 }
 } // namespace
 
-template <class Derived> void *PooledHeapObject<Derived>::operator new(std::size_t sz) {
+template <class Derived>
+void *PooledHeapObject<Derived>::operator new(std::size_t sz) {
     return pool_for<Derived>().allocate(sz);
 }
-template <class Derived> void PooledHeapObject<Derived>::operator delete(void *ptr) noexcept {
+template <class Derived>
+void PooledHeapObject<Derived>::operator delete(void *ptr) noexcept {
     pool_for<Derived>().deallocate(ptr);
 }
 
@@ -189,7 +192,7 @@ const Value *ObjectObj::get_field(const std::string &name) const noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     const uint32_t slot = shape->slot_of(intern_field(name));
-    return slot != ObjectShape::NoSlot ? const_cast<ObjectObj *>(this)->materialize_lazy_field(slot) : nullptr;
+    return slot != ObjectShape::NoSlot ? materialize_lazy_field(slot) : nullptr;
 }
 
 const Value *ObjectObj::get_field_by_id(uint32_t fid) const noexcept {
@@ -200,10 +203,10 @@ const Value *ObjectObj::get_field_by_id(uint32_t fid) const noexcept {
         return it != dict->map.end() ? &it->second : nullptr;
     }
     const uint32_t slot = shape->slot_of(fid);
-    return slot != ObjectShape::NoSlot ? const_cast<ObjectObj *>(this)->materialize_lazy_field(slot) : nullptr;
+    return slot != ObjectShape::NoSlot ? materialize_lazy_field(slot) : nullptr;
 }
 
-Value *ObjectObj::materialize_lazy_field(uint32_t slot) {
+Value *ObjectObj::materialize_lazy_field(uint32_t slot) const {
     if (slot >= fields.size()) {
         return nullptr;
     }
@@ -237,15 +240,14 @@ void ObjectObj::clear_lazy_field(uint32_t slot) noexcept {
 
 bool ObjectObj::invoke_lazy_field(uint32_t slot, const Value *args, size_t argc, Value &result) {
     const uint64_t bit = slot < 64 ? uint64_t{ 1 } << slot : 0;
-    return bit && (lazy_field_mask & bit) && lazy_field_invoker &&
-           lazy_field_invoker(lazy_field_context, this, slot, args, argc, result);
+    return bit && (lazy_field_mask & bit) && lazy_field_invoker && lazy_field_invoker(lazy_field_context, this, slot, args, argc, result);
 }
 
 #if COMPILER_IS_REAL_MSVC
 inline int ctzll(uint64_t x) {
     unsigned long index;
     _BitScanForward64(&index, x);
-    return (int)index;
+    return static_cast<int>(index);
 }
 #else
 inline int ctzll(uint64_t x) {
@@ -259,7 +261,7 @@ void ObjectObj::promote_to_dict_mode() {
     }
     // Dict storage has no slot-level lazy hook, so realize pending fields first.
     while (lazy_field_mask) {
-        const uint32_t slot = (uint32_t)ctzll(lazy_field_mask);
+        const uint32_t slot = static_cast<uint32_t>(ctzll(lazy_field_mask));
         materialize_lazy_field(slot);
         clear_lazy_field(slot);
     }
@@ -408,7 +410,7 @@ Value *ClassInstance::get_field(const std::string &name) noexcept {
         return nullptr;
     }
     uint32_t idx = fit->second;
-    if (idx >= (uint32_t)field_values.size()) {
+    if (idx >= static_cast<uint32_t>(field_values.size())) {
         return nullptr;
     }
     return &field_values[idx];
@@ -423,7 +425,7 @@ const Value *ClassInstance::get_field(const std::string &name) const noexcept {
         return nullptr;
     }
     uint32_t idx = fit->second;
-    if (idx >= (uint32_t)field_values.size()) {
+    if (idx >= static_cast<uint32_t>(field_values.size())) {
         return nullptr;
     }
     return &field_values[idx];

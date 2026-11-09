@@ -1,0 +1,44 @@
+import { assert } from "../lib/assert.nari";
+
+func binary_neighbors() {
+    let grid = [];
+    for (let i = 0; i < 9; i++) { grid.push(i % 2); }
+    let sum = 0;
+    for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+            let rr = 1 + dr;
+            let cc = 1 + dc;
+            if (rr >= 0 && rr < 3 && cc >= 0 && cc < 3) {
+                sum = sum + grid[rr * 3 + cc];
+            }
+        }
+    }
+    return sum;
+}
+
+func wide_neighbors() {
+    let grid = [];
+    for (let i = 0; i < 9; i++) { grid.push(140737488355327); }
+    let sum = 0;
+    for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+            let rr = 1 + dr;
+            let cc = 1 + dc;
+            if (rr >= 0 && rr < 3 && cc >= 0 && cc < 3) {
+                sum = sum + grid[rr * 3 + cc];
+            }
+        }
+    }
+    return sum;
+}
+
+func start() {
+    let narrow = 0;
+    let wide = 0;
+    for (let i = 0; i < 200; i++) {
+        narrow = binary_neighbors();
+        wide = wide_neighbors();
+    }
+    assert(narrow == 4, "binary neighbor sum changed");
+    assert(wide == 1266637395197943.0, "large integer sum must promote");
+}

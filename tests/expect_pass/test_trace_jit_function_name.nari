@@ -1,0 +1,16 @@
+import { assert } from "../lib/assert.nari";
+
+// A function name must never select a different trace body.
+func bench_objects() {
+    let object = {value: 0};
+    let i = 0;
+    while (i < 100) {
+        object.value = object.value + 1;
+        i = i + 1;
+    }
+    return object.value;
+}
+
+func start() {
+    assert(bench_objects() == 100, "trace changed behavior based on function name");
+}

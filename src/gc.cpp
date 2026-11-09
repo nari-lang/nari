@@ -1,9 +1,9 @@
 #include "gc.h"
+#include "core_types.h"
+#include "runtime.h"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include "core_types.h"
-#include "runtime.h"
 
 #ifdef __linux__
 #include <malloc.h>
@@ -26,13 +26,13 @@ void GarbageCollector::track(HeapHeader *p, TrackedType type) noexcept {
     size_t est = 0;
     switch (type) {
         case TrackedType::Array:
-            est = sizeof(ArrayObj) + ((ArrayObj *)p)->v.capacity() * VALUE_SIZE_ESTIMATE;
+            est = sizeof(ArrayObj) + static_cast<ArrayObj *>(p)->v.capacity() * VALUE_SIZE_ESTIMATE;
             break;
         case TrackedType::Object:
-            est = sizeof(ObjectObj) + ((ObjectObj *)p)->field_count() * VALUE_SIZE_ESTIMATE;
+            est = sizeof(ObjectObj) + static_cast<ObjectObj *>(p)->field_count() * VALUE_SIZE_ESTIMATE;
             break;
         case TrackedType::ClassInstance:
-            est = sizeof(ClassInstance) + ((ClassInstance *)p)->field_values.capacity() * VALUE_SIZE_ESTIMATE;
+            est = sizeof(ClassInstance) + static_cast<ClassInstance *>(p)->field_values.capacity() * VALUE_SIZE_ESTIMATE;
             break;
         case TrackedType::String:
             est = sizeof(StringObj);
@@ -45,13 +45,11 @@ void GarbageCollector::track(HeapHeader *p, TrackedType type) noexcept {
             break;
     }
 
-    p->gc_est = (est > 0xFFFFFFFFull) ? 0xFFFFFFFFu : (uint32_t)est;
-    try {
-        p->gc_index = tracked_objects.size();
-        tracked_objects.push_back(p);
-    } catch (...) {
-        return;
-    }
+    p->gc_est = (est > 0xFFFFFFFFull) ? 0xFFFFFFFFu : static_cast<uint32_t>(est);
+    // Allocation failure aborts process-wide (new_handler installed in main),
+    // so push_back here cannot throw.
+    p->gc_index = tracked_objects.size();
+    tracked_objects.push_back(p);
     p->gc_tracked = true;
     tracked_count = tracked_objects.size();
 
@@ -123,13 +121,13 @@ void GarbageCollector::mark_value(const Value &root) {
         HeapHeader *p = v.heap_ptr();
         switch (p->type_tag) {
             case ValueTag::String:
-                push(((StringObj *)p)->getter_key_cache);
+                push(static_cast<StringObj *>(p)->getter_key_cache);
                 break;
             case ValueTag::Array:
-                for (const auto &elem : ((ArrayObj *)p)->v) {
+                for (const auto &elem : static_cast<ArrayObj *>(p)->v) {
                     push(elem);
                 }
-                if (auto *properties = ((ArrayObj *)p)->properties.get()) {
+                if (auto *properties = static_cast<ArrayObj *>(p)->properties.get()) {
                     for (const Value &field : properties->fields) {
                         push(field);
                     }
@@ -142,7 +140,7 @@ void GarbageCollector::mark_value(const Value &root) {
                 }
                 break;
             case ValueTag::Object: {
-                auto *obj = ((ObjectObj *)p);
+                auto *obj = static_cast<ObjectObj *>(p);
                 // shape-mode storage.
                 for (const Value &f : obj->fields) {
                     push(f);
@@ -157,7 +155,7 @@ void GarbageCollector::mark_value(const Value &root) {
                 break;
             }
             case ValueTag::Handle: {
-                auto *h = ((HandleData *)p);
+                auto *h = static_cast<HandleData *>(p);
                 push(h->result);
                 push(h->error);
                 if (h->task) {
@@ -177,12 +175,12 @@ void GarbageCollector::mark_value(const Value &root) {
                 break;
             }
             case ValueTag::ClassInstance:
-                for (const Value &f : ((ClassInstance *)p)->field_values) {
+                for (const Value &f : static_cast<ClassInstance *>(p)->field_values) {
                     push(f);
                 }
                 break;
             case ValueTag::Function: {
-                auto *fd = ((FunctionData *)p);
+                auto *fd = static_cast<FunctionData *>(p);
                 if (fd->captures) {
                     for (const auto &cell : *fd->captures) {
                         if (cell) {
@@ -225,7 +223,7 @@ void GarbageCollector::mark_value(const Value &root) {
                 break;
             }
             case ValueTag::Delegate: {
-                auto *d = ((DelegateData *)p);
+                auto *d = static_cast<DelegateData *>(p);
                 push(d->target);
                 push(d->handler);
                 break;
@@ -252,12 +250,12 @@ size_t GarbageCollector::sweep() {
     if (!enabled) {
         return 0;
     }
-    
+
     static const size_t kGcPrefetch = []() -> size_t {
         if (const char *e = getenv("NARI_GC_PREFETCH")) {
             long v = strtol(e, nullptr, 10);
             if (v >= 0 && v < 4096) {
-                return (size_t)v;
+                return static_cast<size_t>(v);
             }
         }
         return 64;
@@ -308,30 +306,30 @@ size_t GarbageCollector::sweep() {
         estimated_memory_usage = (estimated_memory_usage >= est) ? estimated_memory_usage - est : 0;
         switch (g->type_tag) {
             case ValueTag::Array:
-                ((ArrayObj *)g)->v.clear();
-                ((ArrayObj *)g)->properties.reset();
+                static_cast<ArrayObj *>(g)->v.clear();
+                static_cast<ArrayObj *>(g)->properties.reset();
                 break;
             case ValueTag::Object:
-                ((ObjectObj *)g)->clear_fields();
-                ((ObjectObj *)g)->lazy_payload = Value::none();
-                ((ObjectObj *)g)->lazy_captures.reset();
+                static_cast<ObjectObj *>(g)->clear_fields();
+                static_cast<ObjectObj *>(g)->lazy_payload = Value::none();
+                static_cast<ObjectObj *>(g)->lazy_captures.reset();
                 break;
             case ValueTag::Handle: {
-                auto *h = ((HandleData *)g);
+                auto *h = static_cast<HandleData *>(g);
                 h->result = Value::none();
                 h->error = Value::none();
                 h->task.reset();
                 break;
             }
             case ValueTag::ClassInstance:
-                ((ClassInstance *)g)->field_values.clear();
+                static_cast<ClassInstance *>(g)->field_values.clear();
                 break;
             case ValueTag::Function:
-                ((FunctionData *)g)->captures.reset();
-                ((FunctionData *)g)->properties.reset();
+                static_cast<FunctionData *>(g)->captures.reset();
+                static_cast<FunctionData *>(g)->properties.reset();
                 break;
             case ValueTag::Delegate: {
-                auto *d = ((DelegateData *)g);
+                auto *d = static_cast<DelegateData *>(g);
                 d->target = Value::none();
                 d->handler = Value::none();
                 break;
@@ -350,25 +348,25 @@ size_t GarbageCollector::sweep() {
         tracked_objects.pop_back();
         switch (g->type_tag) {
             case ValueTag::Array:
-                delete ((ArrayObj *)g);
+                delete static_cast<ArrayObj *>(g);
                 break;
             case ValueTag::Object:
-                delete ((ObjectObj *)g);
+                delete static_cast<ObjectObj *>(g);
                 break;
             case ValueTag::Handle:
-                delete ((HandleData *)g);
+                delete static_cast<HandleData *>(g);
                 break;
             case ValueTag::ClassInstance:
-                delete ((ClassInstance *)g);
+                delete static_cast<ClassInstance *>(g);
                 break;
             case ValueTag::Function:
-                delete ((FunctionData *)g);
+                delete static_cast<FunctionData *>(g);
                 break;
             case ValueTag::String:
-                delete ((StringObj *)g);
+                delete static_cast<StringObj *>(g);
                 break;
             case ValueTag::Delegate:
-                delete ((DelegateData *)g);
+                delete static_cast<DelegateData *>(g);
                 break;
             default:
                 break;
@@ -414,6 +412,6 @@ size_t GarbageCollector::force_collect(const std::vector<const Value *> &roots) 
 
 // TODO?: consolidate these variables into the Stats struct so that we can just directly return that instead of copying
 GarbageCollector::Stats GarbageCollector::get_stats() const {
-    return Stats { tracked_count, allocation_count, total_collections, total_collected,
-                   total_allocated, peak_tracked, collection_threshold, enabled };
+    return Stats{ tracked_count,   allocation_count, total_collections,    total_collected,
+                  total_allocated, peak_tracked,     collection_threshold, enabled };
 }

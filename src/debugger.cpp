@@ -90,7 +90,7 @@ StopSnapshot DebugController::snapshot_frames(const bytecode::VM &vm, StopReason
             fs.name = fr.function->name.empty() ? std::string("<script>") : fr.function->name;
             fs.source_file = canonicalise_path(fr.function->source_file);
             if (fr.ip) {
-                size_t pc_offset = (size_t)(fr.ip - fr.function->code.data());
+                size_t pc_offset = static_cast<size_t>((fr.ip - fr.function->code.data()));
                 fs.line = fr.function->resolve_line(pc_offset);
             }
             fs.meta = fr.function;
@@ -103,8 +103,9 @@ StopSnapshot DebugController::snapshot_frames(const bytecode::VM &vm, StopReason
     return snap;
 }
 
-void DebugController::push_synthetic_frame(std::string name, std::string source_file, int line, size_t runtime_call_stack_index,
-                                           Value this_value) {
+void DebugController::push_synthetic_frame(
+    std::string name, std::string source_file, int line, size_t runtime_call_stack_index, Value this_value
+) {
     std::lock_guard<std::mutex> lock(this->mtx);
     SyntheticFrame frame;
     frame.name = std::move(name);

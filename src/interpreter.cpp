@@ -7,7 +7,7 @@
 #include <signal.h>
 #endif
 #include <atomic>
-#include <stdexcept>
+#include <new>
 
 #include "ast.h"
 
@@ -19,10 +19,6 @@
 #include "fmt/fmt_cli.h"
 #include "repl.h"
 #include "runtime.h"
-#ifndef DISABLE_JIT
-#include "asmjit_jit.h"
-#include "trace_jit.h"
-#endif
 
 enum ReturnCode {
     SUCCESS = 0,
@@ -74,13 +70,13 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
     using namespace nari::bytecode;
 
     std::vector<uint32_t> str_remap(src->strings.size());
-    for (uint32_t i = 0; i < (uint32_t)src->strings.size(); i++) {
+    for (uint32_t i = 0; i < static_cast<uint32_t>(src->strings.size()); i++) {
         str_remap[i] = dest->add_string(src->strings[i]);
     }
 
-    uint32_t dest_func_base = (uint32_t)dest->functions.size();
+    uint32_t dest_func_base = static_cast<uint32_t>(dest->functions.size());
     std::vector<uint32_t> func_remap(src->functions.size());
-    for (uint32_t i = 0; i < (uint32_t)src->functions.size(); i++) {
+    for (uint32_t i = 0; i < static_cast<uint32_t>(src->functions.size()); i++) {
         func_remap[i] = dest_func_base + i;
     }
 
@@ -105,7 +101,7 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
 
     auto remap_bytecode = [&](ByteArray &code) -> bool {
         auto need = [&](size_t p, size_t n) -> bool { return p <= code.size() && n <= code.size() - p; };
-        auto rd16 = [&](size_t p) -> uint16_t { return ((uint16_t)code[p] << 8) | code[p + 1]; };
+        auto rd16 = [&](size_t p) -> uint16_t { return (static_cast<uint16_t>(code[p] << 8)) | code[p + 1]; };
         auto wr16 = [&](size_t p, uint16_t v) {
             code[p] = (v >> 8) & 0xFF;
             code[p + 1] = v & 0xFF;
@@ -120,14 +116,14 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                 fprintf(stderr, "merge_naric_into_chunk: %s string index out of range\n", what);
                 return false;
             }
-            wr16(p, (uint16_t)str_remap[idx]);
+            wr16(p, static_cast<uint16_t>(str_remap[idx]));
             return true;
         };
 
         size_t pc = 0;
         while (pc < code.size()) {
             size_t op_pc = pc;
-            OpCode op = (OpCode)code[pc++];
+            OpCode op = static_cast<OpCode>(code[pc++]);
             switch (op) {
                 // zero operands
                 case OpCode::OP_POP:
@@ -265,11 +261,11 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                         fprintf(stderr, "merge_naric_into_chunk: closure function index out of range\n");
                         return false;
                     }
-                    wr16(pc, (uint16_t)func_remap[fidx]);
+                    wr16(pc, static_cast<uint16_t>(func_remap[fidx]));
                     pc += 2;
                     uint16_t cap_count = rd16(pc);
                     pc += 2;
-                    if (!need(pc, (size_t)(cap_count) * 3)) {
+                    if (!need(pc, static_cast<size_t>((cap_count)) * 3)) {
                         fprintf(stderr, "merge_naric_into_chunk: truncated closure captures at pc=%zu\n", op_pc);
                         return false;
                     }
@@ -317,7 +313,7 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
                     break;
 
                 default:
-                    fprintf(stderr, "merge_naric_into_chunk: unknown opcode 0x%02X at pc=%zu\n", (unsigned)op, op_pc);
+                    fprintf(stderr, "merge_naric_into_chunk: unknown opcode 0x%02X at pc=%zu\n", static_cast<unsigned>(op), op_pc);
                     return false;
             }
         }
@@ -327,7 +323,7 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
     std::vector<FunctionMeta> remapped_functions;
     remapped_functions.reserve(src->functions.size());
 
-    for (uint32_t i = 0; i < (uint32_t)src->functions.size(); i++) {
+    for (uint32_t i = 0; i < static_cast<uint32_t>(src->functions.size()); i++) {
         FunctionMeta meta = src->functions[i];
         if (i == src->main_func_idx) {
             meta.name = module_main_name;
@@ -348,6 +344,8 @@ static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::
 }
 
 int main(int argc, char **argv) {
+    // Heap exhaustion is unrecoverable: abort instead of throwing std::bad_alloc.
+    std::set_new_handler([] { nari_oom_abort("heap allocation failed"); });
     // `nari fmt ...`: code formatter subcommand. Handled before everything else
     // so no runtime/JIT initialization happens for a formatting run.
     if (argc > 1 && std::string(argv[1]) == "fmt") {
@@ -385,15 +383,7 @@ int main(int argc, char **argv) {
 
     // drop straight into the REPL if no args
     if (argc < 2) {
-#ifndef DISABLE_JIT
-        nari::jit::init_jit();
-        nari::jit::init_trace_jit();
-#endif
         run_repl(argc, argv);
-#ifndef DISABLE_JIT
-        nari::jit::shutdown_trace_jit();
-        nari::jit::shutdown_jit();
-#endif
         return SUCCESS;
     }
 
@@ -420,8 +410,7 @@ int main(int argc, char **argv) {
 #endif
             if (a.rfind(tl_opt, 0) == 0) {
             trace_level_str = a.substr(tl_opt.size());
-        } else
-            if (!a.empty() && a[0] == '-') {
+        } else if (!a.empty() && a[0] == '-') {
             fprintf(stderr, "Unknown option: %s\n%s", a.c_str(), usage);
             return ERROR_GENERIC;
         } else {
@@ -441,15 +430,7 @@ int main(int argc, char **argv) {
 #ifndef DISABLE_REPL
     // --repl flag or no script file launches the interactive REPL.
     if (force_repl || path.empty()) {
-#ifndef DISABLE_JIT
-        nari::jit::init_jit();
-        nari::jit::init_trace_jit();
-#endif
         run_repl(argc, argv);
-#ifndef DISABLE_JIT
-        nari::jit::shutdown_trace_jit();
-        nari::jit::shutdown_jit();
-#endif
         return SUCCESS;
     }
 #endif // !DISABLE_REPL
@@ -477,10 +458,6 @@ int main(int argc, char **argv) {
     signal(SIGTERM, signal_handler);
 #endif
 
-#ifndef DISABLE_JIT
-    nari::jit::init_jit();
-    nari::jit::init_trace_jit();
-#endif
 
     std::string src = read_file_to_string(path);
     if (src.empty()) {
@@ -503,7 +480,7 @@ int main(int argc, char **argv) {
         runtime_argv.push_back(arg.data());
     }
 
-    int runtime_argc = (int)runtime_argv.size();
+    int runtime_argc = static_cast<int>(runtime_argv.size());
     char **runtime_argv_ptr = runtime_argv.empty() ? nullptr : runtime_argv.data();
 
     FuncList funcs;
@@ -526,23 +503,84 @@ int main(int argc, char **argv) {
         }
     }
 
-    try {
-        Runtime::reset_runtime_error_flag();
+    Runtime::reset_runtime_error_flag();
 
-        {
-            bytecode::Chunk *chunk = nullptr;
+    {
+        std::unique_ptr<nari::bytecode::Chunk> chunk;
 
-            if (is_naric) {
-                auto bc_data = reinterpret_cast<const uint8_t *>(src.data());
-                chunk = bytecode::BytecodeSerializer::deserialize(bc_data, src.size());
-                if (!chunk) {
-                    fprintf(stderr, "Failed to load bytecode file: %s\n", path.c_str());
-                    return ERROR_BYTECODE_COMPILATION;
+        if (is_naric) {
+            auto bc_data = reinterpret_cast<const uint8_t *>(src.data());
+            chunk.reset(nari::bytecode::BytecodeSerializer::deserialize(bc_data, src.size()));
+            if (!chunk) {
+                fprintf(stderr, "Failed to load bytecode file: %s\n", path.c_str());
+                return ERROR_BYTECODE_COMPILATION;
+            }
+            // restore type declarations from the bytecode file into the parser's
+            // type registry so that __ffi_membersof() and other runtime type
+            // introspection works without needing the original source
+            for (const auto &ti : chunk->types) {
+                if (Parser::is_registered_type(ti.name)) {
+                    continue;
                 }
-                // restore type declarations from the bytecode file into the parser's
-                // type registry so that __ffi_membersof() and other runtime type
-                // introspection works without needing the original source
-                for (const auto &ti : chunk->types) {
+                auto type_decl =
+                    std::make_unique<nari::TypeDecl>(ti.name, ti.is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
+                if (!ti.alias_target.empty()) {
+                    type_decl->alias_target = std::make_unique<nari::TypeAnnotation>(ti.alias_target);
+                }
+                for (const auto &fi : ti.fields) {
+                    auto field_type = std::make_unique<nari::TypeAnnotation>(fi.type_name, fi.is_array);
+                    field_type->fixed_array_count = fi.fixed_array_count;
+                    type_decl->fields.emplace_back(fi.name, std::move(field_type));
+                }
+                Parser::register_type(std::move(type_decl));
+            }
+        } else {
+            // parse stdlib and combine with user functions
+            Parser::set_source_filename("<embedded_stdlib>");
+            std::string embedded = nari_std_prelude_source();
+            FuncList stdlib_funcs = Parser::parse_program_from_source(embedded, false);
+
+            FuncList combined;
+            combined.reserve(stdlib_funcs.size() + funcs.size());
+            for (auto &f : stdlib_funcs) {
+                combined.push_back(std::move(f));
+            }
+            for (auto &f : funcs) {
+                combined.push_back(std::move(f));
+            }
+
+            // restore original filename
+            Parser::set_source_filename(path);
+
+            chunk.reset(nari::bytecode::compile_bytecode(combined));
+            if (!chunk) {
+                fprintf(stderr, "Bytecode compilation failed!\n");
+                return ERROR_BYTECODE_COMPILATION;
+            }
+            if (getenv("NARI_DUMP_CHUNK")) {
+                nari::bytecode::dump_chunk(*chunk);
+            }
+        }
+
+        // merge any pre-compiled .naric modules that were imported from source.
+        // each module's top-level function is renamed to the unique init-function name the parser emitted a CallExpr for
+        if (!is_naric) {
+            const auto &naric_imports = Parser::get_pending_naric_imports();
+            for (const auto &[init_name, module_path] : naric_imports) {
+                std::string module_src = read_file_to_string(module_path);
+                if (module_src.empty()) {
+                    fprintf(stderr, "Failed to read naric module: %s\n", module_path.c_str());
+                    continue;
+                }
+                auto bc_data = reinterpret_cast<const uint8_t *>(module_src.data());
+                std::unique_ptr<nari::bytecode::Chunk> mod_chunk(
+                    nari::bytecode::BytecodeSerializer::deserialize(bc_data, module_src.size())
+                );
+                if (!mod_chunk) {
+                    fprintf(stderr, "Failed to deserialize naric module: %s\n", module_path.c_str());
+                    continue;
+                }
+                for (const auto &ti : mod_chunk->types) {
                     if (Parser::is_registered_type(ti.name)) {
                         continue;
                     }
@@ -558,102 +596,21 @@ int main(int argc, char **argv) {
                     }
                     Parser::register_type(std::move(type_decl));
                 }
-            }
-            else {
-                // parse stdlib and combine with user functions
-                Parser::set_source_filename("<embedded_stdlib>");
-                std::string embedded = nari_std_prelude_source();
-                FuncList stdlib_funcs = Parser::parse_program_from_source(embedded, false);
-
-                FuncList combined;
-                combined.reserve(stdlib_funcs.size() + funcs.size());
-                for (auto &f : stdlib_funcs) {
-                    combined.push_back(std::move(f));
-                }
-                for (auto &f : funcs) {
-                    combined.push_back(std::move(f));
-                }
-
-                // restore original filename
-                Parser::set_source_filename(path);
-
-                chunk = bytecode::compile_bytecode(combined);
-                if (!chunk) {
-                    fprintf(stderr, "Bytecode compilation failed!\n");
+                if (!merge_naric_into_chunk(chunk.get(), mod_chunk.get(), init_name)) {
+                    fprintf(stderr, "Failed to merge naric module: %s\n", module_path.c_str());
+                    Parser::clear_pending_naric_imports();
                     return ERROR_BYTECODE_COMPILATION;
                 }
-                if (getenv("NARI_DUMP_CHUNK")) {
-                    bytecode::dump_chunk(*chunk);
-                }
             }
-
-            // merge any pre-compiled .naric modules that were imported from source.
-            // each module's top-level function is renamed to the unique init-function name the parser emitted a CallExpr for
-            if (!is_naric) {
-                const auto &naric_imports = Parser::get_pending_naric_imports();
-                for (const auto &[init_name, module_path] : naric_imports) {
-                    std::string module_src = read_file_to_string(module_path);
-                    if (module_src.empty()) {
-                        fprintf(stderr, "Failed to read naric module: %s\n", module_path.c_str());
-                        continue;
-                    }
-                    auto bc_data = reinterpret_cast<const uint8_t *>(module_src.data());
-                    bytecode::Chunk *mod_chunk = bytecode::BytecodeSerializer::deserialize(bc_data, module_src.size());
-                    if (!mod_chunk) {
-                        fprintf(stderr, "Failed to deserialize naric module: %s\n", module_path.c_str());
-                        continue;
-                    }
-                    for (const auto &ti : mod_chunk->types) {
-                        if (Parser::is_registered_type(ti.name)) {
-                            continue;
-                        }
-                        auto type_decl =
-                            std::make_unique<nari::TypeDecl>(ti.name, ti.is_union ? nari::TypeDeclKind::Union : nari::TypeDeclKind::Struct);
-                        if (!ti.alias_target.empty()) {
-                            type_decl->alias_target = std::make_unique<nari::TypeAnnotation>(ti.alias_target);
-                        }
-                        for (const auto &fi : ti.fields) {
-                            auto field_type = std::make_unique<nari::TypeAnnotation>(fi.type_name, fi.is_array);
-                            field_type->fixed_array_count = fi.fixed_array_count;
-                            type_decl->fields.emplace_back(fi.name, std::move(field_type));
-                        }
-                        Parser::register_type(std::move(type_decl));
-                    }
-                    if (!merge_naric_into_chunk(chunk, mod_chunk, init_name)) {
-                        fprintf(stderr, "Failed to merge naric module: %s\n", module_path.c_str());
-                        delete mod_chunk;
-                        delete chunk;
-                        Parser::clear_pending_naric_imports();
-                        return ERROR_BYTECODE_COMPILATION;
-                    }
-                    delete mod_chunk;
-                }
-                Parser::clear_pending_naric_imports();
-            }
-
-            bytecode::VM vm(runtime_argc, runtime_argv_ptr);
-            if (!vm.run(chunk)) {
-                fprintf(stderr, "\n=== Execution stopped due to runtime error ===\n");
-                delete chunk;
-                return ERROR_BYTECODE_EXECUTION;
-            }
-
-            delete chunk;
+            Parser::clear_pending_naric_imports();
         }
-    } catch (const std::runtime_error &e) {
-        fprintf(stderr, "Runtime error: %s\n", e.what());
-        fprintf(stderr, "\n=== Execution stopped due to runtime error ===\n");
-#ifndef DISABLE_JIT
-        nari::jit::shutdown_trace_jit();
-        nari::jit::shutdown_jit();
-#endif
-        return ERROR_RUNTIME;
+
+        nari::bytecode::VM vm(runtime_argc, runtime_argv_ptr);
+        if (!vm.run(chunk.get())) {
+            fprintf(stderr, "\n=== Execution stopped due to runtime error ===\n");
+            return ERROR_BYTECODE_EXECUTION;
+        }
     }
 
-#ifndef DISABLE_JIT
-    nari::jit::shutdown_trace_jit();
-    nari::jit::shutdown_jit();
-#endif
     return SUCCESS;
 }
-

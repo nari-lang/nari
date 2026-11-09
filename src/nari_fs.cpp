@@ -50,7 +50,7 @@ bool is_sep(char ch) {
 }
 
 bool has_drive_prefix(const std::string &path) {
-    return path.size() >= 2 && std::isalpha((unsigned char)path[0]) && path[1] == ':';
+    return path.size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0]) && path[1] == ':';
 }
 
 std::wstring utf8_to_wide(const std::string &value) {
@@ -61,7 +61,7 @@ std::wstring utf8_to_wide(const std::string &value) {
     if (size <= 0) {
         return {};
     }
-    std::vector<wchar_t> wide((size_t)size, L'\0');
+    std::vector<wchar_t> wide(static_cast<size_t>(size), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, wide.data(), size);
     wide.pop_back();
     return std::wstring(wide.begin(), wide.end());
@@ -75,7 +75,7 @@ std::string wide_to_utf8(const std::wstring &value) {
     if (size <= 0) {
         return {};
     }
-    std::vector<char> utf8((size_t)size, '\0');
+    std::vector<char> utf8(static_cast<size_t>(size), '\0');
     WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, utf8.data(), size, nullptr, nullptr);
     utf8.pop_back();
     return std::string(utf8.begin(), utf8.end());
@@ -192,14 +192,14 @@ std::string normalize_path(const std::string &raw) {
 
 Path make_win32_path_result(DWORD(WINAPI *fn)(DWORD, LPWSTR), DWORD initial_size = MAX_PATH) {
     DWORD size = initial_size;
-    std::vector<wchar_t> buffer((size_t)size, L'\0');
+    std::vector<wchar_t> buffer(static_cast<size_t>(size), L'\0');
     DWORD written = fn(size, buffer.data());
     if (written == 0) {
         return {};
     }
     if (written >= size) {
         size = written + 1;
-        buffer.assign((size_t)size, L'\0');
+        buffer.assign(static_cast<size_t>(size), L'\0');
         written = fn(size, buffer.data());
         if (written == 0 || written >= size) {
             return {};
@@ -220,16 +220,16 @@ Path get_full_path(const Path &path, std::error_code *ec) {
     DWORD required = GetFullPathNameW(wide.c_str(), 0, nullptr, nullptr);
     if (required == 0) {
         if (ec) {
-            *ec = std::error_code((int)GetLastError(), std::system_category());
+            *ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
         }
         return path.lexically_normal();
     }
 
-    std::vector<wchar_t> buffer((size_t)required, L'\0');
+    std::vector<wchar_t> buffer(static_cast<size_t>(required), L'\0');
     DWORD written = GetFullPathNameW(wide.c_str(), required, buffer.data(), nullptr);
     if (written == 0 || written >= required) {
         if (ec) {
-            *ec = std::error_code((int)GetLastError(), std::system_category());
+            *ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
         }
         return path.lexically_normal();
     }
@@ -251,7 +251,7 @@ DWORD path_attributes(const Path &path, std::error_code *ec) {
 
     DWORD attrs = GetFileAttributesW(wide.c_str());
     if (attrs == INVALID_FILE_ATTRIBUTES && ec) {
-        *ec = std::error_code((int)GetLastError(), std::system_category());
+        *ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
     } else if (ec) {
         ec->clear();
     }
@@ -426,7 +426,7 @@ bool remove(const Path &path, std::error_code &ec) {
     std::wstring wide = utf8_to_wide(path.string());
     BOOL ok = (attrs & FILE_ATTRIBUTE_DIRECTORY) ? RemoveDirectoryW(wide.c_str()) : DeleteFileW(wide.c_str());
     if (!ok) {
-        ec = std::error_code((int)GetLastError(), std::system_category());
+        ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
         return false;
     }
 
@@ -467,7 +467,7 @@ bool create_directories(const Path &path, std::error_code &ec) {
             if (err == ERROR_ALREADY_EXISTS) {
                 continue;
             }
-            ec = std::error_code((int)err, std::system_category());
+            ec = std::error_code(static_cast<int>(err), std::system_category());
             return false;
         }
         created_any = true;
@@ -490,7 +490,7 @@ std::vector<Path> list_directory(const Path &path, std::error_code &ec) {
     WIN32_FIND_DATAW data{};
     HANDLE handle = FindFirstFileW(wide_pattern.c_str(), &data);
     if (handle == INVALID_HANDLE_VALUE) {
-        ec = std::error_code((int)GetLastError(), std::system_category());
+        ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
         return entries;
     }
 
@@ -505,7 +505,7 @@ std::vector<Path> list_directory(const Path &path, std::error_code &ec) {
     DWORD last_error = GetLastError();
     FindClose(handle);
     if (last_error != ERROR_NO_MORE_FILES) {
-        ec = std::error_code((int)last_error, std::system_category());
+        ec = std::error_code(static_cast<int>(last_error), std::system_category());
         entries.clear();
         return entries;
     }
@@ -567,11 +567,23 @@ bool operator!=(const Path &lhs, const Path &rhs) {
 }
 
 Path current_path() {
-    return from_std_path(stdfs::current_path());
+    // Non-throwing overloads only: a failed query yields an empty path rather
+    // than a filesystem_error, mirroring the Win7-compat branch below.
+    std::error_code ec;
+    stdfs::path p = stdfs::current_path(ec);
+    if (ec) {
+        return {};
+    }
+    return from_std_path(p);
 }
 
 Path absolute(const Path &path) {
-    return from_std_path(stdfs::absolute(to_std_path(path)));
+    std::error_code ec;
+    stdfs::path p = stdfs::absolute(to_std_path(path), ec);
+    if (ec) {
+        return {};
+    }
+    return from_std_path(p);
 }
 
 Path weakly_canonical(const Path &path, std::error_code &ec) {
@@ -579,7 +591,8 @@ Path weakly_canonical(const Path &path, std::error_code &ec) {
 }
 
 bool exists(const Path &path) {
-    return stdfs::exists(to_std_path(path));
+    std::error_code ec;
+    return stdfs::exists(to_std_path(path), ec);
 }
 
 bool exists(const Path &path, std::error_code &ec) {
@@ -587,7 +600,8 @@ bool exists(const Path &path, std::error_code &ec) {
 }
 
 bool is_directory(const Path &path) {
-    return stdfs::is_directory(to_std_path(path));
+    std::error_code ec;
+    return stdfs::is_directory(to_std_path(path), ec);
 }
 
 bool is_directory(const Path &path, std::error_code &ec) {
@@ -595,7 +609,8 @@ bool is_directory(const Path &path, std::error_code &ec) {
 }
 
 bool is_regular_file(const Path &path) {
-    return stdfs::is_regular_file(to_std_path(path));
+    std::error_code ec;
+    return stdfs::is_regular_file(to_std_path(path), ec);
 }
 
 bool is_regular_file(const Path &path, std::error_code &ec) {
@@ -612,12 +627,22 @@ bool create_directories(const Path &path, std::error_code &ec) {
 
 std::vector<Path> list_directory(const Path &path, std::error_code &ec) {
     std::vector<Path> entries;
-    for (const auto &entry : stdfs::directory_iterator(to_std_path(path), ec)) {
-        if (ec) {
+    // Explicit increment(ec): unlike operator++() used by range-for, the
+    // error_code overload is specified non-throwing on every implementation.
+    std::error_code iter_ec;
+    stdfs::directory_iterator it(to_std_path(path), iter_ec);
+    if (iter_ec) {
+        ec = iter_ec;
+        return entries;
+    }
+    const stdfs::directory_iterator end;
+    for (; it != end; it.increment(iter_ec)) {
+        if (iter_ec) {
+            ec = iter_ec;
             entries.clear();
             return entries;
         }
-        entries.push_back(from_std_path(entry.path()));
+        entries.push_back(from_std_path(it->path()));
     }
     return entries;
 }

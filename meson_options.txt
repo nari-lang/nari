@@ -74,3 +74,11 @@ option(
     value: false,
     description: 'Statically link libc++ and libc++abi (unwinder stays libgcc_s) so release binaries carry no libc++/libc++abi/libunwind runtime deps. Linux + clang only.',
 )
+
+option(
+    'lto_mode',
+    type: 'combo',
+    choices: ['thin', 'full', 'none'],
+    value: 'thin',
+    description: 'Link-time optimization for release builds (clang only). ThinLTO links ~6x faster than full LTO at equal runtime performance; none cannot link on Linux (system mimalloc ships LTO bitcode).',
+)

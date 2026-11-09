@@ -136,10 +136,9 @@ class BytecodeSerializer {
         return buf;
     }
 
-    // deserialize a byte buffer into a Chunk
+    // deserialize a byte buffer into a Chunk. No exceptions are thrown for
+    // malformed input; any bounds or sanity failure returns nullptr.
     static Chunk *deserialize(const uint8_t *data, size_t length) {
-        size_t pos = 0;
-
         // header
         if (length < 8) {
             fprintf(stderr, "naric: file too small for header\n");
@@ -150,146 +149,177 @@ class BytecodeSerializer {
             fprintf(stderr, "naric: invalid magic bytes (not a .naric file)\n");
             return nullptr;
         }
-        pos += 4;
+        Decode d{ data, length, 4, true };
 
-        // own the Chunk via unique_ptr until the end so any exception frees it automatically
-        std::unique_ptr<Chunk> chunk;
-        try {
-            uint16_t version = read_u16(data, length, pos);
-            if (version != FORMAT_VERSION) {
-                fprintf(stderr, "naric: unsupported format version %u (expected %u)\n", version, FORMAT_VERSION);
-                return nullptr;
-            }
-
-            /* uint16_t flags = */ read_u16(data, length, pos); // reserved
-
-            chunk.reset(new Chunk());
-
-            // sanity bound for container counts to prevent huge pre-allocation from a crafted file.
-            constexpr uint32_t MAX_COUNT = 1u << 20;
-
-            // string table
-            uint32_t string_count = read_varuint32(data, length, pos);
-            if (string_count > MAX_COUNT) {
-                throw DeserializeError{};
-            }
-            chunk->strings.resize(string_count);
-            for (uint32_t i = 0; i < string_count; i++) {
-                chunk->strings[i] = read_string(data, length, pos);
-            }
-
-            // function table
-            uint32_t func_count = read_varuint32(data, length, pos);
-            if (func_count > MAX_COUNT) {
-                throw DeserializeError{};
-            }
-            chunk->main_func_idx = read_varuint32(data, length, pos);
-            chunk->functions.resize(func_count);
-
-            for (uint32_t fi = 0; fi < func_count; fi++) {
-                FunctionMeta &func = chunk->functions[fi];
-
-                // name
-                func.name = read_string(data, length, pos);
-
-                // metadata
-                func.param_count = read_u8(data, length, pos);
-                func.capture_count = read_u16(data, length, pos);
-                func.rest_param_index = read_i8(data, length, pos);
-                func.is_lambda = read_u8(data, length, pos) != 0;
-                func.js_undefined_params = read_u8(data, length, pos) != 0;
-                func.strict_mode = read_u8(data, length, pos) != 0;
-
-                // var_names
-                uint32_t var_count = read_varuint32(data, length, pos);
-                if (var_count > MAX_COUNT) {
-                    throw DeserializeError{};
-                }
-                func.var_names.resize(var_count);
-                for (uint32_t vi = 0; vi < var_count; vi++) {
-                    func.var_names[vi] = read_string(data, length, pos);
-                }
-
-                // constants
-                uint32_t const_count = read_varuint32(data, length, pos);
-                if (const_count > MAX_COUNT) {
-                    throw DeserializeError{};
-                }
-                func.constants.resize(const_count);
-                for (uint32_t ci = 0; ci < const_count; ci++) {
-                    Constant &c = func.constants[ci];
-                    c.type = static_cast<Constant::Type>(read_u8(data, length, pos));
-                    switch (c.type) {
-                        case Constant::Type::INT:
-                            // go through make_int() rather than assigning as_int directly
-                            c = Constant::make_int(read_varint(data, length, pos));
-                            break;
-                        case Constant::Type::FLOAT:
-                            c.as_float = read_f64(data, length, pos);
-                            break;
-                        case Constant::Type::STRING:
-                            c.string_idx = read_varuint32(data, length, pos);
-                            if (c.string_idx >= chunk->strings.size()) {
-                                throw DeserializeError{};
-                            }
-                            break;
-                        case Constant::Type::FUNCTION:
-                            c.func_idx = read_varuint32(data, length, pos);
-                            break;
-                        case Constant::Type::NONE:
-                            break;
-                        default:
-                            throw DeserializeError{};
-                    }
-                }
-
-                // code
-                uint32_t code_len = read_varuint32(data, length, pos);
-                // Use `code_len > length - pos` form to avoid potential
-                // size_t wrap on 32-bit hosts. The (1<<26) ceiling caps the
-                // allocation regardless.
-                if (code_len > (1u << 26) || pos > length || code_len > length - pos) {
-                    throw DeserializeError{};
-                }
-                expand_code(data + pos, code_len, func.code);
-                pos += code_len;
-            }
-
-            // type declarations (for FFI struct support)
-            if (pos < length) {
-                uint32_t type_count = read_varuint32(data, length, pos);
-                if (type_count > MAX_COUNT) {
-                    throw DeserializeError{};
-                }
-                chunk->types.resize(type_count);
-                for (uint32_t ti = 0; ti < type_count; ti++) {
-                    TypeInfo &type = chunk->types[ti];
-                    type.name = read_string(data, length, pos);
-                    type.is_union = read_u8(data, length, pos) != 0;
-                    type.alias_target = read_string(data, length, pos);
-                    uint32_t field_count = read_varuint32(data, length, pos);
-                    if (field_count > MAX_COUNT) {
-                        throw DeserializeError{};
-                    }
-                    type.fields.resize(field_count);
-                    for (uint32_t fi = 0; fi < field_count; fi++) {
-                        type.fields[fi].name = read_string(data, length, pos);
-                        type.fields[fi].type_name = read_string(data, length, pos);
-                        type.fields[fi].is_array = read_u8(data, length, pos) != 0;
-                        type.fields[fi].fixed_array_count = read_u64(data, length, pos);
-                        if (type.fields[fi].fixed_array_count > nari::MAX_FIXED_ARRAY_COUNT) {
-                            throw DeserializeError{};
-                        }
-                    }
-                }
-            }
-        } catch (const DeserializeError &) {
+        auto malformed = []() -> Chunk * {
             fprintf(stderr, "naric: malformed or truncated file\n");
-            // unique_ptr destructor will free chunk if any.
             return nullptr;
-        } catch (const std::bad_alloc &) {
-            fprintf(stderr, "naric: out of memory while deserializing\n");
+        };
+
+        // own the Chunk via unique_ptr until the end so OOM frees it automatically
+        std::unique_ptr<Chunk> chunk;
+        uint16_t version = d.u16();
+        if (!d.ok) {
+            return malformed();
+        }
+        if (version != FORMAT_VERSION) {
+            fprintf(stderr, "naric: unsupported format version %u (expected %u)\n", version, FORMAT_VERSION);
             return nullptr;
+        }
+
+        /* uint16_t flags = */ d.u16(); // reserved
+        if (!d.ok) {
+            return malformed();
+        }
+
+        chunk = std::make_unique<Chunk>();
+
+        // sanity bound for container counts to prevent huge pre-allocation from a crafted file.
+        constexpr uint32_t MAX_COUNT = 1u << 20;
+
+        // string table
+        uint32_t string_count = d.varuint32();
+        if (!d.ok || string_count > MAX_COUNT) {
+            return malformed();
+        }
+        chunk->strings.resize(string_count);
+        for (uint32_t i = 0; i < string_count; i++) {
+            chunk->strings[i] = d.str();
+            if (!d.ok) {
+                return malformed();
+            }
+        }
+
+        // function table
+        uint32_t func_count = d.varuint32();
+        if (!d.ok || func_count > MAX_COUNT) {
+            return malformed();
+        }
+        chunk->main_func_idx = d.varuint32();
+        if (!d.ok) {
+            return malformed();
+        }
+        chunk->functions.resize(func_count);
+
+        for (uint32_t fi = 0; fi < func_count; fi++) {
+            FunctionMeta &func = chunk->functions[fi];
+
+            // name
+            func.name = d.str();
+            if (!d.ok) {
+                return malformed();
+            }
+
+            // metadata
+            func.param_count = d.u8();
+            func.capture_count = d.u16();
+            func.rest_param_index = d.i8();
+            func.is_lambda = d.u8() != 0;
+            func.js_undefined_params = d.u8() != 0;
+            func.strict_mode = d.u8() != 0;
+            if (!d.ok) {
+                return malformed();
+            }
+
+            // var_names
+            uint32_t var_count = d.varuint32();
+            if (!d.ok || var_count > MAX_COUNT) {
+                return malformed();
+            }
+            func.var_names.resize(var_count);
+            for (uint32_t vi = 0; vi < var_count; vi++) {
+                func.var_names[vi] = d.str();
+                if (!d.ok) {
+                    return malformed();
+                }
+            }
+
+            // constants
+            uint32_t const_count = d.varuint32();
+            if (!d.ok || const_count > MAX_COUNT) {
+                return malformed();
+            }
+            func.constants.resize(const_count);
+            for (uint32_t ci = 0; ci < const_count; ci++) {
+                Constant &c = func.constants[ci];
+                c.type = static_cast<Constant::Type>(d.u8());
+                if (!d.ok) {
+                    return malformed();
+                }
+                switch (c.type) {
+                    case Constant::Type::INT:
+                        // go through make_int() rather than assigning as_int directly
+                        c = Constant::make_int(d.varint());
+                        break;
+                    case Constant::Type::FLOAT:
+                        c.as_float = d.f64();
+                        break;
+                    case Constant::Type::STRING:
+                        c.string_idx = d.varuint32();
+                        if (!d.ok || c.string_idx >= chunk->strings.size()) {
+                            return malformed();
+                        }
+                        break;
+                    case Constant::Type::FUNCTION:
+                        c.func_idx = d.varuint32();
+                        break;
+                    case Constant::Type::NONE:
+                        break;
+                    default:
+                        return malformed();
+                }
+                if (!d.ok) {
+                    return malformed();
+                }
+            }
+
+            // code
+            uint32_t code_len = d.varuint32();
+            // Use `code_len > length - pos` form to avoid potential
+            // size_t wrap on 32-bit hosts. The (1<<26) ceiling caps the
+            // allocation regardless.
+            if (!d.ok || code_len > (1u << 26) || d.pos > length || code_len > length - d.pos) {
+                return malformed();
+            }
+            if (!expand_code(data + d.pos, code_len, func.code)) {
+                return malformed();
+            }
+            d.pos += code_len;
+        }
+
+        // type declarations (for FFI struct support)
+        if (d.pos < length) {
+            uint32_t type_count = d.varuint32();
+            if (!d.ok || type_count > MAX_COUNT) {
+                return malformed();
+            }
+            chunk->types.resize(type_count);
+            for (uint32_t ti = 0; ti < type_count; ti++) {
+                TypeInfo &type = chunk->types[ti];
+                type.name = d.str();
+                type.is_union = d.u8() != 0;
+                type.alias_target = d.str();
+                if (!d.ok) {
+                    return malformed();
+                }
+                uint32_t field_count = d.varuint32();
+                if (!d.ok || field_count > MAX_COUNT) {
+                    return malformed();
+                }
+                type.fields.resize(field_count);
+                for (uint32_t fi = 0; fi < field_count; fi++) {
+                    type.fields[fi].name = d.str();
+                    type.fields[fi].type_name = d.str();
+                    type.fields[fi].is_array = d.u8() != 0;
+                    type.fields[fi].fixed_array_count = d.u64();
+                    if (!d.ok || type.fields[fi].fixed_array_count > nari::MAX_FIXED_ARRAY_COUNT) {
+                        return malformed();
+                    }
+                }
+            }
+            if (!d.ok) {
+                return malformed();
+            }
         }
 
         // verify every opcode's operands reference valid constants, strings, locals, functions, and jump targets.
@@ -321,7 +351,7 @@ class BytecodeSerializer {
         std::vector<uint8_t> result;
         result.reserve(code.size());
         for (size_t pc = 0; pc < code.size();) {
-            OpCode op = (OpCode)code[pc];
+            OpCode op = static_cast<OpCode>(code[pc]);
             size_t size = decoded_instruction_size(code, pc);
             if (size == 0) {
                 result.insert(result.end(), code.begin() + pc, code.end());
@@ -338,15 +368,15 @@ class BytecodeSerializer {
         return result;
     }
 
-    static void expand_code(const uint8_t *data, size_t length, ByteArray &code) {
+    static bool expand_code(const uint8_t *data, size_t length, ByteArray &code) {
         code.clear();
         code.reserve(length);
         for (size_t pc = 0; pc < length;) {
             uint8_t encoded_op = data[pc];
-            OpCode alias_op = (OpCode)(encoded_op & 0x7f);
+            OpCode alias_op = static_cast<OpCode>(encoded_op & 0x7f);
             if ((encoded_op & 0x80) != 0 && has_compact_u16_alias(alias_op)) {
                 if (pc + 2 > length || code.size() > (1u << 26) - 3) {
-                    throw DeserializeError{};
+                    return false;
                 }
                 code.push_back(static_cast<uint8_t>(alias_op));
                 code.push_back(0);
@@ -364,21 +394,22 @@ class BytecodeSerializer {
             }
             size_t size = 1 + info->operand_size;
             if (size > length - pc) {
-                throw DeserializeError{};
+                return false;
             }
             if (info->variable_size) {
                 uint16_t capture_count = (static_cast<uint16_t>(data[pc + 3]) << 8) | data[pc + 4];
                 size += static_cast<size_t>(capture_count) * 3;
                 if (size > length - pc) {
-                    throw DeserializeError{};
+                    return false;
                 }
             }
             if (code.size() > (1u << 26) - size) {
-                throw DeserializeError{};
+                return false;
             }
             code.insert(code.end(), data + pc, data + pc + size);
             pc += size;
         }
+        return true;
     }
 
     // write helpers (little-endian)
@@ -433,95 +464,108 @@ class BytecodeSerializer {
         write_bytes(buf, reinterpret_cast<const uint8_t *>(s.data()), s.size());
     }
 
-    // exception thrown when a .naric file is malformed or truncated.
-    struct DeserializeError {};
+    // No-exception decoder: every read bounds-checks and latches `ok=false`
+    // instead of throwing. Callers bail to a nullptr return on `!ok`.
+    struct Decode {
+        const uint8_t *data = nullptr;
+        size_t length = 0;
+        size_t pos = 0;
+        bool ok = true;
 
-    // read helpers (little-endian). All bounds-checked against `length`.
-    static uint8_t read_u8(const uint8_t *data, size_t length, size_t &pos) {
-        if (pos + 1 > length) {
-            throw DeserializeError{};
-        }
-        return data[pos++];
-    }
-
-    static int8_t read_i8(const uint8_t *data, size_t length, size_t &pos) {
-        if (pos + 1 > length) {
-            throw DeserializeError{};
-        }
-        return static_cast<int8_t>(data[pos++]);
-    }
-
-    static uint16_t read_u16(const uint8_t *data, size_t length, size_t &pos) {
-        if (pos + 2 > length) {
-            throw DeserializeError{};
-        }
-        uint16_t v = data[pos] | (static_cast<uint16_t>(data[pos + 1]) << 8);
-        pos += 2;
-        return v;
-    }
-
-    static uint64_t read_varuint(const uint8_t *data, size_t length, size_t &pos) {
-        uint64_t value = 0;
-        for (unsigned shift = 0; shift < 64; shift += 7) {
-            uint8_t byte = read_u8(data, length, pos);
-            if (shift == 63 && (byte & 0xfe) != 0) {
-                throw DeserializeError{};
+        uint8_t u8() {
+            if (!ok || pos + 1 > length) {
+                ok = false;
+                return 0;
             }
-            value |= static_cast<uint64_t>(byte & 0x7f) << shift;
-            if ((byte & 0x80) == 0) {
-                return value;
+            return data[pos++];
+        }
+        int8_t i8() {
+            if (!ok || pos + 1 > length) {
+                ok = false;
+                return 0;
             }
+            return static_cast<int8_t>(data[pos++]);
         }
-        throw DeserializeError{};
-    }
-
-    static uint32_t read_varuint32(const uint8_t *data, size_t length, size_t &pos) {
-        uint64_t value = read_varuint(data, length, pos);
-        if (value > UINT32_MAX) {
-            throw DeserializeError{};
+        uint16_t u16() {
+            if (!ok || pos + 2 > length) {
+                ok = false;
+                return 0;
+            }
+            uint16_t v = data[pos] | (static_cast<uint16_t>(data[pos + 1]) << 8);
+            pos += 2;
+            return v;
         }
-        return static_cast<uint32_t>(value);
-    }
-
-    static int64_t read_varint(const uint8_t *data, size_t length, size_t &pos) {
-        uint64_t zigzag = read_varuint(data, length, pos);
-        return (zigzag & 1) ? ~static_cast<int64_t>(zigzag >> 1) : static_cast<int64_t>(zigzag >> 1);
-    }
-
-    static uint64_t read_u64(const uint8_t *data, size_t length, size_t &pos) {
-        if (pos + 8 > length) {
-            throw DeserializeError{};
+        uint64_t varuint() {
+            uint64_t value = 0;
+            for (unsigned shift = 0; shift < 64; shift += 7) {
+                if (!ok || pos + 1 > length) {
+                    ok = false;
+                    return 0;
+                }
+                uint8_t byte = data[pos++];
+                if (shift == 63 && (byte & 0xfe) != 0) {
+                    ok = false;
+                    return 0;
+                }
+                value |= static_cast<uint64_t>(byte & 0x7f) << shift;
+                if ((byte & 0x80) == 0) {
+                    return value;
+                }
+            }
+            ok = false;
+            return 0;
         }
-        uint64_t v = 0;
-        for (int i = 0; i < 8; i++) {
-            v |= static_cast<uint64_t>(data[pos++]) << (i * 8);
+        uint32_t varuint32() {
+            uint64_t value = varuint();
+            if (!ok || value > UINT32_MAX) {
+                ok = false;
+                return 0;
+            }
+            return static_cast<uint32_t>(value);
         }
-        return v;
-    }
-
-    static double read_f64(const uint8_t *data, size_t length, size_t &pos) {
-        if (pos + 8 > length) {
-            throw DeserializeError{};
+        int64_t varint() {
+            uint64_t zigzag = varuint();
+            if (!ok) {
+                return 0;
+            }
+            return (zigzag & 1) ? ~static_cast<int64_t>(zigzag >> 1) : static_cast<int64_t>(zigzag >> 1);
         }
-        uint64_t u = 0;
-        for (int i = 0; i < 8; i++) {
-            u |= static_cast<uint64_t>(data[pos++]) << (i * 8);
+        uint64_t u64() {
+            if (!ok || pos + 8 > length) {
+                ok = false;
+                return 0;
+            }
+            uint64_t v = 0;
+            for (int i = 0; i < 8; i++) {
+                v |= static_cast<uint64_t>(data[pos++]) << (i * 8);
+            }
+            return v;
         }
-        double v;
-        memcpy(&v, &u, sizeof(v));
-        return v;
-    }
-
-    static std::string read_string(const uint8_t *data, size_t length, size_t &pos) {
-        uint32_t len = read_varuint32(data, length, pos);
-        // same overflow-safe formulation as the bytecode-length check.
-        if (len > (1u << 24) || pos > length || len > length - pos) {
-            throw DeserializeError{};
+        double f64() {
+            if (!ok || pos + 8 > length) {
+                ok = false;
+                return 0.0;
+            }
+            uint64_t u = 0;
+            for (int i = 0; i < 8; i++) {
+                u |= static_cast<uint64_t>(data[pos++]) << (i * 8);
+            }
+            double v = 0.0;
+            memcpy(&v, &u, sizeof(v));
+            return v;
         }
-        std::string s(reinterpret_cast<const char *>(data + pos), len);
-        pos += len;
-        return s;
-    }
+        std::string str() {
+            uint32_t len = varuint32();
+            // same overflow-safe formulation as the bytecode-length check.
+            if (!ok || len > (1u << 24) || pos > length || len > length - pos) {
+                ok = false;
+                return {};
+            }
+            std::string s(reinterpret_cast<const char *>(data + pos), len);
+            pos += len;
+            return s;
+        }
+    };
 };
 
 } // namespace bytecode

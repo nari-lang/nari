@@ -148,6 +148,7 @@ check_verifier "string idx out of range" "huge_str_idx" "name/string index out o
 check_verifier "local idx out of range" "bad_local_idx" "local variable index out of range"
 check_verifier "stack underflow" "stack_underflow" "stack underflow"
 check_verifier "jump target not boundary" "bad_jump_target" "jump target is not an instruction boundary"
+check_verifier "empty function body" "empty_code" "empty function body"
 
 echo "---"
 echo "naric robustness: $PASS passed, $FAIL failed"

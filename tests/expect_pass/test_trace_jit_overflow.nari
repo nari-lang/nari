@@ -1,0 +1,70 @@
+import { assert } from "../lib/assert.nari";
+
+func count_past_int48() {
+    let value = 140737488355300;
+    let i = 0;
+    while (i < 50) {
+        value = value + 1;
+        i = i + 1;
+    }
+    return value;
+}
+
+func count_below_int48() {
+    let value = -140737488355308;
+    let i = 0;
+    while (i < 50) {
+        value = value - 1;
+        i = i + 1;
+    }
+    return value;
+}
+
+func make_counter() {
+    let value = 140737488355300;
+    return func() {
+        value = value + 1;
+        return value;
+    };
+}
+
+func count_capture_past_int48() {
+    let counter = make_counter();
+    let i = 0;
+    while (i < 50) {
+        counter();
+        i = i + 1;
+    }
+    return counter();
+}
+
+func multiply_past_int64() {
+    let value = 2;
+    let product = 0;
+    let i = 0;
+    while (i < 30) {
+        // The left operand must survive a side exit at multiplication.
+        product = 5 + value * 16777216;
+        if (i == 20) { value = 1099511627776; }
+        i = i + 1;
+    }
+    return product;
+}
+
+func start() {
+    let local_value = count_past_int48();
+    assert(typeof(local_value) == "float", "local integer overflow must promote to float");
+    assert(local_value == 140737488355350.0, "local integer overflow changed the value");
+
+    let below_value = count_below_int48();
+    assert(typeof(below_value) == "float", "subtraction overflow must promote to float");
+    assert(below_value == -140737488355358.0, "subtraction overflow changed the value");
+
+    let captured_value = count_capture_past_int48();
+    assert(typeof(captured_value) == "float", "capture overflow must promote to float");
+    assert(captured_value == 140737488355351.0, "capture overflow changed the value");
+
+    let product = multiply_past_int64();
+    assert(typeof(product) == "float", "multiplication overflow must promote to float");
+    assert(product == 18446744073709551616.0, "multiplication overflow changed the value");
+}

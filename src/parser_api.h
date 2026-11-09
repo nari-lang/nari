@@ -8,7 +8,7 @@
 #include <unordered_set>
 #include <vector>
 
-typedef std::unordered_map<std::string, Value> ValuesList;
+using ValuesList = std::unordered_map<std::string, Value>;
 
 namespace Parser {
 
@@ -43,7 +43,7 @@ void pop_error_context();
 FuncList parse_program_from_source(const std::string &src, bool create_aggregator = true);
 
 // recovering parse: collects all errors, returns a ParseResult.
-// returned AST is partial when errors.size() > 0. 
+// returned AST is partial when errors.size() > 0.
 // statements that triggered errors are skipped and parsing resumes at the next boundary.
 ParseResult parse_program_recovering(const std::string &src, bool create_aggregator = true);
 

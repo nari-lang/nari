@@ -1,0 +1,55 @@
+import { assert } from "../lib/assert.nari";
+
+let MOD = 2147483647;
+
+func bounded_float_loop() {
+    let sum = 0.0;
+    for (let i = 0; i < 1000; i++) {
+        sum = sum + i * 1.0;
+    }
+    return sum;
+}
+
+func bounded_negative_counter() {
+    let sum = 0;
+    for (let i = -1; i <= 1; i++) {
+        sum = sum + i;
+    }
+    return sum;
+}
+
+func double_increment_after_guard() {
+    let i = 140737488355326;
+    while (i < 140737488355327) {
+        i = i + 1;
+        i = i + 1;
+    }
+    return i;
+}
+
+func bounded_product_recurrence() {
+    let x = 7;
+    for (let i = 0; i < 300; i++) {
+        x = (x * 48271) % MOD;
+    }
+    return x;
+}
+
+func start() {
+    let sum = null;
+    let negative = null;
+    let overflow = null;
+    let recurrence = null;
+    for (let rep = 0; rep < 200; rep++) {
+        sum = bounded_float_loop();
+        negative = bounded_negative_counter();
+        overflow = double_increment_after_guard();
+        recurrence = bounded_product_recurrence();
+    }
+    assert(sum == 499500.0, "bounded float loop changed value");
+    assert(negative == 0, "bounded negative counter changed value");
+    assert(typeof(overflow) == "float" && overflow == 140737488355328.0,
+           "two increments after a guard must still promote on overflow");
+    assert(typeof(recurrence) == "int" && recurrence == 1562905767,
+           "bounded product recurrence changed value");
+}
