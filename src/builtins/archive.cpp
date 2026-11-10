@@ -2,11 +2,14 @@
 
 #include "common.h"
 #include "compiler_support.h"
+#include "file_io.h"
+#include "nari_fs.h"
 
 #include <archive.h>
 #include <archive_entry.h>
 
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -48,7 +51,13 @@ int64_t opt_int(const ObjectObj *opts, const char *name, int64_t def) {
         return v->get_int();
     }
     if (v->is_float()) {
-        return static_cast<int64_t>(v->get_float());
+        double number = v->get_float();
+        // Reject invalid limits before a floating-to-integer conversion can
+        // overflow. The extraction entry point reports negative limits as Err.
+        if (!std::isfinite(number) || number < 0 || number >= 0x1p63) {
+            return -1;
+        }
+        return static_cast<int64_t>(number);
     }
     return def;
 }
@@ -94,7 +103,7 @@ const char *filetype_name(mode_t ft) {
 
 // reject anything resembling an absolute path or a parent-traversal that would let an entry escape `dest_dir`.
 bool path_is_safe(const std::string &p) {
-    if (p.empty()) {
+    if (p.empty() || p.find('\0') != std::string::npos) {
         return false;
     }
     // Absolute on POSIX.
@@ -224,6 +233,9 @@ struct FileGuard {
             std::fclose(fp);
         }
     }
+    bool close(std::error_code &error) {
+        return nari::close_file(fp, error);
+    }
     FileGuard(const FileGuard &) = delete;
     FileGuard &operator=(const FileGuard &) = delete;
 };
@@ -284,6 +296,10 @@ Value ScriptRuntime::builtin_archive_list(Value *argvals, size_t argc, const nar
         ARCHIVE_FAIL("Archive.list expects a single path string argument");
     }
     const std::string &path = argvals[0].get_string();
+    std::error_code path_error;
+    if (!nari::fs::validate_path(path, path_error)) {
+        ARCHIVE_FAIL("Archive.list: invalid path");
+    }
 
     ArchiveReadGuard guard(archive_read_new());
     if (guard.a == nullptr) {
@@ -333,6 +349,10 @@ Value ScriptRuntime::builtin_archive_extract(Value *argvals, size_t argc, const 
     }
     const std::string &archive_path = argvals[0].get_string();
     const std::string &dest_dir = argvals[1].get_string();
+    std::error_code path_error;
+    if (!nari::fs::validate_path(archive_path, path_error) || !nari::fs::validate_path(dest_dir, path_error)) {
+        ARCHIVE_FAIL("Archive.extract: invalid path");
+    }
 
     const ObjectObj *opts = nullptr;
     if (argc == 3 && argvals[2].is_object()) {
@@ -341,6 +361,9 @@ Value ScriptRuntime::builtin_archive_extract(Value *argvals, size_t argc, const 
     int64_t max_files = opt_int(opts, "max_files", kDefaultMaxFiles);
     int64_t max_bytes = opt_int(opts, "max_bytes", kDefaultMaxBytes);
     bool allow_links = opt_bool(opts, "allow_links", false);
+    if (max_files < 0 || max_bytes < 0) {
+        ARCHIVE_FAIL("Archive.extract: limits must be nonnegative");
+    }
 
     // resolve dest_dir to an absolute, canonical path so we can do
     // containment checks robustly even if the script passed a relative path.
@@ -531,6 +554,14 @@ Value ScriptRuntime::builtin_archive_extract(Value *argvals, size_t argc, const 
             continue;
         }
 
+        // Count logical size, including sparse holes, before creating a file.
+        // This both bounds sparse entries and avoids signed size overflow.
+        int64_t entry_size = archive_entry_size(entry);
+        if (entry_size < 0 || entry_size > max_bytes - bytes) {
+            ARCHIVE_FAIL("Archive.extract: uncompressed size exceeds max_bytes=" + std::to_string(max_bytes));
+        }
+        bytes += entry_size;
+
         // stream entry data to disk in chunks
         FileGuard fg(nullptr);
 #if !defined(_WIN32) && !defined(NARI_MCU) && !defined(__EMSCRIPTEN__)
@@ -571,19 +602,21 @@ Value ScriptRuntime::builtin_archive_extract(Value *argvals, size_t argc, const 
             if (rr < ARCHIVE_WARN) {
                 ARCHIVE_FAIL_LIB(guard.a, "Archive.extract");
             }
-            bytes += static_cast<int64_t>(buf_size);
-            if (bytes > max_bytes) {
-                ARCHIVE_FAIL("Archive.extract: uncompressed size exceeds max_bytes=" + std::to_string(max_bytes));
+            if (offset < 0 || offset > entry_size || buf_size > static_cast<uint64_t>(entry_size - offset)) {
+                ARCHIVE_FAIL("Archive.extract: data block exceeds entry size for '" + name + "'");
             }
             // libarchive can emit sparse blocks at non-zero offsets
-            if (std::fseek(fg.fp, static_cast<long>(offset), SEEK_SET) != 0) {
-                ARCHIVE_FAIL(std::string("Archive.extract: fseek failed on '") + target.string() + "': " + std::strerror(errno));
+            if (!nari::seek_file(fg.fp, offset, err)) {
+                ARCHIVE_FAIL(std::string("Archive.extract: seek failed on '") + target.string() + "': " + err.message());
             }
             if (std::fwrite(buf, 1, buf_size, fg.fp) != buf_size) {
                 ARCHIVE_FAIL(std::string("Archive.extract: write failed on '") + target.string() + "': " + std::strerror(errno));
             }
         }
-        // fg destructor closes fp here
+        // Sparse files may end with a hole and contain no final data block.
+        if (!nari::resize_file(fg.fp, entry_size, err)) {
+            ARCHIVE_FAIL("Archive.extract: resize failed on '" + target.string() + "': " + err.message());
+        }
 
         // apply the entry's permission bits, masked. we don't honour setuid / setgid / sticky from an archive
         mode_t perm = archive_entry_perm(entry) & 0777;
@@ -597,6 +630,9 @@ Value ScriptRuntime::builtin_archive_extract(Value *argvals, size_t argc, const 
         stdfs::permissions(target, (stdfs::perms)perm, stdfs::perm_options::replace, pec);
 #endif
         // permission setting is best-effort, failure can be ignored
+        if (!fg.close(err)) {
+            ARCHIVE_FAIL("Archive.extract: close failed on '" + target.string() + "': " + err.message());
+        }
         extracted_files.insert(relative_name);
     }
 
@@ -614,12 +650,32 @@ Value ScriptRuntime::builtin_archive_create(Value *argvals, size_t argc, const n
     }
     const std::string &archive_path = argvals[0].get_string();
     const Array &files = argvals[1].get_array();
+    std::error_code path_error;
+    if (!nari::fs::validate_path(archive_path, path_error)) {
+        ARCHIVE_FAIL("Archive.create: invalid archive path");
+    }
 
     const ObjectObj *opts = nullptr;
     if (argc == 3 && argvals[2].is_object()) {
         opts = argvals[2].get_obj_ptr();
     }
     std::string base_dir = opt_string(opts, "base_dir");
+    if (!nari::fs::validate_path(base_dir, path_error)) {
+        ARCHIVE_FAIL("Archive.create: invalid base_dir");
+    }
+    // Validate the complete source list before opening/truncating the output.
+    for (const auto &item : files) {
+        const Value *source = item.is_string() ? &item : item.is_object() ? item.get_obj_ptr()->get_field("src") : nullptr;
+        if (source && source->is_string() && !nari::fs::validate_path(source->get_string(), path_error)) {
+            ARCHIVE_FAIL("Archive.create: invalid source path");
+        }
+        if (item.is_object()) {
+            const Value *dest = item.get_obj_ptr()->get_field("dest");
+            if (dest && dest->is_string() && !nari::fs::validate_path(dest->get_string(), path_error)) {
+                ARCHIVE_FAIL("Archive.create: invalid entry name");
+            }
+        }
+    }
 
     std::string format;
     std::string filter;

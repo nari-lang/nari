@@ -75,6 +75,8 @@
     X("__fs_appendFile", builtin_fs_appendFile)                                                                                            \
     X("__fs_fileExists", builtin_fs_fileExists)                                                                                            \
     X("__fs_isDirectory", builtin_fs_isDirectory)                                                                                          \
+    X("__fs_isSymlink", builtin_fs_isSymlink)                                                                                              \
+    X("__fs_rename", builtin_fs_rename)                                                                                                    \
     X("__fs_mkdirAll", builtin_fs_mkdirAll)                                                                                                \
     X("__fs_deleteFile", builtin_fs_deleteFile)                                                                                            \
     X("__fs_listDir", builtin_fs_listDir)                                                                                                  \

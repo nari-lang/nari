@@ -1,0 +1,42 @@
+// Repeated accepts and nested awaits must preserve handles and closures
+// across GC. The final panic verifies teardown with a live accept pending.
+let probe = net.listen(0).await.unwrap();
+let port = probe.port;
+net.close_server(probe);
+func make_handler() {
+    let count = 0;
+    return func(conn) {
+        count = count + 1;
+        if (conn.read == null || conn.write == null || conn.close == null) {
+            panic("missing create_server connection methods");
+        }
+        __gc_collect();
+        net.write(conn, "greeting " + count).await.unwrap();
+        net.close(conn);
+    };
+}
+net.create_server(port, make_handler());
+__gc_collect();
+let i = 1;
+while (i <= 2) {
+    let client = null;
+    let attempts = 0;
+    while (client == null && attempts < 100) {
+        let result = net.connect("localhost", port).await;
+        if (result.is_ok()) { client = result.unwrap(); }
+        attempts = attempts + 1;
+        yield();
+    }
+    if (client == null) { panic("server did not start"); }
+    let reply = null;
+    net.read(client, func(err, data) {
+        if (err != null) { panic("server reply failed: " + err); }
+        reply = data;
+    });
+    while (reply == null) { yield(); }
+    if (reply != "greeting " + i) { panic("wrong server reply: " + reply); }
+    net.close(client);
+    i = i + 1;
+}
+print("server handler and GC checks passed");
+panic("expected teardown after server checks");

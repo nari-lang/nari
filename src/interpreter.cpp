@@ -14,6 +14,7 @@
 #include "bytecode.h"
 #include "bytecode_serializer.h"
 #include "dap/dap_server.h"
+#include "file_io.h"
 #include "parser_api.h"
 
 #include "fmt/fmt_cli.h"
@@ -44,26 +45,6 @@ static void signal_handler(int signum) {
     Runtime::g_shutdown_requested.store(true);
 }
 #endif
-
-static std::string read_file_to_string(const std::string &path) {
-    FILE *fp = fopen(path.c_str(), "rb");
-    if (!fp) {
-        return {};
-    }
-
-    fseek(fp, 0, SEEK_END);
-    long file_size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    std::string result;
-    if (file_size > 0) {
-        result.resize(file_size);
-        size_t bytes_read = fread(&result[0], 1, file_size, fp);
-        result.resize(bytes_read);
-    }
-    fclose(fp);
-    return result;
-}
 
 // merge a pre-compiled naric module chunk into the destination chunk, requires the parser for obvious reasons :)
 static bool merge_naric_into_chunk(nari::bytecode::Chunk *dest, nari::bytecode::Chunk *src, const std::string &module_main_name) {
@@ -459,9 +440,14 @@ int main(int argc, char **argv) {
 #endif
 
 
-    std::string src = read_file_to_string(path);
+    std::string src;
+    std::error_code file_error;
+    if (!nari::read_file(path, src, file_error)) {
+        fprintf(stderr, "Failed to read script file '%s': %s\n", path.c_str(), file_error.message().c_str());
+        return ERROR_READING_FILE;
+    }
     if (src.empty()) {
-        fprintf(stderr, "Failed to read script file or file is empty: %s\n", path.c_str());
+        fprintf(stderr, "Script file is empty: %s\n", path.c_str());
         return ERROR_READING_FILE;
     }
 
@@ -567,10 +553,11 @@ int main(int argc, char **argv) {
         if (!is_naric) {
             const auto &naric_imports = Parser::get_pending_naric_imports();
             for (const auto &[init_name, module_path] : naric_imports) {
-                std::string module_src = read_file_to_string(module_path);
-                if (module_src.empty()) {
-                    fprintf(stderr, "Failed to read naric module: %s\n", module_path.c_str());
-                    continue;
+                std::string module_src;
+                if (!nari::read_file(module_path, module_src, file_error)) {
+                    fprintf(stderr, "Failed to read naric module '%s': %s\n", module_path.c_str(), file_error.message().c_str());
+                    Parser::clear_pending_naric_imports();
+                    return ERROR_READING_FILE;
                 }
                 auto bc_data = reinterpret_cast<const uint8_t *>(module_src.data());
                 std::unique_ptr<nari::bytecode::Chunk> mod_chunk(
@@ -578,7 +565,8 @@ int main(int argc, char **argv) {
                 );
                 if (!mod_chunk) {
                     fprintf(stderr, "Failed to deserialize naric module: %s\n", module_path.c_str());
-                    continue;
+                    Parser::clear_pending_naric_imports();
+                    return ERROR_BYTECODE_COMPILATION;
                 }
                 for (const auto &ti : mod_chunk->types) {
                     if (Parser::is_registered_type(ti.name)) {

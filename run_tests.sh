@@ -55,109 +55,7 @@ if [ ! -x "$INTERP" ]; then
     exit 2
 fi
 
-# npkg tests depend on the workspace/npkg tree, which is not committed, so they
-# are excluded here (they fail in CI with unresolved imports otherwise).
-echo "Running success tests with $INTERP..."
-SUCCESS_TESTS=()
-while IFS= read -r _t; do SUCCESS_TESTS+=("$_t"); done < <(find tests/expect_pass -name "*.nari" -not -name "*npkg*" | sort)
-
-# SKIP_NETWORK_TESTS=1 drops tests that reach external hosts (which are flaky in CI).
-# Socket tests cannot run in restricted environments.
-NETWORK_TESTS=("tests/expect_pass/test_spawn_methods.nari" "tests/expect_pass/test_stdlib_net.nari")
-if [ "${SKIP_NETWORK_TESTS:-0}" = "1" ]; then
-    echo "SKIP_NETWORK_TESTS=1 set; excluding network-dependent tests"
-    FILTERED=()
-    for t in "${SUCCESS_TESTS[@]}"; do
-        skip=0
-        for n in "${NETWORK_TESTS[@]}"; do
-            if [ "$t" = "$n" ]; then skip=1; break; fi
-        done
-        if [ "$skip" -eq 0 ]; then FILTERED+=("$t"); fi
-    done
-    SUCCESS_TESTS=("${FILTERED[@]}")
-fi
-
-PASSED_TESTS=0
-FAILED_TESTS=0
-FAILED_LIST=()
-
-# Per-test timeout. Most tests finish in well under a second, 
-# but a few (e.g. tests/expect_pass/test_spawn_methods.nari) can run for longer, since it uses real endpoints
-TEST_TIMEOUT="${TEST_TIMEOUT:-30}"
-
-TIMEOUT_PREFIX=""
-if command -v timeout >/dev/null 2>&1; then
-    TIMEOUT_PREFIX="timeout $TEST_TIMEOUT"
-elif command -v gtimeout >/dev/null 2>&1; then
-    TIMEOUT_PREFIX="gtimeout $TEST_TIMEOUT"
-else
-    echo "Warning: no 'timeout'/'gtimeout'; running without a per-test timeout (try: brew install coreutils)" >&2
-fi
-
-for t in "${SUCCESS_TESTS[@]}"; do
-    if [[ -f "$t" ]]; then
-        echo "[expected_ok] $t"
-        if $TIMEOUT_PREFIX "$INTERP" ${FLAGS[@]+"${FLAGS[@]}"} "$t"; then
-            ((PASSED_TESTS += 1))
-        else
-            exit_code=$?
-            if [ "$exit_code" -eq 124 ]; then
-                echo "[timeout] $t (killed after ${TEST_TIMEOUT}s)" >&2
-            else
-                echo "[fail] $t" >&2
-            fi
-            FAILED_LIST+=("$t")
-            ((FAILED_TESTS += 1))
-        fi
-    else
-        echo "[skip] $t (missing)"
-    fi
-done
-
-echo "Running expected-failure tests..."
-FAIL_TESTS=()
-while IFS= read -r _t; do FAIL_TESTS+=("$_t"); done < <(find tests/expect_fail -name "*.nari" | sort)
-
-for t in "${FAIL_TESTS[@]}"; do
-    if [[ -f "$t" ]]; then
-        echo "[expected_fail] $t"
-        set +e
-        output="$($TIMEOUT_PREFIX "$INTERP" ${FLAGS[@]+"${FLAGS[@]}"} "$t" 2>&1)"
-        exit_code=$?
-        set -e
-        printf '%s\n' "$output"
-        if [ "$exit_code" -eq 0 ]; then
-            echo "Unexpected success for $t" >&2
-            FAILED_LIST+=("$t")
-            ((FAILED_TESTS += 1))
-        elif [ "$exit_code" -eq 124 ]; then
-            echo "[timeout] $t (killed after ${TEST_TIMEOUT}s)" >&2
-            FAILED_LIST+=("$t")
-            ((FAILED_TESTS += 1))
-        elif [ "$exit_code" -ge 128 ]; then
-            echo "[signal] $t terminated with exit code $exit_code" >&2
-            FAILED_LIST+=("$t")
-            ((FAILED_TESTS += 1))
-        elif [[ "$output" == *"execution continued after"* ]]; then
-            echo "[continued] $t executed after its fatal runtime error" >&2
-            FAILED_LIST+=("$t")
-            ((FAILED_TESTS += 1))
-        else
-            ((PASSED_TESTS += 1))
-        fi
-    else
-        echo "[skip] $t (missing)"
-    fi
-done
-
-echo "Passed tests: $PASSED_TESTS / $(( ${#SUCCESS_TESTS[@]} + ${#FAIL_TESTS[@]} ))"
-if (( FAILED_TESTS > 0 )); then
-    echo "Failed tests: ${FAILED_TESTS}" >&2
-    for t in "${FAILED_LIST[@]}"; do
-        echo " - $t" >&2
-    done
-    exit 1
-fi
+python3 tools/run_language_tests.py --interpreter "$INTERP"
 
 echo "Running FFI bindgen union tests..."
 if ! NARI="$INTERP" bash tests/ffi_bindgen_union.sh; then
@@ -165,18 +63,26 @@ if ! NARI="$INTERP" bash tests/ffi_bindgen_union.sh; then
     exit 1
 fi
 
-# Shell-level suites that can't be expressed as .nari files
+# Additional tests that need shell or Python
 EXTRA_SUITES=(
+    "tests/file_io_errors.sh"
     "tests/trace_jit_execution.sh"
     "tests/naric_robustness.sh"
-    "tests/archive_extract_security.sh"
+    "tests/archive_extract_security.py"
+    "tests/archive_io.py"
+    "tests/package_store_resolution.py"
     "tests/interrupt_shutdown.sh"
 )
 
 for suite in "${EXTRA_SUITES[@]}"; do
     if [ -x "$suite" ] || [ -f "$suite" ]; then
         echo "Running $suite..."
-        if ! INTERP="$INTERP" NARIC="$NARIC" LSP="$LSP" bash "$suite"; then
+        case "$suite" in
+            *.py) suite_command=(python3 "$suite" --interpreter "$INTERP") ;;
+            *.sh) suite_command=(bash "$suite") ;;
+            *) echo "Unsupported test suite: $suite" >&2; exit 2 ;;
+        esac
+        if ! INTERP="$INTERP" NARIC="$NARIC" LSP="$LSP" "${suite_command[@]}"; then
             echo "[fail] $suite" >&2
             exit 1
         fi

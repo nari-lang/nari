@@ -1,7 +1,16 @@
 #pragma once
 
-// Platform sleep/socket shims, extracted verbatim from io.h.
-// Included by io.h; do not include directly.
+// Platform sleep/socket shims shared by the I/O operation and worker headers.
+
+#include <cerrno>
+#include <cstring>
+#include <string>
+#include <system_error>
+
+#ifndef NO_THREADS
+#include <chrono>
+#include <thread>
+#endif
 
 #ifdef NO_THREADS
 #ifdef NARI_MCU
@@ -69,7 +78,6 @@ typedef SSIZE_T ssize_t;
 #define _SSIZE_T_DEFINED
 #endif
 #define close _close
-#define poll WSAPoll
 #define NARI_CLOSE_SOCKET(fd) ::closesocket(static_cast<SOCKET>(fd))
 using nari_socket_t = SOCKET;
 #define NARI_INVALID_SOCKET INVALID_SOCKET
@@ -93,4 +101,65 @@ using nari_socket_t = int;
 #define NARI_CLOSE_SOCKET(fd) ::close(fd)
 using nari_socket_t = int;
 #define NARI_INVALID_SOCKET (-1)
+#endif
+
+#if !defined(NO_THREADS) && !defined(DISABLE_HTTP)
+inline int nari_socket_error() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+inline std::string nari_socket_error_message(int error = nari_socket_error()) {
+#ifdef _WIN32
+    return std::system_category().message(error);
+#else
+    return std::strerror(error);
+#endif
+}
+
+inline bool nari_socket_interrupted(int error) {
+#ifdef _WIN32
+    return error == WSAEINTR;
+#else
+    return error == EINTR;
+#endif
+}
+
+inline bool nari_socket_would_block(int error) {
+#ifdef _WIN32
+    return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS;
+#else
+    return error == EAGAIN || error == EWOULDBLOCK || error == EINPROGRESS;
+#endif
+}
+
+// Readiness is only advisory: a second operation can consume it before recv or
+// accept runs. Nonblocking sockets let workers retry and observe shutdown.
+inline bool nari_prepare_socket(nari_socket_t fd) {
+#ifdef _WIN32
+    u_long mode = 1;
+    return ioctlsocket(fd, FIONBIO, &mode) == 0;
+#else
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+        return false;
+    }
+#ifdef SO_NOSIGPIPE
+    int enabled = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) < 0) {
+        return false;
+    }
+#endif
+    return true;
+#endif
+}
+
+#ifdef MSG_NOSIGNAL
+inline constexpr int nari_socket_send_flags = MSG_NOSIGNAL;
+#else
+inline constexpr int nari_socket_send_flags = 0;
+#endif
 #endif

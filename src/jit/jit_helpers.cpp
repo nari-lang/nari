@@ -1,10 +1,10 @@
 #ifndef DISABLE_JIT
 #include "jit_helpers.h"
-#include "runtime/session.h"
 #include "compiler_support.h"
 #include "int_overflow.h"
 #include "io.h"
 #include "parser_api.h"
+#include "runtime/session.h"
 #include "stl_layout.h"
 #include <cerrno>
 #include <chrono>
@@ -93,7 +93,7 @@ void jit_poll_shutdown(VM *vm) {
 }
 
 // Push an immediate int/float. Used by the optimizing-IR lowering, whose IConst/
-// FConst carry the value directly (not a constant-pool index). 
+// FConst carry the value directly (not a constant-pool index).
 void jit_push_int(VM *vm, int64_t v) {
     vm->push(Value::make_int_checked(v));
 }
@@ -267,7 +267,7 @@ void jit_pow(VM *vm) {
         if (overflowed) {
             a.set_float(std::pow(a.as_number(), b.as_number()));
         } else {
-            a.set_int(result);
+            a.set_int_checked(result);
         }
     } else {
         a.set_float(std::pow(a.as_number(), b.as_number()));
@@ -1206,7 +1206,7 @@ static void jit_call_value_impl(VM *vm, uint32_t argc, uint32_t callee_label_idx
 
     if (fidx >= 0) {
         FunctionMeta *func = fd.jit_meta ? fd.jit_meta : &vm->chunk->functions[static_cast<uint32_t>(fidx)];
-        // Read the three call-shape scalars from FunctionData when it has them, 
+        // Read the three call-shape scalars from FunctionData when it has them,
         // so this path never dereferences FunctionMeta's second cache line
         const bool meta_cached = fd.jit_meta != nullptr;
         // Rest arguments must be packed before entering the callee. The
@@ -1315,7 +1315,7 @@ uint64_t jit_string_char_code_at(void *string_obj, int64_t index) {
     return Value::make_int(code).raw_bits();
 }
 
-// __js_str_code_point_at(s, i). 
+// __js_str_code_point_at(s, i).
 // char_code_at is byte-based here, so every code unit is 0..255
 // and the scripted helper's surrogate-pair branches are unreachable
 uint64_t jit_string_code_point_at(void *vmp, void *string_obj, int64_t index) {
@@ -1925,7 +1925,7 @@ void jit_make_closure(VM *vm, void *site_ptr) {
 
     Value closure = Value::make_function(func->name);
     auto &function = closure.get_function();
-    
+
     function.captures = std::move(captures);
     function.cache_jit_captures();
     function.jit_func_idx = static_cast<int32_t>(func_idx);
@@ -1941,7 +1941,7 @@ void jit_make_closure(VM *vm, void *site_ptr) {
 }
 
 void jit_make_object(VM *vm, uint32_t size) {
-    // collect pairs in insertion order (stack: `[key0, val0, ..., keyN, valN]` with valN on top) 
+    // collect pairs in insertion order (stack: `[key0, val0, ..., keyN, valN]` with valN on top)
     std::vector<std::pair<std::string, Value>> pairs(size);
     for (int i = static_cast<int>(size) - 1; i >= 0; i--) {
         pairs[i].second = vm->pop();
@@ -2155,11 +2155,21 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
         if (!handle) {
             vm->push(Value::none());
         } else if (name == "await") {
-            while (handle->state == HandleData::Running) {
-                vm->process_completed_io_for_jit();
-                if (handle->state == HandleData::Running) {
-                    NARI_SLEEP_MILLIS(1);
+            {
+                ScriptRuntime::GcTempRoot root(*vm->runtime);
+                root.add(&obj);
+                while (handle->state == HandleData::Running && !Runtime::g_shutdown_requested.load()) {
+                    vm->process_completed_io_for_jit();
+                    if (handle->state == HandleData::Running) {
+                        NARI_SLEEP_MILLIS(1);
+                    }
                 }
+            }
+            // Drop temporary GC roots before the shutdown jump unwinds C++.
+            jit_poll_shutdown(vm);
+            if (Runtime::g_shutdown_requested.load()) {
+                vm->push(Value::none());
+                return;
             }
             if (handle->state == HandleData::Failed) {
                 bool caught = vm->dispatch_throw(handle->error);
@@ -2171,7 +2181,11 @@ void jit_get_property(VM *vm, uint32_t name_idx) {
                 vm->push(handle->result);
             }
         } else if (name == "ready") {
-            vm->process_completed_io_for_jit();
+            {
+                ScriptRuntime::GcTempRoot root(*vm->runtime);
+                root.add(&obj);
+                vm->process_completed_io_for_jit();
+            }
             vm->push(Value::make_bool(handle->state != HandleData::Running));
         } else if (name == "failed") {
             vm->push(Value::make_bool(handle->state == HandleData::Failed));

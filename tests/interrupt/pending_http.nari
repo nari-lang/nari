@@ -1,0 +1,8 @@
+// The local server accepts a connection but never responds. Awaiting HTTP
+// must still observe SIGINT, and destruction must cancel the transfer.
+let server = net.listen(0).await.unwrap();
+let accept_handle = net.accept(server);
+let response = http.fetch("http://127.0.0.1:" + server.port + "/stall");
+let connection = accept_handle.await.unwrap();
+response.await;
+panic("execution continued after interrupting HTTP await");

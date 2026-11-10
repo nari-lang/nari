@@ -1,0 +1,76 @@
+// Idle socket operations must leave file work, timers, and other sockets free
+// to make progress. More than four waits reproduced the old worker deadlock.
+let servers = [];
+let accepts = [];
+let udp_sockets = [];
+let receives = [];
+let i = 0;
+while (i < 8) {
+    let server = net.listen(0).await.unwrap();
+    servers.push(server);
+    accepts.push(net.accept(server));
+    let socket = net.udp_socket(0).await.unwrap();
+    udp_sockets.push(socket);
+    receives.push(net.udp_recv(socket));
+    i = i + 1;
+}
+if (!fs.exists("meson.build").await) { panic("file I/O did not progress with idle sockets"); }
+let timer_fired = false;
+set_timeout(func() { timer_fired = true; }, 0);
+while (!timer_fired) { yield(); }
+
+let client = net.connect("localhost", servers[0].port).await.unwrap();
+let peer = accepts[0].await.unwrap();
+let message = null;
+net.read(peer, func(err, data) {
+    if (err != null) { panic("multiplexed read failed: " + err); }
+    message = data;
+});
+net.write(client, "socket progress").await.unwrap();
+while (message == null) { yield(); }
+if (message != "socket progress") { panic("multiplexed TCP payload changed"); }
+net.close(client);
+net.close(peer);
+net.udp_send(udp_sockets[1], "localhost", udp_sockets[0].port, "udp progress").await.unwrap();
+if (receives[0].await.unwrap().data != "udp progress") { panic("multiplexed UDP payload changed"); }
+i = 0;
+while (i < 8) {
+    net.close_server(servers[i]);
+    net.udp_close(udp_sockets[i]);
+    i = i + 1;
+}
+print("socket and file multiplexing: ok");
+
+// Hold eight HTTP responses open, then serve a ninth request from this same runtime. 
+// A transfer waiting for a server must not occupy a file/socket worker.
+let web = net.listen(0).await.unwrap();
+let url = "http://127.0.0.1:" + web.port;
+let stalled = [];
+let stalled_connections = [];
+i = 0;
+while (i < 8) {
+    let pending_accept = net.accept(web);
+    stalled.push(http.fetch(url + "/stall"));
+    stalled_connections.push(pending_accept.await.unwrap());
+    i = i + 1;
+}
+if (!fs.exists("meson.build").await) { panic("HTTP transfers starved file I/O"); }
+let pending_fast_accept = net.accept(web);
+let fast = http.fetch(url + "/ok");
+let fast_connection = pending_fast_accept.await.unwrap();
+let request = null;
+net.read(fast_connection, func(err, data) {
+    if (err != null) { panic("HTTP request read failed: " + err); }
+    request = data;
+});
+while (request == null) { yield(); }
+net.write(fast_connection, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\nX-Nari: loopback\r\n\r\nok").await.unwrap();
+net.close(fast_connection);
+set_timeout(func() { __gc_collect(); }, 0);
+let response = fast.await.unwrap();
+if (response.status_code != 200 || response.body != "ok" || response.headers["X-Nari"] != "loopback") {
+    panic("HTTP response changed while multiplexing transfers");
+}
+print("HTTP multiplexing: ok");
+// Leave the stalled transfers pending. Normal runtime destruction must cancel
+// them without waiting for a server response or invoking script callbacks.

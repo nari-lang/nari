@@ -1,0 +1,4 @@
+// Shutdown must cancel timers rather than waiting for the entire delay.
+set_timeout(func() {
+    panic("timeout fired after shutdown");
+}, 60000);

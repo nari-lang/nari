@@ -149,6 +149,11 @@ Value ScriptRuntime::builtin_process_exit(Value *argvals, size_t argc, const nar
     if (argc >= 1 && argvals[0].is_int()) {
         exit_code = static_cast<int>(argvals[0].get_int());
     }
+    // Stop native file work before flushing CRT streams. A pending writer may
+    // hold a stream lock, and _exit bypasses both destructors and atexit hooks.
+    if (io_pool) {
+        io_pool->shutdown();
+    }
     if (external_before_exit) {
         external_before_exit();
     }

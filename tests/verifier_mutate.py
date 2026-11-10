@@ -9,12 +9,12 @@ Usage:
     verifier_mutate.py <in.naric> <out.naric> <mutation>
 
 Mutations:
-    bad_opcode      write 0xFE (unknown opcode) at start of first function
-    huge_const_idx  write OP_LOAD_CONST (0) + operand 0xFFFF
-    huge_str_idx    write OP_LOAD_GLOBAL (3) + operand 0xFFFF
-    bad_local_idx   write OP_LOAD_VAR (1) + operand 0xFFFF
-    stack_underflow write OP_POP at function entry
-    bad_jump_target write OP_JUMP to the middle of its own operand
+    bad_opcode       write 0xFE (unknown opcode) at start of first function
+    huge_const_idx   write OP_LOAD_CONST (0) + operand 0xFFFF
+    huge_str_idx     write OP_LOAD_GLOBAL (3) + operand 0xFFFF
+    bad_local_idx    write OP_LOAD_VAR (1) + operand 0xFFFF
+    stack_underflow  write OP_POP at function entry
+    bad_jump_target  write OP_JUMP to the middle of its own operand
     short_compact    replace the first function body with a compact alias missing its operand
     empty_code       replace the first function body with an empty instruction stream
 
@@ -23,7 +23,6 @@ stay in sync with it.
 """
 import struct
 import sys
-
 
 OP_LOAD_CONST = 0
 OP_LOAD_VAR = 1

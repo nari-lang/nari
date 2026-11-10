@@ -314,17 +314,17 @@ struct JsonDirectParser {
         if (!is_float && have_digit && !int_overflow) {
             if (negative) {
                 if (magnitude == uint64_t(INT64_MAX) + 1) {
-                    return Value::make_int(INT64_MIN);
+                    return Value::make_int_checked(INT64_MIN);
                 }
-                return Value::make_int(-static_cast<int64_t>(magnitude));
+                return Value::make_int_checked(-static_cast<int64_t>(magnitude));
             }
-            return Value::make_int(static_cast<int64_t>(magnitude));
+            return Value::make_int_checked(static_cast<int64_t>(magnitude));
         }
         if (!is_float) {
             int64_t iv = 0;
             auto [ptr, ec] = std::from_chars(start, p, iv);
             if (ec == std::errc() && ptr == p) {
-                return Value::make_int(iv);
+                return Value::make_int_checked(iv);
             }
         }
         std::string num(start, static_cast<size_t>(p - start));
@@ -342,7 +342,7 @@ struct JsonDirectParser {
             // out of int64 range: fall back to double like nlohmann does
             return Value::make_float(std::strtod(num.c_str(), nullptr));
         }
-        return Value::make_int(static_cast<int64_t>(iv));
+        return Value::make_int_checked(static_cast<int64_t>(iv));
     }
 
     Value parse_array() {

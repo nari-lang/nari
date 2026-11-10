@@ -9,39 +9,11 @@
 #include "ast.h"
 #include "bytecode.h"
 #include "bytecode_serializer.h"
+#include "file_io.h"
 #include "parser_api.h"
 
 // embedded stdlib
 extern std::string nari_std_prelude_source();
-
-static std::string read_file_to_string(const std::string &path) {
-    FILE *f = fopen(path.c_str(), "rb");
-    if (!f) {
-        return {};
-    }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz <= 0) {
-        fclose(f);
-        return {};
-    }
-    std::string buf(static_cast<size_t>(sz), '\0');
-    size_t n = fread(&buf[0], 1, static_cast<size_t>(sz), f);
-    fclose(f);
-    buf.resize(n);
-    return buf;
-}
-
-static bool write_file(const std::string &path, const uint8_t *data, size_t size) {
-    FILE *f = fopen(path.c_str(), "wb");
-    if (!f) {
-        return false;
-    }
-    size_t n = fwrite(data, 1, size, f);
-    fclose(f);
-    return n == size;
-}
 
 static void print_usage(const char *prog) {
     fprintf(stderr, "naric - Nari bytecode compiler\n\n");
@@ -96,9 +68,14 @@ int main(int argc, char **argv) {
         output_path += ".naric";
     }
 
-    std::string src = read_file_to_string(input_path);
+    std::string src;
+    std::error_code file_error;
+    if (!nari::read_file(input_path, src, file_error)) {
+        fprintf(stderr, "Error: failed to read '%s': %s\n", input_path.c_str(), file_error.message().c_str());
+        return 2;
+    }
     if (src.empty()) {
-        fprintf(stderr, "Error: failed to read '%s' (or file is empty)\n", input_path.c_str());
+        fprintf(stderr, "Error: input file is empty: '%s'\n", input_path.c_str());
         return 2;
     }
 
@@ -146,8 +123,8 @@ int main(int argc, char **argv) {
 
     auto bytes = nari::bytecode::BytecodeSerializer::serialize(*chunk);
 
-    if (!write_file(output_path, bytes.data(), bytes.size())) {
-        fprintf(stderr, "Error: failed to write '%s'\n", output_path.c_str());
+    if (!nari::write_file(output_path, bytes.data(), bytes.size(), file_error)) {
+        fprintf(stderr, "Error: failed to write '%s': %s\n", output_path.c_str(), file_error.message().c_str());
         return 5;
     }
 

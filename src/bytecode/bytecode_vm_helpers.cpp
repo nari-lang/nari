@@ -8,9 +8,9 @@
 #include "parser_api.h"
 #include "runtime.h"
 #ifndef DISABLE_JIT
+#include "jit/runtime/session.h"
 #include "jit_helpers.h"
 #include "jit_tls.h"
-#include "jit/runtime/session.h"
 #endif
 #include <algorithm>
 #include <cassert>
@@ -78,8 +78,8 @@ Value VM::jit_lookup_object_property(ObjectObj *oobj, uint16_t name_idx) {
     return value ? *value : Value::none();
 }
 
-void VM::run_timer_loop() {
-    while (runtime->has_pending_timers() && !has_error && !Runtime::g_shutdown_requested.load() &&
+void VM::run_event_loop() {
+    while (runtime->has_pending_events() && !has_error && !Runtime::g_shutdown_requested.load() &&
            !Runtime::g_runtime_error_occurred.load()) {
         runtime->process_completed_io(); // set_timeout completions
         runtime->fire_due_intervals();   // set_interval deadlines

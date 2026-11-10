@@ -8,8 +8,8 @@
 #include "parser_api.h"
 #include "runtime.h"
 #ifndef DISABLE_JIT
-#include "jit_helpers.h"
 #include "jit/runtime/session.h"
+#include "jit_helpers.h"
 #endif
 #include <algorithm>
 #include <cassert>
@@ -286,7 +286,7 @@ bool VM::execute_instruction() {
                     if (overflowed) {
                         a.set_float(std::pow(a.as_number(), b.as_number()));
                     } else {
-                        a.set_int(result);
+                        a.set_int_checked(result);
                     }
                 } else {
                     a.set_float(std::pow(a.as_number(), b.as_number()));
@@ -574,8 +574,7 @@ bool VM::execute_instruction() {
                 int16_t offset = read_signed_short();
 #ifndef DISABLE_JIT
                 if (offset < 0 && jit_session &&
-                    jit_session->on_backedge(*this, insn_pc, static_cast<size_t>((ip() + offset) - code_data_ptr),
-                                             trace_was_recording)) {
+                    jit_session->on_backedge(*this, insn_pc, static_cast<size_t>((ip() + offset) - code_data_ptr), trace_was_recording)) {
                     break;
                 }
 #endif
@@ -1267,12 +1266,20 @@ bool VM::execute_instruction() {
                         if (!handle) {
                             VM::push(Value::none());
                         } else if (name == "await") {
-                            // wait for handle to complete
-                            while (handle->state == HandleData::Running) {
-                                runtime->process_completed_io();
-                                if (handle->state == HandleData::Running) {
-                                    NARI_SLEEP_MILLIS(1);
+                            // obj has been popped from the VM stack. Keep it
+                            // rooted while callbacks can re-enter the GC.
+                            {
+                                ScriptRuntime::GcTempRoot root(*runtime);
+                                root.add(&obj);
+                                while (handle->state == HandleData::Running && !Runtime::g_shutdown_requested.load()) {
+                                    runtime->process_completed_io();
+                                    if (handle->state == HandleData::Running) {
+                                        NARI_SLEEP_MILLIS(1);
+                                    }
                                 }
+                            }
+                            if (Runtime::g_shutdown_requested.load()) {
+                                return false;
                             }
                             if (handle->state == HandleData::Failed) {
                                 // throw the error
@@ -1299,7 +1306,11 @@ bool VM::execute_instruction() {
                                 VM::push(handle->result);
                             }
                         } else if (name == "ready") {
-                            runtime->process_completed_io();
+                            {
+                                ScriptRuntime::GcTempRoot root(*runtime);
+                                root.add(&obj);
+                                runtime->process_completed_io();
+                            }
                             VM::push(Value::make_bool(handle->state != HandleData::Running));
                         } else if (name == "failed") {
                             VM::push(Value::make_bool(handle->state == HandleData::Failed));
@@ -2146,7 +2157,7 @@ bool VM::run(Chunk *compiled_chunk) {
         }
     }
 
-    run_timer_loop();
+    run_event_loop();
 
     return !has_error;
 }

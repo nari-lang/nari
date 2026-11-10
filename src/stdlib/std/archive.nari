@@ -14,6 +14,7 @@ export let Archive = {
 
     // Archive.extract(archive_path, dest_dir, opts?) -> Result<{ files, bytes }, string>
     // opts: { max_files?: int=10000, max_bytes?: int=1<<30, allow_links?: bool=false }
+    // max_bytes and returned bytes count logical file sizes, including sparse holes.
     // Rejects entries with absolute or escaping paths, and links
     // (unless allow_links=true). Hardlinks must target regular files extracted
     // earlier from this archive. dest_dir is created if needed.

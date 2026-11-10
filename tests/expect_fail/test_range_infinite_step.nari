@@ -1,0 +1,2 @@
+range(0, 1, __js_to_number("Infinity"));
+panic("execution continued after infinite range step");

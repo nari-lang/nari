@@ -1,0 +1,37 @@
+func expect(condition, message) { 
+    if (!condition) { 
+        panic(message);
+    }
+}
+
+let root = "build/test-fs-rename";
+expect(fs.mkdir_all(root), "create rename fixture");
+
+let source = root + "/source";
+let target = root + "/target";
+fs.write_file(source, "new").await.unwrap();
+fs.write_file(target, "old").await.unwrap();
+fs.rename(source, target).unwrap();
+
+expect(!fs.exists(source).await, "rename retained source");
+expect(fs.read_file(target).await.unwrap() == "new", "rename did not replace destination");
+expect(fs.rename(source, target).is_err(), "rename accepted missing source");
+expect(fs.rename(target + from_char_code(0) + "suffix", source).is_err(), "rename accepted invalid source");
+expect(fs.rename(target, source + from_char_code(0)).is_err(), "rename accepted invalid destination");
+expect(fs.read_file(target).await.unwrap() == "new", "failed rename changed source");
+expect(!fs.is_symlink(target), "ordinary file reported as symlink");
+expect(!fs.is_symlink(target + from_char_code(0)), "invalid symlink path accepted");
+
+let directory = root + "/directory";
+expect(fs.mkdir_all(directory), "create directory to rename");
+
+fs.write_file(directory + "/child", "inside").await.unwrap();
+fs.rename(directory, source).unwrap();
+
+expect(fs.read_file(source + "/child").await.unwrap() == "inside", "directory rename lost file");
+
+fs.delete_file(source + "/child").await.unwrap();
+fs.delete_file(source).await.unwrap();
+fs.delete_file(target).await.unwrap();
+fs.delete_file(root).await.unwrap();
+print("filesystem rename checks passed");

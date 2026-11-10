@@ -11,6 +11,7 @@
     -h, --help   show this help
 */
 #include "fmt_cli.h"
+#include "file_io.h"
 
 #include <cstdio>
 #include <string>
@@ -21,45 +22,6 @@
 namespace nari::fmt {
 
 namespace {
-
-std::string read_file_to_string(const std::string &path) {
-    FILE *f = fopen(path.c_str(), "rb");
-    if (!f) {
-        return {};
-    }
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 0) {
-        fclose(f);
-        return {};
-    }
-    std::string buf(static_cast<size_t>(sz), '\0');
-    size_t n = fread(&buf[0], 1, static_cast<size_t>(sz), f);
-    fclose(f);
-    buf.resize(n);
-    return buf;
-}
-
-std::string read_stdin_to_string() {
-    std::string buf;
-    char chunk[8192];
-    size_t n;
-    while ((n = fread(chunk, 1, sizeof(chunk), stdin)) > 0) {
-        buf.append(chunk, n);
-    }
-    return buf;
-}
-
-bool write_file(const std::string &path, const std::string &data) {
-    FILE *f = fopen(path.c_str(), "wb");
-    if (!f) {
-        return false;
-    }
-    size_t n = fwrite(data.data(), 1, data.size(), f);
-    fclose(f);
-    return n == data.size();
-}
 
 void print_usage(const char *prog) {
     fprintf(stderr, "nari fmt - Nari code formatter\n\n");
@@ -106,16 +68,28 @@ int run_fmt(int argc, char **argv) {
     }
 
     FmtOptions opts;
+    std::error_code file_error;
+
+    auto write_output = [&](const std::string &out) {
+        if (!nari::write_stream(stdout, out.data(), out.size(), file_error)) {
+            fprintf(stderr, "nari fmt: error: failed to write stdout: %s\n", file_error.message().c_str());
+            return false;
+        }
+        return true;
+    };
 
     if (stdin_mode) {
-        std::string src = read_stdin_to_string();
+        std::string src;
+        if (!nari::read_stream(stdin, src, file_error)) {
+            fprintf(stderr, "nari fmt: error: failed to read stdin: %s\n", file_error.message().c_str());
+            return 2;
+        }
         std::string out, err;
         if (!format_source(src, "<stdin>", opts, out, err)) {
             fprintf(stderr, "nari fmt: %s\n", err.c_str());
             return 2;
         }
-        fwrite(out.data(), 1, out.size(), stdout);
-        return 0;
+        return write_output(out) ? 0 : 2;
     }
 
     if (files.empty()) {
@@ -126,9 +100,9 @@ int run_fmt(int argc, char **argv) {
 
     bool any_unformatted = false;
     for (const std::string &path : files) {
-        std::string src = read_file_to_string(path);
-        if (src.empty()) {
-            fprintf(stderr, "nari fmt: error: failed to read '%s' (or file is empty)\n", path.c_str());
+        std::string src;
+        if (!nari::read_file(path, src, file_error)) {
+            fprintf(stderr, "nari fmt: error: failed to read '%s': %s\n", path.c_str(), file_error.message().c_str());
             return 2;
         }
         std::string out, err;
@@ -142,12 +116,14 @@ int run_fmt(int argc, char **argv) {
                 any_unformatted = true;
             }
         } else if (write_mode) {
-            if (out != src && !write_file(path, out)) {
-                fprintf(stderr, "nari fmt: error: failed to write '%s'\n", path.c_str());
+            if (out != src && !nari::write_file(path, out.data(), out.size(), file_error)) {
+                fprintf(stderr, "nari fmt: error: failed to write '%s': %s\n", path.c_str(), file_error.message().c_str());
                 return 2;
             }
         } else {
-            fwrite(out.data(), 1, out.size(), stdout);
+            if (!write_output(out)) {
+                return 2;
+            }
         }
     }
 

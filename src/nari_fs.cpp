@@ -16,6 +16,15 @@
 
 namespace nari::fs {
 
+bool validate_path(const std::string &path, std::error_code &ec) {
+    ec.clear();
+    if (path.find('\0') != std::string::npos) {
+        ec = std::make_error_code(std::errc::invalid_argument);
+        return false;
+    }
+    return true;
+}
+
 Path::Path(const char *value) : value_(value ? value : "") {
 }
 
@@ -209,6 +218,13 @@ Path make_win32_path_result(DWORD(WINAPI *fn)(DWORD, LPWSTR), DWORD initial_size
 }
 
 Path get_full_path(const Path &path, std::error_code *ec) {
+    std::error_code error;
+    if (!validate_path(path.native(), error)) {
+        if (ec) {
+            *ec = error;
+        }
+        return {};
+    }
     std::wstring wide = utf8_to_wide(path.string());
     if (wide.empty() && !path.empty()) {
         if (ec) {
@@ -241,6 +257,13 @@ Path get_full_path(const Path &path, std::error_code *ec) {
 }
 
 DWORD path_attributes(const Path &path, std::error_code *ec) {
+    std::error_code error;
+    if (!validate_path(path.native(), error)) {
+        if (ec) {
+            *ec = error;
+        }
+        return INVALID_FILE_ATTRIBUTES;
+    }
     std::wstring wide = utf8_to_wide(path.string());
     if (wide.empty() && !path.empty()) {
         if (ec) {
@@ -417,6 +440,29 @@ bool is_regular_file(const Path &path, std::error_code &ec) {
     return (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
+bool is_symlink(const Path &path, std::error_code &ec) {
+    DWORD attrs = path_attributes(path, &ec);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        return false;
+    }
+    ec.clear();
+    return (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+}
+
+bool rename(const Path &from, const Path &to, std::error_code &ec) {
+    if (!validate_path(from.native(), ec) || !validate_path(to.native(), ec)) {
+        return false;
+    }
+    const std::wstring source = utf8_to_wide(from.string());
+    const std::wstring target = utf8_to_wide(to.string());
+    if (!MoveFileExW(source.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+        return false;
+    }
+    ec.clear();
+    return true;
+}
+
 bool remove(const Path &path, std::error_code &ec) {
     DWORD attrs = path_attributes(path, &ec);
     if (attrs == INVALID_FILE_ATTRIBUTES) {
@@ -435,6 +481,9 @@ bool remove(const Path &path, std::error_code &ec) {
 }
 
 bool create_directories(const Path &path, std::error_code &ec) {
+    if (!validate_path(path.native(), ec)) {
+        return false;
+    }
     Path full = absolute(path).lexically_normal();
     if (full.empty()) {
         ec = std::make_error_code(std::errc::invalid_argument);
@@ -479,6 +528,9 @@ bool create_directories(const Path &path, std::error_code &ec) {
 
 std::vector<Path> list_directory(const Path &path, std::error_code &ec) {
     std::vector<Path> entries;
+    if (!validate_path(path.native(), ec)) {
+        return entries;
+    }
     Path full = absolute(path).lexically_normal();
     std::string pattern = full.string();
     if (!pattern.empty() && pattern.back() != '/') {
@@ -579,6 +631,9 @@ Path current_path() {
 
 Path absolute(const Path &path) {
     std::error_code ec;
+    if (!validate_path(path.native(), ec)) {
+        return {};
+    }
     stdfs::path p = stdfs::absolute(to_std_path(path), ec);
     if (ec) {
         return {};
@@ -587,48 +642,84 @@ Path absolute(const Path &path) {
 }
 
 Path weakly_canonical(const Path &path, std::error_code &ec) {
+    if (!validate_path(path.native(), ec)) {
+        return {};
+    }
     return from_std_path(stdfs::weakly_canonical(to_std_path(path), ec));
 }
 
 bool exists(const Path &path) {
     std::error_code ec;
-    return stdfs::exists(to_std_path(path), ec);
+    return exists(path, ec);
 }
 
 bool exists(const Path &path, std::error_code &ec) {
+    if (!validate_path(path.native(), ec)) {
+        return false;
+    }
     return stdfs::exists(to_std_path(path), ec);
 }
 
 bool is_directory(const Path &path) {
     std::error_code ec;
-    return stdfs::is_directory(to_std_path(path), ec);
+    return is_directory(path, ec);
 }
 
 bool is_directory(const Path &path, std::error_code &ec) {
+    if (!validate_path(path.native(), ec)) {
+        return false;
+    }
     return stdfs::is_directory(to_std_path(path), ec);
 }
 
 bool is_regular_file(const Path &path) {
     std::error_code ec;
-    return stdfs::is_regular_file(to_std_path(path), ec);
+    return is_regular_file(path, ec);
 }
 
 bool is_regular_file(const Path &path, std::error_code &ec) {
+    if (!validate_path(path.native(), ec)) {
+        return false;
+    }
     return stdfs::is_regular_file(to_std_path(path), ec);
 }
 
+bool is_symlink(const Path &path, std::error_code &ec) {
+    if (!validate_path(path.native(), ec)) {
+        return false;
+    }
+    return stdfs::is_symlink(to_std_path(path), ec);
+}
+
+bool rename(const Path &from, const Path &to, std::error_code &ec) {
+    if (!validate_path(from.native(), ec) || !validate_path(to.native(), ec)) {
+        return false;
+    }
+    stdfs::rename(to_std_path(from), to_std_path(to), ec);
+    return !ec;
+}
+
 bool remove(const Path &path, std::error_code &ec) {
+    if (!validate_path(path.native(), ec)) {
+        return false;
+    }
     return stdfs::remove(to_std_path(path), ec);
 }
 
 bool create_directories(const Path &path, std::error_code &ec) {
+    if (!validate_path(path.native(), ec)) {
+        return false;
+    }
     return stdfs::create_directories(to_std_path(path), ec);
 }
 
 std::vector<Path> list_directory(const Path &path, std::error_code &ec) {
     std::vector<Path> entries;
-    // Explicit increment(ec): unlike operator++() used by range-for, the
-    // error_code overload is specified non-throwing on every implementation.
+    if (!validate_path(path.native(), ec)) {
+        return entries;
+    }
+    // Explicit increment(ec): unlike operator++() used by range-for, 
+    // the std::error_code overload is specified non-throwing.
     std::error_code iter_ec;
     stdfs::directory_iterator it(to_std_path(path), iter_ec);
     if (iter_ec) {
@@ -643,6 +734,10 @@ std::vector<Path> list_directory(const Path &path, std::error_code &ec) {
             return entries;
         }
         entries.push_back(from_std_path(it->path()));
+    }
+    ec = iter_ec;
+    if (ec) {
+        entries.clear();
     }
     return entries;
 }

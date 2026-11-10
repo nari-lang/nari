@@ -9,6 +9,7 @@
 #include "module_resolver.h"
 
 #include "../nari_fs.h"
+#include "../file_io.h"
 #include "../util.h"
 
 #include <ctype.h>
@@ -107,20 +108,9 @@ static std::vector<std::string> split_top_level(const std::string &text, char se
 }
 
 static std::string read_text_file(const nari::fs::Path &path) {
-    FILE *fp = fopen(path.string().c_str(), "rb");
-    if (!fp) {
-        return {};
-    }
-    fseek(fp, 0, SEEK_END);
-    long file_size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
     std::string content;
-    if (file_size > 0) {
-        content.resize(static_cast<size_t>(file_size));
-        size_t bytes_read = fread(&content[0], 1, static_cast<size_t>(file_size), fp);
-        content.resize(bytes_read);
-    }
-    fclose(fp);
+    std::error_code error;
+    nari::read_file(path.string(), content, error);
     return content;
 }
 
@@ -357,11 +347,19 @@ static std::string nari_home_dir() {
     return (nari::fs::Path(home) / ".nari").string();
 }
 
-// Re-derive the store directory npkg would have installed a package into:
-//   <nari_home>/store/pkg/<name with '/' -> '-'>@<version>-<hash8> (first 8 chars of integrity)
+// Re-derive npkg's store directory from the complete SHA-256 digest.
 static nari::fs::Path derived_store_package_dir(const std::string &package_name, const LockfilePackage &locked) {
-    if (locked.version.empty()) {
+    constexpr size_t digest_offset = sizeof("sha256-") - 1;
+    if (locked.version.empty() || locked.integrity.size() != digest_offset + 64 || !starts_with(locked.integrity, "sha256-")) {
         return {};
+    }
+    std::string digest = locked.integrity.substr(digest_offset);
+    for (char &ch : digest) {
+        if (ch >= 'A' && ch <= 'F') {
+            ch += 'a' - 'A';
+        } else if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) {
+            return {};
+        }
     }
     std::string home = nari_home_dir();
     if (home.empty()) {
@@ -375,11 +373,8 @@ static nari::fs::Path derived_store_package_dir(const std::string &package_name,
     }
     dir_name += "@";
     dir_name += locked.version;
-    size_t dash = locked.integrity.find('-');
-    if (dash != std::string::npos && locked.integrity.size() - dash - 1 >= 8) {
-        dir_name += "-";
-        dir_name += locked.integrity.substr(dash + 1, 8);
-    }
+    dir_name += "-";
+    dir_name += digest;
     return (nari::fs::Path(home) / "store" / "pkg" / dir_name).lexically_normal();
 }
 

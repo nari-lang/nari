@@ -1,0 +1,16 @@
+// Long timers must not occupy all workers and delay a later immediate timer.
+let late = 0;
+let early = false;
+let i = 0;
+while (i < 4) {
+    set_timeout(func() {
+        if (!early) { panic("long timers starved the immediate timer"); }
+        late = late + 1;
+        if (late == 4) { print("timer scheduling: ok"); }
+    }, 400);
+    i = i + 1;
+}
+set_timeout(func() {
+    if (late != 0) { panic("immediate timer ran after long timers"); }
+    early = true;
+}, 0);

@@ -1,0 +1,8 @@
+[wrap-git]
+url = https://github.com/c-ares/c-ares.git
+revision = v1.34.8
+depth = 1
+method = cmake
+
+[provide]
+dependency_names = libcares

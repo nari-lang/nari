@@ -1,0 +1,4 @@
+// An explicit await must observe SIGINT without relying on a yield() call.
+let server = net.listen(0).await.unwrap();
+net.accept(server).await;
+panic("execution continued after interrupting await");

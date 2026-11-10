@@ -1,0 +1,91 @@
+import { assert } from "../lib/assert.nari";
+
+// Integer results outside the 48-bit payload must promote, never wrap.
+let boundaries = [
+    ["140737488355327", 140737488355327.0],
+    ["140737488355328", 140737488355328.0],
+    ["-140737488355328", -140737488355328.0],
+    ["-140737488355329", -140737488355329.0],
+    ["9223372036854775807", 9223372036854775808.0],
+    ["9223372036854775808", 9223372036854775808.0],
+    ["-9223372036854775808", -9223372036854775808.0],
+    ["-9223372036854775809", -9223372036854775808.0]
+];
+
+for (entry in boundaries) {
+    let text = entry[0];
+    let expected = entry[1];
+    assert(to_number(text) == expected, "to_number wrapped " + text);
+    assert(parse_int(text) == expected, "parse_int wrapped " + text);
+    assert(JSON.parse(text).unwrap() == expected, "JSON.parse wrapped " + text);
+    assert(__js_to_number(text) == expected, "JS conversion wrapped " + text);
+    assert(math.floor(expected) == expected, "floor wrapped " + text);
+    assert(math.ceil(expected) == expected, "ceil wrapped " + text);
+    assert(parse_int(expected) == expected, "float parse_int wrapped " + text);
+}
+
+assert(__js_to_number("0x800000000000") == 140737488355328.0, "hex conversion wrapped at 48 bits");
+assert(__js_to_number("0xffffffffffffffff") == 18446744073709551616.0, "unsigned hex conversion wrapped");
+assert(math.floor(140737488355328.5) == 140737488355328.0, "floor lost a large fraction");
+assert(math.ceil(-140737488355328.5) == -140737488355328.0, "ceil lost a large fraction");
+
+// Full conversion rejects junk; parse_int deliberately accepts a decimal prefix.
+assert(to_number(" \t+42\n") == 42, "surrounding whitespace was not trimmed");
+assert(to_number(" \t") == 0, "empty number was not zero");
+assert(to_number("12junk") == 0, "trailing junk was accepted");
+assert(to_number("+-42") == 0, "two signs were accepted");
+assert(to_number("+") == 0, "a lone sign was accepted");
+
+let nul_suffix = "12" + from_char_code(0) + "suffix";
+assert(to_number(nul_suffix) == 0, "to_number ignored an embedded NUL suffix");
+assert(math.floor(nul_suffix) == 0, "numeric coercion ignored an embedded NUL suffix");
+assert(parse_int("  +42suffix") == 42, "parse_int lost decimal-prefix semantics");
+assert(parse_int("3.9") == 3, "parse_int consumed a fraction");
+assert(parse_int("1e3") == 1, "parse_int consumed an exponent");
+assert(parse_int("9223372036854775808suffix") == 9223372036854775808.0, "large decimal prefix saturated");
+assert(parse_int("-9223372036854775809suffix") == -9223372036854775808.0, "negative decimal prefix saturated");
+assert(parse_int(-3.9) == -3, "float parse_int did not truncate toward zero");
+
+let nan = 0.0 / 0.0;
+let infinity = __js_to_number("Infinity");
+assert(parse_int(nan) != parse_int(nan), "parse_int converted NaN to an integer");
+assert(math.floor(nan) != math.floor(nan), "floor converted NaN to an integer");
+assert(math.ceil(nan) != math.ceil(nan), "ceil converted NaN to an integer");
+assert(parse_int(infinity) > 9223372036854775808.0, "parse_int lost infinity");
+assert(parse_int(-infinity) < -9223372036854775808.0, "parse_int lost negative infinity");
+
+// Increment overflow ends the range instead of wrapping or looping forever.
+func assert_range(actual, expected, message) {
+    assert(actual.length == expected.length, message);
+    for (i in range(expected.length)) { assert(actual[i] == expected[i], message); }
+}
+
+assert_range(range(4), [0, 1, 2, 3], "ordinary range changed");
+assert_range(range(4, 0, -2), [4, 2], "descending range changed");
+assert_range(range(0, 3, 0), [0, 1, 2], "zero step compatibility changed");
+assert_range(range(0.9, 3.9, 1.9), [0, 1, 2], "fractional range truncation changed");
+assert_range(range(140737488355327.0, 140737488355330.0), [140737488355327.0, 140737488355328.0, 140737488355329.0], "range wrapped at 48 bits");
+assert_range(range(9223372036854773760.0, 9223372036854774784.0, 4096), [9223372036854773760.0], "positive range increment overflowed");
+assert_range(range(-9223372036854773760.0, -9223372036854774784.0, -4096), [-9223372036854773760.0], "negative range increment overflowed");
+
+// Exercise both bytecode and hot function execution, including int64 overflow.
+func power(base, exponent) { return base ** exponent; }
+for (i in range(200)) {
+    assert(power(2, 47) == 140737488355328.0, "power wrapped at 48 bits");
+    assert(power(-2, 47) == -140737488355328.0, "negative power wrapped");
+    assert(power(2, 63) == 9223372036854775808.0, "power overflow did not promote");
+    assert(power(-2, 63) == -9223372036854775808.0, "minimum int64 power wrapped");
+}
+
+let formatted = __format_value(1.0, ".999999999999999999999999999999999f");
+assert(formatted == "1." + "0".repeat(100), "large format precision was not capped safely");
+
+let cycle = [];
+cycle.push(cycle);
+assert(__js_to_number(cycle) == 0, "cyclic numeric conversion did not terminate");
+
+let nested = ["42"];
+for (i in range(5000)) { nested = [nested]; }
+assert(__js_to_number(nested) == 42, "deep array numeric conversion failed");
+
+print("numeric conversion boundary checks passed");

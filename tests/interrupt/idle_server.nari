@@ -1,0 +1,6 @@
+// The server should keep the event loop alive without a timer, then stop on
+// SIGINT even when no client ever connects.
+net.create_server(0, func(conn) {
+    panic("unexpected connection to idle test server");
+});
+print("idle server scheduled");

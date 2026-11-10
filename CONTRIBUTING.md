@@ -22,8 +22,9 @@ By participating, you are expected to uphold it.
 
 ## Building
 
-Requirements: a C++17 compiler (clang recommended), Meson, Ninja, mbedtls,
-libarchive, and (for the JIT) AsmJit.
+Requirements: a C++17 compiler (clang recommended), Meson, Ninja, mbedtls 3.x,
+libarchive, libcurl with c-ares, c-ares >=1.34, and (for the JIT) AsmJit.
+Conan installs and configures these dependencies for the default build.
 
 ```sh
 ./build.sh  # debug build  -> build/debug/nari
@@ -49,6 +50,16 @@ A passing language-test run prints `Passed tests: N / N`. Tests whose names
 contain `npkg` are excluded because they depend on an uncommitted workspace.
 Set `SKIP_NETWORK_TESTS=1` to skip network tests, or `SKIP_BUILD=1` to test an
 existing build.
+
+The same language tests run on Windows using the portable runner:
+
+```sh
+python tools/run_language_tests.py --interpreter build/release/nari.exe --skip-network
+python tests/windows_file_shutdown.py --interpreter build/release/nari.exe
+```
+
+Windows CI runs both commands. The Unix harness additionally checks archives,
+FIFO cancellation, bytecode validation, and FFI binding generation.
 
 ## Coding conventions
 

@@ -285,6 +285,19 @@ print("Status: " + to_string(result.unwrap().status_code));
 Read, write and close go through the module functions `net.read`, `net.write`
 and `net.close`. A connection is plain data (`{ fd, ip, port }`) and has no
 methods. `net.write(conn, data)` takes two arguments and returns a handle.
+The `fd` field is an opaque ID owned by the current runtime. Pass the object to
+the network functions; the ID is not an operating-system file descriptor.
+Closing a socket cancels pending operations, and closing it again is harmless.
+The runtime closes any remaining sockets when it exits.
+
+Socket waits, DNS lookups, HTTP transfers, and timers share an event dispatcher.
+Idle connections and long timers leave file workers available for other I/O.
+Shutdown cancels outstanding network requests, including requests waiting for
+DNS or an HTTP response. Callbacks run on the runtime thread.
+
+Shutdown also cancels pending pipe reads and writes and discards file jobs that
+have not started. File transfers check for shutdown between chunks; native
+storage calls still depend on the operating system's cancellation support.
 
 ### TCP Server
 
@@ -332,8 +345,9 @@ net.create_server(8080, handleRequest);
 print("HTTP server running on port 8080");
 ```
 
-`net.create_server` runs its own accept loop, so you do not need a keep-alive
-timer to hold the event loop open.
+`net.create_server` schedules its listener and returns, so code after the call
+can run. Active servers keep the event loop open until shutdown; no keep-alive
+timer is needed.
 
 ## Async Patterns
 

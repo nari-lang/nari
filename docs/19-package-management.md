@@ -81,20 +81,23 @@ Instead, separate:
 A better package path is:
 
 ```text
-~/.nari/store/pkg/<name>@<version>-<content_hash>/
+~/.nari/store/pkg/<name>@<version>-<sha256_digest>/
 ```
+
+The store identity uses all 64 hexadecimal digits of the SHA-256 digest.
+Short hashes are for display only; the store has no legacy layout fallback.
 
 Examples:
 
 ```text
-~/.nari/store/pkg/std-json@1.4.0-a1b2c3d4/
-~/.nari/store/pkg/acme-http@0.2.1-9f8e7d6c/
+~/.nari/store/pkg/std-json@1.4.0-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4/
+~/.nari/store/pkg/acme-http@0.2.1-9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c9f8e7d6c/
 ```
 
 Then compiled caches can live under an ABI-scoped path:
 
 ```text
-~/.nari/abi/1/build/std-json@1.4.0-a1b2c3d4/
+~/.nari/abi/1/build/std-json@1.4.0-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4/
 ```
 
 This avoids reinstalling source packages every time Nari itself changes.
@@ -347,7 +350,7 @@ root = "acme/my-app@0.1.0"
 [packages."acme/json"]
 version = "1.4.0"
 integrity = "sha256-..."
-storePath = "~/.nari/store/pkg/std-json@1.4.0-a1b2c3d4"
+storePath = "~/.nari/store/pkg/std-json@1.4.0-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
 
 [packages."acme/json".dependencies]
 "std/strings" = "1.0.2"
@@ -355,7 +358,7 @@ storePath = "~/.nari/store/pkg/std-json@1.4.0-a1b2c3d4"
 [packages."std/strings"]
 version = "1.0.2"
 integrity = "sha256-..."
-storePath = "~/.nari/store/pkg/std-strings@1.0.2-f0e1d2c3"
+storePath = "~/.nari/store/pkg/std-strings@1.0.2-f0e1d2c3f0e1d2c3f0e1d2c3f0e1d2c3f0e1d2c3f0e1d2c3f0e1d2c3f0e1d2c3"
 ```
 
 ## Formal Schema: `nari.lock.toml`
@@ -415,7 +418,7 @@ root = "acme/my-app@0.1.0"
 [packages."acme/json"]
 version = "1.4.0"
 integrity = "sha256-abc123..."
-storePath = "~/.nari/store/pkg/std-json@1.4.0-a1b2c3d4"
+storePath = "~/.nari/store/pkg/std-json@1.4.0-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
 source = "registry"
 
 [packages."acme/json".dependencies]
@@ -424,7 +427,7 @@ source = "registry"
 [packages."std/strings"]
 version = "1.0.2"
 integrity = "sha256-def456..."
-storePath = "~/.nari/store/pkg/std-strings@1.0.2-f0e1d2c3"
+storePath = "~/.nari/store/pkg/std-strings@1.0.2-f0e1d2c3f0e1d2c3f0e1d2c3f0e1d2c3f0e1d2c3f0e1d2c3f0e1d2c3f0e1d2c3"
 source = "registry"
 ```
 
@@ -678,7 +681,7 @@ registryVersion = 1
 
 [packages."acme/json"."1.4.0"]
 url = "https://packages.nari-lang.org/archives/std-json-1.4.0.tar.gz"
-integrity = "sha256-a1b2c3d4"
+integrity = "sha256-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
 signatureUrl = "https://packages.nari-lang.org/archives/std-json-1.4.0.tar.gz.sig"
 publicKeyUrl = "https://packages.nari-lang.org/keys/std-json-signing.pem"
 ```
@@ -733,13 +736,13 @@ registryVersion = 1
 
 [packages."acme/json"."1.4.0"]
 url = "https://packages.nari-lang.org/archives/std-json-1.4.0.tar.gz"
-integrity = "sha256-abc12345"
+integrity = "sha256-abc12345abc12345abc12345abc12345abc12345abc12345abc12345abc12345"
 signatureUrl = "https://packages.nari-lang.org/archives/std-json-1.4.0.tar.gz.sig"
 publicKeyUrl = "https://packages.nari-lang.org/keys/std-json-signing.pem"
 
 [packages."acme/json"."1.4.1"]
 url = "https://packages.nari-lang.org/archives/std-json-1.4.1.tar.gz"
-integrity = "sha256-def45678"
+integrity = "sha256-def45678def45678def45678def45678def45678def45678def45678def45678"
 signatureUrl = "https://packages.nari-lang.org/archives/std-json-1.4.1.tar.gz.sig"
 publicKeyUrl = "https://packages.nari-lang.org/keys/std-json-signing.pem"
 ```
@@ -820,8 +823,8 @@ If Nari implements package management soon, the simplest good prototype is:
 A slightly revised form of the original idea is likely the best starting point:
 
 ```text
-~/.nari/store/pkg/<name>@<version>-<short_content_hash>/
-~/.nari/abi/<abi-version>/build/<name>@<version>-<short_content_hash>/
+~/.nari/store/pkg/<name>@<version>-<sha256_digest>/
+~/.nari/abi/<abi-version>/build/<name>@<version>-<sha256_digest>/
 ```
 
 Not:

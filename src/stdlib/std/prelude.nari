@@ -593,6 +593,12 @@ func __stdlib_init__() {
         is_directory: func(path) {
             return __fs_isDirectory(path);
         },
+        is_symlink: func(path) {
+            return __fs_isSymlink(path);
+        },
+        rename: func(source, destination) {
+            return __fs_rename(source, destination);
+        },
         mkdir_all: func(path) {
             return __fs_mkdirAll(path);
         },
@@ -605,14 +611,10 @@ func __stdlib_init__() {
     };
 
     global net = {
-        // Legacy blocking server. Spins an internal accept loop and a yield
-        // loop on the main task, exiting only when shutdown is requested.
+        // Schedule the listener; active servers keep the runtime event loop
+        // alive after the script finishes its top-level work.
         create_server: func(port, on_connection) {
             __net_createServer(port, on_connection);
-
-            while (!__shutdown_requested()) {
-                __yield();
-            }
         },
 
         // TCP client. Returns an IO handle that resolves to a conn:

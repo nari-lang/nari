@@ -1,5 +1,9 @@
 #include "common.h"
+#include "int_overflow.h"
+#include <algorithm>
 #include <charconv>
+#include <string_view>
+#include <unordered_set>
 
 // Type checking and conversion builtins
 Value ScriptRuntime::builtin_typeof(Value *argvals, size_t argc, const nari::CallExpr *) {
@@ -19,34 +23,33 @@ Value ScriptRuntime::builtin_toNumber(Value *argvals, size_t argc, const nari::C
             return Value::make_int(v.get_bool() ? 1 : 0);
         }
         if (v.is_string()) {
-            const std::string &s = v.get_string();
-            // in the case where it's a clean, fully-consumed base-10 integer, from_chars is faster than strtoll
-            {
-                const char *b = s.data();
-                const char *e = b + s.size();
-                int64_t iv = 0;
-                auto [ptr, ec] = std::from_chars(b, e, iv);
-                if (ec == std::errc() && ptr == e) {
-                    return Value::make_int(iv);
-                }
+            std::string_view text(v.get_string());
+            while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) {
+                text.remove_prefix(1);
             }
-            bool is_float = (s.find('.') != std::string::npos) || (s.find('e') != std::string::npos) || (s.find('E') != std::string::npos);
+            while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) {
+                text.remove_suffix(1);
+            }
+            if (text.empty()) {
+                return Value::make_int(0);
+            }
+            const char *first = text.data();
+            const char *last = first + text.size();
+            if (text.size() > 1 && *first == '+' && first[1] >= '0' && first[1] <= '9') {
+                ++first;
+            }
+            int64_t integer = 0;
+            auto [ptr, ec] = std::from_chars(first, last, integer);
+            if (ec == std::errc() && ptr == last) {
+                return Value::make_int_checked(integer);
+            }
 
-            if (is_float) {
-                char *end = nullptr;
-                double dv = std::strtod(s.c_str(), &end);
-                if (end && *end == '\0') {
-                    return Value::make_float(dv);
-                }
-                return Value::make_float(0.0);
-            }
-            errno = 0;
+            // strtod requires a terminator; check the actual string length so
+            // an embedded NUL or trailing junk cannot become a valid number.
+            const std::string number(text);
             char *end = nullptr;
-            int64_t iv = std::strtoll(s.c_str(), &end, 10);
-            if (end && *end == '\0' && errno != ERANGE) {
-                return Value::make_int(static_cast<int64_t>(iv));
-            }
-            return Value::make_float(std::strtod(s.c_str(), &end));
+            double value = std::strtod(number.c_str(), &end);
+            return Value::make_float(end == number.c_str() + number.size() && end != number.c_str() ? value : 0.0);
         }
         return Value::make_int(0);
     }
@@ -57,7 +60,24 @@ Value ScriptRuntime::builtin_js_toNumber(Value *argvals, size_t argc, const nari
     if (argc == 0) {
         return Value::make_int(0);
     }
-    const Value &v = argvals[0];
+    // A single-element array chain needs no C++ recursion. A cycle stringifies
+    // to an empty value for numeric conversion, and therefore converts to zero.
+    const Value *current = &argvals[0];
+    std::unordered_set<const void *> arrays;
+    while (current->is_array()) {
+        if (!arrays.insert(current->heap_ptr()).second) {
+            return Value::make_int(0);
+        }
+        const auto &items = current->get_array();
+        if (items.empty()) {
+            return Value::make_int(0);
+        }
+        if (items.size() != 1) {
+            return Value::make_float(std::numeric_limits<double>::quiet_NaN());
+        }
+        current = &items[0];
+    }
+    const Value &v = *current;
     if (v.is_int()) {
         return Value::make_int(v.get_int());
     }
@@ -69,17 +89,6 @@ Value ScriptRuntime::builtin_js_toNumber(Value *argvals, size_t argc, const nari
     }
     if (v.is_none()) {
         return Value::make_int(0);
-    }
-    if (v.is_array()) {
-        const auto &items = v.get_array();
-        if (items.empty()) {
-            return Value::make_int(0);
-        }
-        if (items.size() == 1) {
-            Value elem = items[0];
-            return builtin_js_toNumber(&elem, 1, nullptr);
-        }
-        return Value::make_float(std::numeric_limits<double>::quiet_NaN());
     }
     if (!v.is_string()) {
         return Value::make_float(std::numeric_limits<double>::quiet_NaN());
@@ -112,7 +121,7 @@ Value ScriptRuntime::builtin_js_toNumber(Value *argvals, size_t argc, const nari
         auto [ptr, ec] = std::from_chars(first, last, value, 16);
         if (ec == std::errc() && ptr == last) {
             if (value <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-                return Value::make_int(static_cast<int64_t>(value));
+                return Value::make_int_checked(static_cast<int64_t>(value));
             }
             return Value::make_float(static_cast<double>(value));
         }
@@ -123,9 +132,9 @@ Value ScriptRuntime::builtin_js_toNumber(Value *argvals, size_t argc, const nari
     errno = 0;
     double value = std::strtod(s.c_str(), &parsed_end);
     if (parsed_end == s.c_str() + s.size() && parsed_end != s.c_str() && errno != ERANGE && !std::isnan(value)) {
-        if (s.find_first_of(".eE") == std::string::npos && value >= static_cast<double>(std::numeric_limits<int64_t>::min()) &&
-            value <= static_cast<double>(std::numeric_limits<int64_t>::max())) {
-            return Value::make_int(static_cast<int64_t>(value));
+        int64_t integer;
+        if (s.find_first_of(".eE") == std::string::npos && try_double_to_i64(value, &integer)) {
+            return Value::make_int_checked(integer);
         }
         return Value::make_float(value);
     }
@@ -161,7 +170,7 @@ Value ScriptRuntime::builtin_formatValue(Value *argvals, size_t argc, const nari
         }
         precision = 0;
         while (pos < spec.size() && std::isdigit(static_cast<unsigned char>(spec[pos]))) {
-            precision = precision * 10 + (spec[pos] - '0');
+            precision = std::min(100, precision * 10 + (spec[pos] - '0'));
             ++pos;
         }
     }
@@ -282,15 +291,11 @@ Value ScriptRuntime::builtin_delegateHandler(Value *argvals, size_t argc, const 
     }
     return Value::none();
 }
-// Casting a double to int64_t is undefined behaviour unless the truncated value is
-// representable, so NaN/+-inf/|x|>=2^63 must not reach the cast. UBSAN flagged this at
-// Math.floor(1e21) and Math.floor(NaN) while running the npm fixtures. Out-of-range
-// inputs keep their double value, which is also what JS Math.floor/ceil do.
+// Preserve doubles outside the integer range, including NaN and infinities.
+// Representable int64 values still need checking against the 48-bit payload.
 static inline Value nari_int_or_float(double d) {
-    if (!(d >= -9223372036854775808.0 && d < 9223372036854775808.0)) { // false for NaN too
-        return Value::make_float(d);
-    }
-    return Value::make_int(static_cast<int64_t>(d));
+    int64_t integer;
+    return try_double_to_i64(d, &integer) ? Value::make_int_checked(integer) : Value::make_float(d);
 }
 Value ScriptRuntime::builtin_math_floor(Value *args, size_t argc, const CallExpr *) {
     if (argc > 0) {
@@ -314,12 +319,20 @@ Value ScriptRuntime::builtin_parse_int(Value *args, size_t argc, const CallExpr 
         return args[0];
     }
     if (args[0].is_float()) {
-        return Value::make_int(static_cast<int64_t>(args[0].get_float()));
+        return nari_int_or_float(std::trunc(args[0].get_float()));
     }
     if (args[0].is_string()) {
+        const std::string &text = args[0].get_string();
         char *end = nullptr;
-        int64_t v = std::strtoll(args[0].get_string().c_str(), &end, 10);
-        return Value::make_int(v);
+        errno = 0;
+        int64_t v = std::strtoll(text.c_str(), &end, 10);
+        if (errno == ERANGE) {
+            // Keep parse_int's decimal-prefix semantics while promoting an
+            // integer too wide for int64, rather than using a saturated value.
+            const std::string prefix(text.c_str(), static_cast<size_t>(end - text.c_str()));
+            return nari_int_or_float(std::strtod(prefix.c_str(), nullptr));
+        }
+        return Value::make_int_checked(v);
     }
     return Value::make_int(0);
 }
@@ -349,29 +362,33 @@ Value ScriptRuntime::builtin_random(Value *, size_t, const CallExpr *) {
     return Value::make_float(dis(gen));
 }
 
-Value ScriptRuntime::builtin_range(Value *args, size_t argc, const CallExpr *) {
+Value ScriptRuntime::builtin_range(Value *args, size_t argc, const CallExpr *call) {
     int64_t start = 0, stop = 0, step = 1;
     if (argc == 1) {
-        stop = static_cast<int64_t>(args[0].as_number());
+        if (!try_double_to_i64(args[0].as_number(), &stop)) {
+            return runtime_fatal("range: invalid stop value", call);
+        }
     } else if (argc >= 2) {
-        start = static_cast<int64_t>(args[0].as_number());
-        stop = static_cast<int64_t>(args[1].as_number());
+        if (!try_double_to_i64(args[0].as_number(), &start) || !try_double_to_i64(args[1].as_number(), &stop)) {
+            return runtime_fatal("range: invalid start or stop value", call);
+        }
     }
     if (argc >= 3) {
-        step = static_cast<int64_t>(args[2].as_number());
+        if (!try_double_to_i64(args[2].as_number(), &step)) {
+            return runtime_fatal("range: invalid step value", call);
+        }
         if (step == 0) {
             step = 1;
         }
     }
     std::vector<Value> arr;
-    if (step > 0) {
-        for (int64_t i = start; i < stop; i += step) {
-            arr.push_back(Value::make_int(i));
+    for (int64_t i = start; step > 0 ? i < stop : i > stop;) {
+        arr.push_back(Value::make_int_checked(i));
+        int64_t next;
+        if (add_overflow_i64(i, step, &next)) {
+            break;
         }
-    } else {
-        for (int64_t i = start; i > stop; i += step) {
-            arr.push_back(Value::make_int(i));
-        }
+        i = next;
     }
     return Value::make_array(std::move(arr));
 }

@@ -17,7 +17,9 @@ let hexLower = 0xff;
 let hexUpper = 0xDEADBEEF;
 ```
 
-All numbers are stored as either 64-bit integers or double-precision floats internally.
+Numbers use signed 48-bit integers or double-precision floats internally. Integer
+results outside `-140737488355328` through `140737488355327` promote to floats.
+Large floats may round values that cannot be represented exactly.
 
 ### String
 

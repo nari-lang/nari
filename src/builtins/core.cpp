@@ -243,9 +243,9 @@ Value ScriptRuntime::builtin_setTimeout(Value *argvals, size_t argc, const nari:
         io_op->timer_ms = delay_ms;
 
         // capture the complete callback Value to keep lambdas alive
-        io_op->callback = [this, callback_val]() {
+        io_op->callback = [this, callback_val, io_op = io_op.get()]() {
             pending_timeouts--;
-            if (callback_val.is_function()) {
+            if (io_op->success && callback_val.is_function()) {
                 call_function_value(callback_val, {});
             }
         };
@@ -410,16 +410,11 @@ Value ScriptRuntime::builtin_fs_readFile(Value *argvals, size_t argc, const nari
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        // The callback captures `handle`, keeping the HandleData alive until the
-        // IO completes; the GC reclaims it once nothing references it.
-        io_op->callback = [this, handle, io_op]() {
+        // submit_handle_io roots the handle until this callback completes.
+        io_op->callback = [this, handle, io_op = io_op.get()]() {
             handle->end_time = chrono::steady_clock::now();
             if (io_op->success) {
-                if (io_op->result.type == NariFileOperation::Result::Type::String) {
-                    handle->result = ScriptRuntime::make_ok(Value::make_string(io_op->result.str_value));
-                } else if (io_op->result.type == NariFileOperation::Result::Type::Bool) {
-                    handle->result = ScriptRuntime::make_ok(Value::make_bool(io_op->result.bool_value));
-                }
+                handle->result = ScriptRuntime::make_ok(Value::make_string(std::move(io_op->result_string)));
                 handle->state = HandleData::Completed;
             } else {
                 handle->result = ScriptRuntime::make_err(Value::make_string(io_op->error_msg));
@@ -427,9 +422,7 @@ Value ScriptRuntime::builtin_fs_readFile(Value *argvals, size_t argc, const nari
             }
         };
 
-        if (io_pool) {
-            io_pool->submit(io_op);
-        }
+        submit_handle_io(io_op, handle);
         return Value::make_handle(handle);
     }
     return Value::none();
@@ -447,7 +440,7 @@ Value ScriptRuntime::builtin_fs_writeFile(Value *argvals, size_t argc, const nar
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [this, handle, io_op]() {
+        io_op->callback = [this, handle, io_op = io_op.get()]() {
             handle->end_time = chrono::steady_clock::now();
             if (io_op->success) {
                 handle->result = ScriptRuntime::make_ok(Value::none());
@@ -458,9 +451,7 @@ Value ScriptRuntime::builtin_fs_writeFile(Value *argvals, size_t argc, const nar
             }
         };
 
-        if (io_pool) {
-            io_pool->submit(io_op);
-        }
+        submit_handle_io(io_op, handle);
         return Value::make_handle(handle);
     }
     return Value::none();
@@ -478,7 +469,7 @@ Value ScriptRuntime::builtin_fs_appendFile(Value *argvals, size_t argc, const na
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [this, handle, io_op]() {
+        io_op->callback = [this, handle, io_op = io_op.get()]() {
             handle->end_time = chrono::steady_clock::now();
             if (io_op->success) {
                 handle->result = ScriptRuntime::make_ok(Value::none());
@@ -489,9 +480,7 @@ Value ScriptRuntime::builtin_fs_appendFile(Value *argvals, size_t argc, const na
             }
         };
 
-        if (io_pool) {
-            io_pool->submit(io_op);
-        }
+        submit_handle_io(io_op, handle);
         return Value::make_handle(handle);
     }
     return Value::none();
@@ -507,15 +496,13 @@ Value ScriptRuntime::builtin_fs_fileExists(Value *argvals, size_t argc, const na
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [handle, io_op]() {
+        io_op->callback = [handle, io_op = io_op.get()]() {
             handle->end_time = chrono::steady_clock::now();
             handle->result = Value::make_bool(io_op->result_bool);
             handle->state = HandleData::Completed;
         };
 
-        if (io_pool) {
-            io_pool->submit(io_op);
-        }
+        submit_handle_io(io_op, handle);
         return Value::make_handle(handle);
     }
     return Value::none();
@@ -529,6 +516,26 @@ Value ScriptRuntime::builtin_fs_isDirectory(Value *argvals, size_t argc, const n
         return Value::make_bool(!err && is_dir);
     }
     return Value::make_bool(false);
+}
+
+Value ScriptRuntime::builtin_fs_isSymlink(Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc < 1) {
+        return Value::make_bool(false);
+    }
+    std::error_code error;
+    const bool linked = nari::fs::is_symlink(nari::fs::Path(argvals[0].to_string()), error);
+    return Value::make_bool(!error && linked);
+}
+
+Value ScriptRuntime::builtin_fs_rename(Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc < 2) {
+        return make_err(Value::make_string("rename requires source and destination"));
+    }
+    std::error_code error;
+    if (!nari::fs::rename(nari::fs::Path(argvals[0].to_string()), nari::fs::Path(argvals[1].to_string()), error)) {
+        return make_err(Value::make_string("rename: " + error.message()));
+    }
+    return make_ok(Value::none());
 }
 
 Value ScriptRuntime::builtin_fs_mkdirAll(Value *argvals, size_t argc, const nari::CallExpr *) {
@@ -558,7 +565,7 @@ Value ScriptRuntime::builtin_fs_deleteFile(Value *argvals, size_t argc, const na
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [this, handle, io_op]() {
+        io_op->callback = [this, handle, io_op = io_op.get()]() {
             handle->end_time = chrono::steady_clock::now();
             if (io_op->success) {
                 handle->result = ScriptRuntime::make_ok(Value::make_bool(io_op->result_bool));
@@ -569,9 +576,7 @@ Value ScriptRuntime::builtin_fs_deleteFile(Value *argvals, size_t argc, const na
             }
         };
 
-        if (io_pool) {
-            io_pool->submit(io_op);
-        }
+        submit_handle_io(io_op, handle);
         return Value::make_handle(handle);
     }
     return Value::none();
@@ -587,20 +592,15 @@ Value ScriptRuntime::builtin_fs_listDir(Value *argvals, size_t argc, const nari:
         auto handle = Value::make_handle_ptr();
         handle->state = HandleData::Running;
 
-        io_op->callback = [this, handle, io_op]() {
+        io_op->callback = [this, handle, io_op = io_op.get()]() {
             handle->end_time = chrono::steady_clock::now();
             if (io_op->success) {
-                if (io_op->result.type == NariFileOperation::Result::Type::String) {
-                    handle->result = ScriptRuntime::make_ok(Value::make_string(io_op->result.str_value));
-                } else if (io_op->result.type == NariFileOperation::Result::Type::Array) {
-                    std::vector<Value> arr;
-                    for (const auto &item : io_op->result.array_value) {
-                        arr.push_back(Value::make_string(item));
-                    }
-                    handle->result = ScriptRuntime::make_ok(Value::make_array(std::move(arr)));
-                } else if (io_op->result.type == NariFileOperation::Result::Type::Bool) {
-                    handle->result = ScriptRuntime::make_ok(Value::make_bool(io_op->result.bool_value));
+                std::vector<Value> arr;
+                arr.reserve(io_op->result_entries.size());
+                for (auto &item : io_op->result_entries) {
+                    arr.push_back(Value::make_string(std::move(item)));
                 }
+                handle->result = ScriptRuntime::make_ok(Value::make_array(std::move(arr)));
                 handle->state = HandleData::Completed;
             } else {
                 handle->result = ScriptRuntime::make_err(Value::make_string(io_op->error_msg));
@@ -608,9 +608,7 @@ Value ScriptRuntime::builtin_fs_listDir(Value *argvals, size_t argc, const nari:
             }
         };
 
-        if (io_pool) {
-            io_pool->submit(io_op);
-        }
+        submit_handle_io(io_op, handle);
         return Value::make_handle(handle);
     }
     return Value::none();

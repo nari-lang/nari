@@ -131,8 +131,9 @@ Dependencies are resolved via pkg-config / the default linker paths, and the
 build uses the system toolchain and standard library.
 
 Preferred (system) packages:
-- `libcurl`
-- `mbedtls`
+- `libcurl` >= 7.68 built with its c-ares DNS backend
+- `c-ares` >= 1.34
+- `mbedtls` 3.x
 - `libffi`
 - `libarchive`
 - `zlib`
@@ -142,7 +143,7 @@ Preferred (system) packages:
 Any dependency not found on the system is fetched and built automatically from
 a Meson [wrap](https://mesonbuild.com/Wrap-dependency-system-manual.html) in
 `subprojects/` (WrapDB for curl/zlib/libffi/libarchive; pinned Git + CMake for
-asmjit/replxx/mbedtls). A normal `--system-deps` build therefore succeeds even
+asmjit/replxx/mbedtls/c-ares). A normal `--system-deps` build therefore succeeds even
 on distros that do not package `asmjit` or `replxx`.
 
 `asmjit` and `replxx` are also optional at the feature level: configure with

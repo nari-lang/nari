@@ -435,7 +435,7 @@ bool ScriptRuntime::invoke_result_method(void *context, const ObjectObj *obj, ui
 
 // collects from
 //  globals call stack, block scopes, module-local vars, closure scope, task queue,
-//  flags, external roots, async roots, builtin roots, persistent roots, and static class fields.
+//  flags, external roots, async roots, builtin roots, and static class fields.
 std::vector<const Value *> ScriptRuntime::collect_gc_roots() const {
     std::vector<const Value *> roots;
 
@@ -502,9 +502,6 @@ std::vector<const Value *> ScriptRuntime::collect_gc_roots() const {
         }
     }
 
-    for (const Value &v : gc_persistent_roots) {
-        roots.push_back(&v);
-    }
     for (const Value &v : this->typeof_values) {
         roots.push_back(&v);
     }

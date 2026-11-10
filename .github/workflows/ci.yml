@@ -153,6 +153,14 @@ jobs:
         if: matrix.os_label != 'windows'
         run: SKIP_BUILD=1 SKIP_NETWORK_TESTS=1 ./run_tests.sh
 
+      - name: Run Nari regression tests (Windows)
+        if: matrix.os_label == 'windows'
+        run: python tools/run_language_tests.py --interpreter build/release/nari.exe --skip-network
+
+      - name: Run file shutdown regressions (Windows)
+        if: matrix.os_label == 'windows'
+        run: python tests/windows_file_shutdown.py --interpreter build/release/nari.exe
+
       # package
       #
       # Extracted layout (both formats):

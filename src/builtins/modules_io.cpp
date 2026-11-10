@@ -1,4 +1,5 @@
 #include "common.h"
+#include "file_io.h"
 #include "stdio_utils.h"
 
 Value ScriptRuntime::builtin_module_import_namespace(Value *argvals, size_t argc, const nari::CallExpr *callExpr) {
@@ -101,7 +102,7 @@ Value ScriptRuntime::builtin_readLine(Value *, size_t, const nari::CallExpr *) {
 #define NARI_FILENO_FUNC fileno
 #endif
 
-Value ScriptRuntime::builtin_readAll(Value *, size_t, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_readAll(Value *, size_t, const nari::CallExpr *call) {
     // when stdin is a terminal, reading until EOF requires Ctrl+D and blocks indefinitely after the user presses Enter.
     // this *should* detect that and fall back to reading a single line instead.
     bool is_tty = (NARI_ATTY_FUNC(NARI_FILENO_FUNC(stdin)) != 0);
@@ -111,12 +112,11 @@ Value ScriptRuntime::builtin_readAll(Value *, size_t, const nari::CallExpr *) {
         return Value::make_string(std::move(line));
     }
     std::string result;
-    char buf[4096];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), stdin)) > 0) {
-        result.append(buf, n);
+    std::error_code error;
+    if (!nari::read_stream(stdin, result, error)) {
+        return runtime_fatal("read_all: failed to read stdin: " + error.message(), call);
     }
-    return Value::make_string(result);
+    return Value::make_string(std::move(result));
 }
 #endif
 

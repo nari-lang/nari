@@ -1,0 +1,45 @@
+func expect(condition, message) {
+    if (!condition) { panic(message); }
+}
+
+let root = "build/test-file-io-errors";
+expect(fs.mkdir_all(root), "could not create file I/O fixture directory");
+let file = root + "/content.bin";
+let missing = root + "/missing/child";
+
+fs.write_file(file, "").await.unwrap();
+expect(fs.read_file(file).await.unwrap() == "", "empty file read failed");
+fs.append_file(file, "").await.unwrap();
+expect(fs.read_file(file).await.unwrap() == "", "empty append changed file");
+
+let payload = ("abc" + from_char_code(0) + "\r\n").repeat(40000);
+fs.write_file(file, payload).await.unwrap();
+expect(fs.read_file(file).await.unwrap() == payload, "large binary read/write changed content");
+fs.append_file(file, "end").await.unwrap();
+expect(fs.read_file(file).await.unwrap() == payload + "end", "binary append changed content");
+
+expect(fs.read_file(root).await.is_err(), "directory read must fail");
+expect(fs.write_file(root, "test").await.is_err(), "directory write must fail");
+expect(fs.append_file(root, "test").await.is_err(), "directory append must fail");
+expect(fs.read_file(missing).await.is_err(), "missing file read must fail");
+expect(fs.write_file(missing, "test").await.is_err(), "missing parent write must fail");
+expect(fs.append_file(missing, "test").await.is_err(), "missing parent append must fail");
+expect(fs.list_dir(file).await.is_err(), "listing a regular file must fail");
+
+let invalid = file + from_char_code(0) + "suffix";
+expect(fs.read_file(invalid).await.is_err(), "read truncated a path at NUL");
+expect(fs.write_file(invalid, "changed").await.is_err(), "write truncated a path at NUL");
+expect(fs.append_file(invalid, "changed").await.is_err(), "append truncated a path at NUL");
+expect(fs.read_file(file).await.unwrap() == payload + "end", "invalid path changed the original file");
+
+// /dev/full accepts open and buffered writes, then fails when data is flushed.
+if (platform.os == "linux") {
+    expect(fs.write_file("/dev/full", "test").await.is_err(), "buffered write failure was ignored");
+    expect(fs.append_file("/dev/full", "test").await.is_err(), "buffered append failure was ignored");
+    let proc_file = fs.read_file("/proc/version").await.unwrap();
+    expect(proc_file.length() > 0, "zero-sized proc file was treated as empty");
+}
+
+fs.delete_file(file).await.unwrap();
+fs.delete_file(root).await.unwrap();
+print("file I/O error checks passed");

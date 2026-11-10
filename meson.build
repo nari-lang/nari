@@ -50,6 +50,7 @@ conan_asmjit_libdir = [conan_deploy_abs / 'asmjit' / 'lib']
 conan_mbedtls_libdir = [conan_deploy_abs / 'mbedtls' / 'lib']
 conan_zlib_libdir = [conan_deploy_abs / 'zlib' / 'lib']
 conan_curl_libdir = [conan_deploy_abs / 'libcurl' / 'lib']
+conan_cares_libdir = [conan_deploy_abs / 'c-ares' / 'lib']
 conan_ffi_libdir = [conan_deploy_abs / 'libffi' / 'lib']
 conan_libarchive_libdir = [conan_deploy_abs / 'libarchive' / 'lib']
 
@@ -307,6 +308,7 @@ if not is_emscripten and not system_deps
         conan_deploy / 'mbedtls' / 'include',
         conan_deploy / 'zlib' / 'include',
         conan_deploy / 'libcurl' / 'include',
+        conan_deploy / 'c-ares' / 'include',
         conan_deploy / 'libffi' / 'include',
         conan_deploy / 'replxx' / 'include',
         conan_deploy / 'libarchive' / 'include',
@@ -316,6 +318,9 @@ else
 endif
 
 all_deps = []
+if not is_emscripten and not target_mcu
+    all_deps += dependency('threads')
+endif
 
 # Optional: override glibc malloc with mimalloc, increases performance slightly
 # when available; -Dmimalloc=disabled to opt out.
@@ -369,18 +374,59 @@ endif
 if not is_emscripten and not disable_http and system_deps
     # system curl carries its own TLS/zlib.
     # prefer pkg-config/system libs and fall back to the WrapDB (curl) / git (mbedtls) subprojects
-    _libcurl_dep = dependency('libcurl', required: false, allow_fallback: false)
-    if not _libcurl_dep.found()
-        _libcurl_dep = dependency('libcurl', required: true)
+    _cares_dep = dependency('libcares', version: '>=1.34.0', required: false, allow_fallback: false)
+    if not _cares_dep.found()
+        if _wrap_mode == 'nofallback'
+            error('c-ares >=1.34 is required for asynchronous DNS; install libcares or drop nofallback.')
+        endif
+        _cares_options = cmake.subproject_options()
+        _cares_options.add_cmake_defines({
+            'CARES_SHARED': 'OFF',
+            'CARES_STATIC': 'ON',
+            'CARES_BUILD_TOOLS': 'OFF',
+            'CARES_BUILD_TESTS': 'OFF',
+        })
+        _cares_sub = cmake.subproject('c-ares', options: _cares_options)
+        _cares_dep = _cares_sub.dependency('c-ares')
+        meson.override_dependency('libcares', _cares_dep)
     endif
-    _sys_http = [_libcurl_dep]
+    # Probe separately from the subproject's dependency override: an installed
+    # libcurl may use a blocking DNS backend and need the configured fallback.
+    _libcurl_dep = dependency('libcurl', version: '>=7.68.0', method: 'pkg-config', required: false, allow_fallback: false)
+    _curl_compatible = _libcurl_dep.found()
+    if _curl_compatible and meson.can_run_host_binaries()
+        _curl_dns_check = cc.run(
+            '#include <curl/curl.h>\nint main() { auto *v = curl_version_info(CURLVERSION_NOW); return v && v->ares ? 0 : 1; }',
+            dependencies: _libcurl_dep,
+            name: 'system libcurl c-ares backend',
+        )
+        _curl_compatible = _curl_dns_check.compiled() and _curl_dns_check.returncode() == 0
+    endif
+    if not _curl_compatible
+        if _wrap_mode == 'nofallback'
+            error('libcurl >=7.68 with c-ares is required. Install a compatible libcurl or allow the configured fallback.')
+        endif
+        # The WrapDB build needs POSIX declarations hidden by strict C11 on
+        # Unix (including getaddrinfo/EAI_MEMORY). Keep MSVC on its C11 mode.
+        _curl_c_std = is_windows ? 'c11' : 'gnu11'
+        _curl_sub = subproject('curl', default_options: [
+            'c_std=' + _curl_c_std,
+            'asynchdns=enabled',
+            'asynchdns-resolver=ares',
+            'tool=disabled',
+            'tests=disabled',
+            'unittests=disabled',
+        ])
+        _libcurl_dep = _curl_sub.get_variable('curl_dep')
+    endif
+    _sys_http = [_libcurl_dep, _cares_dep]
     # Probe the three mbedtls libs individually (pkg-config, then plain lib).
     _mbed_libs = []
     _mbed_missing = false
     foreach mbedlib : ['mbedtls', 'mbedx509', 'mbedcrypto']
-        _mbed_pc = dependency(mbedlib, required: false, allow_fallback: false)
+        _mbed_pc = dependency(mbedlib, version: ['>=3.0', '<4.0'], required: false, allow_fallback: false)
         if not _mbed_pc.found()
-            _mbed_pc = cc.find_library(mbedlib, required: false)
+            _mbed_pc = cc.find_library(mbedlib, has_headers: ['mbedtls/sha1.h', 'mbedtls/sha256.h'], required: false)
         endif
         if _mbed_pc.found()
             _mbed_libs += [_mbed_pc]
@@ -410,6 +456,7 @@ if not is_emscripten and not disable_http and system_deps
     all_deps += [http_dep]
 elif not is_emscripten and not disable_http
     curl_lib = cc.find_library('curl', dirs: conan_curl_libdir, required: true)
+    cares_lib = cc.find_library('cares', dirs: conan_cares_libdir, required: true)
     mbedtls_lib = cc.find_library('mbedtls', dirs: conan_mbedtls_libdir, required: true)
     mbedx509_lib = cc.find_library('mbedx509', dirs: conan_mbedtls_libdir, required: true)
     mbedcrypto_lib = cc.find_library('mbedcrypto', dirs: conan_mbedtls_libdir, required: true)
@@ -418,7 +465,7 @@ elif not is_emscripten and not disable_http
     http_sys = [zlib_lib]
     http_compile_args = []
     if is_windows
-        http_compile_args += ['-DCURL_STATICLIB']
+        http_compile_args += ['-DCURL_STATICLIB', '-DCARES_STATICLIB']
         foreach syslib : [
             'ws2_32',
             'wldap32',
@@ -432,13 +479,16 @@ elif not is_emscripten and not disable_http
             http_sys += [cc.find_library(syslib, required: true)]
         endforeach
     elif is_darwin
+        http_sys += cc.find_library('resolv', required: true)
         http_sys += dependency(
             'appleframeworks',
             modules: ['CoreFoundation', 'SystemConfiguration', 'Security'],
         )
+    elif is_linux
+        http_sys += cc.find_library('rt', required: true)
     endif
     http_dep = declare_dependency(
-        dependencies: [curl_lib, mbedtls_lib, mbedx509_lib, mbedcrypto_lib] + http_sys,
+        dependencies: [curl_lib, cares_lib, mbedtls_lib, mbedx509_lib, mbedcrypto_lib] + http_sys,
         compile_args: http_compile_args,
     )
     all_deps += [http_dep]
@@ -537,6 +587,9 @@ endif
 # objects are identical; link_with pulls in only referenced objects.
 nari_common_sources = [
     'src/nari_fs.cpp',
+    'src/file_io.cpp',
+    'src/io_pool.cpp',
+    'src/io_event_loop.cpp',
     'src/parser.cpp',
     'src/parser/parse_core.cpp',
     'src/parser/parse_types.cpp',

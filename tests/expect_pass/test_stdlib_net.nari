@@ -17,7 +17,7 @@ if (server.port <= 0) { panic("expected ephemeral port > 0, got " + server.port)
 let accept_h = net.accept(server);
 
 // Issue connect. Both ops are now in flight on the IO threadpool.
-let client = net.connect("127.0.0.1", server.port)
+let client = net.connect("localhost", server.port)
     .await
     .unwrap();
 
@@ -65,9 +65,37 @@ if (reply != "HELLO TCP") {
     panic("tcp echo mismatch: expected 'HELLO TCP', got '" + reply + "'");
 }
 
+// Closing must cancel reads even when every worker is occupied by one. The
+// numeric ID must also stay invalid after close, rather than alias a reused fd.
+let cancelled_reads = 0;
+let read_index = 0;
+while (read_index < 6) {
+    net.read(client, func(err, data) {
+        if (err == null) { panic("closed socket read should fail"); }
+        cancelled_reads = cancelled_reads + 1;
+    });
+    read_index = read_index + 1;
+}
 net.close(client);
+while (cancelled_reads < 6) { __yield(); }
+net.close(client);
+if (net.write(client, "closed").await.is_ok()) {
+    panic("write to a closed socket succeeded");
+}
+if (net.write(client, "").await.is_ok()) {
+    panic("empty write to a closed socket succeeded");
+}
 net.close(conn);
+
+let cancelled_accept = net.accept(server);
 net.close_server(server);
+net.close_server(server);
+if (cancelled_accept.await.is_ok()) {
+    panic("accept on a closed server succeeded");
+}
+if (net.connect("127.0.0.1", server.port).await.is_ok()) {
+    panic("connection to a closed listener succeeded");
+}
 
 print("tcp loopback: ok");
 
@@ -86,10 +114,22 @@ let udp_client = net.udp_socket(0)
 
 if (udp_client == null) { panic("udp_socket(0) returned null for client"); }
 
+// Old IDs must not close these newer sockets if the OS reused a TCP descriptor.
+net.close(client);
+net.close_server(server);
+
+// A zero timeout should poll once without waiting for a 100ms shutdown tick.
+if (net.udp_recv(udp_server, 0).await.is_ok()) {
+    panic("empty UDP receive should time out");
+}
+if (net.udp_send(udp_client, "localhost", udp_server.port, "x".repeat(65508)).await.is_ok()) {
+    panic("oversized UDP datagram should fail");
+}
+
 // Issue server recv first (queues on IO worker), then send from client.
 let recv_h = net.udp_recv(udp_server, 5000);
 
-net.udp_send(udp_client, "127.0.0.1", udp_server.port, "ping")
+net.udp_send(udp_client, "localhost", udp_server.port, "ping")
     .await
     .unwrap();
 
@@ -118,8 +158,23 @@ if (resp.data != "pong") {
     panic("udp client got wrong reply: '" + resp.data + "'");
 }
 
+let cancelled_recv = net.udp_recv(udp_client);
 net.udp_close(udp_client);
+net.udp_close(udp_client);
+if (cancelled_recv.await.is_ok()) {
+    panic("UDP receive on a closed socket succeeded");
+}
 net.udp_close(udp_server);
 
 print("udp loopback: ok");
+
+// Leave a TCP read pending at normal program exit. Runtime destruction must
+// stop the worker and release the sockets without requiring an explicit close.
+let exit_server = net.listen(0).await.unwrap();
+let exit_accept = net.accept(exit_server);
+let exit_client = net.connect("127.0.0.1", exit_server.port).await.unwrap();
+let exit_conn = exit_accept.await.unwrap();
+net.read(exit_conn, func(err, data) {
+    panic("abandoned read callback should not run during teardown");
+});
 print("test_stdlib_net: all ok!");

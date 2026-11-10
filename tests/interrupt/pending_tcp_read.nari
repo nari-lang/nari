@@ -1,0 +1,8 @@
+let server = net.listen(0).await.unwrap();
+let accept_handle = net.accept(server);
+let client = net.connect("127.0.0.1", server.port).await.unwrap();
+let conn = accept_handle.await.unwrap();
+net.read(conn, func(err, data) {});
+// Keep the script alive with no data arriving on the connection. SIGINT must
+// interrupt the read worker before runtime destruction joins it.
+while (true) { yield(); }

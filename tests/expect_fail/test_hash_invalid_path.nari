@@ -1,0 +1,3 @@
+import { Hash } from "std/hash";
+Hash.sha256_file("tests/expect_pass/test_hash.nari" + from_char_code(0) + "suffix");
+print("execution continued after invalid hash path");

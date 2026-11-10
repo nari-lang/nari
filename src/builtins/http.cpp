@@ -2,48 +2,11 @@
 #include "common.h"
 
 #include <climits>
+#include <cmath>
 
 namespace chrono = std::chrono;
 
 #ifndef DISABLE_HTTP
-// HTTP builtins
-// stoi-compatible port parse that reports failure by return value instead of
-// throwing: optional sign, ASCII digits, int range; stops at the first
-// non-digit like std::stoi does.
-static bool parse_port_number(const std::string &text, int &out) {
-    size_t i = 0;
-    while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i]))) {
-        ++i;
-    }
-    bool negative = false;
-    if (i < text.size() && (text[i] == '-' || text[i] == '+')) {
-        negative = (text[i] == '-');
-        ++i;
-    }
-    size_t digits = i;
-    int v = 0;
-    while (i < text.size() && text[i] >= '0' && text[i] <= '9') {
-        int d = text[i] - '0';
-        if (negative) {
-            if (v < (INT_MIN + d) / 10) {
-                return false;
-            }
-            v = v * 10 - d;
-        } else {
-            if (v > (INT_MAX - d) / 10) {
-                return false;
-            }
-            v = v * 10 + d;
-        }
-        ++i;
-    }
-    if (digits == i) {
-        return false;
-    }
-    out = v;
-    return true;
-}
-
 // Like builtin_http_get but accepts an options object { url, method, headers, body }
 Value ScriptRuntime::builtin_http_fetch(Value *argvals, size_t argc, const nari::CallExpr *call) {
     if (argc < 2) {
@@ -54,6 +17,7 @@ Value ScriptRuntime::builtin_http_fetch(Value *argvals, size_t argc, const nari:
     std::string method = "GET";
     StringMap headers;
     std::string body;
+    auto http_op = std::make_shared<HttpOperation>();
 
     if (argvals[1].is_object()) {
         const ObjectObj *opts = argvals[1].get_obj_ptr();
@@ -78,40 +42,32 @@ Value ScriptRuntime::builtin_http_fetch(Value *argvals, size_t argc, const nari:
         }
     }
 
-    std::string full_url = url;
-    std::string host;
-    int port = 80;
-    std::string path = "/";
-
-    size_t proto_end = url.find("://");
-    if (proto_end != std::string::npos) {
-        url = url.substr(proto_end + 3);
-    }
-
-    size_t path_start = url.find('/');
-    std::string host_port;
-    if (path_start != std::string::npos) {
-        host_port = url.substr(0, path_start);
-        path = url.substr(path_start);
-    } else {
-        host_port = url;
-    }
-
-    size_t port_pos = host_port.find(':');
-    if (port_pos != std::string::npos) {
-        host = host_port.substr(0, port_pos);
-        if (!parse_port_number(host_port.substr(port_pos + 1), port)) {
-            return runtime_fatal("TypeError: invalid port in URL: " + host_port, call);
+    if (argvals[1].is_object()) {
+        const ObjectObj *opts = argvals[1].get_obj_ptr();
+        auto limit = [&](const char *name, int64_t maximum, int64_t &value) {
+            const Value *option = opts->get_field(name);
+            if (!option || option->is_none()) { return true; }
+            if (option->is_int()) {
+                value = option->get_int();
+                return value >= 0 && value <= maximum;
+            }
+            if (!option->is_float()) { return false; }
+            double number = option->get_float();
+            if (!std::isfinite(number) || number < 0 || number >= 0x1p63 || number > maximum || std::floor(number) != number) { return false; }
+            value = static_cast<int64_t>(number);
+            return true;
+        };
+        int64_t timeout = 0;
+        if (!limit("max_bytes", INT64_MAX, http_op->max_response_bytes) || !limit("timeout_ms", LONG_MAX, timeout)) {
+            return runtime_fatal("TypeError: HTTP limits must be nonnegative whole numbers in range", call);
         }
-    } else {
-        host = host_port;
+        http_op->timeout_ms = static_cast<long>(timeout);
+        if (const Value *follow = opts->get_field("follow_redirects"); follow && !follow->is_none()) {
+            if (!follow->is_bool()) { return runtime_fatal("TypeError: follow_redirects must be a boolean", call); }
+            http_op->follow_redirects = follow->get_bool();
+        }
     }
-
-    auto http_op = std::make_shared<HttpOperation>();
-    http_op->host = host;
-    http_op->port = port;
-    http_op->url_path = path;
-    http_op->full_url = full_url;
+    http_op->full_url = url;
     http_op->method = method;
     http_op->body = body;
     http_op->headers = headers;
@@ -119,7 +75,7 @@ Value ScriptRuntime::builtin_http_fetch(Value *argvals, size_t argc, const nari:
     auto handle = Value::make_handle_ptr();
     handle->state = HandleData::Running;
 
-    http_op->callback = [this, handle, http_op]() {
+    http_op->callback = [this, handle, http_op = http_op.get()]() {
         handle->end_time = chrono::steady_clock::now();
         if (http_op->success) {
             auto response = Value::make_object();
@@ -143,9 +99,7 @@ Value ScriptRuntime::builtin_http_fetch(Value *argvals, size_t argc, const nari:
         http_op->response_headers.clear();
     };
 
-    if (io_pool) {
-        io_pool->submit(http_op);
-    }
+    submit_handle_io(http_op, handle);
     return Value::make_handle(handle);
 }
 #endif // !DISABLE_HTTP

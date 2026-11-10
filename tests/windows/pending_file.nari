@@ -1,0 +1,15 @@
+let path = platform.getenv("NARI_TEST_PIPE");
+let operation = platform.getenv("NARI_TEST_FILE_OP");
+let pending = null;
+if (operation == "read") {
+    pending = fs.read_file(path);
+} else if (operation == "append") {
+    pending = fs.append_file(path, "x".repeat(1048576));
+} else {
+    pending = fs.write_file(path, "x".repeat(1048576));
+}
+set_timeout(func() {
+    if (pending.ready) { panic("named-pipe operation completed before cancellation"); }
+    print("exit with pending Windows file I/O");
+    if (platform.getenv("NARI_TEST_EXIT") == "1") { process.exit(0); }
+}, 200);

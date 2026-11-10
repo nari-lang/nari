@@ -254,14 +254,6 @@ Value ScriptRuntime::builtin_is_frozen(Value *argvals, size_t argc, const nari::
 Value ScriptRuntime::builtin_yield(Value *, size_t, const nari::CallExpr *) {
     if (Runtime::g_shutdown_requested.load()) {
         if (io_pool) {
-#ifndef NO_THREADS
-            // close all server sockets to unblock accept() calls
-            std::lock_guard<std::mutex> lock(server_sockets_mutex);
-            for (int fd : server_sockets) {
-                NARI_CLOSE_SOCKET(fd);
-            }
-            server_sockets.clear();
-#endif
             io_pool->shutdown();
         }
     }

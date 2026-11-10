@@ -1,0 +1,27 @@
+// Dropping the script handle must not let GC reclaim it before the I/O completion callback writes its result.
+let i = 0;
+while (i < 64) {
+    fs.exists("tests/expect_pass/test_gc_async_handles.nari");
+    i = i + 1;
+}
+__gc_collect();
+let drained = false;
+set_timeout(func() { drained = true; }, 5);
+while (!drained) { yield(); }
+__gc_collect();
+
+// Await a temporary handle while another completion triggers GC. 
+// The array pop removes its last script reference before await pumps callbacks.
+func check_temporary_handle() {
+    let pending = [fs.exists("tests/expect_pass/test_gc_async_handles.nari")];
+    set_timeout(func() { __gc_collect(); }, 0);
+    if (!pending.pop().await) {
+        panic("temporary async handle lost its result during GC");
+    }
+}
+i = 0;
+while (i < 64) {
+    check_temporary_handle();
+    i = i + 1;
+}
+print("GC async handle roots passed");

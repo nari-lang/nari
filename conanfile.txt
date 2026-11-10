@@ -3,6 +3,7 @@ asmjit/cci.20251209
 mbedtls/3.5.0
 zlib/[>=1.2]
 libcurl/8.21.0
+c-ares/1.34.8
 libffi/[>=3.4]
 replxx/0.0.4
 libarchive/3.8.7
@@ -16,6 +17,9 @@ mbedtls*:shared=False
 zlib*:shared=False
 libcurl*:shared=False
 libcurl*:with_ssl=mbedtls
+libcurl*:with_c_ares=True
+libcurl*:with_threaded_resolver=False
+c-ares*:shared=False
 # disable unneeded protocols
 libcurl*:with_ftp=False
 libcurl*:with_file=False

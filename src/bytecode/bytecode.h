@@ -121,7 +121,7 @@ namespace bytecode {
     X(JS_POSTINC, 2, false)                                                                                                                \
     /* CLOSE_UPVALUES <first_slot>: drop this frame's open upvalue cells for locals   */                                                   \
     /* at or above first_slot */                                                                                                           \
-    X(CLOSE_UPVALUES, 2, false)                                                                                                           \
+    X(CLOSE_UPVALUES, 2, false)                                                                                                            \
     /* Marker for a source module whose statements are folded into <main>. */                                                              \
     X(MODULE_ENTRY, 2, false)
 
@@ -703,7 +703,7 @@ class VM {
     uint32_t getter_field_id_for_name(uint16_t name_idx);
     uint32_t setter_field_id_for_name(uint16_t name_idx);
     void process_completed_io_for_jit();
-    void run_timer_loop();
+    void run_event_loop();
     void ensure_static_fields_inited_for_jit(const std::string &class_name, const nari::ClassDecl *class_decl);
     Value &peek(size_t offset = 0) {
         return stack[stack.size() - 1 - offset];
@@ -914,7 +914,9 @@ class VM {
     VM(int argc = 0, char **argv = nullptr, bool enable_jit = true);
     ~VM();
 #ifndef DISABLE_JIT
-    jit::JitSession *jit() const { return jit_session.get(); }
+    jit::JitSession *jit() const {
+        return jit_session.get();
+    }
 #endif
 
     // run a compiled chunk

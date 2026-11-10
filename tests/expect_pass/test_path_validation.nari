@@ -1,0 +1,58 @@
+import { Archive } from "std/archive";
+
+func expect(condition, message) {
+    if (!condition) { panic(message); }
+}
+
+let root = "build/test-path-validation";
+
+expect(fs.mkdir_all(root), "could not create path fixtures");
+
+let file = root + "/keep.txt";
+fs.write_file(file, "keep").await.unwrap();
+
+let nul = from_char_code(0);
+let invalid_file = file + nul + "suffix";
+let invalid_dir = root + nul + "suffix";
+
+expect(!fs.exists(invalid_file).await, "exists accepted an embedded NUL");
+
+expect(!fs.is_directory(invalid_dir), "is_directory accepted an embedded NUL");
+
+expect(!fs.mkdir_all(root + "/unexpected" + nul + "/suffix"), "mkdir_all accepted an embedded NUL");
+
+expect(!fs.exists(root + "/unexpected").await, "invalid mkdir created a truncated path");
+
+expect(fs.list_dir(invalid_dir).await.is_err(), "list_dir accepted an embedded NUL");
+
+expect(fs.delete_file(invalid_file).await.is_err(), "delete_file accepted an embedded NUL");
+
+expect(fs.read_file(file).await.unwrap() == "keep", "invalid deletion changed the real file");
+
+let archive = root + "/proof.tar";
+Archive.create(archive, [{src: file, dest: "keep.txt"}]).unwrap();
+
+expect(Archive.extract(archive, root + "/unexpected", {max_bytes: 9223372036854775808.0}).is_err(), "overflowing archive limit was accepted");
+
+expect(Archive.extract(archive, root + "/unexpected", {max_files: -1}).is_err(), "negative archive limit was accepted");
+
+expect(Archive.list(archive + nul + "suffix").is_err(), "Archive.list accepted an embedded NUL");
+
+expect(Archive.extract(archive, root + "/unexpected" + nul + "/suffix").is_err(), "Archive.extract accepted an invalid destination");
+
+expect(!fs.exists(root + "/unexpected").await, "invalid archive destination created a truncated path");
+
+expect(Archive.create(file + nul + ".tar", []).is_err(), "Archive.create accepted an invalid output");
+
+expect(Archive.create(root + "/invalid.tar", [invalid_file]).is_err(), "Archive.create accepted an invalid source");
+
+expect(!fs.exists(root + "/invalid.tar").await, "invalid archive source created output");
+
+expect(Archive.create(root + "/invalid.tar", [{src: file, dest: "keep" + nul + ".txt"}]).is_err(), "Archive.create accepted an invalid entry name");
+
+expect(fs.read_file(file).await.unwrap() == "keep", "invalid archive output changed the real file");
+
+fs.delete_file(file).await.unwrap();
+fs.delete_file(archive).await.unwrap();
+fs.delete_file(root).await.unwrap();
+print("path validation checks passed");

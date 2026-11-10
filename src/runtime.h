@@ -20,9 +20,7 @@
 #include <cstdio>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <string>
-#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -114,9 +112,14 @@ class ScriptRuntime {
         gc_async_roots.erase(key);
     }
 
-    // Persistent GC roots that outlive any single async op.
-    // A TCP server's handler function is held by a long-lived accept thread, so it must stay alive for the server's lifetime.
-    std::vector<Value> gc_persistent_roots;
+    void submit_handle_io(const IOOperationPtr &op, HandlePtr handle) {
+        if (io_pool) {
+            // HandlePtr is a GC-managed raw pointer. Capturing it in a C++
+            // callback does not keep the handle or its result alive.
+            async_root_set(op.get(), { Value::make_handle(handle) });
+            io_pool->submit(op);
+        }
+    }
 
     enum TypeofIdx : size_t {
         TY_NULL = 0,
@@ -167,10 +170,6 @@ class ScriptRuntime {
                 return typeof_values[TY_NULL];
         }
     }
-    void persistent_root_add(const Value &v) {
-        gc_persistent_roots.push_back(v);
-    }
-
     // callback for dispatching function calls to the bytecode VM (for FFI callbacks)
     std::function<Value(const Value &, const std::vector<Value> &, const Value *)> external_call_function_value;
     std::function<Value(const Value &, const Value *, size_t, const Value *)> external_call_function_value_span;
@@ -216,26 +215,15 @@ class ScriptRuntime {
     }
 
     ~ScriptRuntime() {
-        // shut down the io_pool to set the stop flag
-        // this causes poll() loops in workers to exit on their next timeout check
+        // Workers stop before any sockets or callback roots are released.
         if (io_pool) {
             io_pool->shutdown();
         }
-#ifndef NO_THREADS
-        std::lock_guard<std::mutex> socket_lock(server_sockets_mutex);
-        for (int fd : server_sockets) {
-            NARI_CLOSE_SOCKET(fd);
-        }
-        server_sockets.clear();
-
-        std::lock_guard<std::mutex> thread_lock(accept_threads_mutex);
-        for (auto &thread : accept_threads) {
-            if (thread.joinable()) {
-                thread.join();
-            }
-        }
-        accept_threads.clear();
+#ifndef DISABLE_HTTP
+        sockets.clear();
 #endif
+        // Discard callbacks and unclaimed results while the runtime still lives.
+        io_pool.reset();
     }
 
     // call a function Value (for FFI callbacks)
@@ -500,20 +488,55 @@ class ScriptRuntime {
     int process_argc;
     std::vector<std::string> process_argv;
 
-#ifndef NO_THREADS
-    // server socket tracking
-    std::vector<int> server_sockets;
-    std::mutex server_sockets_mutex;
+#ifndef DISABLE_HTTP
+    // Script-visible fd values are stable IDs. Native handles stay at their full
+    // platform width and never pass through Nari's 48-bit integer payload.
+    std::unordered_map<int64_t, NariSocketPtr> sockets;
+    int64_t next_socket_id = 1;
+    size_t active_servers = 0;
 
-    // accept loop threads
-    std::vector<std::thread> accept_threads;
-    std::mutex accept_threads_mutex;
+    int64_t adopt_socket(nari_socket_t fd) {
+        if (next_socket_id > Value::INT48_MAX) {
+            std::fprintf(stderr, "Fatal error: socket handle limit exceeded\n");
+            std::abort();
+        }
+        int64_t id = next_socket_id++;
+        sockets.emplace(id, std::make_shared<NariSocket>(fd));
+        return id;
+    }
+
+    NariSocketPtr find_socket(int64_t id) const {
+        auto it = sockets.find(id);
+        return it == sockets.end() ? nullptr : it->second;
+    }
+
+    void close_socket(int64_t id) {
+        auto it = sockets.find(id);
+        if (it == sockets.end()) {
+            return;
+        }
+        it->second->closed.store(true);
+        sockets.erase(it);
+    }
+
+    Value build_conn_object(nari_socket_t fd, const std::string &remote_ip, int remote_port);
+    Value build_udp_socket_object(nari_socket_t fd, int port);
+    void queue_server_accept(int64_t id, Value callback);
 #endif
 
     // Is there timer work still owed to the script? Deliberately narrower than
     // io_pool->has_pending(): see pending_timeouts above.
     bool has_pending_timers() const {
         return pending_timeouts > 0 || !active_intervals.empty();
+    }
+
+    bool has_pending_events() const {
+#ifndef DISABLE_HTTP
+        if (active_servers != 0) {
+            return true;
+        }
+#endif
+        return has_pending_timers();
     }
 
     // Runs every interval whose deadline has passed.
@@ -527,13 +550,18 @@ class ScriptRuntime {
         bool did_any = false;
         while (io_pool->has_completed()) {
             IOOperationPtr op = io_pool->pop_completed();
-            if (op && op->callback) {
+            if (!op) {
+                continue;
+            }
+            // Keep the operation alive and detach its callback while it
+            // re-enters the VM or pumps more completions.
+            auto callback = std::move(op->callback);
+            if (callback) {
                 // run cb on main thread
-                op->callback();
-                op->callback = nullptr;     // break retain cycle (e.g. http_op captures itself)
-                async_root_clear(op.get()); // drop async keepalive roots for this op
+                callback();
                 did_any = true;
             }
+            async_root_clear(op.get());
         }
 
         if (did_any) {
@@ -574,6 +602,8 @@ class ScriptRuntime {
     Value builtin_fs_appendFile(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_fs_fileExists(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_fs_isDirectory(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_isSymlink(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_rename(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_fs_mkdirAll(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_fs_deleteFile(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_fs_listDir(Value *argvals, size_t argc, const CallExpr *);

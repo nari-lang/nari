@@ -139,8 +139,8 @@ File system operations.
 >
 > Most of them then give a `Result`, so call `.unwrap()` to get the value. The
 > two exceptions are `fs.file_exists` and `fs.exists`, which give a plain
-> boolean. `fs.is_directory` and `fs.mkdir_all` are synchronous and return a
-> boolean directly.
+> boolean. `fs.is_directory`, `fs.is_symlink` and `fs.mkdir_all` are synchronous
+> and return a boolean directly. `fs.rename` is synchronous and returns a `Result`.
 
 | Call | Waiting gives |
 |---|---|
@@ -151,11 +151,19 @@ File system operations.
 | `fs.list_dir(path)` | `Result<array, error>` |
 | `fs.file_exists(path)` / `fs.exists(path)` | `bool` |
 | `fs.is_directory(path)` | `bool`, synchronous |
+| `fs.is_symlink(path)` | `bool`, synchronous |
+| `fs.rename(source, destination)` | `Result`, synchronous |
 | `fs.mkdir_all(path)` | `bool`, synchronous |
+
+Paths containing NUL bytes are rejected before accessing the filesystem.
+Operations returning `Result` give `Err`; boolean queries and `mkdir_all`
+return `false` for invalid paths.
 
 ### fs.read_file
 
-Read entire file contents.
+Read entire file contents. An empty file resolves to `Ok("")`. Read errors
+resolve to `Err` rather than returning incomplete content. Contents are read
+in binary mode, preserving NUL bytes and line endings.
 
 ```nari
 fs.write_file("data.txt", "hello\n").await.unwrap();
@@ -169,7 +177,9 @@ print(content);
 
 ### fs.write_file
 
-Write content to a file (overwrites existing).
+Write content to a file (overwrites existing). Open, write, flush, and close
+errors resolve to `Err`. Success means the stream was flushed and closed; it
+does not guarantee that the operating system has persisted the data to disk.
 
 ```nari
 fs.write_file("output.txt", "Hello, World!").await.unwrap();
@@ -183,7 +193,7 @@ fs.write_file("output.txt", "Hello, World!").await.unwrap();
 
 ### fs.append_file
 
-Append content to a file.
+Append content to a file. Errors are reported in the same way as `fs.write_file`.
 
 ```nari
 fs.append_file("log.txt", "New log entry\n").await.unwrap();
@@ -216,6 +226,20 @@ if (fs.is_directory("/home/user/")) {
 ```
 
 **Returns:** Boolean
+
+### fs.is_symlink / fs.rename
+
+`fs.is_symlink(path)` checks the link itself, including a broken link. On the
+Windows 7 target it detects reparse points, including directory junctions.
+
+`fs.rename(source, destination)` moves a file or directory and returns a `Result`.
+It replaces an existing file where the filesystem permits it. Use paths on the
+same filesystem for atomic replacement; cross-filesystem moves can fail.
+
+```nari
+fs.write_file("config.tmp", "ready").await.unwrap();
+fs.rename("config.tmp", "config.txt").unwrap();
+```
 
 ### fs.mkdir_all
 
@@ -350,7 +374,13 @@ HTTP client functionality.
 ### http.fetch
 
 Perform an HTTP request. Accepts a URL string and an optional options object
-`{ method?, headers?, body? }`.
+`{ method?, headers?, body?, max_bytes?, timeout_ms?, follow_redirects? }`.
+
+`max_bytes` bounds the response body, including chunked responses. `timeout_ms`
+bounds the complete request (0 leaves it unlimited). Both accept nonnegative
+whole numbers. `follow_redirects` defaults to true, with at most five redirects;
+set it to false for authenticated API calls that must stay on one endpoint.
+Only HTTP(S) is supported, and HTTPS redirects cannot downgrade to HTTP.
 
 The call returns a handle. Waiting on it gives a `Result`. Unwrap that to get the
 response object, which has `status_code`, `body` and `headers`.

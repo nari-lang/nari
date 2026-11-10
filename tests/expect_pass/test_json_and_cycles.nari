@@ -5,9 +5,9 @@
 // A failure here is a panic (nonzero exit) or a crash.
 
 func expect(cond, msg) {
-  if (cond == false) {
-    panic("FAILED: " + msg);
-}
+    if (cond == false) {
+        panic("FAILED: " + msg);
+    }
 }
 
 // 1. cyclic values stringify safely

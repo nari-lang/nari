@@ -1,0 +1,8 @@
+// process.exit bypasses the runtime destructor. The dispatcher must still stop
+// before the process flushes streams and terminates.
+let server = net.listen(0).await.unwrap();
+let accept_handle = net.accept(server);
+let response = http.fetch("http://127.0.0.1:" + server.port + "/stall");
+let connection = accept_handle.await.unwrap();
+print("exit with pending HTTP");
+process.exit(0);

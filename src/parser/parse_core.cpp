@@ -4,6 +4,7 @@
 */
 
 #include "parser/parser.h"
+#include "file_io.h"
 #include "stdio_utils.h"
 
 namespace Parser {
@@ -182,31 +183,11 @@ std::vector<FunctionPtr> Parser::parse_program(bool create_aggregator) {
                     return {};
                 }
             } else {
-                FILE *fp = fopen(inc_path.c_str(), "r");
-                if (!fp) {
-                    std::string err = "Failed to open import file " + inc_path;
-                    error_and_exit(err);
+                std::error_code error;
+                if (!nari::read_file(inc_path, included_src, error)) {
+                    error_and_exit("Failed to read import file '" + inc_path + "': " + error.message());
                     return {};
                 }
-
-                if (fseek(fp, 0, SEEK_END) != 0) {
-                    fclose(fp);
-                    error_and_exit("Failed to seek import file " + inc_path);
-                    return {};
-                }
-                long file_size = ftell(fp);
-                if (file_size < 0 || fseek(fp, 0, SEEK_SET) != 0) {
-                    fclose(fp);
-                    error_and_exit("Failed to determine import file size " + inc_path);
-                    return {};
-                }
-
-                if (file_size > 0) {
-                    included_src.resize(static_cast<size_t>(file_size));
-                    size_t bytes_read = fread(&included_src[0], 1, static_cast<size_t>(file_size), fp);
-                    included_src.resize(bytes_read);
-                }
-                fclose(fp);
             }
 
             std::string prev_file = current_filename;

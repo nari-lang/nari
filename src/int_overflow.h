@@ -11,14 +11,21 @@
 // portable overflow-checked 64-bit arithmetic
 // returns true if the operation overflowed; *out holds the result otherwise
 
-// since `static_cast<int64_t>(double` is UB in C++ when NaN, (+-)Inf, or has magnitude >= 2^63, we map them to 0 to avoid UB.
-inline int64_t safe_double_to_i64(double dbl) noexcept {
-    // 2^63 is exactly representable; any value
-    // >= 2^63 or <= -2^63 - 1 would overflow on conversion.
+// Reject nonfinite and out-of-range doubles before casting. The positive bound
+// is exclusive because double(INT64_MAX) rounds to 2^63.
+inline bool try_double_to_i64(double dbl, int64_t *out) noexcept {
+    *out = 0;
     if (NARI_LIKELY(std::isfinite(dbl) && dbl >= -9223372036854775808.0 && dbl < 9223372036854775808.0)) {
-        return static_cast<int64_t>(dbl);
+        *out = static_cast<int64_t>(dbl);
+        return true;
     }
-    return 0;
+    return false;
+}
+
+inline int64_t safe_double_to_i64(double dbl) noexcept {
+    int64_t result;
+    try_double_to_i64(dbl, &result);
+    return result;
 }
 
 #ifdef CLANG_OR_GCC_COMPAT
@@ -37,34 +44,33 @@ inline bool mul_overflow_i64(int64_t a, int64_t b, int64_t *out) {
 #include <limits>
 
 inline bool add_overflow_i64(int64_t a, int64_t b, int64_t *out) {
+    *out = 0;
+    if ((b > 0 && a > std::numeric_limits<int64_t>::max() - b) || (b < 0 && a < std::numeric_limits<int64_t>::min() - b)) {
+        return true;
+    }
     *out = a + b;
-    return (b > 0 && a > std::numeric_limits<int64_t>::max() - b) || (b < 0 && a < std::numeric_limits<int64_t>::min() - b);
+    return false;
 }
 inline bool sub_overflow_i64(int64_t a, int64_t b, int64_t *out) {
+    *out = 0;
+    if ((b < 0 && a > std::numeric_limits<int64_t>::max() + b) || (b > 0 && a < std::numeric_limits<int64_t>::min() + b)) {
+        return true;
+    }
     *out = a - b;
-    return (b < 0 && a > std::numeric_limits<int64_t>::max() + b) || (b > 0 && a < std::numeric_limits<int64_t>::min() + b);
+    return false;
 }
 inline bool mul_overflow_i64(int64_t a, int64_t b, int64_t *out) {
+    *out = 0;
     if (a == 0 || b == 0) {
-        *out = 0;
         return false;
     }
-    if (a == -1) {
-        if (b == std::numeric_limits<int64_t>::min()) {
-            return true;
-        }
-        *out = -b;
-        return false;
-    }
-    if (b == -1) {
-        if (a == std::numeric_limits<int64_t>::min()) {
-            return true;
-        }
-        *out = -a;
-        return false;
+    const int64_t low = std::numeric_limits<int64_t>::min();
+    const int64_t high = std::numeric_limits<int64_t>::max();
+    if ((a > 0 && ((b > 0 && a > high / b) || (b < 0 && b < low / a))) || (a < 0 && ((b > 0 && a < low / b) || (b < 0 && a < high / b)))) {
+        return true;
     }
     *out = a * b;
-    return (*out / a) != b;
+    return false;
 }
 
 #endif

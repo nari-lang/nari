@@ -390,7 +390,7 @@ inline double Value::as_number() const {
         }
         char *end = nullptr;
         double d = std::strtod(s.c_str(), &end);
-        return end && *end == '\0' ? d : 0.0;
+        return end == s.c_str() + s.size() && end != s.c_str() ? d : 0.0;
     }
     if (is_array()) {
         return static_cast<double>(get_array().size());

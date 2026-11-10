@@ -174,6 +174,8 @@ if %MSVC_MINOR% GEQ 50 set "CONAN_COMPILER_VERSION=194"
   if /I "%WIN7_COMPAT%"=="true" (
   rem libarchive specifically needs to be built against Win7-compatible defines since it attempts to use CreateFile2
   echo libarchive/*:tools.build:defines=["_WIN32_WINNT=0x0601","WINVER=0x0601","NTDDI_VERSION=0x06010000"]
+  echo c-ares/*:tools.build:defines=["_WIN32_WINNT=0x0601","WINVER=0x0601","NTDDI_VERSION=0x06010000"]
+  echo c-ares/*:tools.info.package_id:confs=["tools.build:defines"]
   )
   echo tools.cmake.cmaketoolchain:generator=Ninja
   echo tools.cmake.cmaketoolchain:extra_variables={'BUILD_LIBCURL_DOCS': {'value': False, 'cache': True, 'type': 'BOOL', 'force': True}, 'BUILD_MISC_DOCS': {'value': False, 'cache': True, 'type': 'BOOL', 'force': True}, 'ENABLE_CURL_MANUAL': {'value': False, 'cache': True, 'type': 'BOOL', 'force': True}}

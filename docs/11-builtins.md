@@ -121,7 +121,9 @@ is_function("not a function");   // false
 
 ### to_number
 
-Convert a value to a number.
+Convert a value to a number. String conversion trims surrounding whitespace and
+requires the entire remaining string to be numeric; invalid or empty strings
+return zero. Integers outside the signed 48-bit range promote to floats.
 
 ```nari
 to_number("42");      // 42
@@ -541,7 +543,11 @@ print("You entered: " + content);
 
 ### parse_int
 
-Parse an integer from a string.
+Parse the decimal integer prefix of a string, ignoring surrounding leading
+whitespace and stopping at the first non-digit after an optional sign. Returns
+zero if there are no digits. Numeric arguments truncate toward zero; NaN and
+infinities remain floats. Results outside the signed 48-bit range promote to
+floats and may round.
 
 ```nari
 parse_int("42");       // 42
@@ -549,7 +555,7 @@ parse_int("3.9");      // 3
 ```
 
 **Parameters:** `value`  
-**Returns:** Number (integer)
+**Returns:** Number
 
 ### parse_float
 
@@ -578,6 +584,11 @@ let r = random();     // e.g. 0.4271...
 
 Generate an array of integers. Supports `range(stop)`, `range(start, stop)`, and
 `range(start, stop, step)`.
+
+Arguments truncate toward zero and must be finite values in the signed 64-bit
+range. A zero step is treated as one. The stop is exclusive; an increment that
+would overflow ends the range. Elements outside the signed 48-bit integer range
+promote to floats.
 
 ```nari
 range(5);          // [0, 1, 2, 3, 4]

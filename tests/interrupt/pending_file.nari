@@ -1,0 +1,22 @@
+let path = platform.getenv("NARI_TEST_FIFO");
+let operation = platform.getenv("NARI_TEST_FILE_OP");
+if (operation == "read") {
+    fs.read_file(path).await;
+} else if (operation == "write" || operation == "broken") {
+    let result = fs.write_file(path, "x".repeat(1048576)).await;
+    if (operation == "broken") {
+        if (!result.is_err()) { panic("closed FIFO write succeeded"); }
+        print("closed FIFO write returned Err");
+    }
+} else if (operation == "append") {
+    fs.append_file(path, "x").await;
+} else {
+    let i = 0;
+    while (i < 4) { fs.read_file(path); i = i + 1; }
+    fs.write_file(path + ".queued", "must not be written");
+    if (operation == "queued") { while (true) { yield(); } }
+    if (operation == "exit") {
+        set_timeout(func() { print("exit with pending files"); process.exit(0); }, 50);
+    }
+    print("pending files scheduled");
+}

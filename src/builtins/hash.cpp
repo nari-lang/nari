@@ -1,6 +1,7 @@
 // Cryptographic hash builtins that use mbedtls
 
 #include "common.h"
+#include "nari_fs.h"
 
 #include <mbedtls/sha1.h>
 #include <mbedtls/sha256.h>
@@ -104,6 +105,10 @@ Value ScriptRuntime::builtin_hash_sha256_file(Value *argvals, size_t argc, const
     }
 
     const std::string &path = argvals[0].get_string();
+    std::error_code path_error;
+    if (!nari::fs::validate_path(path, path_error)) {
+        return runtime_fatal("Hash.sha256_file: invalid path: " + path_error.message(), call);
+    }
 
     // binary mode is used to avoid text-mode translation on Windows
     FILE *fp = std::fopen(path.c_str(), "rb");

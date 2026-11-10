@@ -6,6 +6,10 @@
 
 namespace nari::fs {
 
+// Native filesystem APIs terminate paths at NUL. Reject embedded NUL bytes
+// before any operation can address a different file than the caller requested.
+bool validate_path(const std::string &path, std::error_code &ec);
+
 class Path {
   public:
     Path() = default;
@@ -45,6 +49,8 @@ bool is_directory(const Path &path);
 bool is_directory(const Path &path, std::error_code &ec);
 bool is_regular_file(const Path &path);
 bool is_regular_file(const Path &path, std::error_code &ec);
+bool is_symlink(const Path &path, std::error_code &ec);
+bool rename(const Path &from, const Path &to, std::error_code &ec);
 bool remove(const Path &path, std::error_code &ec);
 bool create_directories(const Path &path, std::error_code &ec);
 std::vector<Path> list_directory(const Path &path, std::error_code &ec);
