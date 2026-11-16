@@ -22,6 +22,11 @@ disable_lsp = get_option('disable_lsp')
 target_mcu = get_option('target_mcu')
 windows_win7_compat = is_windows and get_option('windows_win7_compat')
 
+# TODO: jit on windows is disabled for now since there's some bugs with it still D:
+if is_windows
+    disable_jit = true
+endif
+
 # MCU target: force off everything that needs an OS or POSIX threads.
 # Any feature flag already explicitly set is left alone
 if target_mcu

@@ -106,7 +106,9 @@ struct PipeSignalGuard {
     }
 };
 
-bool wait_file(int fd, short events, const std::atomic<bool> *cancel, std::error_code &error) {
+// wait in 20 ms increments until poll reports the fd ready or the operation is cancelled.
+// FIFO with no writer yet returns a spurious EOF.
+bool wait_file(int fd, short events, const std::atomic<bool> *cancel, std::error_code &error, bool attempt_periodically = false) {
     while (!cancelled(cancel, error)) {
         pollfd descriptor{ fd, events, 0 };
         int ready = ::poll(&descriptor, 1, 20);
@@ -120,6 +122,9 @@ bool wait_file(int fd, short events, const std::atomic<bool> *cancel, std::error
         if (ready < 0 && errno != EINTR) {
             error = stream_error();
             return false;
+        }
+        if (attempt_periodically) {
+            return !cancelled(cancel, error);
         }
     }
     return false;
@@ -184,7 +189,7 @@ bool write_cancellable(
         return false;
     }
     auto *bytes = static_cast<const char *>(data);
-    while (size != 0 && wait_file(file.fd, POLLOUT, cancel, error)) {
+    while (size != 0 && wait_file(file.fd, POLLOUT, cancel, error, true)) {
         auto written = ::write(file.fd, bytes, std::min<size_t>(size, 65536));
         if (written > 0) {
             bytes += written;

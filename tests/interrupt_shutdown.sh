@@ -83,7 +83,7 @@ stop_file_partner
 FILE_PARTNER_PID=$!
 NARI_TEST_FILE_OP=write run_shutdown_test "full FIFO write" "$INTERP" tests/interrupt/pending_file.nari
 stop_file_partner
-(exec 3< "$NARI_TEST_FIFO"; sleep 0.05) &
+(exec 3< "$NARI_TEST_FIFO"; sleep 0.5) &
 FILE_PARTNER_PID=$!
 SEND_INTERRUPT=0 NARI_TEST_FILE_OP=broken EXPECTED_OUTPUT="closed FIFO write returned Err" \
     run_shutdown_test "closed FIFO peer" "$INTERP" tests/interrupt/pending_file.nari
