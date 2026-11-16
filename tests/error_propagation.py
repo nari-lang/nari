@@ -33,8 +33,8 @@ def main():
         return result.stdout
 
     diagnostics = {
-        "test_propagation_top_level.nari": "only allowed inside a function",
-        "test_propagation_interpolation_top_level.nari": "only allowed inside a function",
+        "test_propagation_top_level.nari": "Error: SyntaxError: JSON.parse failed",
+        "test_propagation_interpolation_top_level.nari": "Error: boom",
         "test_propagation_wrong_type.nari": "postfix '?' requires a Result",
         "test_propagation_option.nari": "postfix '?' requires a Result",
         "test_propagation_wrong_variant.nari": "postfix '?' requires a Result",
