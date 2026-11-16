@@ -1,0 +1,3 @@
+func invalid() { return 42?; }
+invalid();
+print("execution continued after invalid propagation");

@@ -818,13 +818,17 @@ class VM {
 #endif
 
   public:
-    // class instance tracking (for 'this' in methods).
-    // MUST be null-initialized: gc_collect_roots reads it on every collection (to root the current receiver)
+    // class instance tracking
+    // MUST be null-initialized, gc_collect_roots reads it on every collection
     ClassInstancePtr current_instance = nullptr;
     std::string current_class_name;
 
     // runtime error flag, set by JIT helpers or execute_instruction on unrecoverable error.
     bool has_error = false;
+
+    // Value returned by the outermost frame, captured when OP_RETURN empties the frame stack.
+    Value entry_result;
+    bool entry_result_set = false;
 
     struct NativeCatchBoundary {
         bool caught = false;
@@ -1021,6 +1025,11 @@ inline void jit_add(VM *vm) {
     Value &a = vm->peek(1);
     if (a.is_int() && b.is_int()) {
         a.set_int_checked(a.get_int() + b.get_int());
+    } else if (a.is_bytes() && b.is_bytes()) {
+        std::vector<uint8_t> joined(a.get_bytes().begin(), a.get_bytes().end());
+        const auto &rhs = b.get_bytes();
+        joined.insert(joined.end(), rhs.begin(), rhs.end());
+        a = Value::make_bytes(std::move(joined));
     } else if (a.is_string() || b.is_string()) {
         a = Value::make_string(a.to_string() + b.to_string());
     } else {

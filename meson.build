@@ -248,6 +248,7 @@ sources = [
     'src/builtins/http.cpp',
     'src/builtins/collections.cpp',
     'src/builtins/arrays.cpp',
+    'src/builtins/bytes.cpp',
     'src/builtins/json.cpp',
     'src/builtins/strings.cpp',
     'src/builtins/regex.cpp',

@@ -1,0 +1,4 @@
+"use strict";
+func invalid() -> int { Err("wrong return type")?; return 42; }
+invalid();
+print("execution continued after invalid propagated return type");

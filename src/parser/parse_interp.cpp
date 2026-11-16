@@ -31,7 +31,10 @@ void ri_expr(nari::Expr *e, std::vector<ParseError> *errors) {
                 FuncList funcs;
                 // TODO: kinda ugly way of doing interp slots
                 // but this doesn't technically break anything, it's never exposed to the user, and it's free speed wise
-                const std::string wrapped = "let __nari_interp_slot__ = (" + src + ");";
+                std::string wrapped = "let __nari_interp_slot__ = (" + src + ");";
+                if (sie->function_scope) {
+                    wrapped = "func __nari_interp_expression__() { " + wrapped + " }";
+                }
                 if (errors) {
                     auto result = parse_program_recovering(wrapped);
                     for (auto &error : result.errors) {
@@ -43,11 +46,21 @@ void ri_expr(nari::Expr *e, std::vector<ParseError> *errors) {
                 }
                 set_source_filename(previous_filename);
                 nari::ExprPtr parsed;
-                if (funcs.size() >= 2 && funcs[1] && funcs[1]->body && !funcs[1]->body->stmts.empty()) {
-                    if ((funcs[1]->body->stmts[0].get()) != nullptr &&
-                        (funcs[1]->body->stmts[0].get())->stmt_kind == nari::StmtKind::VarDecl) {
-                        auto *var_decl = static_cast<nari::VarDeclStmt *>(funcs[1]->body->stmts[0].get());
-                        parsed = std::move(var_decl->initializerExpr);
+                nari::Function *fragment = nullptr;
+                if (sie->function_scope) {
+                    for (auto &fn : funcs) {
+                        if (fn && fn->name == "__nari_interp_expression__") {
+                            fragment = fn.get();
+                            break;
+                        }
+                    }
+                } else if (funcs.size() >= 2) {
+                    fragment = funcs[1].get();
+                }
+                if (fragment && fragment->body && !fragment->body->stmts.empty()) {
+                    auto *stmt = fragment->body->stmts[0].get();
+                    if (stmt && stmt->stmt_kind == nari::StmtKind::VarDecl) {
+                        parsed = std::move(static_cast<nari::VarDeclStmt *>(stmt)->initializerExpr);
                     }
                 }
                 sie->exprs.push_back(std::move(parsed));

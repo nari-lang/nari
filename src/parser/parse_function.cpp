@@ -13,6 +13,7 @@ FunctionPtr Parser::parse_function() {
     }
     // consume 'func'
     next();
+    FunctionScopeGuard function_scope(function_depth);
     const Token &nameTok = next();
     if (nameTok.kind != TokenKind::TK_IDENT) {
         error_and_exit("Expected function name after 'func'");

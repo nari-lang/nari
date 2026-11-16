@@ -1,0 +1,3 @@
+// Byte values must be integers in 0..255.
+let b = bytes([256]);
+print(b);

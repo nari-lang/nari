@@ -1,0 +1,4 @@
+// Writing past the end of a byte array is an error (use push to grow it).
+let b = bytes([1, 2]);
+b[2] = 3;
+print(b);

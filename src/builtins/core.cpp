@@ -428,10 +428,45 @@ Value ScriptRuntime::builtin_fs_readFile(Value *argvals, size_t argc, const nari
     return Value::none();
 }
 
+Value ScriptRuntime::builtin_fs_readFileBytes(Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc >= 1) {
+        std::string path = argvals[0].to_string();
+
+        auto io_op = std::make_shared<NariFileOperation>(IOOperation::Type::FileRead);
+        io_op->file_path = path;
+
+        auto handle = Value::make_handle_ptr();
+        handle->state = HandleData::Running;
+
+        // submit_handle_io roots the handle until this callback completes.
+        io_op->callback = [this, handle, io_op = io_op.get()]() {
+            handle->end_time = chrono::steady_clock::now();
+            if (io_op->success) {
+                const std::string &raw = io_op->result_string;
+                handle->result = ScriptRuntime::make_ok(Value::make_bytes(reinterpret_cast<const uint8_t *>(raw.data()), raw.size()));
+                handle->state = HandleData::Completed;
+            } else {
+                handle->result = ScriptRuntime::make_err(Value::make_string(io_op->error_msg));
+                handle->state = HandleData::Completed;
+            }
+        };
+
+        submit_handle_io(io_op, handle);
+        return Value::make_handle(handle);
+    }
+    return Value::none();
+}
+
 Value ScriptRuntime::builtin_fs_writeFile(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc >= 2) {
         std::string path = argvals[0].to_string();
-        std::string content = argvals[1].to_string();
+        std::string content;
+        if (argvals[1].is_bytes()) {
+            const auto &data = argvals[1].get_bytes();
+            content.assign(reinterpret_cast<const char *>(data.data()), data.size());
+        } else {
+            content = argvals[1].to_string();
+        }
 
         auto io_op = std::make_shared<NariFileOperation>(IOOperation::Type::FileWrite);
         io_op->file_path = path;
@@ -460,7 +495,13 @@ Value ScriptRuntime::builtin_fs_writeFile(Value *argvals, size_t argc, const nar
 Value ScriptRuntime::builtin_fs_appendFile(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc >= 2) {
         std::string path = argvals[0].to_string();
-        std::string content = argvals[1].to_string();
+        std::string content;
+        if (argvals[1].is_bytes()) {
+            const auto &data = argvals[1].get_bytes();
+            content.assign(reinterpret_cast<const char *>(data.data()), data.size());
+        } else {
+            content = argvals[1].to_string();
+        }
 
         auto io_op = std::make_shared<NariFileOperation>(IOOperation::Type::FileAppend);
         io_op->file_path = path;

@@ -22,7 +22,7 @@ bool is_keyword(const std::string &s) {
     static const std::unordered_set<std::string> kws = {
         "if",    "else",    "while",  "for",  "foreach", "in",     "return", "switch",   "case",  "default", "match",
         "let",   "global",  "const",  "func", "import",  "export", "from",   "as",       "type",  "union",   "enum",
-        "class", "extends", "static", "new",  "spawn",   "await",  "break",  "continue", "yield",
+        "class", "extends", "static", "new",  "spawn",   "break",  "continue", "yield",
     };
     return kws.count(s) > 0;
 }
@@ -30,7 +30,7 @@ bool is_keyword(const std::string &s) {
 // keywords followed by a space before `(`: `if (x)` but `foo(x)`, `func(x)`
 bool is_paren_space_keyword(const std::string &s) {
     static const std::unordered_set<std::string> kws = {
-        "if", "while", "for", "foreach", "switch", "match", "return", "new", "await",
+        "if", "while", "for", "foreach", "switch", "match", "return", "new",
     };
     return kws.count(s) > 0;
 }
@@ -45,6 +45,7 @@ bool can_end_expr(const Token &t) {
         case TokenKind::TK_RBRACKET:
         case TokenKind::TK_PLUSPLUS:
         case TokenKind::TK_MINUSMINUS:
+        case TokenKind::TK_PROPAGATE:
             return true;
         case TokenKind::TK_IDENT:
             return !is_keyword(t.text);
@@ -167,7 +168,19 @@ std::string render_token(const Token &t) {
         }
         return out;
     }
-    // identifiers, numbers, operators, comments: verbatim
+    if (t.kind == TokenKind::TK_COMMENT) {
+        // Raw comments retain CRLF from the input. Emit logical newlines so
+        // Windows text-mode output cannot turn them into CR-CR-LF.
+        std::string out;
+        for (size_t i = 0; i < t.text.size(); ++i) {
+            if (t.text[i] == '\r' && (i + 1 == t.text.size() || t.text[i + 1] == '\n')) {
+                continue;
+            }
+            out += t.text[i];
+        }
+        return out;
+    }
+    // identifiers, numbers and operators: verbatim
     return t.text;
 }
 
@@ -203,6 +216,9 @@ struct Formatter {
         if (prev.kind == K::TK_COMMENT || cur.kind == K::TK_COMMENT) {
             return true;
         }
+        if (cur.kind == K::TK_PROPAGATE) {
+            return false;
+        }
         // member access
         if (cur.kind == K::TK_DOT || cur.kind == K::TK_COLONCOLON || cur.kind == K::TK_QUESTIONDOT || prev.kind == K::TK_DOT ||
             prev.kind == K::TK_COLONCOLON || prev.kind == K::TK_QUESTIONDOT) {
@@ -225,7 +241,7 @@ struct Formatter {
             if (prev.kind == K::TK_IDENT) {
                 return is_paren_space_keyword(prev.text);
             }
-            if (prev.kind == K::TK_RPAREN || prev.kind == K::TK_RBRACKET || prev_was_generic_close) {
+            if (prev.kind == K::TK_RPAREN || prev.kind == K::TK_RBRACKET || prev.kind == K::TK_PROPAGATE || prev_was_generic_close) {
                 return false;
             }
             return true;
@@ -235,7 +251,7 @@ struct Formatter {
             if (prev.kind == K::TK_IDENT) {
                 return is_keyword(prev.text);
             }
-            if (prev.kind == K::TK_RPAREN || prev.kind == K::TK_RBRACKET || prev_was_generic_close) {
+            if (prev.kind == K::TK_RPAREN || prev.kind == K::TK_RBRACKET || prev.kind == K::TK_PROPAGATE || prev_was_generic_close) {
                 return false;
             }
             return true;

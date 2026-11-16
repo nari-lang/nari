@@ -50,7 +50,7 @@ func pathJoin(base, name) {
 
 // fs.exists is async (returns a Spawn handle), so always await it.
 func pathExists(path) {
-    return (await fs.exists(path)) == true
+    return fs.exists(path).await == true
 }
 
 func is_whitespace(ch) {
@@ -133,7 +133,7 @@ func sanitizeIdentifier(text) {
 // so we suffix any such name with an underscore.
 func isNariKeyword(word) {
     let kw = {
-        "func": true, "async": true, "await": true, "let": true, "global": true,
+        "func": true, "async": true, "let": true, "global": true,
         "return": true, "if": true, "else": true, "for": true, "while": true,
         "in": true, "break": true, "continue": true, "class": true, "type": true,
         "enum": true, "new": true, "import": true, "export": true, "true": true,

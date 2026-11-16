@@ -21,35 +21,39 @@ static constexpr int ST_FUNCTION = 12;
 static constexpr int SM_DECLARATION = (1 << 0);
 
 
-static const char *kNariKeywords[] = { "let",    "global",   "func",   "return",  "if",   "else", "while", "for",   "foreach", "in",
-                                       "break",  "continue", "class",  "new",     "this", "type", "enum",  "match", "spawn",   "await",
-                                       "import", "export",   "public", "private", "null", "true", "false", nullptr };
+static const char *NariKeywords[] = {
+    "let",    "global",   "func",   "return",  "if",   "else", "while", "for",   "foreach", "in",
+    "break",  "continue", "class",  "new",     "this", "type", "enum",  "match", "spawn",
+    "import", "export",   "public", "private", "null", "true", "false", nullptr
+};
 
 static const struct {
     const char *name;
     const char *detail;
-} kNariBuiltins[] = { { "print", "func print(...)" },
-                      { "panic", "func panic(value) -> never" },
-                      { "to_string", "func to_string(value) -> string" },
-                      { "to_number", "func to_number(value) -> number" },
-                      { "to_bool", "func to_bool(value) -> bool" },
-                      { "typeof", "func typeof(value) -> string" },
-                      { "is_number", "func is_number(value) -> bool" },
-                      { "is_string", "func is_string(value) -> bool" },
-                      { "is_bool", "func is_bool(value) -> bool" },
-                      { "is_array", "func is_array(value) -> bool" },
-                      { "is_object", "func is_object(value) -> bool" },
-                      { "is_function", "func is_function(value) -> bool" },
-                      { "parse_int", "func parse_int(str, radix?) -> number" },
-                      { "parse_float", "func parse_float(str) -> number" },
-                      { "random", "func random() -> number" },
-                      { "time", "func time() -> number" },
-                      { "range", "func range(start, end, step?) -> number[]" },
-                      { "set_timeout", "func set_timeout(fn, delay)" },
-                      { "set_interval", "func set_interval(fn, interval) -> number" },
-                      { "clear_interval", "func clear_interval(id)" },
-                      { "read_line", "func read_line() -> string" },
-                      { nullptr, nullptr } };
+} NariBuiltins[] = {  
+    { "print", "func print(...)" },
+    { "panic", "func panic(value) -> never" },
+    { "to_string", "func to_string(value) -> string" },
+    { "to_number", "func to_number(value) -> number" },
+    { "to_bool", "func to_bool(value) -> bool" },
+    { "typeof", "func typeof(value) -> string" },
+    { "is_number", "func is_number(value) -> bool" },
+    { "is_string", "func is_string(value) -> bool" },
+    { "is_bool", "func is_bool(value) -> bool" },
+    { "is_array", "func is_array(value) -> bool" },
+    { "is_object", "func is_object(value) -> bool" },
+    { "is_function", "func is_function(value) -> bool" },
+    { "parse_int", "func parse_int(str, radix?) -> number" },
+    { "parse_float", "func parse_float(str) -> number" },
+    { "random", "func random() -> number" },
+    { "time", "func time() -> number" },
+    { "range", "func range(start, end, step?) -> number[]" },
+    { "set_timeout", "func set_timeout(fn, delay)" },
+    { "set_interval", "func set_interval(fn, interval) -> number" },
+    { "clear_interval", "func clear_interval(id)" },
+    { "read_line", "func read_line() -> string" },
+    { nullptr, nullptr }
+};
 
     void NariLspServer::handle_initialize(const json &id) {
         json result;
@@ -351,8 +355,8 @@ static const struct {
         };
 
         // Keywords
-        for (int i = 0; kNariKeywords[i]; ++i) {
-            std::string kw = kNariKeywords[i];
+        for (int i = 0; NariKeywords[i]; ++i) {
+            std::string kw = NariKeywords[i];
             if (!prefix_matches(kw)) {
                 continue;
             }
@@ -376,14 +380,14 @@ static const struct {
                 items.push_back(std::move(item));
             }
         } else {
-            for (int i = 0; kNariBuiltins[i].name; ++i) {
-                std::string name = kNariBuiltins[i].name;
+            for (int i = 0; NariBuiltins[i].name; ++i) {
+                std::string name = NariBuiltins[i].name;
                 if (!prefix_matches(name)) {
                     continue;
                 }
                 json item;
                 item["label"] = name;
-                item["detail"] = kNariBuiltins[i].detail;
+                item["detail"] = NariBuiltins[i].detail;
                 item["kind"] = static_cast<int>(CK_Function);
                 items.push_back(std::move(item));
             }
@@ -607,9 +611,9 @@ static const struct {
                 }
             }
             if (detail.empty()) {
-                for (int i = 0; kNariBuiltins[i].name; ++i) {
-                    if (word == kNariBuiltins[i].name) {
-                        detail = kNariBuiltins[i].detail;
+                for (int i = 0; NariBuiltins[i].name; ++i) {
+                    if (word == NariBuiltins[i].name) {
+                        detail = NariBuiltins[i].detail;
                         break;
                     }
                 }

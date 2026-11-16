@@ -1,0 +1,22 @@
+"use strict";
+func typed(result: Result<int, string>) -> Result<int, string> {
+    return Ok(result? + 1);
+}
+func captures_return_type(_result) -> int {
+    let closure = func(value) { return Ok(value? + 1); };
+    let result = closure(_result);
+    if (result.is_err()) { return 42; }
+    return result.unwrap();
+}
+func spawn_return_type() -> int {
+    let task = spawn { Err("task")?; return Ok(0); };
+    if (task.await.is_err()) { return 42; }
+    return 0;
+}
+if (typed(Ok(41)).unwrap() != 42 || typed(Err("typed")).unwrap_err() != "typed") {
+    panic("typed Result propagation failed");
+}
+if (captures_return_type(Err("closure")) != 42 || spawn_return_type() != 42) {
+    panic("nested function inherited outer return annotation");
+}
+print("strict error propagation checks passed");

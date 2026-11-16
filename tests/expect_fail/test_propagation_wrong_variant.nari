@@ -1,0 +1,3 @@
+func invalid() { return {__enum: "Result", __variant: "Other", __data: 42}?; }
+invalid();
+print("execution continued after invalid Result variant");

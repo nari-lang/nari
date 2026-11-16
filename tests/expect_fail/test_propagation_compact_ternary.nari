@@ -1,0 +1,3 @@
+func compact(flag) { return flag?1:2; }
+compact(true);
+print("execution continued after compact ternary");

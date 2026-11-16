@@ -265,6 +265,9 @@ inline bool Value::is_regex() const {
 inline bool Value::is_delegate() const {
     return is_heap() && heap_tag() == ValueTag::Delegate;
 }
+inline bool Value::is_bytes() const {
+    return is_heap() && heap_tag() == ValueTag::Bytes;
+}
 inline bool Value::is_sso() const {
     return false;
 }
@@ -316,6 +319,16 @@ inline Array &Value::get_array() {
     static Array empty;
     auto *p = heap_ptr();
     return p && p->type_tag == ValueTag::Array ? (static_cast<ArrayObj *>(p))->v : empty;
+}
+inline const ByteArray &Value::get_bytes() const {
+    static const ByteArray empty;
+    auto *p = heap_ptr();
+    return p && p->type_tag == ValueTag::Bytes ? (static_cast<BytesObj *>(p))->v : empty;
+}
+inline ByteArray &Value::get_bytes() {
+    static ByteArray empty;
+    auto *p = heap_ptr();
+    return p && p->type_tag == ValueTag::Bytes ? (static_cast<BytesObj *>(p))->v : empty;
 }
 inline ObjectObj *Value::get_obj_ptr() {
     auto *p = heap_ptr();
@@ -395,6 +408,9 @@ inline double Value::as_number() const {
     if (is_array()) {
         return static_cast<double>(get_array().size());
     }
+    if (is_bytes()) {
+        return static_cast<double>(get_bytes().size());
+    }
     if (is_object()) {
         const auto *o = get_obj_ptr();
         return o ? static_cast<double>(o->field_count()) : 0.0;
@@ -419,6 +435,9 @@ inline bool Value::as_bool() const {
     }
     if (is_array()) {
         return !get_array().empty();
+    }
+    if (is_bytes()) {
+        return !get_bytes().empty();
     }
     if (is_object()) {
         const auto *o = get_obj_ptr();
@@ -494,6 +513,18 @@ inline std::string Value::to_string_impl(bool in_container_context, std::vector<
         }
         r += "]";
         seen.pop_back();
+        return r;
+    }
+    if (is_bytes()) {
+        std::string r = "bytes([";
+        const auto &b = get_bytes();
+        for (size_t i = 0; i < b.size(); i++) {
+            if (i) {
+                r += ", ";
+            }
+            r += std::to_string(static_cast<unsigned>(b[i]));
+        }
+        r += "])";
         return r;
     }
     if (is_object()) {
@@ -572,6 +603,17 @@ inline bool Value::values_equal(const Value &a, const Value &b) {
     if (a.is_string() || b.is_string()) {
         return a.is_string() && b.is_string() && a.get_string() == b.get_string();
     }
+    if (a.is_bytes() || b.is_bytes()) {
+        if (!a.is_bytes() || !b.is_bytes()) {
+            return false;
+        }
+        if (a._raw == b._raw) {
+            return true;
+        }
+        const auto &x = a.get_bytes();
+        const auto &y = b.get_bytes();
+        return x.size() == y.size() && std::equal(x.begin(), x.end(), y.begin());
+    }
     return a._raw == b._raw;
 }
 
@@ -626,6 +668,22 @@ inline bool Value::compare_ordered(const Value &a, const Value &b, int &cmp) {
         cmp = x < y ? -1 : (x > y ? 1 : 0);
         return true;
     }
+    if (a.is_bytes() || b.is_bytes()) {
+        if (!a.is_bytes() || !b.is_bytes()) {
+            return false;
+        }
+        const auto &x = a.get_bytes();
+        const auto &y = b.get_bytes();
+        const size_t n = std::min(x.size(), y.size());
+        for (size_t i = 0; i < n; i++) {
+            if (x[i] != y[i]) {
+                cmp = x[i] < y[i] ? -1 : 1;
+                return true;
+            }
+        }
+        cmp = x.size() < y.size() ? -1 : (x.size() > y.size() ? 1 : 0);
+        return true;
+    }
     // Two heap values have an order only when they are the same object.
     if (a._raw == b._raw) {
         cmp = 0;
@@ -664,8 +722,15 @@ inline bool Value::values_strict_equal(const Value &a, const Value &b) {
         }
         HeapHeader *a_heap = reinterpret_cast<HeapHeader *>(a._raw & PTR_MASK);
         HeapHeader *b_heap = reinterpret_cast<HeapHeader *>(b._raw & PTR_MASK);
-        return a_heap->type_tag == ValueTag::String && b_heap->type_tag == ValueTag::String &&
-               static_cast<StringObj *>(a_heap)->s == static_cast<StringObj *>(b_heap)->s;
+        if (a_heap->type_tag == ValueTag::String && b_heap->type_tag == ValueTag::String) {
+            return static_cast<StringObj *>(a_heap)->s == static_cast<StringObj *>(b_heap)->s;
+        }
+        if (a_heap->type_tag == ValueTag::Bytes && b_heap->type_tag == ValueTag::Bytes) {
+            const auto &x = a.get_bytes();
+            const auto &y = b.get_bytes();
+            return x.size() == y.size() && std::equal(x.begin(), x.end(), y.begin());
+        }
+        return false;
     }
     if (a_tag == TAG_INT && b_tag == TAG_INT) {
         return a._raw == b._raw;

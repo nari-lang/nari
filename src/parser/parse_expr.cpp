@@ -39,6 +39,7 @@ ExprPtr Parser::parse_function_expression() {
     if (recover_failed_) {
         return nullptr;
     }
+    FunctionScopeGuard function_scope(function_depth);
     const Token &funcTok = peek();
     if (!expect(TokenKind::TK_IDENT, "func keyword")) {
         return {};
@@ -156,6 +157,7 @@ ExprPtr Parser::parse_spawn_expression() {
     if (recover_failed_) {
         return nullptr;
     }
+    FunctionScopeGuard function_scope(function_depth);
     const Token &spawnTok = peek();
     if (!expect(TokenKind::TK_IDENT, "spawn keyword")) {
         return {};
@@ -179,6 +181,7 @@ ExprPtr Parser::parse_arrow_function_expression() {
     if (recover_failed_) {
         return nullptr;
     }
+    FunctionScopeGuard function_scope(function_depth);
     const Token &parenTok = peek();
     auto func_expr = std::make_unique<nari::FunctionExpr>();
     func_expr->line = parenTok.line;
@@ -517,23 +520,6 @@ ExprPtr Parser::parse_unary() {
         return nullptr;
     }
     const Token &t = peek();
-    // `await expr` is sugar for `expr.await`. The member name must stay "await",
-    // because that is the name the handle member lookup blocks on. A handle has
-    // no "value" member, so any other name gives none and hides the wait.
-    if (t.kind == TokenKind::TK_IDENT && t.text == "await") {
-        Token op = t;
-        next();
-        ExprPtr operand = parse_unary();
-        if (!operand) {
-            error_and_exit("Expected expression after 'await'");
-            return {};
-        }
-        auto me = std::make_unique<nari::MemberExpr>(std::move(operand), "await");
-        me->line = op.line;
-        me->col = op.col;
-        me->filename = op.filename.empty() ? current_filename : op.filename;
-        return me;
-    }
     if (t.kind == TokenKind::TK_BANG || t.kind == TokenKind::TK_MINUS || t.kind == TokenKind::TK_PLUS || t.kind == TokenKind::TK_TILDE) {
         Token op = t;
         next();
@@ -589,7 +575,16 @@ ExprPtr Parser::parse_postfix() {
     }
     while (true) {
         const Token &tok = peek();
-        if (tok.kind == TokenKind::TK_PLUSPLUS || tok.kind == TokenKind::TK_MINUSMINUS) {
+        if (tok.kind == TokenKind::TK_PROPAGATE) {
+            // Also allowed at top level: it returns from the entry frame, and
+            // VM::run reports an Err returned there (see entry_result).
+            Token op = next();
+            auto propagated = std::make_unique<nari::UnaryExpr>("propagate", std::move(expr));
+            propagated->line = op.line;
+            propagated->col = op.col;
+            propagated->filename = op.filename.empty() ? current_filename : op.filename;
+            expr = std::move(propagated);
+        } else if (tok.kind == TokenKind::TK_PLUSPLUS || tok.kind == TokenKind::TK_MINUSMINUS) {
             // only treat as postfix if on the same line as the expression
             if (expr && expr->line != 0 && tok.line != expr->line) {
                 break;
@@ -1028,6 +1023,7 @@ ExprPtr Parser::parse_primary() {
         interp->col = tok.col;
         interp->filename = tok.filename.empty() ? current_filename : tok.filename;
 
+        interp->function_scope = function_depth > 0;
         interp->parts = tok.interp_parts;
         interp->expr_sources = tok.interp_exprs;
         interp->format_specs = tok.interp_formats;

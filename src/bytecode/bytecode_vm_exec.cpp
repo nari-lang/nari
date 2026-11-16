@@ -33,6 +33,33 @@ static inline int64_t value_as_int_safe(const Value &v) noexcept {
     return v.is_int() ? v.get_int() : safe_double_to_i64(v.as_number());
 }
 
+// Result/Option enum values are plain objects carrying __enum/__variant fields.
+// This is identical to the check the propagation operator itself performs.
+static bool is_err_result(const Value &v) {
+    if (!v.is_object()) {
+        return false;
+    }
+    const ObjectObj *obj = v.get_obj_ptr();
+    if (!obj) {
+        return false;
+    }
+    const Value *enum_name = obj->get_field("__enum");
+    const Value *variant = obj->get_field("__variant");
+    return enum_name && variant && enum_name->is_string() && variant->is_string() && enum_name->get_string() == "Result" &&
+           variant->get_string() == "Err";
+}
+
+// An Err that propagates out of the program entry point (top-level code or the auto-called start()) has no caller
+// Report it instead of silently discarding it
+static bool report_entry_error(const Value &v) {
+    if (!is_err_result(v)) {
+        return false;
+    }
+    const Value *payload = v.get_obj_ptr()->get_field("__data");
+    std::fprintf(stderr, "Error: %s\n", payload ? payload->to_string().c_str() : "<unknown error>");
+    return true;
+}
+
 #ifdef NARI_EXTENDED_JSRT
 static inline int64_t js_signed32(uint32_t value) noexcept {
     return value >= 0x80000000U ? static_cast<int64_t>(value) - 0x100000000LL : static_cast<int64_t>(value);
@@ -778,6 +805,8 @@ bool VM::execute_instruction() {
 
                 if (frames.empty()) {
                     // returning from top-level - end execution
+                    entry_result = result;
+                    entry_result_set = true;
                     VM::push(result);
                     return false;
                 }
@@ -927,7 +956,11 @@ bool VM::execute_instruction() {
                     break;
                 }
                 auto &target = arr_ref.get_array();
-                if (iterable.is_array()) {
+                if (iterable.is_bytes()) {
+                    for (uint8_t byte : iterable.get_bytes()) {
+                        target.push_back(Value::make_int(static_cast<int64_t>(byte)));
+                    }
+                } else if (iterable.is_array()) {
                     auto &src = iterable.get_array();
                     target.insert(target.end(), src.begin(), src.end());
                 } else {
@@ -1073,7 +1106,19 @@ bool VM::execute_instruction() {
                         index = Value::make_int(static_cast<int64_t>(f));
                     }
                 }
-                if (obj.is_array()) {
+                if (obj.is_bytes()) {
+                    const auto &data = obj.get_bytes();
+                    if (index.is_int()) {
+                        int64_t idx = index.get_int();
+                        if (idx >= 0 && idx < static_cast<int64_t>(data.size())) {
+                            VM::push(Value::make_int(static_cast<int64_t>(data[static_cast<size_t>(idx)])));
+                        } else {
+                            VM::push(Value::none());
+                        }
+                    } else {
+                        VM::push(Value::none());
+                    }
+                } else if (obj.is_array()) {
                     auto *array_obj = static_cast<ArrayObj *>(obj.heap_ptr());
                     auto &arr = array_obj->v;
                     if (index.is_int()) {
@@ -1148,7 +1193,29 @@ bool VM::execute_instruction() {
                         index = Value::make_int(static_cast<int64_t>(f));
                     }
                 }
-                if (obj.is_array()) {
+                if (obj.is_bytes()) {
+                    auto &data = obj.get_bytes();
+                    if (!index.is_int()) {
+                        bytecode_runtime_fatal("TypeError: bytes index must be an integer", "");
+                        has_error = true;
+                        return false;
+                    }
+                    if (!val.is_int() || val.get_int() < 0 || val.get_int() > 255) {
+                        bytecode_runtime_fatal("TypeError: byte value must be an integer in 0..255", "");
+                        has_error = true;
+                        return false;
+                    }
+                    int64_t idx = index.get_int();
+                    if (idx < 0) {
+                        idx += static_cast<int64_t>(data.size());
+                    }
+                    if (idx < 0 || idx >= static_cast<int64_t>(data.size())) {
+                        bytecode_runtime_fatal("IndexError: bytes assignment index out of bounds (use push to grow)", "");
+                        has_error = true;
+                        return false;
+                    }
+                    data[static_cast<size_t>(idx)] = static_cast<uint8_t>(val.get_int());
+                } else if (obj.is_array()) {
                     auto *array_obj = static_cast<ArrayObj *>(obj.heap_ptr());
                     auto &arr = array_obj->v;
                     if (index.is_int()) {
@@ -1258,6 +1325,8 @@ bool VM::execute_instruction() {
                     const std::string &name = chunk->strings[name_idx];
                     if (obj.is_array() && name == "length") {
                         VM::push(Value::make_int(static_cast<int64_t>(obj.get_array().size())));
+                    } else if (obj.is_bytes() && name == "length") {
+                        VM::push(Value::make_int(static_cast<int64_t>(obj.get_bytes().size())));
                     } else if (obj.is_string() && name == "length") {
                         VM::push(Value::make_int(static_cast<int64_t>(obj.get_string().size())));
                     } else if (obj.is_handle()) {
@@ -1470,7 +1539,16 @@ bool VM::execute_instruction() {
                 // top of stack has the iterable (array or object)
                 // push an iterator: [array_or_keys, index=0] on stack
                 Value iterable = pop();
-                if (iterable.is_array()) {
+                if (iterable.is_bytes()) {
+                    std::vector<Value> elements;
+                    const auto &data = iterable.get_bytes();
+                    elements.reserve(data.size());
+                    for (uint8_t byte : data) {
+                        elements.push_back(Value::make_int(static_cast<int64_t>(byte)));
+                    }
+                    VM::push(Value::make_array(std::move(elements)));
+                    VM::push(Value::make_int(0)); // current index
+                } else if (iterable.is_array()) {
                     VM::push(iterable);           // the array
                     VM::push(Value::make_int(0)); // current index
                 } else if (iterable.is_object()) {
@@ -1499,7 +1577,15 @@ bool VM::execute_instruction() {
                 //   object -> its keys as an array
                 // anything else is an error, we just dump an empty array
                 Value iterable = pop();
-                if (iterable.is_array()) {
+                if (iterable.is_bytes()) {
+                    std::vector<Value> elements;
+                    const auto &data = iterable.get_bytes();
+                    elements.reserve(data.size());
+                    for (uint8_t byte : data) {
+                        elements.push_back(Value::make_int(static_cast<int64_t>(byte)));
+                    }
+                    VM::push(Value::make_array(std::move(elements)));
+                } else if (iterable.is_array()) {
                     VM::push(iterable);
                 } else if (iterable.is_object()) {
                     const ObjectObj *oobj = iterable.get_obj_ptr();
@@ -1521,7 +1607,16 @@ bool VM::execute_instruction() {
                 // Builds a pairs array [[key0, val0], [key1, val1], ...] and pushes [pairs, index=0]
                 Value iterable = pop();
                 std::vector<Value> pairs;
-                if (iterable.is_array()) {
+                if (iterable.is_bytes()) {
+                    const auto &data = iterable.get_bytes();
+                    pairs.reserve(data.size());
+                    for (size_t _ki = 0; _ki < data.size(); _ki++) {
+                        std::vector<Value> pair;
+                        pair.push_back(Value::make_int(static_cast<int64_t>(_ki)));
+                        pair.push_back(Value::make_int(static_cast<int64_t>(data[_ki])));
+                        pairs.push_back(Value::make_array(std::move(pair)));
+                    }
+                } else if (iterable.is_array()) {
                     const auto &arr = iterable.get_array();
                     pairs.reserve(arr.size());
                     for (size_t _ki = 0; _ki < arr.size(); _ki++) {
@@ -1958,6 +2053,7 @@ bool VM::execute_instruction() {
                         // Uncommon / error path: give a typed diagnostic.
                         const Value &ov = argv[0];
                         std::string type_str = ov.is_string()   ? "string"
+                                               : ov.is_bytes()  ? "bytes"
                                                : ov.is_array()  ? "array"
                                                : ov.is_object() ? "object"
                                                : ov.is_int()    ? "number"
@@ -2105,6 +2201,7 @@ bool VM::run(Chunk *compiled_chunk) {
     }
 
     // execute instructions until done
+    entry_result_set = false; // ignore __stdlib_init__'s return, captured above
     while (true) {
         if (!execute_instruction()) {
             break;
@@ -2118,6 +2215,11 @@ bool VM::run(Chunk *compiled_chunk) {
     }
 
     overflow_jmp = nullptr;
+
+    // An Err propagated out of top-level code has no caller.
+    if (!has_error && entry_result_set && report_entry_error(entry_result)) {
+        return false;
+    }
 
     // auto-call start() if it exists
     if (!has_error && !Runtime::g_shutdown_requested.load()) {
@@ -2139,6 +2241,8 @@ bool VM::run(Chunk *compiled_chunk) {
                 return true;
             }
             // start_jmp_val == 0 (first entry) or 2 (caught; resume loop)
+            entry_result_set = false;
+            const size_t stack_before_start = stack.size();
             if (!start_called) {
                 start_called = true;
                 std::vector<Value> empty_args;
@@ -2154,6 +2258,16 @@ bool VM::run(Chunk *compiled_chunk) {
                 }
             }
             overflow_jmp = nullptr;
+
+            // An Err propagated (or returned) out of start() has no caller
+            // either; report it the same way as a top-level propagation.
+            if (!has_error) {
+                const Value start_result =
+                    entry_result_set ? entry_result : (stack.size() > stack_before_start ? stack.back() : Value::none());
+                if (report_entry_error(start_result)) {
+                    return false;
+                }
+            }
         }
     }
 

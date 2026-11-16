@@ -22,8 +22,6 @@ A handle recognizes exactly these members: `await`, `ready`, `failed`, `error`,
 `status_code` and `duration`. Anything else, **including `.value`**, silently
 gives `null` rather than raising an error. Always use `.await`.
 
-`await X` in prefix position is sugar for `X.await`. The two forms are identical.
-
 ### HTTP Requests
 
 `http.fetch` gives a handle. Awaiting it gives a `Result`, and unwrapping that

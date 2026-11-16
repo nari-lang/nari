@@ -83,6 +83,59 @@ if (found.is_some()) {
 }
 ```
 
+## Error propagation with `?`
+
+Attach `?` to a `Result` expression to unwrap `Ok(value)` or return the original
+`Err(error)` from the current function. The operand is evaluated once, and an
+error skips the rest of the current expression and function.
+
+```nari
+func loadConfig(path) {
+    let text = fs.read_file(path).await?;
+    let config = JSON.parse(text)?;
+    return Ok(config);
+}
+```
+
+Wrap a successful return in `Ok(...)` when the caller expects a `Result`; `?`
+does not add that wrapper. Error payloads and the original `Err` are preserved.
+You can add context before propagation with `operation().map_err(...)?`.
+
+`?` works inside named functions, anonymous functions, methods, arrow functions
+and `spawn` blocks. In a closure or `spawn` it returns from that body, rather
+than the function that created it. It also works in default parameter values
+and string interpolation. A propagated return follows the same strict-mode
+return-type checks as an explicit `return`.
+
+The operator expects a `Result`. Applying it to an `Option`, an I/O handle or
+another value is a type error. Wait for asynchronous results explicitly:
+`operation().await?`.
+
+At the program entry point there is no caller to receive a propagated `Err`,
+so the runtime reports it instead of silently discarding it, it prints `Error: <payload>` to stderr and exits nonzero.
+
+```nari
+// Either entry form reports a failed parse and exits nonzero:
+let config = JSON.parse(text)?;          // top-level
+
+func start() {
+    let config = JSON.parse(text)?;      // auto-called entry point
+}
+```
+
+Whitespace distinguishes propagation from a ternary:
+
+```nari
+let value = operation()?;              // attached: propagate
+let selected = condition ? yes : no;   // space before ?: ternary
+```
+
+Compact ternaries such as `condition?yes:no` need a space before `?`.
+Propagation has postfix precedence, so `result? + 1` adds to the unwrapped
+value. Existing `?.` optional chaining and `??` null coalescing keep their
+meanings. Use `(result?).field` to access a propagated payload's property,
+and `(nested?)?` to propagate two nested Results.
+
 ## Unrecoverable panics
 
 `panic(value)` raises an **uncatchable** panic. There is no way to recover from
@@ -107,7 +160,8 @@ func mustBePositive(n) {
 
 ### Propagating errors
 
-Return the `Result` up the call stack and let the caller decide:
+Use `?` to forward errors and let the caller decide how to handle them.
+The explicit equivalent is:
 
 ```nari
 func loadConfig(path) {
@@ -204,7 +258,7 @@ func retry(operation, maxAttempts) {
   expected error does not turn into a panic.
 - Put contextual information in the `Err` payload (type, message, offending
   value) to make failures easier to diagnose.
-- Propagate errors with `and_then`/early `return` instead of swallowing them.
+- Propagate errors with `?`, `and_then`, or an explicit early `return`.
 
 ## Next Steps
 

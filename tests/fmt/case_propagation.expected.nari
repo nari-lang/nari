@@ -1,0 +1,7 @@
+func load(result) { let value = result?; return Ok(value + 1); }
+func nested(result) { return Ok(result?[0] + (result?).answer); }
+func choices(flag, result) { return Ok(flag ? result? + 1 : -1); }
+func await_result(path) { return Ok(fs.read_file(path).await?); }
+let callback = (result) => Ok(result?());
+let optional = value?.field ?? fallback;
+let divided = (result) => Ok(result? / 2);

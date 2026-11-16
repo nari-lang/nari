@@ -25,6 +25,7 @@ class GarbageCollector {
         ClassInstance,
         Function,
         String,
+        Bytes,
         Unknown
     };
 

@@ -33,6 +33,7 @@ static size_t find_top_level_format_colon(const std::string &expr) {
     int paren_depth = 0;
     int bracket_depth = 0;
     int brace_depth = 0;
+    int ternaries = 0;
     char quote = '\0';
     bool escape = false;
 
@@ -79,18 +80,18 @@ static size_t find_top_level_format_colon(const std::string &expr) {
                     --brace_depth;
                 }
                 break;
+            case '?':
+                if (paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 && i > 0 &&
+                    std::isspace(static_cast<unsigned char>(expr[i - 1])) &&
+                    (i + 1 == expr.size() || (expr[i + 1] != '?' && expr[i + 1] != '.'))) {
+                    ++ternaries;
+                }
+                break;
             case ':':
                 if (paren_depth == 0 && bracket_depth == 0 && brace_depth == 0) {
-                    bool is_ternary_false_branch = false;
-                    for (size_t j = i + 1; j < expr.size(); ++j) {
-                        char next = expr[j];
-                        if (std::isspace(static_cast<unsigned char>(next))) {
-                            continue;
-                        }
-                        is_ternary_false_branch = next != '.';
-                        break;
-                    }
-                    if (!is_ternary_false_branch) {
+                    if (ternaries > 0) {
+                        --ternaries;
+                    } else {
                         return i;
                     }
                 }
@@ -106,6 +107,7 @@ static size_t find_top_level_format_colon(const std::string &expr) {
 std::vector<Token>
 tokenize(const std::string &src, const std::string &filename, std::vector<LexError> *errors, std::vector<Token> *comments) {
     std::vector<Token> tokens_out;
+    bool separated = true;
     auto push_tok = [&](TokenKind k, std::string txt, int line, int col) {
         Token tk;
         tk.kind = k;
@@ -114,9 +116,11 @@ tokenize(const std::string &src, const std::string &filename, std::vector<LexErr
         tk.col = col;
         tk.filename = filename;
         tokens_out.push_back(std::move(tk));
+        separated = false;
     };
     // record a comment's raw source text into the optional comments sink (`nari fmt`)
     auto push_comment = [&](int start_line, int start_col, size_t start_pos, size_t end_pos) {
+        separated = true;
         if (!comments) {
             return;
         }
@@ -156,6 +160,7 @@ tokenize(const std::string &src, const std::string &filename, std::vector<LexErr
         char c = cur();
         // whitespace and comments
         if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            separated = true;
             advance();
             continue;
         }
@@ -396,7 +401,7 @@ tokenize(const std::string &src, const std::string &filename, std::vector<LexErr
             continue;
         }
         if (c == '?') {
-            push_tok(TokenKind::TK_QUESTION, "?", line, col);
+            push_tok(separated ? TokenKind::TK_QUESTION : TokenKind::TK_PROPAGATE, "?", line, col);
             advance();
             continue;
         }
@@ -423,16 +428,17 @@ tokenize(const std::string &src, const std::string &filename, std::vector<LexErr
         if (c == '/') {
             // determine if this / starts a regex literal or is a division operator
             static const std::unordered_set<std::string> kPrefixKeywords = {
-                "return", "typeof", "new", "delete", "await", "yield", "void", "not", "case", "in",
+                "return", "typeof", "new", "delete", "yield", "void", "not", "case", "in",
             };
-            bool prev_can_end_expr = !tokens_out.empty() &&
-                                     (tokens_out.back().kind == TokenKind::TK_NUMBER || tokens_out.back().kind == TokenKind::TK_STRING ||
-                                      tokens_out.back().kind == TokenKind::TK_RPAREN || tokens_out.back().kind == TokenKind::TK_RBRACKET ||
-                                      tokens_out.back().kind == TokenKind::TK_RBRACE || tokens_out.back().kind == TokenKind::TK_PLUSPLUS ||
-                                      tokens_out.back().kind == TokenKind::TK_MINUSMINUS ||
-                                      // TK_REGEX itself can end an expression (/pattern/.test(x) / 2)
-                                      tokens_out.back().kind == TokenKind::TK_REGEX ||
-                                      (tokens_out.back().kind == TokenKind::TK_IDENT && !kPrefixKeywords.count(tokens_out.back().text)));
+            bool prev_can_end_expr =
+                !tokens_out.empty() &&
+                (tokens_out.back().kind == TokenKind::TK_NUMBER || tokens_out.back().kind == TokenKind::TK_STRING ||
+                 tokens_out.back().kind == TokenKind::TK_RPAREN || tokens_out.back().kind == TokenKind::TK_RBRACKET ||
+                 tokens_out.back().kind == TokenKind::TK_RBRACE || tokens_out.back().kind == TokenKind::TK_PLUSPLUS ||
+                 tokens_out.back().kind == TokenKind::TK_MINUSMINUS || tokens_out.back().kind == TokenKind::TK_PROPAGATE ||
+                 // TK_REGEX itself can end an expression (/pattern/.test(x) / 2)
+                 tokens_out.back().kind == TokenKind::TK_REGEX ||
+                 (tokens_out.back().kind == TokenKind::TK_IDENT && !kPrefixKeywords.count(tokens_out.back().text)));
             if (prev_can_end_expr) {
                 push_tok(TokenKind::TK_SLASH, "/", line, col);
                 advance();
@@ -497,6 +503,7 @@ tokenize(const std::string &src, const std::string &filename, std::vector<LexErr
             re_tok.col = regex_start_col;
             re_tok.filename = filename;
             tokens_out.push_back(std::move(re_tok));
+            separated = false;
             continue;
         }
         if (c == '!') {
@@ -679,6 +686,7 @@ tokenize(const std::string &src, const std::string &filename, std::vector<LexErr
             }
 
             tokens_out.push_back(tok);
+            separated = false;
             continue;
         }
 

@@ -91,6 +91,33 @@ is_array("array");    // false
 **Parameters:** `value`  
 **Returns:** Boolean
 
+### bytes
+
+Create a byte array (see [Data Types](03-data-types.md#byte-arrays)).
+
+```nari
+bytes();              // empty
+bytes(3);             // three zero bytes
+bytes([104, 105]);    // from ints in 0..255 (other values are an error)
+bytes("hi");          // a string's raw bytes
+bytes(other_bytes);   // an independent copy
+```
+
+**Parameters:** `value` (optional)
+**Returns:** Bytes
+
+### is_bytes
+
+Check if a value is a byte array.
+
+```nari
+is_bytes(bytes());    // true
+is_bytes([1, 2]);     // false
+```
+
+**Parameters:** `value`
+**Returns:** Boolean
+
 ### is_object
 
 Check if a value is an object.

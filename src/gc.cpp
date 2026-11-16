@@ -37,6 +37,9 @@ void GarbageCollector::track(HeapHeader *p, TrackedType type) noexcept {
         case TrackedType::String:
             est = sizeof(StringObj);
             break;
+        case TrackedType::Bytes:
+            est = sizeof(BytesObj) + static_cast<BytesObj *>(p)->v.capacity();
+            break;
         case TrackedType::Function:
             est = sizeof(FunctionData);
             break;
@@ -336,6 +339,9 @@ size_t GarbageCollector::sweep() {
                 d->handler = Value::none();
                 break;
             }
+            case ValueTag::Bytes:
+                static_cast<BytesObj *>(g)->v.clear();
+                break;
             default:
                 break; // string and others: no children
         }
@@ -369,6 +375,12 @@ size_t GarbageCollector::sweep() {
                 break;
             case ValueTag::Delegate:
                 delete static_cast<DelegateData *>(g);
+                break;
+            case ValueTag::Bytes:
+                delete static_cast<BytesObj *>(g);
+                break;
+            case ValueTag::Regex:
+                delete static_cast<RegexObj *>(g);
                 break;
             default:
                 break;

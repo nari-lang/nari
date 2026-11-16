@@ -320,8 +320,9 @@ static bool compile_and_run(
     if (auto_print) {
         // wrap the expression so we can inspect its return value
         full += "let __repl_result__ = (" + new_code + ")\n";
+        // TODO: we need a nicer way to print color
         if (use_color) {
-            full += "print(\"\x1b[2m\x1b[37m\" + to_string(__repl_result__) + \"\x1b[0m\")\n";
+            full += "print(\"\x1b[2m\x1b[37m\" + __repl_result__ + \"\x1b[0m\")\n";
         } else {
             full += "print(__repl_result__)\n";
         }
@@ -408,7 +409,7 @@ static void do_highlight(const std::string &ctx, replxx::Replxx::colors_t &color
 
     replxx::Replxx::colors_t byte_colors(ctx.size(), Color::DEFAULT);
 
-    static constexpr const char *KEYWORDS[] = { "func", "async",  "await",  "let",   "global",   "return", "if",   "else",
+    static constexpr const char *KEYWORDS[] = { "func", "async",  "let",   "global",   "return", "if",   "else",
                                                 "for",  "while",  "in",     "break", "continue", "class",  "type", "enum",
                                                 "new",  "import", "export", "true",  "false",    "not" };
 

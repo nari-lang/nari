@@ -1,0 +1,19 @@
+// Postfix '?' at the program entry point: top-level code and start() may
+// propagate; Ok unwraps and execution continues normally.
+let assert = func(cond, msg) {
+    if (!cond) {
+        panic("assertion failed: " + msg);
+    }
+};
+
+let value = JSON.parse("{\"a\": 1}")?;
+assert(value.a == 1, "top-level ? unwraps Ok");
+assert(value ? true : false, "execution continues after top-level ?");
+
+func start() {
+    let inner = JSON.parse("[1, 2]")?;
+    assert(inner.length() == 2, "start() ? unwraps Ok");
+    return Ok(inner);
+}
+
+print("test_propagation_entry: ok!");

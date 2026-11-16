@@ -7,7 +7,7 @@
 
 namespace nari {
 
-inline constexpr size_t MAX_FIXED_ARRAY_COUNT = 1u << 20;
+inline constexpr size_t MAX_FIXED_ARRAY_COUNT = 0x100000;
 
 struct Expr;
 struct Stmt;
@@ -300,6 +300,7 @@ struct StringInterpolationExpr : Expr {
     std::vector<std::string> expr_sources; // raw source of each interpolated expression
     std::vector<std::string> format_specs; // Python-style format specs, e.g. ".3f"
     std::vector<ExprPtr> exprs;            // pre-parsed ASTs (filled at parse time)
+    bool function_scope = false;           // interpolation expressions may propagate to this function
 
     StringInterpolationExpr() {
         kind = ExprKind::StringInterpolation;

@@ -1,0 +1,4 @@
+// Assigning a value outside 0..255 to a byte element is an error.
+let b = bytes([1, 2]);
+b[0] = 300;
+print(b);

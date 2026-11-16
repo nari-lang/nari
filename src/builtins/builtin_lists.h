@@ -71,6 +71,7 @@
     X("__math_atan", builtin_math_atan)                                                                                                    \
     X("__math_atan2", builtin_math_atan2)                                                                                                  \
     X("__fs_readFile", builtin_fs_readFile)                                                                                                \
+    X("__fs_readFileBytes", builtin_fs_readFileBytes)                                                                                      \
     X("__fs_writeFile", builtin_fs_writeFile)                                                                                              \
     X("__fs_appendFile", builtin_fs_appendFile)                                                                                            \
     X("__fs_fileExists", builtin_fs_fileExists)                                                                                            \
@@ -108,6 +109,8 @@
     X("is_string", builtin_isString)                                                                                                       \
     X("is_bool", builtin_isBool)                                                                                                           \
     X("is_array", builtin_isArray)                                                                                                         \
+    X("bytes", builtin_bytes)                                                                                                              \
+    X("is_bytes", builtin_isBytes)                                                                                                         \
     X("is_object", builtin_isObject)                                                                                                       \
     X("is_function", builtin_isFunction)                                                                                                   \
     X("Delegate", builtin_delegate_new)                                                                                                    \
@@ -203,6 +206,8 @@
     X("freeze", builtin_freeze)                                                                                                            \
     X("is_frozen", builtin_is_frozen)
 
+#define bytes_methods(X) X("to_array", builtin_bytes_toArray)
+
 #define regex_methods(X)                                                                                                                   \
     X("test", builtin_regex_test)                                                                                                          \
     X("exec", builtin_regex_exec)
@@ -214,4 +219,4 @@
     X("index_of", builtin_index_of)
 
 // combined method table
-#define METHOD_ONLY_BUILTINS(X) string_methods(X) array_methods(X) object_methods(X) regex_methods(X) universal_methods(X)
+#define METHOD_ONLY_BUILTINS(X) string_methods(X) array_methods(X) object_methods(X) regex_methods(X) bytes_methods(X) universal_methods(X)

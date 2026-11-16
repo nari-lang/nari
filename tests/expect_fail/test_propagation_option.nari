@@ -1,0 +1,3 @@
+func invalid() { return Some(42)?; }
+invalid();
+print("execution continued after Option propagation");

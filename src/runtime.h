@@ -132,6 +132,7 @@ class ScriptRuntime {
         TY_FUNCTION,
         TY_REGEX,
         TY_HANDLE,
+        TY_BYTES,
         TY_COUNT
     };
     std::array<Value, TY_COUNT> typeof_values;
@@ -164,6 +165,8 @@ class ScriptRuntime {
                 return typeof_values[TY_REGEX];
             case ValueTag::Handle:
                 return typeof_values[TY_HANDLE];
+            case ValueTag::Bytes:
+                return typeof_values[TY_BYTES];
             case ValueTag::ClassInstance:
                 return Value::make_string(v.get_class_instance()->class_name);
             default:
@@ -198,8 +201,10 @@ class ScriptRuntime {
     }
 
     ScriptRuntime(int argc = 0, char **argv = nullptr) : process_argc(argc) {
-        static constexpr const char *type_names[] = { "null",  "int",    "float",    "string", "bool",
-                                                      "array", "object", "function", "regex",  "handle" };
+        static constexpr const char *type_names[] = { 
+            "null", "int", "float", "string", "bool", "array",
+            "object", "function", "regex", "handle", "bytes"
+        };
         static_assert(sizeof(type_names) / sizeof(type_names[0]) == TY_COUNT, "type_names must match TypeofIdx");
         for (size_t i = 0; i < typeof_values.size(); ++i) {
             typeof_values[i] = Value::make_const_string(type_names[i]);
@@ -598,6 +603,7 @@ class ScriptRuntime {
     Value builtin_math_atan(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_math_atan2(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_fs_readFile(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_fs_readFileBytes(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_fs_writeFile(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_fs_appendFile(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_fs_fileExists(Value *argvals, size_t argc, const CallExpr *);
@@ -692,6 +698,9 @@ class ScriptRuntime {
     Value builtin_isString(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_isBool(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_isArray(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_isBytes(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_bytes(Value *argvals, size_t argc, const CallExpr *);
+    Value builtin_bytes_toArray(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_isObject(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_isFunction(Value *argvals, size_t argc, const CallExpr *);
     Value builtin_delegate_new(Value *argvals, size_t argc, const CallExpr *);

@@ -41,6 +41,19 @@ bool Parser::looks_like_func_keyword_decl() {
         next_idx++; // skip '->'
         if (next_idx < toks.size() && toks[next_idx].kind == TokenKind::TK_IDENT) {
             next_idx++; // skip type name
+            if (next_idx < toks.size() && toks[next_idx].kind == TokenKind::TK_LT) {
+                int generic_depth = 0;
+                do {
+                    if (toks[next_idx].kind == TokenKind::TK_LT) {
+                        ++generic_depth;
+                    } else if (toks[next_idx].kind == TokenKind::TK_GT) {
+                        --generic_depth;
+                    } else if (toks[next_idx].kind == TokenKind::TK_RSHIFT) {
+                        generic_depth -= 2;
+                    }
+                    ++next_idx;
+                } while (next_idx < toks.size() && generic_depth > 0 && toks[next_idx].kind != TokenKind::TK_EOF);
+            }
             // check for array syntax: type[]
             if (next_idx < toks.size() && toks[next_idx].kind == TokenKind::TK_LBRACKET && next_idx + 1 < toks.size() &&
                 toks[next_idx + 1].kind == TokenKind::TK_RBRACKET) {
@@ -417,6 +430,7 @@ nari::ClassDeclPtr Parser::parse_class_decl() {
         // now parse either field or method, check if it's a constructor
         if (peek().kind == TokenKind::TK_IDENT && peek().text == "init" && peek(1).kind == TokenKind::TK_LPAREN) {
             // constructor
+            FunctionScopeGuard function_scope(function_depth);
             const Token &methodTok = next();
             std::string method_name = methodTok.text;
             nari::ClassMethod method(method_name, visibility);
@@ -491,6 +505,7 @@ nari::ClassDeclPtr Parser::parse_class_decl() {
 
         // check if it's a method: identifier followed by '('
         if (peek().kind == TokenKind::TK_IDENT && peek(1).kind == TokenKind::TK_LPAREN) {
+            FunctionScopeGuard function_scope(function_depth);
             const Token &methodTok = next();
             std::string method_name = methodTok.text;
             nari::ClassMethod method(method_name, visibility);

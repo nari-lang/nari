@@ -143,6 +143,12 @@ Value ScriptRuntime::builtin_js_toNumber(Value *argvals, size_t argc, const nari
 
 Value ScriptRuntime::builtin_toString(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc > 0) {
+        // to_string(bytes) decodes the raw bytes into a string; printing a
+        // bytes value (Value::to_string) shows bytes([...]) instead.
+        if (argvals[0].is_bytes()) {
+            const auto &data = argvals[0].get_bytes();
+            return Value::make_string(std::string(reinterpret_cast<const char *>(data.data()), data.size()));
+        }
         return Value::make_string(argvals[0].to_string());
     }
     return Value::make_string("");

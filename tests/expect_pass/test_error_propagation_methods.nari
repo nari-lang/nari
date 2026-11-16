@@ -1,0 +1,10 @@
+import { assert } from "../lib/assert.nari";
+
+class Worker {
+    run(result) { return Ok(result? + 1); }
+}
+let worker = new Worker();
+assert(worker.run(Ok(41)).unwrap() == 42, "method propagation failed");
+assert(worker.run(Err("method")).unwrap_err() == "method", "method Err was swallowed");
+
+print("method error propagation checks passed");

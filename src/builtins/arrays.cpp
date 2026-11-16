@@ -1,7 +1,14 @@
 // Array builtins (split out of collections.cpp).
 #include "common.h"
 
-Value ScriptRuntime::builtin_push(Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_push(Value *argvals, size_t argc, const nari::CallExpr *call) {
+    if (argc >= 2 && argvals[0].is_bytes()) {
+        if (!argvals[1].is_int() || argvals[1].get_int() < 0 || argvals[1].get_int() > 255) {
+            return runtime_fatal("TypeError: bytes.push() expects an integer in 0..255", call);
+        }
+        argvals[0].get_bytes().push_back(static_cast<uint8_t>(argvals[1].get_int()));
+        return Value::none();
+    }
     if (argc >= 2 && argvals[0].is_array()) {
         // push mutates the array, so we need to cast away const
         auto &arr_ptr = argvals[0].get_array();
@@ -11,6 +18,15 @@ Value ScriptRuntime::builtin_push(Value *argvals, size_t argc, const nari::CallE
 }
 
 Value ScriptRuntime::builtin_pop(Value *argvals, size_t argc, const nari::CallExpr *) {
+    if ((argc > 0) && argvals[0].is_bytes()) {
+        auto &data = argvals[0].get_bytes();
+        if (!data.empty()) {
+            const uint8_t last = data.back();
+            data.pop_back();
+            return Value::make_int(static_cast<int64_t>(last));
+        }
+        return Value::none();
+    }
     if ((argc > 0) && argvals[0].is_array()) {
         auto &arr_ptr = argvals[0].get_array();
         if (!arr_ptr.empty()) {
@@ -27,6 +43,8 @@ Value ScriptRuntime::builtin_length(Value *argvals, size_t argc, const nari::Cal
         if (argvals[0].is_array()) {
             auto &arr = argvals[0].get_array();
             return Value::make_int(arr.size());
+        } else if (argvals[0].is_bytes()) {
+            return Value::make_int(static_cast<int64_t>(argvals[0].get_bytes().size()));
         } else if (argvals[0].is_string()) {
             return Value::make_int(argvals[0].get_string().size());
         } else if (argvals[0].is_object()) {
@@ -37,6 +55,37 @@ Value ScriptRuntime::builtin_length(Value *argvals, size_t argc, const nari::Cal
 }
 
 Value ScriptRuntime::builtin_slice(Value *argvals, size_t argc, const nari::CallExpr *) {
+    if ((argc > 0) && argvals[0].is_bytes()) {
+        const auto &data = argvals[0].get_bytes();
+        int64_t start = 0;
+        if (argc > 1) {
+            if (!argvals[1].is_int()) {
+                return Value::make_bytes();
+            }
+            start = argvals[1].get_int();
+        }
+        int64_t end = static_cast<int64_t>(data.size());
+        if (argc > 2) {
+            if (!argvals[2].is_int()) {
+                return Value::make_bytes();
+            }
+            end = argvals[2].get_int();
+        }
+        if (start < 0) {
+            start = 0;
+        }
+        if (end > static_cast<int64_t>(data.size())) {
+            end = static_cast<int64_t>(data.size());
+        }
+        if (start > end) {
+            start = end;
+        }
+        std::vector<uint8_t> result;
+        for (int64_t i = start; i < end; ++i) {
+            result.push_back(data[static_cast<size_t>(i)]);
+        }
+        return Value::make_bytes(std::move(result));
+    }
     if ((argc > 0) && argvals[0].is_array()) {
         auto &arr_ptr = argvals[0].get_array();
 
@@ -75,6 +124,13 @@ Value ScriptRuntime::builtin_slice(Value *argvals, size_t argc, const nari::Call
 }
 
 Value ScriptRuntime::builtin_concat(Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc >= 2 && argvals[0].is_bytes() && argvals[1].is_bytes()) {
+        const auto &a = argvals[0].get_bytes();
+        const auto &b = argvals[1].get_bytes();
+        std::vector<uint8_t> result(a.begin(), a.end());
+        result.insert(result.end(), b.begin(), b.end());
+        return Value::make_bytes(std::move(result));
+    }
     if (argc >= 2 && argvals[0].is_array() && argvals[1].is_array()) {
         auto &arr1 = argvals[0].get_array();
         auto &arr2 = argvals[1].get_array();
@@ -410,6 +466,11 @@ Value ScriptRuntime::builtin_find_index(Value *argvals, size_t argc, const nari:
 }
 
 Value ScriptRuntime::builtin_reverse(Value *argvals, size_t argc, const nari::CallExpr *) {
+    if (argc >= 1 && argvals[0].is_bytes()) {
+        auto &data = argvals[0].get_bytes();
+        std::reverse(data.begin(), data.end());
+        return argvals[0];
+    }
     if (argc < 1 || !argvals[0].is_array()) {
         return Value::none();
     }
@@ -420,6 +481,17 @@ Value ScriptRuntime::builtin_reverse(Value *argvals, size_t argc, const nari::Ca
 
 Value ScriptRuntime::builtin_includes(Value *argvals, size_t argc, const nari::CallExpr *) {
     if (argc < 2) {
+        return Value::make_bool(false);
+    }
+    if (argvals[0].is_bytes()) {
+        if (!argvals[1].is_int()) {
+            return Value::make_bool(false);
+        }
+        for (uint8_t byte : argvals[0].get_bytes()) {
+            if (static_cast<int64_t>(byte) == argvals[1].get_int()) {
+                return Value::make_bool(true);
+            }
+        }
         return Value::make_bool(false);
     }
     if (argvals[0].is_array()) {
@@ -526,7 +598,18 @@ Value ScriptRuntime::builtin_splice(Value *argvals, size_t argc, const nari::Cal
 
 // arr.fill(value, count) - resize and fill with count copies of value
 // arr.fill(value)  - fill existing elements with value
-Value ScriptRuntime::builtin_fill(Value *argvals, size_t argc, const nari::CallExpr *) {
+Value ScriptRuntime::builtin_fill(Value *argvals, size_t argc, const nari::CallExpr *call) {
+    if (argc >= 1 && argvals[0].is_bytes()) {
+        if (argc < 2 || !argvals[1].is_int() || argvals[1].get_int() < 0 || argvals[1].get_int() > 255) {
+            return runtime_fatal("TypeError: bytes.fill() expects an integer in 0..255", call);
+        }
+        auto &data = argvals[0].get_bytes();
+        const uint8_t byte = static_cast<uint8_t>(argvals[1].get_int());
+        for (size_t i = 0; i < data.size(); i++) {
+            data[i] = byte;
+        }
+        return argvals[0];
+    }
     if (argc < 1 || !argvals[0].is_array()) {
         return Value::make_array();
     }

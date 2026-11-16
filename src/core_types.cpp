@@ -100,6 +100,31 @@ Value Value::make_array(const Value *elements, size_t count) {
     return val;
 }
 
+Value Value::make_bytes() {
+    Value val;
+    auto *bytes = new BytesObj();
+    GarbageCollector::instance().track(bytes, GarbageCollector::TrackedType::Bytes);
+    val._raw = NB_HEAP_TAG | reinterpret_cast<uint64_t>(bytes);
+    return val;
+}
+
+Value Value::make_bytes(std::vector<uint8_t> elements) {
+    Value val;
+    auto *bytes = new BytesObj();
+    bytes->v = ByteArray(std::move(elements));
+    GarbageCollector::instance().track(bytes, GarbageCollector::TrackedType::Bytes);
+    val._raw = NB_HEAP_TAG | reinterpret_cast<uint64_t>(bytes);
+    return val;
+}
+
+Value Value::make_bytes(const uint8_t *elements, size_t count) {
+    std::vector<uint8_t> copy;
+    if (elements && count > 0) {
+        copy.assign(elements, elements + count);
+    }
+    return make_bytes(std::move(copy));
+}
+
 Value Value::make_object() {
     Value val;
     auto *obj = new ObjectObj();

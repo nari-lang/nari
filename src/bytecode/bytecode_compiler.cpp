@@ -272,8 +272,8 @@ class Compiler {
 #endif
 
     void compile_expr(const Expr *expr);
-    // Ends a loop iteration by dropping the upvalue cells for locals the loop declared,
-    // so the next iteration's closures capture fresh cells.
+    void emit_return();
+    // Ends a loop iteration by dropping the upvalue cells for locals the loop declared
     void emit_close_upvalues_for_loop(uint16_t first_slot) {
         if (!ctx->any_captured_local_at_or_above(first_slot)) {
             return;
@@ -327,6 +327,19 @@ bool Compiler::is_const_binding(const std::string &name) const {
         return ctx->const_captures.count(name);
     }
     return global_consts.count(name);
+}
+
+void Compiler::emit_return() {
+    if (strict_mode && !current_return_type_.empty()) {
+        uint32_t type_idx = chunk->add_string(current_return_type_);
+        ctx->emit_op(OpCode::OP_CHECK_TYPE);
+        ctx->emit_short(static_cast<uint16_t>(type_idx));
+        ctx->emit_byte(1); // return-value check
+    }
+    for (int i = 0; i < try_depth; ++i) {
+        ctx->emit_op(OpCode::OP_POP_TRY);
+    }
+    ctx->emit_op(OpCode::OP_RETURN);
 }
 
 void Compiler::emit_const_assignment_error(const std::string &name) {
@@ -749,6 +762,36 @@ void Compiler::compile_expr(const Expr *expr) {
 
     if ((expr) != nullptr && (expr)->kind == ExprKind::Unary) {
         const auto *unary = static_cast<const UnaryExpr *>(expr);
+        if (unary->op == "propagate") {
+            // Evaluate once. Keep the original Result for the early return,
+            // even when this is nested inside an expression with pending values.
+            compile_expr(unary->operand.get());
+            auto matches_property = [&](const char *property, const char *expected) {
+                ctx->emit_op(OpCode::OP_DUP);
+                ctx->emit_op_short(OpCode::OP_GET_PROPERTY, static_cast<uint16_t>(chunk->add_string(property)));
+                uint16_t constant = ctx->add_constant(Constant::make_string(chunk->add_string(expected)));
+                ctx->emit_op_short(OpCode::OP_LOAD_CONST, constant);
+                ctx->emit_op(OpCode::OP_EQ);
+            };
+            matches_property("__enum", "Result");
+            size_t invalid_enum = ctx->emit_jump(OpCode::OP_JUMP_IF_FALSE);
+            matches_property("__variant", "Ok");
+            size_t success = ctx->emit_jump(OpCode::OP_JUMP_IF_TRUE);
+            matches_property("__variant", "Err");
+            size_t invalid_variant = ctx->emit_jump(OpCode::OP_JUMP_IF_FALSE);
+            emit_return();
+
+            ctx->patch_jump(invalid_enum);
+            ctx->patch_jump(invalid_variant);
+            uint16_t message =
+                ctx->add_constant(Constant::make_string(chunk->add_string("TypeError: postfix '?' requires a Result (Ok or Err)")));
+            ctx->emit_op_short(OpCode::OP_LOAD_CONST, message);
+            ctx->emit_op(OpCode::OP_THROW);
+
+            ctx->patch_jump(success);
+            ctx->emit_op_short(OpCode::OP_GET_PROPERTY, static_cast<uint16_t>(chunk->add_string("__data")));
+            return;
+        }
         // increment/decrement operators (++x, --x, x++, x--)
         if (unary->op == "++" || unary->op == "--" || unary->op == "post++" || unary->op == "post--") {
             auto *ident =
@@ -1217,6 +1260,9 @@ void Compiler::compile_expr(const Expr *expr) {
         }
         meta.capture_count = static_cast<uint16_t>(captures.size());
 
+        std::string saved_return_type = current_return_type_;
+        current_return_type_ = (strict_mode && func_expr->return_type) ? func_expr->return_type->name : "";
+
         // declare params as locals
         for (size_t i = 0; i < func_expr->params.size(); ++i) {
             const auto &param = func_expr->params[i];
@@ -1250,6 +1296,7 @@ void Compiler::compile_expr(const Expr *expr) {
         ctx->emit_op(OpCode::OP_RETURN);
         meta.var_names = lambda_ctx.local_names;
 
+        current_return_type_ = saved_return_type;
         ctx = saved;
         parent_ctx = saved_parent;
         is_main_scope = saved_main_scope;
@@ -1582,12 +1629,16 @@ void Compiler::compile_expr(const Expr *expr) {
         }
         meta.capture_count = static_cast<uint16_t>(captures.size());
 
+        std::string saved_return_type = current_return_type_;
+        current_return_type_ = "";
+
         // Compile the body block; a missing/no-value return falls through to none
         compile_stmt(spawn_expr->body.get());
         ctx->emit_op(OpCode::OP_LOAD_NONE);
         ctx->emit_op(OpCode::OP_RETURN);
         meta.var_names = spawn_ctx.local_names;
 
+        current_return_type_ = saved_return_type;
         ctx = saved;
         parent_ctx = saved_parent;
         is_main_scope = saved_main_scope;
@@ -1900,20 +1951,7 @@ void Compiler::compile_stmt(const Stmt *stmt) {
         } else {
             ctx->emit_op(OpCode::OP_LOAD_NONE);
         }
-        // in strict mode, check the return value against the declared return type.
-        // context byte 1 = return-value check. Value is already on the top of stack, and OP_CHECK_TYPE will
-        // peek/validate/continue or throw.
-        if (strict_mode && !current_return_type_.empty()) {
-            uint32_t type_str_idx = chunk->add_string(current_return_type_);
-            ctx->emit_op(OpCode::OP_CHECK_TYPE);
-            ctx->emit_short(static_cast<uint16_t>(type_str_idx));
-            ctx->emit_byte(1); // context: return-value check
-        }
-        // pop any enclosing try frames before returning
-        for (int i = 0; i < this->try_depth; i++) {
-            ctx->emit_op(OpCode::OP_POP_TRY);
-        }
-        ctx->emit_op(OpCode::OP_RETURN);
+        emit_return();
         return;
     }
 

@@ -71,6 +71,7 @@ EXTRA_SUITES=(
     "tests/archive_extract_security.py"
     "tests/archive_io.py"
     "tests/package_store_resolution.py"
+    "tests/error_propagation.py"
     "tests/interrupt_shutdown.sh"
 )
 

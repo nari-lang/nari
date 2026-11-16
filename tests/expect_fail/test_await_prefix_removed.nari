@@ -1,0 +1,4 @@
+// Prefix `await expr` was removed; use `expr.await` instead.
+let h = spawn { return 42 };
+let result = await h;
+print(result);

@@ -1,0 +1,6 @@
+// An Err propagated out of the auto-called start() entry point is reported
+// (Error: ...) and the program exits nonzero.
+func start() {
+    let value = JSON.parse("{ fail }")?;
+    print("execution continued after start propagation");
+}

@@ -134,7 +134,7 @@ print("Distance: " + dist);  // 5
 File system operations.
 
 > **Important:** Most `fs` operations are **asynchronous**. The call returns an
-> IO handle. Write `await (...)`, or the postfix `.await`, to wait for it. Do not
+> IO handle. Write the postfix `.await` to wait for it. Do not
 > read `.value`; a handle has no such member and you get `null`.
 >
 > Most of them then give a `Result`, so call `.unwrap()` to get the value. The
@@ -145,6 +145,7 @@ File system operations.
 | Call | Waiting gives |
 |---|---|
 | `fs.read_file(path)` | `Result<string, error>` |
+| `fs.read_file_bytes(path)` | `Result<bytes, error>` |
 | `fs.write_file(path, text)` | `Result` |
 | `fs.append_file(path, text)` | `Result` |
 | `fs.delete_file(path)` | `Result` |
@@ -166,14 +167,28 @@ resolve to `Err` rather than returning incomplete content. Contents are read
 in binary mode, preserving NUL bytes and line endings.
 
 ```nari
-fs.write_file("data.txt", "hello\n").await.unwrap();
+fs.write_file("data.txt", "hello").await?; // ? is error propagation, .unwrap() also works.
 
-let content = (await fs.read_file("data.txt")).unwrap();
+let content = fs.read_file("data.txt").await?;
 print(content);
 ```
 
 **Parameters:** `path` - File path
 **Returns:** Handle resolving to `Result<string, error>`
+
+### fs.read_file_bytes
+
+Like `fs.read_file`, but resolves to the file's raw bytes as a byte array
+instead of a string. `fs.write_file` and `fs.append_file` accept a bytes
+content value and write it raw, so binary files round-trip exactly:
+
+```nari
+fs.write_file("data.bin", bytes([0, 255, 72])).await.unwrap();
+let back = fs.read_file_bytes("data.bin").await.unwrap();  // bytes([0, 255, 72])
+```
+
+**Parameters:** `path` - File path
+**Returns:** Handle resolving to `Result<bytes, error>`
 
 ### fs.write_file
 
@@ -196,7 +211,7 @@ fs.write_file("output.txt", "Hello, World!").await.unwrap();
 Append content to a file. Errors are reported in the same way as `fs.write_file`.
 
 ```nari
-fs.append_file("log.txt", "New log entry\n").await.unwrap();
+fs.append_file("log.txt", "New log entry\n").await?;
 ```
 
 **Returns:** Handle resolving to a `Result`
@@ -207,8 +222,8 @@ Check if a file exists. `fs.exists` is an alias of `fs.file_exists`. Waiting
 gives a plain boolean, not a `Result`.
 
 ```nari
-if (await fs.file_exists("config.json")) {
-    let config = (await fs.read_file("config.json")).unwrap();
+if (fs.file_exists("config.json").await) {
+    let config = fs.read_file("config.json").await?;
     print("Config loaded");
 }
 ```
@@ -266,7 +281,7 @@ fs.delete_file("temp.txt").await.unwrap();
 List directory contents.
 
 ```nari
-let files = (await fs.list_dir(".")).unwrap();
+let files = fs.list_dir(".").await.unwrap();
 for (file in files) {
     print(file);
 }
@@ -307,13 +322,13 @@ print("Hello, " + name + "!");
 
 ```nari
 func processLogFile(filename) {
-    if (!(await fs.file_exists(filename))) {
+    if (!fs.file_exists(filename).await) {
         print("File not found");
         return;
     }
 
     // read_file gives a Result, so unwrap it before you use the text
-    let content = (await fs.read_file(filename)).unwrap();
+    let content = fs.read_file(filename).await.unwrap();
     let lines = content.split("\n");
 
     print("Processing " + to_string(lines.length()) + " lines");
@@ -386,7 +401,7 @@ The call returns a handle. Waiting on it gives a `Result`. Unwrap that to get th
 response object, which has `status_code`, `body` and `headers`.
 
 ```nari
-let result = await http.fetch("https://api.example.com/data");
+let result = http.fetch("https://api.example.com/data").await;
 if (result.is_err()) {
     print("Request failed: " + to_string(result.unwrap_err()));
     return;
@@ -400,13 +415,13 @@ print("Body: " + response.body);
 `JSON.stringify` also gives a `Result`, so unwrap it before you use it as a body:
 
 ```nari
-let posted = (await http.fetch("https://api.example.com/items", {
+let posted = http.fetch("https://api.example.com/items", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
         name: "nari"
     }).unwrap()
-})).unwrap();
+}).await.unwrap();
 ```
 
 **Parameters:** `url` - URL string, and an optional options object
@@ -421,7 +436,7 @@ let posted = (await http.fetch("https://api.example.com/items", {
 func fetchUser(userId) {
     let url = "https://api.example.com/users/" + to_string(userId);
 
-    let result = await http.fetch(url);
+    let result = http.fetch(url).await;
     if (result.is_err()) {
         return Err("Request failed: " + to_string(result.unwrap_err()));
     }
@@ -626,15 +641,15 @@ print("sqrt(16) = " + to_string(math.sqrt(16)));
 print("5^2 = " + to_string(math.pow(5, 2)));
 
 // File I/O. fs calls are async, and most of them give a Result.
-if (await fs.file_exists("data.txt")) {
-    let data = (await fs.read_file("data.txt")).unwrap();
+if (fs.file_exists("data.txt").await) {
+    let data = fs.read_file("data.txt").await.unwrap();
     let lines = data.split("\n");
     print("File has " + to_string(lines.length()) + " lines");
 }
 
 // HTTP request (async)
 spawn {
-    let result = await http.fetch("https://api.example.com/status");
+    let result = http.fetch("https://api.example.com/status").await;
     if (result.is_ok()) {
         print("API Status: " + to_string(result.unwrap().status_code));
     }

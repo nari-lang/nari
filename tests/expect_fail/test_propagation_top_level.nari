@@ -1,0 +1,4 @@
+// An Err propagated out of top-level code is reported (Error: ...) and the
+// program exits nonzero instead of silently discarding it.
+let value = JSON.parse("{ fail }")?;
+print("execution continued after top-level propagation");

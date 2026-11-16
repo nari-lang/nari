@@ -42,6 +42,8 @@ enum class TokenKind {
     TK_ELLIPSIS,
     // ?
     TK_QUESTION,
+    // attached postfix ? (Result propagation)
+    TK_PROPAGATE,
     // ?.
     TK_QUESTIONDOT,
     // +

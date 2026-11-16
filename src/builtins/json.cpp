@@ -45,6 +45,13 @@ static bool value_to_jdom(const Value &v, JsonValue &out, std::vector<const void
         out = JsonValue(v.get_string());
         return true;
     }
+    if (v.is_bytes()) {
+        out = JsonValue::array();
+        for (uint8_t byte : v.get_bytes()) {
+            out.tp_array.push_back(JsonValue(static_cast<int64_t>(byte)));
+        }
+        return true;
+    }
     if (v.is_array()) {
         if (!json_enter(seen, v.heap_ptr())) {
             ok = false;
@@ -657,6 +664,20 @@ static bool value_to_json_string(const Value &v, std::string &out, std::vector<c
         out += '"';
         json_escape_into(v.get_string(), out);
         out += '"';
+        return true;
+    }
+    if (v.is_bytes()) {
+        out += '[';
+        const auto &data = v.get_bytes();
+        for (size_t i = 0; i < data.size(); i++) {
+            if (i) {
+                out += ',';
+            }
+            char buf[8];
+            auto res = std::to_chars(buf, buf + sizeof(buf), static_cast<unsigned>(data[i]));
+            out.append(buf, res.ptr - buf);
+        }
+        out += ']';
         return true;
     }
     if (v.is_array()) {

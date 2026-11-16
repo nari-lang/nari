@@ -20,7 +20,8 @@ nari fmt --stdin < file.nari  # read stdin, write stdout (editor integration)
   lines; the file ends with exactly one newline.
 - **Operators**: spaces around binary operators and assignments
   (`a + b`, `x ?? y`, `s + t`, `->`, `=>`); no spaces around unary operators
-  (`-x`, `!flag`), member access (`a.b`, `a?.b`, `m::n`), or postfix `++`/`--`.
+  (`-x`, `!flag`), member access (`a.b`, `a?.b`), or postfix `++`/`--`/`?`.
+  Propagation stays attached (`result?`); ternaries keep spaces (`flag ? a : b`).
 - **Calls and indexing**: `foo(a, b)`, `arr[0]`, no space before `(`/`[`,
   one space after each comma. Control keywords get a space: `if (x)`, `return (x)`.
 - **Braces**: blocks keep the author's line placement; single-line blocks print as
@@ -31,7 +32,8 @@ nari fmt --stdin < file.nari  # read stdin, write stdout (editor integration)
   extra level.
 - **Generics**: `Box<T>` stays tight when written tight in the source
   (see limitations).
-- **Comments**: preserved verbatim at their original position (line or trailing).
+- **Comments**: text and position are preserved (line or trailing), with CRLF
+  line endings normalized.
   `//`, `#`, and `/* */` forms are all supported.
 - **Strings**: escape sequences are normalized (e.g. literal newlines inside
   string literals become `\n`). Interpolated strings keep expressions verbatim:

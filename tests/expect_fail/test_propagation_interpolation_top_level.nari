@@ -1,0 +1,3 @@
+// An Err propagated from a top-level string interpolation is also reported and exits nonzero.
+print(`answer={Err("boom")?}`);
+print("execution continued after top-level interpolation propagation");

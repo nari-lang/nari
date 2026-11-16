@@ -578,6 +578,9 @@ func __stdlib_init__() {
         read_file: func(path) {
             return __fs_readFile(path);
         },
+        read_file_bytes: func(path) {
+            return __fs_readFileBytes(path);
+        },
         write_file: func(path, content) {
             return __fs_writeFile(path, content);
         },

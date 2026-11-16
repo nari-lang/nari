@@ -1,0 +1,171 @@
+import { assert } from "../lib/assert.nari";
+
+global state = { 
+    calls: 0, later: 0, retained: null
+};
+func counted(value) {
+    state.calls = state.calls + 1;
+    return value;
+}
+func add_one(result) {
+    let value = counted(result)?;
+    return Ok(value + 1);
+}
+assert(add_one(Ok(41)).unwrap() == 42, "Ok was not unwrapped");
+assert(state.calls == 1, "operand ran more than once");
+
+let original = Err({ message: "stop" });
+let forwarded = add_one(original);
+assert(state.calls == 2, "Err operand ran more than once");
+
+forwarded.extra = "same result";
+
+assert(original.extra == "same result", "Err was reconstructed");
+assert(forwarded.unwrap_err().message == "stop", "structured error was lost");
+
+func preserves_payload(value) { 
+    return Ok(value?);
+}
+for (value in [null, false, 0, "", [], {}]) {
+    assert(preserves_payload(Ok(value)).unwrap() == value, "falsy or composite Ok payload changed");
+}
+
+func side_effect() { 
+    state.later = state.later + 1;
+    return 7;
+}
+func arguments(result) {
+    return Ok([10, result?, side_effect()]);
+}
+assert(arguments(Err("argument")).unwrap_err() == "argument", "argument error was swallowed");
+assert(state.later == 0, "later argument evaluated after Err");
+assert(arguments(Ok(20)).unwrap()[1] == 20, "argument success failed");
+assert(state.later == 1, "success skipped later argument");
+
+func combine(a, b, c) { 
+    return a + b + c;
+}
+func call_arguments(result) { 
+    return Ok(combine(1, result?, side_effect()));
+}
+assert(call_arguments(Err("call")).unwrap_err() == "call", "call-argument error was swallowed");
+assert(state.later == 1, "later call argument ran after Err");
+
+func call_payload(result) { 
+    return Ok(result?(41));
+}
+assert(call_payload(Ok(func(n) { return n + 1; })).unwrap() == 42, "propagated function call failed");
+
+func recursive(depth, result) {
+    if (depth == 0) { return Ok(result?); }
+    return recursive(depth - 1, Ok(result?));
+}
+assert(recursive(500, Ok(42)).unwrap() == 42, "tail-call propagation failed");
+assert(recursive(500, Err("recursive")).unwrap_err() == "recursive", "tail-call argument error was swallowed");
+
+let overridden = Ok(42);
+overridden.is_ok = func() { panic("operator called is_ok"); };
+overridden.is_err = func() { panic("operator called is_err"); };
+overridden.unwrap = func() { panic("operator called unwrap"); };
+assert(preserves_payload(overridden).unwrap() == 42, "Result methods affected propagation");
+
+func arithmetic(result) {
+    return Ok(100 + result? / 2 - 1);
+}
+assert(arithmetic(Ok(20)).unwrap() == 109, "postfix precedence or division lexing failed");
+assert(arithmetic(Err("arithmetic")).unwrap_err() == "arithmetic", "pending stack values broke return");
+
+func chaining(result) {
+    return Ok((result?).answer + result?["answer"]);
+}
+assert(chaining(Ok({ answer: 21 })).unwrap() == 42, "postfix property/index chaining failed");
+
+func nested(result) {
+    return Ok((result?)?);
+}
+assert(nested(Ok(Ok(42))).unwrap() == 42, "nested Results failed");
+assert(nested(Ok(Err("inner"))).unwrap_err() == "inner", "inner Err was not propagated");
+
+func conditional(flag, result) {
+    return Ok(flag ? result? + 1 : 99);
+}
+
+assert(conditional(false, Err("unused")).unwrap() == 99, "unevaluated ternary arm propagated");
+assert(conditional(true, Ok(41)).unwrap() == 42, "ternary and propagation conflicted");
+assert(conditional(true, Err("chosen")).unwrap_err() == "chosen", "selected ternary error lost");
+
+func boolean_branch(result) {
+    return Ok(result? ? -1 : 1);
+}
+assert(boolean_branch(Ok(true)).unwrap() == -1, "spaced unary ternary failed");
+
+func short_circuit(result) {
+    let unused = false && result?;
+    let first = true || result?;
+    let present = 42 ?? result?;
+    return Ok(present);
+}
+assert(short_circuit(Err("unused")).unwrap() == 42, "short-circuit evaluation changed");
+
+let closure = func(result) {
+    return Ok(result? + 2);
+};
+let arrow = (result) => Ok(result? + 3);
+
+assert(closure(Ok(40)).unwrap() == 42, "function-expression propagation failed");
+assert(arrow(Ok(39)).unwrap() == 42, "arrow propagation failed");
+assert(arrow(Err("arrow")).unwrap_err() == "arrow", "arrow did not return its Err");
+
+func default_success(value = Ok(42)?) {
+    return Ok(value);
+}
+func default_failure(value = Err("default")?) {
+    return Ok(value);
+}
+
+assert(default_success().unwrap() == 42, "default parameter was not unwrapped");
+assert(default_failure().unwrap_err() == "default", "default parameter did not return Err");
+assert(default_failure(42).unwrap() == 42, "unused default was evaluated");
+
+func retain_capture(result) {
+    let local = 42;
+    state.retained = func() { return local; };
+    result?;
+    return Ok(0);
+}
+assert(retain_capture(Err("capture")).is_err(), "capture test did not return Err");
+__gc_collect();
+assert(state.retained() == 42, "propagation invalidated a captured local");
+
+let task = spawn {
+    let value = Err("task")?;
+    return Ok(value);
+};
+assert(task.await.unwrap_err() == "task", "spawn propagation failed");
+
+func interpolation(result) { 
+    return Ok(`answer={result?:.2f}`); 
+}
+assert(interpolation(Ok(42)).unwrap() == "answer=42.00", "interpolation propagation or formatting failed");
+assert(interpolation(Err("interpolation")).unwrap_err() == "interpolation", "interpolation Err was swallowed");
+func interpolated_ternary(flag) { return Ok(`answer={flag ? 42 : 7:.2f}`); }
+assert(interpolated_ternary(true).unwrap() == "answer=42.00", "interpolated ternary format failed");
+
+let directory = "build/test-error-propagation";
+assert(fs.mkdir_all(directory), "could not create I/O fixture");
+fs.write_file(directory + "/config.json", "{\"answer\":42}").await.unwrap();
+func read_config(path) {
+    let text = fs.read_file(path).await?;
+    return Ok(JSON.parse(text)?);
+}
+assert(read_config(directory + "/config.json").unwrap().answer == 42, "await propagation failed");
+assert(read_config(directory + "/missing.json").is_err(), "I/O error was swallowed");
+fs.delete_file(directory + "/config.json").await.unwrap();
+fs.delete_file(directory).await.unwrap();
+
+// Exercise both return paths past the JIT warm-up threshold.
+for (i in range(600)) {
+    assert(arithmetic(Ok(20)).unwrap() == 109, "hot success failed");
+    assert(arithmetic(Err(i)).unwrap_err() == i, "hot Err failed");
+}
+print("error propagation checks passed");

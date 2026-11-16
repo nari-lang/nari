@@ -254,7 +254,17 @@ str += " World";     // "Hello World"
 
 The `+` operator concatenates when either operand is a string, converting the other operand to a string. Use parentheses to group numeric addition within a concatenation.
 
+## Result Propagation (`?`)
+
+`result?` unwraps `Ok(value)` or immediately returns the original `Err` from
+its enclosing function. It is a postfix operator and must touch its operand.
+See [Error Handling](10-error-handling.md#error-propagation-with-) for usage
+and restrictions.
+
 ## Ternary Operator
+
+Write a space before the ternary `?`: `condition ? yes : no`. An attached
+`?` is Result propagation.
 
 Conditional expression: `condition ? valueIfTrue : valueIfFalse`
 
@@ -362,7 +372,7 @@ print(-8 >> 1);   // -4 - shift right keeps the sign
 From highest to lowest:
 
 1. Member access: `.` `[]`
-2. Function call: `()`
+2. Function call and postfix Result propagation: `()` `?`
 3. Unary: `!` `-` `+` `++` `--`
 4. Exponentiation: `**`
 5. Multiplicative: `*` `/` `%`

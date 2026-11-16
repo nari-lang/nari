@@ -105,6 +105,40 @@ print(total([1, 2, 3]));   // 6
 
 See [Array Methods](14-array-methods.md) for operations.
 
+### Byte Arrays
+
+A packed, mutable array of bytes (integers `0`–`255`), created with the
+`bytes()` constructor. There is no literal syntax.
+
+```nari
+let empty = bytes();            // empty
+let zeros = bytes(3);           // [0, 0, 0] as bytes
+let hi = bytes([104, 105]);     // from an array of ints
+let text = bytes("hi");         // a string's raw bytes; same value as above
+let copy = bytes(hi);           // an independent copy
+```
+
+Indexing reads and writes single bytes as ints. Writes are checked: a value
+outside `0`–`255`, or an index outside the current length, is an error. 
+Use `push` to grow, out-of-range reads give `null`.
+
+```nari
+let b = bytes([1, 2, 3]);
+print(b[0]);        // 1
+b[0] = 255;
+b.push(4);
+print(b.length);    // 4 (b.length or b.length())
+print(b);           // bytes([255, 2, 3, 4])
+```
+
+Bytes support `length`, `push`, `pop`, `slice`, `concat`, `reverse`, `fill`,
+`includes`, `index_of`, `to_array`, and `to_string`, plus `bytes + bytes`
+concatenation. Equality and ordering compare contents byte by byte, iteration
+and spread yield ints, and an empty bytes value is falsy like an empty array.
+`to_string()` decodes the bytes back into a string, and JSON renders bytes as
+an array of numbers. `fs.write_file`/`fs.append_file` accept bytes and write
+them raw; `fs.read_file_bytes` reads a file back as bytes.
+
 ### Objects
 
 Key-value maps (also called dictionaries or hash maps):
@@ -200,6 +234,7 @@ print(typeof(3.14));        // "float"
 print(typeof("text"));      // "string"
 print(typeof(true));        // "bool"
 print(typeof([1, 2]));      // "array"
+print(typeof(bytes()));     // "bytes"
 print(typeof({a: 1}));      // "object"
 print(typeof(func(){}));    // "function"
 print(typeof(null));        // "null"
@@ -216,6 +251,7 @@ is_number(value);    // true
 is_string(value);    // false
 is_bool(value);      // false
 is_array(value);     // false
+is_bytes(value);     // false
 is_object(value);    // false
 is_function(value);  // false
 
@@ -270,6 +306,7 @@ Values that evaluate to `false` in boolean context:
 - `0`
 - `""` (empty string)
 - `[]` (empty array)
+- `bytes()` (empty byte array)
 - `{}` (empty object)
 
 All other values are truthy:

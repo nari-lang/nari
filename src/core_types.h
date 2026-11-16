@@ -34,6 +34,7 @@ struct Value;
 template <class T>
 class OwnedArray;
 using Array = OwnedArray<Value>;
+using ByteArray = OwnedArray<uint8_t>;
 
 // Unrecoverable resource exhaustion. Used where the old code threw
 // std::length_error/std::bad_alloc: no caller can productively recover from a
@@ -48,6 +49,7 @@ struct Task;
 struct HeapHeader;
 struct StringObj;
 struct ArrayObj;
+struct BytesObj;
 struct ObjectObj;
 struct FunctionData;
 struct HandleData;
@@ -211,6 +213,7 @@ enum class ValueTag : uint8_t {
     ClassInstance = 9,
     Regex = 10,
     Delegate = 11,
+    Bytes = 12,
 };
 
 enum class JitInlineKind : int32_t {
@@ -299,6 +302,9 @@ struct Value {
     static Value make_array();
     static Value make_array(std::vector<Value> elements);
     static Value make_array(const Value *elements, size_t count);
+    static Value make_bytes();
+    static Value make_bytes(std::vector<uint8_t> elements);
+    static Value make_bytes(const uint8_t *elements, size_t count);
     static Value make_object();
     static Value make_object(ObjectObj *entries);
     static Value make_function(std::string name);
@@ -326,6 +332,7 @@ struct Value {
     bool is_class_instance() const;
     bool is_regex() const;
     bool is_delegate() const;
+    bool is_bytes() const;
     bool is_sso() const;
     uint8_t sso_len() const;
     char sso_char(uint8_t) const;
@@ -341,6 +348,8 @@ struct Value {
     std::string &get_string();
     const Array &get_array() const;
     Array &get_array();
+    const ByteArray &get_bytes() const;
+    ByteArray &get_bytes();
     ObjectObj *get_obj_ptr();
     const ObjectObj *get_obj_ptr() const;
     FunctionData &get_function();
@@ -701,8 +710,6 @@ class OwnedArray {
     }
 };
 
-using ByteArray = OwnedArray<uint8_t>;
-
 static_assert(std::is_standard_layout<Array>::value, "Array layout is part of the JIT ABI");
 static_assert(std::is_standard_layout<ByteArray>::value, "ByteArray layout is part of the JIT ABI");
 
@@ -725,6 +732,13 @@ struct StringObj : HeapHeader, PooledHeapObject<StringObj> {
     // StringObj is by far the most churned heap object (toString / split tokens / concat temps).
     // Every make_string() does one new StringObj and the GC sweep one delete.
     // The PooledHeapObject free-list recycles just the fixed-size header block
+};
+
+struct BytesObj : HeapHeader {
+    ByteArray v;
+    BytesObj() {
+        type_tag = ValueTag::Bytes;
+    }
 };
 
 struct ArrayObj : HeapHeader, PooledHeapObject<ArrayObj> {

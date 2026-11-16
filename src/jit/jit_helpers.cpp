@@ -512,6 +512,9 @@ static NARI_ALWAYS_INLINE bool jit_values_equal(const Value &a, const Value &b) 
         }
         HeapHeader *a_heap = reinterpret_cast<HeapHeader *>(a._raw & Value::PTR_MASK);
         HeapHeader *b_heap = reinterpret_cast<HeapHeader *>(b._raw & Value::PTR_MASK);
+        if (a_heap->type_tag == ValueTag::Bytes || b_heap->type_tag == ValueTag::Bytes) {
+            return Value::values_equal(a, b);
+        }
         if (NARI_LIKELY(a_heap->type_tag == ValueTag::String)) {
             if (NARI_UNLIKELY(b_heap->type_tag != ValueTag::String)) {
                 return false;
@@ -571,6 +574,9 @@ static NARI_ALWAYS_INLINE bool jit_values_strict_equal(const Value &a, const Val
     if (a_tag == Value::TAG_HEAP && b_tag == Value::TAG_HEAP) {
         HeapHeader *a_heap = reinterpret_cast<HeapHeader *>(a._raw & Value::PTR_MASK);
         HeapHeader *b_heap = reinterpret_cast<HeapHeader *>(b._raw & Value::PTR_MASK);
+        if (a_heap->type_tag == ValueTag::Bytes || b_heap->type_tag == ValueTag::Bytes) {
+            return Value::values_strict_equal(a, b);
+        }
         if (a_heap->type_tag != ValueTag::String || b_heap->type_tag != ValueTag::String) {
             return false;
         }
@@ -1328,8 +1334,9 @@ uint64_t jit_string_code_point_at(void *vmp, void *string_obj, int64_t index) {
 
 uint64_t jit_js_length(void *heap_obj) {
     auto *header = static_cast<HeapHeader *>(heap_obj);
-    const size_t size =
-        header->type_tag == ValueTag::Array ? static_cast<ArrayObj *>(heap_obj)->v.size() : static_cast<StringObj *>(heap_obj)->s.size();
+    const size_t size = header->type_tag == ValueTag::Array   ? static_cast<ArrayObj *>(heap_obj)->v.size()
+                        : header->type_tag == ValueTag::Bytes ? static_cast<BytesObj *>(heap_obj)->v.size()
+                                                              : static_cast<StringObj *>(heap_obj)->s.size();
     return Value::make_int(static_cast<int64_t>(size)).raw_bits();
 }
 

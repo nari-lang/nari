@@ -73,9 +73,25 @@ Value ScriptRuntime::builtin_index_of(Value *argvals, size_t argc, const nari::C
         return Value::make_int(-1);
     }
 
+    // bytes.index_of(byte)
+    if (argvals[0].is_bytes()) {
+        if (!argvals[1].is_int()) {
+            return Value::make_int(-1);
+        }
+        const auto &data = argvals[0].get_bytes();
+        for (size_t i = 0; i < data.size(); i++) {
+            if (static_cast<int64_t>(data[i]) == argvals[1].get_int()) {
+                return Value::make_int(static_cast<int64_t>(i));
+            }
+        }
+        return Value::make_int(-1);
+    }
+
     // string.index_of(search)
     if (!argvals[0].is_string()) {
-        return runtime_fatal("TypeError: 'index_of' can only be called on a string or array, got " + value_type_name(argvals[0]), callExpr);
+        return runtime_fatal(
+            "TypeError: 'index_of' can only be called on a string, array, or bytes, got " + value_type_name(argvals[0]), callExpr
+        );
     }
     std::string str = argvals[0].to_string();
     std::string search = argvals[1].to_string();

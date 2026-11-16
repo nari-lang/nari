@@ -197,6 +197,18 @@ class Parser {
         }
     };
 
+    // Explicit functions, methods and spawn blocks provide a return
+    int function_depth = 0;
+    struct FunctionScopeGuard {
+        int &depth;
+        explicit FunctionScopeGuard(int &d) : depth(d) {
+            ++depth;
+        }
+        ~FunctionScopeGuard() {
+            --depth;
+        }
+    };
+
     ExprPtr parse_expression();
     ExprPtr parse_precedence(Precedence min_prec);
     ExprPtr parse_unary();

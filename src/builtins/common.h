@@ -48,6 +48,9 @@ static inline std::string value_type_name(const Value &val) {
     if (val.is_bool()) {
         return "bool";
     }
+    if (val.is_bytes()) {
+        return "bytes";
+    }
     if (val.is_array()) {
         return "array";
     }
